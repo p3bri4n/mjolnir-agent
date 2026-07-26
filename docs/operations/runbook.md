@@ -1,26 +1,26 @@
-# Runbook — commandes de rebuild/redémarrage
+# Runbook — rebuild/restart commands
 
-Consolidé depuis les mentions existantes dans README.md/docs/architecture
-(chantier restructuration, voir docs/briefs/restructuration-et-anglais.md,
-phase 3) — pas de réécriture du contenu, juste un point d'entrée unique
-pour ces commandes plutôt que dispersées.
+Consolidated from mentions already scattered across README.md/docs/architecture
+(restructuring effort, see docs/briefs/restructuration-et-anglais.md,
+phase 3) — no content rewrite, just a single entry point for these
+commands rather than having them scattered around.
 
-- **`docker compose up -d`** : démarrage normal de la stack (voir README,
-  Démarrage rapide).
-- **`docker compose restart langgraph-agent`** : après un changement de
-  schéma d'outils côté mcp-client (`_tools_schema_cache` est rempli une
-  fois pour la durée du process et jamais invalidé — voir
+- **`docker compose up -d`**: normal stack startup (see README, Quick
+  start).
+- **`docker compose restart langgraph-agent`**: after a tool-schema change
+  on the mcp-client side (`_tools_schema_cache` is filled once for the
+  process's lifetime and never invalidated — see
   `campaign_preflight.check_tools_schema`).
-- **`docker compose up -d --force-recreate langgraph-agent`** : après un
-  changement de `.env` touchant une variable lue au niveau module de
-  `app/graph.py` (ex. les flags du cœur cognitif, voir
-  docs/architecture/autonomy.md) — un simple `restart` ne relit pas
-  `.env`, le process ne redémarre pas.
-- **`docker compose up -d --build tabbyapi`** : après un rebuild d'image
-  TabbyAPI, pour que le conteneur qui tourne corresponde à la dernière
-  image construite (`campaign_preflight.check_tabbyapi_image_fresh`
-  refuse une campagne sinon).
-- **`docker compose down` / `up`** : préserve les volumes nommés
-  (`qdrant-data`, `open-webui-data`) — **`docker compose down -v`** les
-  supprime, à ne jamais taper sans le vouloir explicitement (voir
-  docs/architecture/observability.md, Persistance des données).
+- **`docker compose up -d --force-recreate langgraph-agent`**: after a
+  `.env` change affecting a variable read at module level in
+  `app/graph.py` (e.g. the cognitive-core flags, see
+  docs/architecture/autonomy.md) — a plain `restart` does not re-read
+  `.env`, the process doesn't restart.
+- **`docker compose up -d --build tabbyapi`**: after a TabbyAPI image
+  rebuild, so the running container matches the last image built
+  (`campaign_preflight.check_tabbyapi_image_fresh` otherwise refuses a
+  campaign).
+- **`docker compose down` / `up`**: preserves the named volumes
+  (`qdrant-data`, `open-webui-data`) — **`docker compose down -v`**
+  deletes them; never type it without explicitly meaning to (see
+  docs/architecture/observability.md, Data persistence).

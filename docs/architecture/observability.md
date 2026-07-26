@@ -1,104 +1,100 @@
-# Observabilité et persistance des données
+# Observability and data persistence
 
-Contenu déplacé tel quel depuis README.md (chantier restructuration, voir docs/briefs/restructuration-et-anglais.md, phase 3) — pas de réécriture à ce stade.
+Content moved as-is from README.md (restructuring effort, see docs/briefs/restructuration-et-anglais.md, phase 3) — no rewrite at this stage.
 
-Cockpit web local en une page (http://localhost:8090 par défaut,
-`DASHBOARD_PORT`) : métriques d'inférence llama-server (débit decode/prefill
-en tok/s, contexte occupé par slot), composition détaillée du contexte
-construit par langgraph-agent (system prompt, skills, schéma d'outils,
-historique, images — voir `POST /context` plus bas) et VRAM des GPU.
+Local single-page web cockpit (http://localhost:8090 by default,
+`DASHBOARD_PORT`): llama-server inference metrics (decode/prefill
+throughput in tok/s, context occupied per slot), detailed breakdown of the
+context built by langgraph-agent (system prompt, skills, tool schema,
+history, images — see `POST /context` below), and GPU VRAM.
 
-**Architecture** : `GET /api/snapshot` agrège en parallèle, chaque source en
-best-effort (une source en panne renvoie sa section à `null`, jamais une 500
-globale, statut 200 systématique — le dashboard poll ce endpoint toutes les
-2s) : `llama-server` (`/metrics`, format Prometheus parsé par un parser
-minimal maison, `app/prometheus.py` ; `/slots`), `langgraph-agent`
-(`/threads/recent` puis `POST /context` pour le thread résolu) et
-`nvidia-smi` en subprocess (VRAM, `app/gpu.py`). La page (`GET /`, HTML/JS
-vanille, aucune dépendance externe) ne parle jamais directement à
-llama-server/langgraph-agent : seuls Open WebUI et le dashboard ont un port
-publié sur l'hôte, tout le reste n'est joignable que via le réseau interne
-`agent-net` — d'où l'agrégation côté backend du dashboard plutôt que des
-appels depuis le navigateur.
+**Architecture**: `GET /api/snapshot` aggregates in parallel, each source
+best-effort (a down source returns its section as `null`, never a global
+500, systematic 200 status — the dashboard polls this endpoint every 2s):
+`llama-server` (`/metrics`, Prometheus format parsed by a homegrown
+minimal parser, `app/prometheus.py`; `/slots`), `langgraph-agent`
+(`/threads/recent` then `POST /context` for the resolved thread) and
+`nvidia-smi` as a subprocess (VRAM, `app/gpu.py`). The page (`GET /`,
+vanilla HTML/JS, no external dependency) never talks directly to
+llama-server/langgraph-agent: only Open WebUI and the dashboard have a
+port published on the host, everything else is reachable only via the
+internal `agent-net` network — hence the backend-side aggregation in the
+dashboard rather than calls from the browser.
 
-**`POST /context` (langgraph-agent, `app/graph.py:describe_context`)** :
-décompose le contexte persisté d'un thread en blocs approximatifs
-(`system`/`skills`/`tools_schema`/`history_text`/`images`/`pending`), chacun
-avec un compte de tokens estimé (`estimate_tokens`, ~3.5 caractères/token —
-pas un tokenizer exact, volontairement hors périmètre, voir plus bas) et un
-forfait fixe par image (`IMAGE_TOKEN_ESTIMATE`, défaut `1500`, un compte
-exact dépendrait du tokenizer visuel du modèle servi). Le schéma d'outils est
-mesuré depuis le cache déjà rempli par `_get_bound_llm` (jamais recalculé :
-`/context` reste strictement lecture seule, comme `/pending`). Thread inconnu
-du checkpointer -> 200 avec des blocs vides plutôt qu'une 404, pour ne pas
-transformer le polling continu du dashboard en bruit d'erreurs côté client.
+**`POST /context` (langgraph-agent, `app/graph.py:describe_context`)**:
+breaks a thread's persisted context down into approximate blocks
+(`system`/`skills`/`tools_schema`/`history_text`/`images`/`pending`), each
+with an estimated token count (`estimate_tokens`, ~3.5 characters/token —
+not an exact tokenizer, deliberately out of scope, see below) and a fixed
+per-image allowance (`IMAGE_TOKEN_ESTIMATE`, default `1500`, an exact
+count would depend on the served model's visual tokenizer). The tool
+schema is measured from the cache already filled by `_get_bound_llm`
+(never recomputed: `/context` stays strictly read-only, like `/pending`).
+Thread unknown to the checkpointer -> 200 with empty blocks rather than a
+404, so as not to turn the dashboard's continuous polling into
+client-side error noise.
 
-**`GET /tools/schema` (langgraph-agent)** : noms d'outils tels
-qu'EFFECTIVEMENT vus par ce process (`_tools_schema_cache`), pas ceux servis
-par mcp-client au moment de l'appel — la distinction a mordu en conditions
-réelles (voir docs/history.md, "bug de cache de schéma d'outils") : ce cache est
-rempli une fois pour la durée du process et jamais invalidé, donc un
-redémarrage de mcp-client seul peut laisser langgraph-agent répondre un
-schéma périmé. Lecture seule, comme `/pending`/`/context`. Consommé par le
-préambule de campagne du harnais de tâches web
-(`tests_integration/campaign_preflight.py`, voir
-`docs/briefs/phase-1-coeur-cognitif.md`) pour refuser une campagne AVANT son
-premier run si ce schéma est désynchronisé de celui de mcp-client.
+**`GET /tools/schema` (langgraph-agent)**: tool names as ACTUALLY seen by
+this process (`_tools_schema_cache`), not those served by mcp-client at
+call time — the distinction has bitten in real conditions (see
+docs/history.md, "tool-schema cache bug"): this cache is filled once for
+the process's lifetime and never invalidated, so restarting mcp-client
+alone can leave langgraph-agent answering with a stale schema. Read-only,
+like `/pending`/`/context`. Consumed by the web-task harness's campaign
+preamble (`tests_integration/campaign_preflight.py`, see
+`docs/briefs/phase-1-coeur-cognitif.md`) to refuse a campaign BEFORE its
+first run if this schema is out of sync with mcp-client's.
 
-**Sélection de thread (`GET /threads/recent`)** : langgraph-agent n'a jamais
-d'identifiant de conversation stable côté Open WebUI (voir plus bas,
-`_derive_thread_id`) ; un registre en mémoire process, jamais persisté
-(cohérent avec le checkpointer `MemorySaver` lui-même en mémoire), retient
-les 5 threads vus le plus récemment (alimenté par `/v1/chat/completions` et
-`/approve`, jamais par les endpoints purement lecture seule `/pending` ou
-`/context` eux-mêmes). La page sélectionne le plus récent par défaut, avec un
-menu déroulant pour en choisir un autre.
+**Thread selection (`GET /threads/recent`)**: langgraph-agent never has a
+stable conversation identifier on the Open WebUI side (see below,
+`_derive_thread_id`); an in-process, never-persisted registry (consistent
+with the `MemorySaver` checkpointer itself being in-memory) keeps the 5
+most recently seen threads (fed by `/v1/chat/completions` and `/approve`,
+never by the purely read-only `/pending` or `/context` endpoints
+themselves). The page selects the most recent one by default, with a
+dropdown to pick another.
 
-**VRAM (`ENABLE_GPU_STATS`, défaut `false`)** : `nvidia-smi --query-gpu=...
---format=csv,noheader,nounits` en subprocess, désactivé par défaut — nécessite
-le runtime nvidia (bloc `deploy` commenté dans `docker-compose.yml`, à
-décommenter avec cette variable) pour que le binaire `nvidia-smi` soit
-présent dans le conteneur `python:3.12-slim` du dashboard, qui n'a sinon
-aucun besoin d'accès GPU.
+**VRAM (`ENABLE_GPU_STATS`, default `false`)**: `nvidia-smi
+--query-gpu=... --format=csv,noheader,nounits` as a subprocess, disabled
+by default — requires the nvidia runtime (`deploy` block commented out in
+`docker-compose.yml`, to be uncommented along with this variable) for the
+`nvidia-smi` binary to be present in the dashboard's `python:3.12-slim`
+container, which otherwise has no need for GPU access at all.
 
-Hors périmètre explicite (voir demande initiale) : Prometheus/Grafana,
-Langfuse, persistance des métriques (tout est en mémoire, perdu au
-redémarrage), alerting, auth (réseau local), WebSocket/SSE (le polling 2s
-suffit), télémétrie de tâches (taux de succès), tokenizer exact.
+Explicitly out of scope (see the original request): Prometheus/Grafana,
+Langfuse, metrics persistence (everything is in memory, lost on restart),
+alerting, auth (local network), WebSocket/SSE (2s polling is enough),
+task telemetry (success rate), exact tokenizer.
 
 
-## Persistance des données
+## Data persistence
 
-Deux volumes Docker nommés persistent à travers les redémarrages et les
-`docker compose down` / `up` (mais pas `docker compose down -v`, qui les
-supprime) :
+Two named Docker volumes persist across restarts and `docker compose down`
+/ `up` (but not `docker compose down -v`, which deletes them):
 
-- **`qdrant-data`** : contenu des collections `documents` et `memory` de
-  `context-manager` (RAG et mémoire long-terme).
-- **`open-webui-data`** (`/app/backend/data`) : conversations, comptes
-  utilisateurs, fichiers uploadés et paramètres d'Open WebUI (base SQLite
-  interne à l'image).
+- **`qdrant-data`**: contents of `context-manager`'s `documents` and
+  `memory` collections (RAG and long-term memory).
+- **`open-webui-data`** (`/app/backend/data`): conversations, user
+  accounts, uploaded files and Open WebUI settings (SQLite database
+  internal to the image).
 
-Trois répertoires montés en bind mount persistent nativement, puisqu'ils
-vivent directement sur le système de fichiers de l'hôte, indépendamment du
-cycle de vie des conteneurs : `./workspace`, `./skills`, `./models`.
+Three bind-mounted directories persist natively, since they live directly
+on the host's filesystem, independent of the containers' lifecycle:
+`./workspace`, `./skills`, `./models`.
 
-**Point de vigilance corrigé** : `WEBUI_SECRET_KEY` n'était fixé nulle part.
-Sans cette clé fixe, Open WebUI en génère une nouvelle à chaque recréation de
-conteneur, ce qui invalide toutes les sessions de connexion (et empêche de
-déchiffrer d'éventuels secrets stockés, comme des jetons OAuth) même si les
-données elles-mêmes restent intactes dans le volume. Corrigé : la clé se
-configure maintenant via `.env` (voir `.env.example`), à générer une seule
-fois avec `openssl rand -hex 32`.
+**Fixed point of attention**: `WEBUI_SECRET_KEY` used to be set nowhere.
+Without this fixed key, Open WebUI generates a new one on every container
+recreation, which invalidates all login sessions (and prevents decrypting
+any stored secrets, such as OAuth tokens) even though the data itself
+remains intact in the volume. Fixed: the key is now configured via `.env`
+(see `.env.example`), to be generated once with `openssl rand -hex 32`.
 
-Les autres services (`skill-manager`, `mcp-client`, `mcp-terminal`) sont sans
-état. `langgraph-agent` reste conceptuellement sans état lui non plus : c'est
-Open WebUI qui renvoie l'historique complet de la conversation à chaque
-requête `/v1/chat/completions`, pas `langgraph-agent` qui le conserve de façon
-persistante. Il compile toutefois désormais son graphe avec un checkpointer
-(`MemorySaver`, **en mémoire seulement**), nécessaire pour la supervision
-humaine des appels d'outils (voir section suivante) : un redémarrage du
-service perd toute approbation en attente, ce qui relance simplement une
-conversation "fraîche" pour le thread concerné — aucune donnée n'est donc
-réellement perdue au sens propre.
-
+The other services (`skill-manager`, `mcp-client`, `mcp-terminal`) are
+stateless. `langgraph-agent` also remains conceptually stateless: it's
+Open WebUI that resends the full conversation history on every
+`/v1/chat/completions` request, not `langgraph-agent` persistently
+keeping it. It does, however, now compile its graph with a checkpointer
+(`MemorySaver`, **in-memory only**), needed for human supervision of tool
+calls (see the next section): a service restart loses any pending
+approval, which simply restarts a "fresh" conversation for the thread in
+question — so no data is ever truly lost in the strict sense.

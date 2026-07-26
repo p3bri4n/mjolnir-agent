@@ -1,70 +1,68 @@
-# Backend d'inférence
+# Inference backend
 
-Contenu déplacé tel quel depuis README.md (chantier restructuration, voir docs/briefs/restructuration-et-anglais.md, phase 3) — pas de réécriture à ce stade.
+Content moved as-is from README.md (restructuring effort, see docs/briefs/restructuration-et-anglais.md, phase 3) — no rewrite at this stage.
 
-Le backend par défaut est **TabbyAPI** (image officielle
+The default backend is **TabbyAPI** (official image
 [`ghcr.io/theroyallab/tabbyapi`](https://github.com/theroyallab/tabbyAPI),
-backend ExLlamaV3), servant **Qwen3.6-27B en quantisation EXL3** (variante
-VL, vision préservée pour GhostDesk/OCR — voir Images et thinking adaptatif
-et OCR d'appoint plus bas), avec **MTP natif** (`draft_mode: mtp` dans
-`services/tabbyapi/config.yml`, tête de prédiction multi-token du modèle
-lui-même, pas de modèle de draft séparé à charger).
+ExLlamaV3 backend), serving **Qwen3.6-27B in EXL3 quantization** (VL
+variant, vision preserved for GhostDesk/OCR — see Images and adaptive
+thinking and Supplementary OCR below), with **native MTP** (`draft_mode:
+mtp` in `services/tabbyapi/config.yml`, the model's own multi-token
+prediction head, no separate draft model to load).
 
-Config `services/tabbyapi/config.yml` (montée en lecture seule) : champs clés
-`model_dir`/`model_name` (répertoire HuggingFace-style du quant EXL3 sous
-`./models`, **pas** un `.gguf` — voir plus bas), `backend: exllamav3`,
-`cache_mode`/`cache_size`/`max_seq_len` (à affiner selon la VRAM disponible
-cumulée sur les deux GPU), `draft_model.draft_mode: mtp`, `tool_format`, et
-trois déviations volontaires par rapport aux défauts TabbyAPI :
-`disable_auth: true` (réseau interne `agent-net` uniquement, même modèle de
-confiance que `llama-server`/Ollama), `vision: true` (désactivé par défaut
-même si le modèle a des capacités vision) et
-`reasoning: true` (désactivé par défaut chez TabbyAPI, requis pour parser
-les blocs `<think>` de Qwen).
+Config `services/tabbyapi/config.yml` (mounted read-only): key fields
+`model_dir`/`model_name` (HuggingFace-style directory of the EXL3 quant
+under `./models`, **not** a `.gguf` — see below), `backend: exllamav3`,
+`cache_mode`/`cache_size`/`max_seq_len` (to be tuned against the combined
+VRAM available across the two GPUs), `draft_model.draft_mode: mtp`,
+`tool_format`, and three deliberate deviations from TabbyAPI's defaults:
+`disable_auth: true` (internal `agent-net` network only, same trust model
+as `llama-server`/Ollama), `vision: true` (disabled by default even when
+the model has vision capabilities) and `reasoning: true` (disabled by
+default in TabbyAPI, required to parse Qwen's `<think>` blocks).
 
-Modèle cible : fichiers HuggingFace-style (safetensors + `config.json` +
-tokenizer) attendus sous `./models/agent-llm/` (ou `MODELS_HOST_PATH`) —
-**jamais téléchargés automatiquement**, comme pour `llama-server`. Le nom
-`agent-llm` (plutôt que le nom réel du dépôt HuggingFace téléchargé) est
-requis pour matcher le `model="agent-llm"` en dur dans `ChatOpenAI`
-(`services/langgraph-agent/app/graph.py`) sans toucher au code — même
-convention que l'aliasing Ollama plus bas (`scripts/rebuild-agent-llm.sh`).
+Target model: HuggingFace-style files (safetensors + `config.json` +
+tokenizer) expected under `./models/agent-llm/` (or `MODELS_HOST_PATH`) —
+**never downloaded automatically**, just like `llama-server`. The name
+`agent-llm` (rather than the actual name of the downloaded HuggingFace
+repo) is required to match the hardcoded `model="agent-llm"` in
+`ChatOpenAI` (`services/langgraph-agent/app/graph.py`) without touching
+the code — same convention as the Ollama aliasing below
+(`scripts/rebuild-agent-llm.sh`).
 
 
-## Images et thinking adaptatif (`services/langgraph-agent/app/graph.py`)
+## Images and adaptive thinking (`services/langgraph-agent/app/graph.py`)
 
-**Conversion d'images** (`IMAGE_FORMAT_PASSTHROUGH`, variable d'env, défaut
-absent = conversion PNG) : `_to_png_data_uri` reste le chemin par défaut —
-chaque résultat image d'outil (`screen_shot` GhostDesk, WebP natif) est
-systématiquement reconverti en PNG avant transmission au LLM. C'est le
-défaut pour le backend TabbyAPI (ExLlamaV3 n'est pas connu pour décoder le
-WebP nativement — à vérifier empiriquement, voir Backend d'inférence
-plus haut) comme pour Ollama (décodeur mtmd, échec explicite sur le WebP).
+**Image conversion** (`IMAGE_FORMAT_PASSTHROUGH`, env var, default absent
+= PNG conversion): `_to_png_data_uri` remains the default path — every
+tool image result (`screen_shot` from GhostDesk, native WebP) is
+systematically re-encoded to PNG before being sent to the LLM. This is
+the default for the TabbyAPI backend (ExLlamaV3 is not known to decode
+WebP natively — to be verified empirically, see Inference backend above)
+as it is for Ollama (mtmd decoder, explicit failure on WebP).
 
-**Rétention d'images** (`MAX_IMAGES_IN_CONTEXT`, variable d'env, défaut `1`) :
-seules les `MAX_IMAGES_IN_CONTEXT` dernières captures d'écran restent en
-blocs `image_url` multimodaux dans l'historique soumis au LLM à chaque
-appel ; les précédentes sont remplacées par le texte indicatif
-`[screenshot antérieure supprimée]` (`_apply_image_retention`). **Ne touche
-jamais au checkpointer** : ce filtrage ne s'applique qu'à la liste de
-messages construite juste avant `bound_llm.astream()`, jamais à
-`state["messages"]` lui-même — l'historique complet, avec toutes les images
-d'origine, reste intact et rejouable (ex. si `MAX_IMAGES_IN_CONTEXT` change
-d'une conversation à l'autre). Motivation : une boucle capture/clic
-GhostDesk répétée peut accumuler de nombreuses captures dans l'historique,
-chacune coûteuse en tokens visuels, pour un intérêt quasi nul au-delà de la
-plus récente (seule reflète l'état actuel de l'écran).
+**Image retention** (`MAX_IMAGES_IN_CONTEXT`, env var, default `1`): only
+the last `MAX_IMAGES_IN_CONTEXT` screenshots stay as multimodal
+`image_url` blocks in the history submitted to the LLM on each call;
+earlier ones are replaced by the placeholder text
+`[screenshot antérieure supprimée]` (`_apply_image_retention`). **Never
+touches the checkpointer**: this filtering only applies to the message
+list built right before `bound_llm.astream()`, never to
+`state["messages"]` itself — the full history, with all original images,
+stays intact and replayable (e.g. if `MAX_IMAGES_IN_CONTEXT` changes from
+one conversation to another). Motivation: a repeated GhostDesk
+capture/click loop can accumulate many captures in the history, each
+costly in visual tokens, for near-zero value beyond the most recent one
+(the only one reflecting the screen's current state).
 
-**Thinking adaptatif** (`ADAPTIVE_THINKING`, variable d'env, défaut `false`) :
-Qwen3.6 raisonne par défaut sur chaque tour (balises de pensée étendue),
-coûteux en latence pour une boucle perception-action rapide où chaque tour
-n'a qu'à décider "où cliquer ensuite". Si activé, `_apply_adaptive_thinking`
-ajoute un system prompt transitoire `/no_think` (lui aussi jamais persisté
-dans l'état du graphe, même principe que la rétention d'images ci-dessus)
-quand **tous** les tool_calls du tour précédent étaient auto-approuvés
-(même politique par tiers que `has_tool_calls`, grants de session inclus —
-voir `approval_policy.py`). Pas d'injection sur le tout premier tour d'une
-tâche (aucun tool_calls précédent à évaluer) ni dès qu'un outil sensible
-était en jeu dans ce tour précédent : le raisonnement complet y garde toute
-sa valeur.
-
+**Adaptive thinking** (`ADAPTIVE_THINKING`, env var, default `false`):
+Qwen3.6 reasons by default on every turn (extended thinking tags), costly
+in latency for a fast perception-action loop where each turn only has to
+decide "where to click next". If enabled, `_apply_adaptive_thinking` adds
+a transient `/no_think` system prompt (also never persisted in the
+graph's state, same principle as the image retention above) when **all**
+tool_calls of the previous turn were auto-approved (same per-tier policy
+as `has_tool_calls`, session grants included — see `approval_policy.py`).
+No injection on a task's very first turn (no previous tool_calls to
+evaluate) nor as soon as a sensitive tool was involved in that previous
+turn: full reasoning keeps its full value there.
