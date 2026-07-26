@@ -41,22 +41,8 @@ Avant tout changement du graphe, construire `tests_integration/test_web_tasks.py
 
 ## Phase 1 — Boucle plan → agir → vérifier → replanifier
 
-**1ère tranche livrée** (voir HISTORY.md, "garde-fou fabrication d'URL +
-tronquage snapshots") : `browser_navigate` refuse toute URL non observée
-(racines du périmètre de la tâche + navigations/liens déjà vus),
-`BROWSER_TOOL_OUTPUT_MAX_CHARS` borne la taille des résultats `browser_*`.
-Vérifié contre la Campagne A (budget 20) : score global 16/33 → 24/33, mais
-AUCUN des 5 critères de réussite fixés au checkpoint n'est intégralement
-atteint — le garde-fou bloque l'exécution d'une URL fabriquée mais ne
-dissuade pas le modèle de continuer à en inventer d'autres (voir rapport
-détaillé, `tests_integration/TASKS-BASELINE-post-phase1.md`). Piste
-retenue pour la suite : la vérification post-action systématique
-ci-dessous (point 4) pourrait mieux capter ce pattern qu'un blocage
-d'exécution seul — à trancher au prochain checkpoint plutôt qu'assumé.
-
-**Campagne A finale (isolation + browser_extract)** : 30/33, voir
-HISTORY.md "Phase 1d-révisée — campagne A finale". La couche
-perception/outillage est désormais saine et mesurée.
+État d'avancement (scores de campagne, checkpoints passés) : voir
+`docs/project-status.md`, pas ici — ce fichier reste la feuille de route.
 
 **Suite de la Phase 1 ("cœur cognitif")** : les points 1 à 7 ci-dessous sont
 détaillés et séquencés itération par itération (une itération = un
