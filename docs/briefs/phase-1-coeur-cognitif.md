@@ -118,7 +118,7 @@ Dans l'ordre du pipeline, gratuit → coûteux :
 
 Le point 1 (campagne finale) et le détail des sondes de préparation
 (ancrage `verify_action` puis planificateur/juge, régression T7 et son
-double correctif) sont consignés dans `HISTORY.md`, "Phase 1 « cœur
+double correctif) sont consignés dans `docs/history.md`, "Phase 1 « cœur
 cognitif » — Itération 4". Résumé README (tableau des campagnes, leçons) :
 voir la section "Autonomie" de `README.md`.
 

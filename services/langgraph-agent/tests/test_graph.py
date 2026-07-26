@@ -445,7 +445,7 @@ async def test_tool_schema_from_mcp_client_is_bound_to_llm(mock_side_services):
 
 
 def test_bulk_check_directive_mentions_browser_extract_urls():
-    """Investigation T1 (voir HISTORY.md) : le vrai blocage était un budget
+    """Investigation T1 (voir docs/history.md) : le vrai blocage était un budget
     d'itérations insuffisant face à une info visible uniquement sur les
     pages de détail, jamais le listing — la consigne pousse vers le mode
     bulk de browser_extract (paramètre urls, mcp-client, TIER_READ) plutôt
@@ -477,7 +477,7 @@ async def test_call_llm_system_message_includes_bulk_check_directive(mock_side_s
 
 @pytest.mark.asyncio
 async def test_tool_schema_augmented_with_constat_when_verification_enabled(mock_side_services, monkeypatch):
-    """Correctif latence 1/2-ter (voir HISTORY.md) : quand VERIFICATION_ENABLED
+    """Correctif latence 1/2-ter (voir docs/history.md) : quand VERIFICATION_ENABLED
     est actif, chaque outil MCP réel reçoit constat_precedent en paramètre
     requis (_inject_constat_param), et report_and_act est ajouté comme seul
     outil de repli (tour sans action réelle)."""

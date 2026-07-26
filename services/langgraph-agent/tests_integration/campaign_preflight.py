@@ -7,7 +7,7 @@ propre (reset de session navigateur, purge du volume downloads). Un
 manquement lève PreflightError AVANT le premier run de la campagne — jamais
 un run qui démarre puis échoue pour une raison d'infra déjà détectable.
 
-Raison d'être (leçon du "bug de cache de schéma d'outils", voir HISTORY.md,
+Raison d'être (leçon du "bug de cache de schéma d'outils", voir docs/history.md,
 Phase 1d-révisée) : `_tools_schema_cache` (app/graph.py) est rempli une
 seule fois pour la durée du process langgraph-agent et n'est JAMAIS
 invalidé. Un redémarrage de mcp-client seul (nouvel outil ajouté/schéma mis
@@ -42,7 +42,7 @@ MCP_CLIENT_CONTAINER = "mcp-client"
 TABBYAPI_CONTAINER = "tabbyapi"
 TABBYAPI_IMAGE_TAG = "agentic-ai-playground-tabbyapi"
 
-# Readiness LLM (outillage de campagne, voir HISTORY.md) : trouvé en
+# Readiness LLM (outillage de campagne, voir docs/history.md) : trouvé en
 # conditions réelles — un `docker compose up --build langgraph-agent` a
 # aussi recréé tabbyapi (dérive de config détectée) ; la campagne a démarré
 # ~20s après "Model successfully loaded" mais AVANT que le serveur HTTP
@@ -235,7 +235,7 @@ def _fetch_tabbyapi_image_ids() -> tuple:
 def check_tabbyapi_image_fresh(fetch_image_ids: Callable[[], tuple] = _fetch_tabbyapi_image_ids) -> Optional[str]:
     """
     Vérification du digest d'image (arbitrage post-1/2-ter, voir
-    HISTORY.md, action 1) : détecte un conteneur tabbyapi qui tournerait
+    docs/history.md, action 1) : détecte un conteneur tabbyapi qui tournerait
     sur une image DIFFÉRENTE de la dernière construite localement pour ce
     tag — ex. `docker compose build` exécuté sans le `up -d` qui applique
     le changement, ou un rollback d'image manuel oublié. Un tel écart
@@ -312,7 +312,7 @@ def run_preflight(
     Ordre : readiness LLM D'ABORD (le moins cher à constater EN ERREUR —
     inutile de comparer des schémas d'outils si le backend ne répond même
     pas), puis fraîcheur d'image tabbyapi (arbitrage post-1/2-ter, voir
-    HISTORY.md), puis flags d'env effectifs (docs/briefs/
+    docs/history.md), puis flags d'env effectifs (docs/briefs/
     flags-du-coeur-cognitif.md — inutile de mesurer une campagne contre une
     config qu'on n'a pas vraiment), puis schéma d'outils, puis purge/reset.
     """

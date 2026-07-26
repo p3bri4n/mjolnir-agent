@@ -24,7 +24,7 @@ def test_ocr_tools_are_tier_read():
 
 
 def test_browser_extract_is_tier_read():
-    """Phase 1d-révisée (voir HISTORY.md "correctif extraction") :
+    """Phase 1d-révisée (voir docs/history.md "correctif extraction") :
     browser_extract est une lecture pure malgré son implémentation interne
     via browser_evaluate (mcp-client, template JS fixe) — le modèle ne
     fournit qu'un texte à chercher, jamais de code. browser_evaluate/

@@ -1,6 +1,6 @@
 # smoke-conscience-temporelle — suite de tâches web (Phase 0)
 
-Générée automatiquement le 2026-07-24T14:46:22.787515+00:00 (3 répétitions/tâche). Voir BENCHMARK0.md pour la spec complète et les limites connues de chaque assertion, et la docstring de test_web_tasks.py pour la méthode de sous-classification boucle_fabrication/boucle_budget.
+Générée automatiquement le 2026-07-24T14:46:22.787515+00:00 (3 répétitions/tâche). Voir docs/benchmark-v1.md pour la spec complète et les limites connues de chaque assertion, et la docstring de test_web_tasks.py pour la méthode de sous-classification boucle_fabrication/boucle_budget.
 **Score de campagne : 2/3 passages réussis.**
 **Couverture des constats : 66.7% (4/6).**
 **Prefill total (toutes tâches) : 57.9s** (5/15 requêtes à cache=0, 33.3% — métrique informative).

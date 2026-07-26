@@ -1,6 +1,6 @@
 # smoke-fix-premier-hop — suite de tâches web (Phase 0)
 
-Générée automatiquement le 2026-07-24T13:37:15.588629+00:00 (3 répétitions/tâche). Voir BENCHMARK0.md pour la spec complète et les limites connues de chaque assertion, et la docstring de test_web_tasks.py pour la méthode de sous-classification boucle_fabrication/boucle_budget.
+Générée automatiquement le 2026-07-24T13:37:15.588629+00:00 (3 répétitions/tâche). Voir docs/benchmark-v1.md pour la spec complète et les limites connues de chaque assertion, et la docstring de test_web_tasks.py pour la méthode de sous-classification boucle_fabrication/boucle_budget.
 **Score de campagne : 4/9 passages réussis.**
 **Couverture des constats : 92.7% (38/41).**
 **Prefill total (toutes tâches) : 292.5s** (17/106 requêtes à cache=0, 16.0% — métrique informative).

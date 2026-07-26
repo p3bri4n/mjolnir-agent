@@ -20,7 +20,7 @@ demanderait), sans indice de méthode — c'est à l'agent de trouver le chemin.
   référence, celle-ci n'apparaissant jamais dans la liste) dépassait très
   largement `MAX_TOOL_ITERATIONS`, ce qui aurait mesuré une mauvaise
   calibration du fixture plutôt que la capacité de navigation de l'agent
-  (voir HISTORY.md).
+  (voir docs/history.md).
 - `docs/` : site de documentation ~30 pages, navigation par sommaire +
   champ de recherche JS, pages de config avec tableaux de paramètres.
 - `hr-app/` : mini-app Flask — login (credentials fournis dans la tâche),

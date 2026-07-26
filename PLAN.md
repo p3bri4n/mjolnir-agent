@@ -25,10 +25,10 @@ Avant tout changement du graphe, construire `tests_integration/test_web_tasks.py
    books.toscrape.com), + T11 (sonde de péremption, voir amendement
    « conscience temporelle » ci-dessous). Spec complète, prompts exacts et
    critères d'assertion :
-   `services/langgraph-agent/tests_integration/BENCHMARK0.md`.
+   `services/langgraph-agent/docs/benchmark-v1.md`.
 2. **Critère de succès PROGRAMMATIQUE par tâche** (assertion sur le résultat :
    valeur extraite exacte, état final du formulaire, fichier présent) — jamais
-   « la réponse a l'air bien ». Détail par tâche dans `BENCHMARK0.md`.
+   « la réponse a l'air bien ». Détail par tâche dans `docs/benchmark-v1.md`.
 3. **Métriques par run** (les 11 tâches) : taux de tâches réussies /11, nombre
    d'étapes par tâche, tokens consommés, interventions d'approbation
    requises, durée, cause d'échec classée (navigation / extraction /
@@ -173,13 +173,13 @@ politique de tiers web, limites connues et assumées). 🧑 **Checkpoint final.*
 
 ## Chantier d'architecture différé : dossier Mjolnir (second modèle)
 
-Consigné post-checkpoint « correctif latence 2/2 » (voir HISTORY.md) :
+Consigné post-checkpoint « correctif latence 2/2 » (voir docs/history.md) :
 l'isolation du cache/contexte des appels auxiliaires (`planner_llm` —
 plan_task/revise_plan/replan_task/_judge_plan) vis-à-vis de la boucle
 principale a été diagnostiquée comme cause probable d'une partie du
 cache=0 résiduel côté TabbyAPI (alternance de forme de requête évinçant
 le cache de préfixe partagé) — non résolue par une simple augmentation de
-`cache_size` (voir HISTORY.md, chasse au cache=0). Rejoint le dossier
+`cache_size` (voir docs/history.md, chasse au cache=0). Rejoint le dossier
 Mjolnir, où un second modèle a déjà un rôle prévu (critique/compaction) :
 **trois usages candidats pour une décision d'architecture unique**
 (critique, compaction, isolation planner/cache), à instruire avec les

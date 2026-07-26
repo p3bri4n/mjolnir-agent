@@ -36,7 +36,7 @@ transformer le polling continu du dashboard en bruit d'erreurs côté client.
 **`GET /tools/schema` (langgraph-agent)** : noms d'outils tels
 qu'EFFECTIVEMENT vus par ce process (`_tools_schema_cache`), pas ceux servis
 par mcp-client au moment de l'appel — la distinction a mordu en conditions
-réelles (voir HISTORY.md, "bug de cache de schéma d'outils") : ce cache est
+réelles (voir docs/history.md, "bug de cache de schéma d'outils") : ce cache est
 rempli une fois pour la durée du process et jamais invalidé, donc un
 redémarrage de mcp-client seul peut laisser langgraph-agent répondre un
 schéma périmé. Lecture seule, comme `/pending`/`/context`. Consommé par le

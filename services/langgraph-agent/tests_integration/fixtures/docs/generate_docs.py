@@ -1,5 +1,5 @@
 """
-Générateur du fixture "docs" (Benchmark 0, T4 — voir BENCHMARK0.md). ~30 pages
+Générateur du fixture "docs" (Benchmark 0, T4 — voir docs/benchmark-v1.md). ~30 pages
 de documentation, sommaire de navigation, recherche JS côté client (index
 JSON statique + filtrage), et une piste à 2 sauts pour `max_retry_delay` :
 la recherche mène à une page "index des paramètres réseau" qui renvoie elle-

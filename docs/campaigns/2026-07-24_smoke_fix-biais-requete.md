@@ -1,6 +1,6 @@
 # smoke-fix-biais-requete — suite de tâches web (Phase 0)
 
-Générée automatiquement le 2026-07-24T15:00:34.649686+00:00 (3 répétitions/tâche). Voir BENCHMARK0.md pour la spec complète et les limites connues de chaque assertion, et la docstring de test_web_tasks.py pour la méthode de sous-classification boucle_fabrication/boucle_budget.
+Générée automatiquement le 2026-07-24T15:00:34.649686+00:00 (3 répétitions/tâche). Voir docs/benchmark-v1.md pour la spec complète et les limites connues de chaque assertion, et la docstring de test_web_tasks.py pour la méthode de sous-classification boucle_fabrication/boucle_budget.
 **Score de campagne : 3/3 passages réussis.**
 **Couverture des constats : 72.7% (8/11).**
 **Prefill total (toutes tâches) : 67.1s** (6/21 requêtes à cache=0, 28.6% — métrique informative).

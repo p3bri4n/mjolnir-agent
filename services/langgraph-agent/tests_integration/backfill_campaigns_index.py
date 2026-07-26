@@ -1,5 +1,5 @@
 """
-Backfill BORNÉ (constat de l'inventaire de persistance, voir HISTORY.md
+Backfill BORNÉ (constat de l'inventaire de persistance, voir docs/history.md
 "INVENTAIRE DE PERSISTANCE" puis "PERSISTANCE DES CAMPAGNES") : reconstruit
 un index best-effort campagne -> fenêtre temporelle depuis les artefacts
 DÉJÀ existants (rapports Markdown, fichiers .DONE), pour les campagnes
@@ -20,10 +20,11 @@ Reconstruction :
     pauses d'approbation manuelle, les purges/reset entre runs, etc.),
     signalé explicitement via "window_precision": "approximate".
 
-Usage : python3 backfill_campaigns_index.py (depuis ce répertoire, ou
-n'importe où — chemins relatifs à ce fichier). Écrit campaigns-index.json
-à côté. Best-effort : un rapport illisible/sans date est inclus avec
-window=null plutôt que de faire échouer tout le backfill.
+Usage : python3 backfill_campaigns_index.py (depuis n'importe où — chemins
+relatifs à ce fichier, pas au répertoire courant). Écrit
+docs/campaigns/campaigns-index.json. Best-effort : un rapport
+illisible/sans date est inclus avec window=null plutôt que de faire
+échouer tout le backfill.
 """
 
 import json
@@ -31,8 +32,12 @@ import re
 from datetime import datetime, timedelta
 from pathlib import Path
 
-HERE = Path(__file__).parent
-OUTPUT_PATH = HERE / "campaigns-index.json"
+# Phase 2 (restructuration+anglais) : les rapports ont déménagé sous
+# docs/campaigns/ (convention AAAA-MM-JJ_type_label.md/.DONE), l'index les
+# accompagne au même endroit plutôt que de rester isolé dans
+# tests_integration/, loin de ce qu'il indexe.
+CAMPAIGNS_DIR = Path(__file__).parents[3] / "docs" / "campaigns"
+OUTPUT_PATH = CAMPAIGNS_DIR / "campaigns-index.json"
 
 _GENERATED_RE = re.compile(r"Générée automatiquement le ([0-9T:.+Z-]+)")
 _DONE_END_RE = re.compile(r"Campagne terminée\s*:\s*([0-9T:Z-]+)")
@@ -96,7 +101,7 @@ def _parse_report(path: Path) -> dict:
 
 
 def build_index() -> dict:
-    reports = sorted(HERE.glob("TASKS-*.md"))
+    reports = sorted(CAMPAIGNS_DIR.glob("*.md"))
     entries = {}
     for report_path in reports:
         try:
@@ -107,7 +112,7 @@ def build_index() -> dict:
         "_note": (
             "Index BEST-EFFORT reconstruit après coup (backfill_campaigns_index.py) "
             "pour les campagnes antérieures à campaign_persistence.py — ne contient "
-            "PAS les métriques perdues (voir HISTORY.md, constat), seulement une "
+            "PAS les métriques perdues (voir docs/history.md, constat), seulement une "
             "fenêtre temporelle approximative pour naviguer /workspace/.audit "
             "rétroactivement. Les campagnes postérieures à ce chantier ont leur "
             "propre campaign-<timestamp>-<label>.json, précis, à préférer à cet index."

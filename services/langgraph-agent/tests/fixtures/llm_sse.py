@@ -53,7 +53,7 @@ def content_and_tool_call_response(content_text, tool_name, tool_call_id, argume
     [CONSTAT: ...] du correctif latence, Itération 4 — voir
     app/graph.py:_verification_directive) ET un tool_call, dans le MÊME
     appel : le constat sur l'action précédente et la décision de la suite
-    vivent désormais dans un seul tour, plus deux (voir HISTORY.md).
+    vivent désormais dans un seul tour, plus deux (voir docs/history.md).
     """
     return sse_body(
         [({"role": "assistant", "content": content_text}, None)]
@@ -75,7 +75,7 @@ def content_and_tool_call_response(content_text, tool_name, tool_call_id, argume
 def content_and_multi_tool_call_response(content_text, tool_calls):
     """
     Généralisation de content_and_tool_call_response à PLUSIEURS tool_calls
-    dans le même tour (correctif latence 1/2-bis, voir HISTORY.md) : le
+    dans le même tour (correctif latence 1/2-bis, voir docs/history.md) : le
     constat vit désormais dans un tool call dédié obligatoire
     (report_and_act) plutôt qu'un marqueur texte, ce qui oblige à simuler au
     moins deux tool_calls (report_and_act + l'action réelle) dans la même

@@ -1,6 +1,6 @@
 # agentic-ai-playground
 
-![Logo](logo-agentic-ai-playground.jpg)
+![Logo](docs/assets/logo.png)
 
 Stack Docker Compose pour un agent IA local : Open WebUI → LangGraph Agent →
 (Skill Manager / Context Manager / MCP Client) → TabbyAPI.
@@ -20,7 +20,7 @@ cp .env.example .env
 
 docker pull mcp/filesystem:latest
 docker pull mcp/git:latest
-docker pull mcp/playwright:latest   # serveur HTTP persistant (service playwright-mcp), voir RESOLVED_BUGS.md
+docker pull mcp/playwright:latest   # serveur HTTP persistant (service playwright-mcp), voir docs/resolved-bugs.md
 docker compose --profile build-only build mcp-terminal-build   # construit l'image locale mcp-terminal:local
 
 docker compose up -d
@@ -58,7 +58,7 @@ services/
                        l'agent (service docker-compose à part, Streamable HTTP)
   playwright-mcp/      image officielle mcp/playwright, navigateur piloté par
                        l'agent (service docker-compose à part, serveur HTTP
-                       natif — voir RESOLVED_BUGS.md)
+                       natif — voir docs/resolved-bugs.md)
   llama-server/        build du fork llama.cpp servant le modèle (backend
                        alternatif — voir docs/architecture/inference-backend.md)
   ocr-service/         OCR d'appoint pour le grounding du VLM (PaddleOCR CPU,
@@ -92,7 +92,7 @@ models/     poids (.gguf) du modèle et du projecteur multimodal servis par
 - `docs/operations/runbook.md` — commandes de rebuild/redémarrage.
 - `docs/project-status.md` — état d'avancement (change à chaque checkpoint).
 - `PLAN.md` — feuille de route (change rarement, source de vérité).
-- `HISTORY.md` / `RESOLVED_BUGS.md` — journal d'avancement et bugs résolus
+- `docs/history.md` / `docs/resolved-bugs.md` — journal d'avancement et bugs résolus
   (se consultent par recherche ciblée, jamais en entier — voir `CLAUDE.md`).
 - `docs/briefs/` — briefs de chantier en cours.
 
@@ -139,7 +139,7 @@ models/     poids (.gguf) du modèle et du projecteur multimodal servis par
   `mcp==1.2.0` vers `mcp==1.9.4` dans `services/mcp-client/requirements.txt`),
   authentifié par bearer token (`GHOSTDESK_AUTH_TOKEN`, voir `.env.example`).
 - **`playwright-mcp` (serveur "browser") est un serveur HTTP persistant
-  depuis le correctif documenté en détail dans `RESOLVED_BUGS.md`** — auparavant
+  depuis le correctif documenté en détail dans `docs/resolved-bugs.md`** — auparavant
   spawné en STDIO éphémère (`docker run -i --rm mcp/playwright:latest` par
   appel), il perdait tout état de navigation entre deux appels d'outils.
   L'image officielle expose nativement un mode serveur HTTP
@@ -151,7 +151,7 @@ models/     poids (.gguf) du modèle et du projecteur multimodal servis par
   `_persistent_sessions` dans `services/mcp-client/app/main.py`), au lieu
   d'en rouvrir une neuve à chaque fois comme pour les autres serveurs.
 - **Volume de téléchargement partagé `agent-downloads`** (Phase 1d-révisée,
-  voir HISTORY.md, T5) : `playwright-mcp` garde son profil navigateur
+  voir docs/history.md, T5) : `playwright-mcp` garde son profil navigateur
   `--isolated` (en mémoire, jamais persisté), mais un téléchargement
   déclenché dans la page (lien/bouton avec `Content-Disposition:
   attachment`) atterrit désormais dans un chemin EXPLICITE et partagé

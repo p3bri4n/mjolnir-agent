@@ -1,11 +1,11 @@
 # Campagne A post-Phase 1d-révisée (budget 20, volume de téléchargement dédié) — suite de tâches web (Phase 0)
 
-Générée automatiquement le 2026-07-22T18:21:29.724767+00:00 (3 répétitions/tâche). Voir BENCHMARK0.md pour la spec complète et les limites connues de chaque assertion, et la docstring de test_web_tasks.py pour la méthode de sous-classification boucle_fabrication/boucle_budget.
+Générée automatiquement le 2026-07-22T18:21:29.724767+00:00 (3 répétitions/tâche). Voir docs/benchmark-v1.md pour la spec complète et les limites connues de chaque assertion, et la docstring de test_web_tasks.py pour la méthode de sous-classification boucle_fabrication/boucle_budget.
 
 **⚠️ Rejouée deux fois avant ce résultat** : la première tentative (thread
 réutilisé par hachage de prompt, voir `app/main.py` `_derive_thread_id`) a
 révélé un bug d'infra bloquant avant même de mesurer quoi que ce soit —
-consigné en détail dans HISTORY.md ("Phase 1d-révisée, vérification
+consigné en détail dans docs/history.md ("Phase 1d-révisée, vérification
 post-déploiement") : le volume `agent-downloads` référencé par
 `docker-compose.yml` (préfixé projet) et celui référencé par le `docker run`
 brut de `mcp-client` (nom littéral) étaient DEUX volumes Docker différents,

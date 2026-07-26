@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Outillage de campagne (voir HISTORY.md, "OUTILLAGE DE CAMPAGNE") : lance le
+# Outillage de campagne (voir docs/history.md, "OUTILLAGE DE CAMPAGNE") : lance le
 # harnais de tâches web (services/langgraph-agent/tests_integration/
 # test_web_tasks.py) de bout en bout, zéro intervention entre le lancement et
 # le rapport. Enchaîne : préambule (readiness LLM réelle + schéma d'outils,
@@ -43,13 +43,18 @@ if [[ ! -x "$VENV_PYTHON" ]]; then
   VENV_PYTHON="python3"
 fi
 
+# Convention de rapports (Phase 2, restructuration+anglais) :
+# AAAA-MM-JJ_type_label.md sous docs/campaigns/ — tri chronologique
+# naturel, type lisible (campaign/smoke), label thématique.
+CAMPAIGNS_DIR="$PROJECT_DIR/docs/campaigns"
+
 if [[ -z "$REPORT_PATH" ]]; then
   if [[ -n "$LABEL" ]]; then
-    REPORT_PATH="$AGENT_DIR/tests_integration/TASKS-BASELINE-${LABEL}.md"
+    REPORT_PATH="$CAMPAIGNS_DIR/$(date +%Y-%m-%d)_campaign_${LABEL}.md"
   elif [[ -n "$TASKS" ]]; then
-    REPORT_PATH="$AGENT_DIR/tests_integration/TASKS-SMOKE-$(date +%Y%m%d-%H%M%S).md"
+    REPORT_PATH="$CAMPAIGNS_DIR/$(date +%Y-%m-%d)_smoke_adhoc-$(date +%H%M%S).md"
   else
-    REPORT_PATH="$AGENT_DIR/tests_integration/TASKS-BASELINE.md"
+    REPORT_PATH="$CAMPAIGNS_DIR/$(date +%Y-%m-%d)_campaign_full.md"
   fi
 fi
 
@@ -63,7 +68,7 @@ STATS_PATH="$AGENT_DIR/tests_integration/DURATION_ESTIMATE_CACHE.json"
 # et campaign_persistence.py pour le véritable historique par campagne).
 # Défaut 150s/tâche pour
 # une tâche jamais mesurée (ordre de grandeur observé sur les campagnes
-# passées, voir HISTORY.md) — approximatif par construction, sert à choisir
+# passées, voir docs/history.md) — approximatif par construction, sert à choisir
 # smoke vs complète en connaissance de cause, pas à garantir un temps exact.
 # ─────────────────────────────────────────────────────────────────────────
 ALL_TASK_IDS=(T1_extraction_paginee T2_formulaire_conge T3_tableau_dynamique

@@ -29,7 +29,7 @@ services:
     container_name: langgraph-agent
     restart: unless-stopped
     environment:
-      # Conscience temporelle (PLAN.md Phase 1, point 7a, voir HISTORY.md) :
+      # Conscience temporelle (PLAN.md Phase 1, point 7a, voir docs/history.md) :
       # un conteneur Docker tourne en UTC par défaut, jamais le fuseau de
       # l'hôte automatiquement — défaut Europe/Paris (fuseau de ce
       # déploiement, vérifié via `timedatectl` sur l'hôte), surchargeable
@@ -84,7 +84,7 @@ services:
       # DÉFAUT INVERSÉ, même justification que PLANNER_ENABLED ci-dessus.
       - PLAN_VALIDATION_ENABLED=${PLAN_VALIDATION_ENABLED:-true}
       # Juge LLM du plan (heuristiques déjà passées, coûteux). Clause de
-      # retrait mesurée (voir HISTORY.md, Itération 3) : a réellement
+      # retrait mesurée (voir docs/history.md, Itération 3) : a réellement
       # vétoté un plan que les heuristiques laissaient passer. DÉFAUT
       # INVERSÉ (docs/briefs/flags-du-coeur-cognitif.md) : décision
       # explicite de l'activer avec les 3 flags ci-dessus, la campagne
@@ -93,12 +93,12 @@ services:
       # Budget de tokens dédié aux appels LLM auxiliaires (plan_task/
       # verify_action/replan_task/revise_plan/_judge_plan), SÉPARÉ de
       # LLM_MAX_TOKENS (boucle conversationnelle). Bug réel trouvé en
-      # conditions réelles (voir HISTORY.md, Itération 3) : Qwen3.6/TabbyAPI
+      # conditions réelles (voir docs/history.md, Itération 3) : Qwen3.6/TabbyAPI
       # raisonne dans reasoning_content avant de répondre, ce raisonnement
       # consommait à lui seul tout LLM_MAX_TOKENS (2048), tronquant la
       # réponse JSON systématiquement.
       - PLANNER_MAX_TOKENS=${PLANNER_MAX_TOKENS:-8192}
-      # Correctif latence 2/2 (voir HISTORY.md) : thinking bridé sur les
+      # Correctif latence 2/2 (voir docs/history.md) : thinking bridé sur les
       # appels auxiliaires (plan_task/revise_plan/replan_task/_judge_plan,
       # tous via planner_llm) — TabbyAPI expose enable_thinking en
       # paramètre par requête, vérifié en direct sans effet sur la validité
@@ -117,7 +117,7 @@ services:
       # app/graph.py). Pas de passthrough env avant le harnais
       # tests_integration/test_web_tasks.py (Campagne B, budget relevé pour
       # isoler l'effet du plafond des vraies capacités de navigation —
-      # voir BENCHMARK0.md).
+      # voir docs/benchmark-v1.md).
       - MAX_TOOL_ITERATIONS=${MAX_TOOL_ITERATIONS:-20}
       # Forfait de tokens par image dans la décomposition approximative du
       # contexte (POST /context, voir README section Observabilité) — un
@@ -272,7 +272,7 @@ services:
       - MCP_GHOSTDESK_URL=http://ghostdesk:3000/mcp
       # "browser" (Playwright) : serveur HTTP persistant lui aussi (service
       # playwright-mcp ci-dessous), pas un spawn éphémère par appel — voir
-      # RESOLVED_BUGS.md (perte de continuité d'état entre deux appels d'outils).
+      # docs/resolved-bugs.md (perte de continuité d'état entre deux appels d'outils).
       - MCP_PLAYWRIGHT_URL=http://playwright-mcp:8931/mcp
       - GHOSTDESK_AUTH_TOKEN=${GHOSTDESK_AUTH_TOKEN}
       # Requis par les modèles Qwen pour que leurs clics tombent sur la bonne
@@ -286,7 +286,7 @@ services:
       - MCP_OCR_URL=http://ocr-service:8004/mcp
       - OCR_AUTH_TOKEN=${OCR_AUTH_TOKEN}
       # Stabilisation post-navigation (trouvé en investiguant T10, voir
-      # HISTORY.md « désynchronisation snapshot/URL ») : sur une page à
+      # docs/history.md « désynchronisation snapshot/URL ») : sur une page à
       # rendu client, browser_snapshot peut renvoyer le contenu de
       # l'ANCIENNE page juste après un browser_navigate/browser_click —
       # browser_wait_for est appelé automatiquement après ces deux outils
@@ -322,7 +322,7 @@ services:
   # --- Playwright MCP : navigateur piloté par l'agent (serveur HTTP) --
   # ⚠️ Anciennement spawné à la demande par mcp-client (`docker run --rm`
   # par appel d'outil) : chaque appel repartait sur `about:blank` sans
-  # continuité d'état avec le précédent (voir RESOLVED_BUGS.md). L'image officielle
+  # continuité d'état avec le précédent (voir docs/resolved-bugs.md). L'image officielle
   # mcp/playwright supporte un mode serveur HTTP natif (`--port`, endpoint
   # Streamable HTTP `/mcp`) ; on l'utilise ici comme service persistant,
   # même patron que GhostDesk/OCR ci-dessous.
@@ -331,7 +331,7 @@ services:
   # dans /downloads sans ce correctif — constaté en conditions réelles
   # (browser_navigate échouait systématiquement en EACCES en tentant
   # d'écrire son propre snapshot de debug page-*.yml sous --output-dir,
-  # voir HISTORY.md "Phase 1d-révisée", vérification post-déploiement T5).
+  # voir docs/history.md "Phase 1d-révisée", vérification post-déploiement T5).
   # Tourne une fois avant playwright-mcp (condition
   # service_completed_successfully), jamais en continu.
   agent-downloads-init:
@@ -359,7 +359,7 @@ services:
       - --isolated   # profil navigateur en mémoire, jamais persisté sur disque
       - --headless
       - --browser=chromium
-      # Chemin EXPLICITE (voir HISTORY.md "Phase 1d-révisée", T5) plutôt que
+      # Chemin EXPLICITE (voir docs/history.md "Phase 1d-révisée", T5) plutôt que
       # le défaut implicite (~/.playwright-mcp du conteneur) — l'agent
       # fabriquait régulièrement de mauvais chemins en devinant ce défaut
       # (/app/.playwright-mcp, /.playwright-mcp...), jamais le vrai. Partagé
@@ -517,7 +517,7 @@ services:
 
   # ──────────────────────────────────────────────────────────────
   # Fixtures Benchmark 0 (plan d'autonomie, voir PLAN.md et
-  # tests_integration/BENCHMARK0.md) : sites/app auto-hébergés à vérité
+  # docs/benchmark-v1.md) : sites/app auto-hébergés à vérité
   # terrain connue par construction, ciblés par le harnais
   # test_web_tasks.py (T1-T7). Profil dédié : ne tournent jamais par défaut
   # avec le reste de la stack, seulement quand on lance ce harnais.
@@ -543,7 +543,7 @@ services:
     container_name: fixture-hr-app
     profiles: ["test-fixtures"]
     environment:
-      # court délibérément (voir T6, BENCHMARK0.md) : teste que l'agent reste
+      # court délibérément (voir T6, docs/benchmark-v1.md) : teste que l'agent reste
       # efficace dans sa trajectoire plutôt que d'errer avant de répondre.
       - HR_APP_SESSION_TIMEOUT_SECONDS=${HR_APP_SESSION_TIMEOUT_SECONDS:-90}
     volumes:
@@ -571,7 +571,7 @@ volumes:
   # Volume PARTAGÉ entre playwright-mcp (écriture) et le serveur MCP
   # filesystem spawné par mcp-client (lecture seule) — voir playwright-mcp
   # (--output-dir) et services/mcp-client/app/main.py (SERVERS["filesystem"])
-  # ci-dessous, HISTORY.md "Phase 1d-révisée" (T5). On partage les
+  # ci-dessous, docs/history.md "Phase 1d-révisée" (T5). On partage les
   # ARTEFACTS de téléchargement, jamais l'état du navigateur : playwright-mcp
   # reste --isolated (profil en mémoire, jamais persisté).
   #
@@ -585,7 +585,7 @@ volumes:
   # (celui, vide, que `docker run` créait implicitement sous le nom littéral
   # "agent-downloads") — bug constaté en conditions réelles : le fichier
   # téléchargé existait bien côté playwright-mcp mais `read_file` échouait
-  # en ENOENT côté filesystem-MCP (voir HISTORY.md, vérification
+  # en ENOENT côté filesystem-MCP (voir docs/history.md, vérification
   # post-déploiement T5).
   agent-downloads:
     name: agent-downloads

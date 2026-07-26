@@ -45,7 +45,7 @@ SERVERS = {
                 # docker-compose.yml, --output-dir) : donne à l'agent un
                 # chemin de lecture DOCUMENTÉ pour un fichier téléchargé par
                 # le navigateur, plutôt que de deviner un chemin interne au
-                # conteneur playwright-mcp (voir HISTORY.md "Phase
+                # conteneur playwright-mcp (voir docs/history.md "Phase
                 # 1d-révisée", T5). ":ro" car ce serveur ne doit jamais
                 # pouvoir écrire dans les téléchargements de l'agent web.
                 "-v", "agent-downloads:/downloads:ro",
@@ -71,7 +71,7 @@ SERVERS = {
         # serveur HTTP persistant (comme "desktop"/"ocr" plus bas) : un spawn
         # éphémère (`docker run --rm` par appel) redémarrait un navigateur
         # tout neuf à CHAQUE appel d'outil, sans continuité d'état entre
-        # `browser_navigate` et l'appel suivant — voir RESOLVED_BUGS.md. L'image
+        # `browser_navigate` et l'appel suivant — voir docs/resolved-bugs.md. L'image
         # mcp/playwright officielle supporte un mode serveur HTTP natif
         # (`--port`, endpoint Streamable HTTP `/mcp`), utilisé ici via le
         # service docker-compose dédié `playwright-mcp`.
@@ -126,7 +126,7 @@ SERVERS = {
     },
 }
 
-# Outil de LOCALISATION/EXTRACTION CIBLÉE (Phase 1d-révisée, voir HISTORY.md
+# Outil de LOCALISATION/EXTRACTION CIBLÉE (Phase 1d-révisée, voir docs/history.md
 # "correctif extraction") : le MCP Playwright officiel n'expose aucun outil
 # "cherche ce texte et donne son contexte" (vérifié : browser_click/hover/
 # select_option exigent tous une cible déjà localisée ; seuls
@@ -166,7 +166,7 @@ _BROWSER_EXTRACT_JS_TEMPLATE = """() => {{
 }}"""
 
 
-# Mode bulk (trouvé en investiguant T1, voir HISTORY.md
+# Mode bulk (trouvé en investiguant T1, voir docs/history.md
 # "BULK_CHECK_DIRECTIVE") : quand l'information cherchée n'apparaît que sur
 # des pages de DÉTAIL (jamais le listing) et qu'il faut en vérifier
 # PLUSIEURS, une navigation page par page épuise le budget d'itérations
@@ -390,7 +390,7 @@ async def health():
 async def reset_session(server_name: str):
     """
     Réinitialisation explicite d'une session PERSISTANTE (Phase 1d-révisée,
-    voir HISTORY.md "isolation entre tâches") : jette la session en cache
+    voir docs/history.md "isolation entre tâches") : jette la session en cache
     (`_drop_persistent_session`), le prochain appel en rouvrira une neuve.
     Sans ce point d'entrée, seul un redémarrage complet du service (ou une
     exception fortuite pendant un appel) purgeait l'état d'une session
@@ -444,7 +444,7 @@ async def list_tools_schema():
 
 
 # Stabilisation post-navigation (trouvé en investiguant T10, voir
-# HISTORY.md « désynchronisation snapshot/URL ») : sur une page à rendu
+# docs/history.md « désynchronisation snapshot/URL ») : sur une page à rendu
 # client (ex. books.toscrape.com, catégorie chargée après le clic),
 # `browser_snapshot` peut renvoyer le contenu de l'ANCIENNE page alors que
 # l'URL/la capture d'écran confirment déjà le changement — l'agent perd

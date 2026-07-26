@@ -1,10 +1,10 @@
 # Campagne A post-correctif extraction (browser_extract + isolation entre tâches) — suite de tâches web (Phase 0)
 
-Générée automatiquement le 2026-07-22T20:52:29.215796+00:00 (3 répétitions/tâche). Voir BENCHMARK0.md pour la spec complète et les limites connues de chaque assertion, et la docstring de test_web_tasks.py pour la méthode de sous-classification boucle_fabrication/boucle_budget.
+Générée automatiquement le 2026-07-22T20:52:29.215796+00:00 (3 répétitions/tâche). Voir docs/benchmark-v1.md pour la spec complète et les limites connues de chaque assertion, et la docstring de test_web_tasks.py pour la méthode de sous-classification boucle_fabrication/boucle_budget.
 
 **⚠️ Rejouée deux fois** : une première tentative (mêmes conteneurs, même
 code) a donné un résultat très différent et invalide — consigné en détail
-dans HISTORY.md ("Phase 1d-révisée, bug de cache de schéma d'outils") :
+dans docs/history.md ("Phase 1d-révisée, bug de cache de schéma d'outils") :
 `_tools_schema_cache` (`app/graph.py`) est un cache PROCESS-LIFETIME côté
 langgraph-agent, jamais invalidé après un redémarrage de mcp-client — le
 premier essai a tourné avec un schéma figé à 63 outils (SANS

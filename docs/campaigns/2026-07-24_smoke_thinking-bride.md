@@ -1,6 +1,6 @@
 # smoke-thinking-bride — suite de tâches web (Phase 0)
 
-Générée automatiquement le 2026-07-24T12:25:28.689896+00:00 (2 répétitions/tâche). Voir BENCHMARK0.md pour la spec complète et les limites connues de chaque assertion, et la docstring de test_web_tasks.py pour la méthode de sous-classification boucle_fabrication/boucle_budget.
+Générée automatiquement le 2026-07-24T12:25:28.689896+00:00 (2 répétitions/tâche). Voir docs/benchmark-v1.md pour la spec complète et les limites connues de chaque assertion, et la docstring de test_web_tasks.py pour la méthode de sous-classification boucle_fabrication/boucle_budget.
 **Score de campagne : 6/8 passages réussis.**
 **Couverture des constats : 97.0% (64/66).**
 

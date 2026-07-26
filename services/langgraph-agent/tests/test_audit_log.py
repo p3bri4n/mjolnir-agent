@@ -23,7 +23,7 @@ def _tool_call_entries(entries):
     """Filtre les entrées tool_call (voir log_tool_call), en excluant les
     messages assistant (voir log_message, kind="message") — nécessaire
     depuis que call_llm journalise CHAQUE tour, tool_call ou non (voir
-    HISTORY.md "OBSERVABILITÉ")."""
+    docs/history.md "OBSERVABILITÉ")."""
     return [e for e in entries if "tool" in e]
 
 
@@ -99,7 +99,7 @@ async def test_tier_read_call_is_not_audited(mock_side_services):
 @pytest.mark.asyncio
 async def test_first_sensitive_call_approved_without_grant_is_audited(mock_side_services):
     """
-    Angle mort corrigé (voir HISTORY.md, investigation T9) : le tout premier
+    Angle mort corrigé (voir docs/history.md, investigation T9) : le tout premier
     appel d'un outil TIER_SENSITIVE, passé par require_approval, est
     désormais audité lui aussi (tier="sensitive") — "un humain a déjà vu
     passer la demande" ne tient pas en campagne automatisée
@@ -214,7 +214,7 @@ async def test_audit_endpoint_filters_by_thread_id(mock_side_services):
 @pytest.mark.asyncio
 async def test_call_llm_logs_assistant_message_every_turn(mock_side_services):
     """
-    Observabilité (Phase 1d-révisée, voir HISTORY.md "correctif extraction"
+    Observabilité (Phase 1d-révisée, voir docs/history.md "correctif extraction"
     -> "OBSERVABILITÉ") : call_llm journalise CHAQUE tour du modèle
     (raisonnement + texte + tool_calls éventuels), contrairement au journal
     des tool_calls qui reste volontairement partiel par tier — ici rien

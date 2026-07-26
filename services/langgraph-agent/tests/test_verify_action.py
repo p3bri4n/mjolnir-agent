@@ -366,7 +366,7 @@ async def test_verify_action_missing_constat_is_inexploitable(monkeypatch):
     """Dégradation INVERSÉE (correctif 1/2-bis) : constat_precedent
     absent/mal formé ne facture RIEN à la sous-tâche (ni succès ni échec,
     budget inchangé) mais incrémente constats_inexploitables — l'ambiguïté
-    se mesure, elle ne se facture plus comme un échec (voir HISTORY.md,
+    se mesure, elle ne se facture plus comme un échec (voir docs/history.md,
     régression 18/33 de la version marqueur-texte)."""
     import app.graph as g
 

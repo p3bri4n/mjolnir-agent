@@ -20,7 +20,7 @@ approval_policy.py`), qui remplace l'ancienne whitelist binaire :
 | `TIER_REVERSIBLE` (réversible) | auto + journalisation (voir Phase 2, journal d'audit) | `mouse_click`, `mouse_double_click`, `mouse_drag`, `mouse_scroll`, `key_press`, `app_launch`, `clipboard_set`, écritures filesystem/git confinées (`write_file`, `git_commit`...) |
 | `TIER_SENSITIVE` (sensible) | approbation humaine requise | `key_type` (saisie de texte libre), tout le reste, **et tout outil inconnu** |
 
-**`NEVER_GRANTABLE_TOOLS`** (Phase 1d-révisée, voir HISTORY.md, T5) :
+**`NEVER_GRANTABLE_TOOLS`** (Phase 1d-révisée, voir docs/history.md, T5) :
 `browser_run_code_unsafe` et `browser_evaluate` restent `TIER_SENSITIVE`
 même accordés "pour la session" — un grant assouplit normalement un outil
 sensible en réversible pour le reste du thread, mais l'exécution de code
@@ -28,7 +28,7 @@ arbitraire dans la page est une élévation, pas une primitive de lecture ;
 chaque appel de ces deux outils requiert une approbation individuelle,
 sans exception.
 
-**`browser_extract`** (Phase 1d-révisée, voir HISTORY.md "correctif
+**`browser_extract`** (Phase 1d-révisée, voir docs/history.md "correctif
 extraction") : constaté en conditions réelles que rendre `browser_evaluate`
 non-accordable a fait disparaître son usage (T1/T10) sans remplacement —
 remplacé par une exploration manuelle nettement moins fiable (ctrl+f,
@@ -122,7 +122,7 @@ conversation (ou reprise après redémarrage) repart sans historique
 d'approbation.
 
 **Journal d'audit** (Phase 2, `services/langgraph-agent/app/audit_log.py`,
-angle mort corrigé — voir HISTORY.md, investigation T9) : chaque tool_call
+angle mort corrigé — voir docs/history.md, investigation T9) : chaque tool_call
 effectivement exécuté dont le tier n'est pas `TIER_READ` (silencieux par
 design, rien de nouveau à auditer) est loggé en JSONL sous `AUDIT_LOG_DIR`
 (défaut `/workspace/.audit`, même bind mount que les serveurs MCP
@@ -130,7 +130,7 @@ filesystem/git/terminal — voir `docker-compose.yml`), un fichier par jour
 (`YYYY-MM-DD.jsonl`). Chaque ligne : `timestamp`, `thread_id`, `tool`,
 `arguments`, `tier`, `result` (le résultat de l'outil TEL QUE VU PAR LE
 MODÈLE — déjà tronqué/hiérarchisé si `browser_*`, jamais la version brute ;
-ajouté en Phase 1d-révisée, voir HISTORY.md, pour reconstruire non
+ajouté en Phase 1d-révisée, voir docs/history.md, pour reconstruire non
 seulement la séquence d'appels mais aussi ce que l'agent a réellement perçu
 à chaque étape). Rotation par volume en plus du fichier quotidien :
 au-delà de `AUDIT_LOG_MAX_BYTES` (défaut 20 Mio), le fichier du jour est
@@ -156,18 +156,18 @@ tout le journal disponible) permet la consultation ; une ligne corrompue
 individuelle est ignorée à la lecture plutôt que de faire échouer toute la
 requête.
 
-**Messages assistant** (Phase 1d-révisée, voir HISTORY.md "OBSERVABILITÉ") :
+**Messages assistant** (Phase 1d-révisée, voir docs/history.md "OBSERVABILITÉ") :
 `call_llm` journalise aussi CHAQUE tour du modèle (`audit_log.log_message`,
 `kind: "message"`, `role: "assistant"`, `content: {content, tool_calls}`) —
 raisonnement `<think>` et texte inclus, tool_calls éventuels — sans
 filtrage par tier, contrairement aux tool_calls ci-dessus : c'est le
 raisonnement de l'agent, pas un effet de bord à sélectionner. Comble une
 limite qui a concrètement bloqué un diagnostic d'archive (T1/T7/T10, voir
-HISTORY.md) : avant cet ajout, l'archive ne permettait de reconstruire QUE
+docs/history.md) : avant cet ajout, l'archive ne permettait de reconstruire QUE
 la séquence d'appels et leurs résultats, jamais ce que le modèle avait
 lui-même raisonné ou répondu à chaque étape.
 
-**Isolation entre tâches** (Phase 1d-révisée, voir HISTORY.md "isolation
+**Isolation entre tâches** (Phase 1d-révisée, voir docs/history.md "isolation
 entre tâches") : `playwright-mcp` est une session MCP PERSISTANTE et
 PARTAGÉE par tout mcp-client (pas scopée par thread ni par tâche) — un
 onglet laissé ouvert par une tâche reste visible dans le snapshot d'une
@@ -177,7 +177,7 @@ cache (le prochain appel en rouvre une neuve) ; le harnais de tâches web
 l'appelle avant chaque répétition (voir `tests_integration/
 test_web_tasks.py`, `_reset_browser_session`).
 
-Même problème, canal différent (investigation T9, voir HISTORY.md) :
+Même problème, canal différent (investigation T9, voir docs/history.md) :
 GhostDesk pilote un vrai bureau à l'échelle de la MACHINE (`app_launch`),
 sans aucun rapport avec la session Playwright ci-dessus ni avec le thread
 en cours — une fenêtre laissée ouverte par une tâche reste lisible (via

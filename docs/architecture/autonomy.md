@@ -15,7 +15,7 @@ indépendamment activables (`PLANNER_ENABLED`/`VERIFICATION_ENABLED`/
 `PLAN_VALIDATION_ENABLED`/`PLAN_JUDGE_ENABLED`) — **défauts INVERSÉS à
 `true`** depuis la campagne finale (29/33, cohérente avec la Campagne A
 pré-cœur-cognitif à 30/33 — voir docs/briefs/flags-du-coeur-cognitif.md et
-HISTORY.md) : le cœur cognitif est mesuré et adopté, c'est désormais la
+docs/history.md) : le cœur cognitif est mesuré et adopté, c'est désormais la
 DÉSACTIVATION qui doit être explicite. Voir le détail de chacun ci-dessous.
 
 **⚠️ Piège d'exploitation** : ces 4 flags (ainsi que
@@ -43,7 +43,7 @@ aux outils (`planner_llm.ainvoke`, pas `bound_llm`), non streamé, séparé de
 la boucle principale. `planner_llm` est un client `ChatOpenAI` SÉPARÉ de
 `llm` (boucle conversationnelle), avec son propre budget `PLANNER_MAX_TOKENS`
 (défaut `8192`, bien plus large que `LLM_MAX_TOKENS`) : bug réel trouvé en
-conditions réelles (voir HISTORY.md, Itération 3) — Qwen3.6/TabbyAPI
+conditions réelles (voir docs/history.md, Itération 3) — Qwen3.6/TabbyAPI
 raisonne dans un champ `reasoning_content` séparé de `content` avant de
 répondre, et ce raisonnement consommait à lui seul tout `LLM_MAX_TOKENS`
 (2048), tronquant systématiquement la réponse JSON. Le message utilisateur
@@ -60,7 +60,7 @@ visible dans les logs et résumé dans le message d'approbation existant
 **Pourquoi le défaut "false" d'origine** (Itération 1, avant la mesure
 complète) : un second appel LLM en tête de chaque tâche aurait cassé la
 quasi-totalité des tests existants, qui mockent une séquence fixe de
-réponses sur `/v1/chat/completions` — voir HISTORY.md, "Itération 1 : plan
+réponses sur `/v1/chat/completions` — voir docs/history.md, "Itération 1 : plan
 explicite". Les tests concernés forcent désormais explicitement la valeur
 qu'ils testent (fixture `_default_cognitive_core_flags_to_false`,
 `tests/conftest.py`) plutôt que de dépendre du défaut.
@@ -74,7 +74,7 @@ dédié (`{"atteint": bool, "raison": str}`, validé par
 `_validate_verification_json`, même pipeline que le planificateur) — pas un
 critère reformulé à la volée dans le raisonnement du tour (aucun
 raisonnement structuré n'existe dans ce graphe pour l'extraire fiablement,
-voir HISTORY.md "Itération 2"). Verdict positif : sous-tâche `"fait"`,
+voir docs/history.md "Itération 2"). Verdict positif : sous-tâche `"fait"`,
 avance à la suivante. Verdict négatif : `SUBTASK_ATTEMPT_BUDGET` tentatives
 (défaut `3`) avant de marquer `"echoue"` — chaque retry doit changer de
 stratégie, un tool_call identique (nom+args) au tour précédent après un
@@ -92,7 +92,7 @@ et `call_llm`) applique d'abord des heuristiques programmatiques
 (`app/plan_validation.py` : bornes 2-12 sous-tâches, pas de doublons,
 outils référencés existants, domaines dans le périmètre déclaré), puis, si
 `PLAN_JUDGE_ENABLED` (défaut `true` depuis docs/briefs/
-flags-du-coeur-cognitif.md — clause de retrait mesurée, voir HISTORY.md
+flags-du-coeur-cognitif.md — clause de retrait mesurée, voir docs/history.md
 Itération 3 : a réellement vétoté un plan que les heuristiques laissaient
 passer), un juge LLM
 (`{"faisable": bool, "risques": [...], "etapes_manquantes": [...]}`,
@@ -109,12 +109,12 @@ réutilise `approval_policy.tool_tier`) — `TIER_READ` passe direct,
 individuelle d'un outil `TIER_SENSITIVE` à l'exécution — `require_approval`/
 `_execute_tool_calls` inchangés, l'approbation du plan est un gate
 additionnel en amont, jamais un substitut (vérifié en conditions réelles,
-voir HISTORY.md).
+voir docs/history.md).
 
 **Ancrage sur l'état réel de la page** (Itération 4, aucun nouveau flag —
 fait partie de `VERIFICATION_ENABLED`/`PLAN_JUDGE_ENABLED`/
 `PLAN_VALIDATION_ENABLED` existants) : trouvé en 2 temps sur sondes live
-successives (voir HISTORY.md, Itération 4, pour le détail des 6 sondes).
+successives (voir docs/history.md, Itération 4, pour le détail des 6 sondes).
 `verify_action` jugeait un `success_criterion` littéralement, sans jamais
 voir la page réelle — un critère supposant une fonctionnalité absente (ex.
 une barre de recherche) faisait échouer à tort une progression légitime
@@ -134,17 +134,17 @@ page, s'est mis à confondre l'élément exact demandé par l'objectif avec un
 contre cette substitution.
 
 **Campagnes v1 du chantier « cœur cognitif »** (11 tâches × 3 répétitions,
-voir `tests_integration/BENCHMARK0.md` pour la suite v1 complète — sa
+voir `docs/benchmark-v1.md` pour la suite v1 complète — sa
 DERNIÈRE campagne de référence, la suite v1 approchant de la saturation) :
 
 **Campagne finale** (4 flags actifs, ~104 min) : **29/33** après correctif
 et repêchage (28/33 brut initialement — voir plus bas) — détail complet
 dans `tests_integration/TASKS-BASELINE-post-coeur-cognitif.md`. Cohérent
-avec la Campagne A pré-cœur-cognitif (30/33, voir HISTORY.md), pas une
+avec la Campagne A pré-cœur-cognitif (30/33, voir docs/history.md), pas une
 régression. Sur les 4 points manquants : 1 timeout infra du harnais (T7,
 sans rapport avec l'agent), 1 échec d'extraction (T1), 2 échecs
 d'extraction sur T8 (Wikipedia — voir ci-dessous). Score agrégé
-volontairement affiché SANS le lisser : voir HISTORY.md pour le détail
+volontairement affiché SANS le lisser : voir docs/history.md pour le détail
 tâche par tâche.
 
 | Tâche | Score | Note |
@@ -162,7 +162,7 @@ tâche par tâche.
 | T11 — sonde de péremption | 3/3 | version consultée en direct à chaque fois |
 
 **Bug de harnais trouvé et corrigé sur cette campagne** (`31aacac`, voir
-RESOLVED_BUGS.md) : les répétitions d'une même tâche dans `_run_campaign()`
+docs/resolved-bugs.md) : les répétitions d'une même tâche dans `_run_campaign()`
 partageaient leur `thread_id` (`_derive_thread_id` hache un prompt fixe,
 identique entre répétitions) — T8 rep1 a fait déborder le contexte
 (170285 tokens > 32768 côté TabbyAPI, une grosse page Wikipedia réelle +
@@ -197,7 +197,7 @@ Nouveau point zéro assumé, comparaisons v1/v2 interdites. Détail dans
 
 ### Constat post-action : historique et mécanisme actuel
 
-Trois versions successives (voir HISTORY.md, « correctif latence 1/2 »
+Trois versions successives (voir docs/history.md, « correctif latence 1/2 »
 puis « 1/2-bis » puis « 1/2-ter ») avant la version actuelle : un appel
 LLM séparé (`verify_action`, coûteux) -> un marqueur texte
 `[CONSTAT: ...]` dans la réponse du tour suivant (trop fragile, souvent
@@ -214,7 +214,7 @@ compté dans `constats_inexploitables` plutôt que facturé comme un échec)
 et juge de COUVERTURE permanent (`verification_opportunities`/
 `verification_exploitable`, journal d'audit `role="verification"`) —
 compromis latence observé : ce schéma augmenté sur ~64 outils à chaque
-tour a un coût de prompt mesurable (voir HISTORY.md pour le détail
+tour a un coût de prompt mesurable (voir docs/history.md pour le détail
 chiffré), chantier encore ouvert.
 
 ### Conscience temporelle (PLAN.md Phase 1, point 7)
@@ -241,7 +241,7 @@ précédentes).
 
 ### Vérification en masse (`BULK_CHECK_DIRECTIVE`, mode bulk de `browser_extract`)
 
-Trouvée en investiguant T1 (voir HISTORY.md) : quand l'information
+Trouvée en investiguant T1 (voir docs/history.md) : quand l'information
 cherchée n'apparaît que sur les pages de détail (jamais le listing) et
 qu'il faut en vérifier plusieurs, une navigation page par page épuise le
 budget d'itérations avant même d'avoir tout vérifié — le modèle finissait
@@ -275,7 +275,7 @@ synchronisés) -> campagne -> rapport écrit -> notification de fin (fichier
 définis).
 
 **Persistance de campagne (`tests_integration/campaign_persistence.py`)** :
-suite à un constat d'inventaire (voir HISTORY.md, « INVENTAIRE DE
+suite à un constat d'inventaire (voir docs/history.md, « INVENTAIRE DE
 PERSISTANCE » puis « PERSISTANCE DES CAMPAGNES ») montrant que rien ne
 survivait d'une campagne au-delà du Markdown prose, chaque campagne écrit
 désormais `campaign-<timestamp>-<label>.json` (jamais réécrit ensuite) à
@@ -323,7 +323,7 @@ scripts/run-campaign.sh --tasks T7 --reps 1  # smoke minimal
 correctif — n réduit, pas de signification statistique pour arbitrer un
 seuil de passage/régression. Seule la campagne complète (3 répétitions,
 11 tâches) compte comme mesure de référence pour un checkpoint. Trouvé en
-conditions réelles (voir HISTORY.md, « outillage de campagne ») : la
+conditions réelles (voir docs/history.md, « outillage de campagne ») : la
 readiness LLM a mordu une fois — `docker compose up --build` avait recréé
 TabbyAPI en même temps qu'une campagne démarrait, qui a alors tourné
 ~20s trop tôt contre un serveur pas encore à l'écoute (30 échecs quasi

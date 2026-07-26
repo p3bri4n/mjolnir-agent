@@ -552,7 +552,7 @@ async def tools_schema():
     qu'EFFECTIVEMENT vus par ce process langgraph-agent (_tools_schema_cache,
     voir app/graph.py), pas ceux servis par mcp-client au moment de l'appel —
     la distinction a mordu en conditions réelles (Phase 1d-révisée, voir
-    HISTORY.md "bug de cache de schéma d'outils") : _tools_schema_cache est
+    docs/history.md "bug de cache de schéma d'outils") : _tools_schema_cache est
     rempli une fois pour la durée du process et jamais invalidé, donc un
     redémarrage de mcp-client seul (schéma mis à jour côté serveur) peut
     laisser cet endpoint répondre un schéma périmé tant que langgraph-agent

@@ -302,7 +302,7 @@ def _patch_open_session(main_mod, monkeypatch):
 def test_persistent_session_reused_across_calls(monkeypatch):
     """
     Le serveur "browser" (Playwright) scope son état navigateur à la SESSION
-    MCP, pas au process serveur (voir RESOLVED_BUGS.md) : mcp-client doit donc réutiliser
+    MCP, pas au process serveur (voir docs/resolved-bugs.md) : mcp-client doit donc réutiliser
     la même session entre deux appels d'outils plutôt que d'en rouvrir une à
     chaque fois, sans quoi l'état (page visitée...) serait perdu entre deux
     appels malgré un serveur HTTP persistant.
@@ -385,7 +385,7 @@ def test_persistent_session_dropped_and_reopened_after_error(monkeypatch):
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# browser_extract (Phase 1d-révisée, voir HISTORY.md "correctif extraction") :
+# browser_extract (Phase 1d-révisée, voir docs/history.md "correctif extraction") :
 # outil synthétique dispatché en interne vers browser_evaluate avec un
 # template JS FIXE — le modèle ne fournit jamais de code, seulement un texte
 # à chercher.
@@ -497,7 +497,7 @@ def test_browser_extract_schema_declares_optional_urls_array(browser_evaluate_ec
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# POST /reset-session/{server_name} (Phase 1d-révisée, voir HISTORY.md
+# POST /reset-session/{server_name} (Phase 1d-révisée, voir docs/history.md
 # "isolation entre tâches") : purge une session persistante (état
 # navigateur/onglets pour "browser") entre deux tâches du harnais.
 # ─────────────────────────────────────────────────────────────────────────
@@ -546,7 +546,7 @@ def test_reset_session_non_persistent_server_is_404():
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# Stabilisation post-navigation (voir HISTORY.md, investigation T10 :
+# Stabilisation post-navigation (voir docs/history.md, investigation T10 :
 # "désynchronisation snapshot/URL") : browser_wait_for appelé automatiquement
 # après CHAQUE browser_navigate/browser_click réussi, transparent pour
 # l'agent, avant que le prochain outil (browser_snapshot ou autre) ne voie

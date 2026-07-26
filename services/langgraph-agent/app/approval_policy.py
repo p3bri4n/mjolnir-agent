@@ -54,7 +54,7 @@ _DEFAULT_TIER_READ = {
     "find_text",  # OCR d'appoint (ocr-service) : lecture pure, aucun effet de bord
     "read_screen",
     # Localisation/extraction ciblée dans la page (Phase 1d-révisée, voir
-    # HISTORY.md "correctif extraction") : lecture pure malgré son
+    # docs/history.md "correctif extraction") : lecture pure malgré son
     # implémentation interne via browser_evaluate (mcp-client) — le modèle ne
     # fournit qu'un texte à chercher, jamais de code (voir
     # services/mcp-client/app/main.py, _build_extract_function : template JS
@@ -116,7 +116,7 @@ _DEFAULT_TIER_REVERSIBLE = {
 # que cette exception saute aux yeux à la relecture.
 _DEFAULT_TIER_READ.discard("clipboard_get")
 
-# Jamais accordable pour la session (Phase 1d-révisée, voir HISTORY.md, T5) :
+# Jamais accordable pour la session (Phase 1d-révisée, voir docs/history.md, T5) :
 # exécution de code arbitraire dans la page (JS non contraint) — une
 # élévation, pas une primitive de lecture, quel que soit le nombre de fois
 # où un humain l'a déjà approuvée dans ce thread. Ces deux outils restent

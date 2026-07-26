@@ -1,6 +1,6 @@
 # Campagne propre post-correctifs (thread partagé + latence 1/2) — suite de tâches web (Phase 0)
 
-Générée automatiquement le 2026-07-23T18:42:38.960338+00:00 (3 répétitions/tâche). Voir BENCHMARK0.md pour la spec complète et les limites connues de chaque assertion, et la docstring de test_web_tasks.py pour la méthode de sous-classification boucle_fabrication/boucle_budget.
+Générée automatiquement le 2026-07-23T18:42:38.960338+00:00 (3 répétitions/tâche). Voir docs/benchmark-v1.md pour la spec complète et les limites connues de chaque assertion, et la docstring de test_web_tasks.py pour la méthode de sous-classification boucle_fabrication/boucle_budget.
 **Score de campagne : 18/33 passages réussis.**
 
 | Tâche | Succès | Approbations (moy.) | Tool calls observés (moy.) | Durée (moy., s) | Causes d'échec |

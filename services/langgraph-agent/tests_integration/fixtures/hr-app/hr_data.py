@@ -1,6 +1,6 @@
 """
 Données figées du fixture "hr-app" (Benchmark 0, T2/T3/T5/T6 — voir
-BENCHMARK0.md). Tout est déterministe et codé en dur (pas de génération
+docs/benchmark-v1.md). Tout est déterministe et codé en dur (pas de génération
 aléatoire ici, contrairement à catalog/docs) : les valeurs de vérité terrain
 (3e salaire Ingénierie, masse salariale Ventes, nombre de demandes "en
 attente") sont calculées une fois ici et exposées à la fois à l'app Flask et
@@ -13,7 +13,7 @@ LOGIN_PASSWORD = "Conges2026!"
 
 # Volontairement PAS trié par salaire ni groupé par département dans l'ordre
 # de la liste : force un vrai tri/filtre JS côté page plutôt qu'une lecture
-# de l'ordre par défaut (voir T3, BENCHMARK0.md).
+# de l'ordre par défaut (voir T3, docs/benchmark-v1.md).
 EMPLOYEES = [
     {"id": 1, "name": "Julien Faure", "department": "Ingénierie", "salary": 52000},
     {"id": 2, "name": "Camille Roux", "department": "Ventes", "salary": 38000},

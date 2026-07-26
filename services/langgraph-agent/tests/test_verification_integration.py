@@ -1,7 +1,7 @@
 """
 Intégration graphe complet (Itération 2, Phase 1 « cœur cognitif » —
 PLANNER_ENABLED + VERIFICATION_ENABLED activés ensemble ; révisé Itération 4
-— correctif latence 1/2, puis 1/2-bis, puis 1/2-ter, voir HISTORY.md :
+— correctif latence 1/2, puis 1/2-bis, puis 1/2-ter, voir docs/history.md :
 verify_action ne fait plus d'appel LLM séparé, et le constat
 (constat_precedent) voyage désormais comme paramètre de l'outil d'ACTION
 lui-même — un seul tool call par tour, fusionné, plus deux tool_calls à

@@ -50,7 +50,7 @@ def test_route_after_verification_continue_when_no_failed_subtask():
 
 
 def test_route_after_tool_execution_replan_under_budget():
-    """Correctif latence 1/2-bis (voir HISTORY.md) : le dispatch
+    """Correctif latence 1/2-bis (voir docs/history.md) : le dispatch
     replan/give_up sur sous-tâche "echoue" a été déplacé de
     route_after_verification vers route_after_tool_execution (tourne APRÈS
     exécution des tool_calls, pour que report_and_act ait toujours son

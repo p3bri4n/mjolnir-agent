@@ -1,6 +1,6 @@
 """
 Persistance de campagne (constat de l'inventaire de persistance avant ce
-chantier, voir HISTORY.md "INVENTAIRE DE PERSISTANCE") : un fichier
+chantier, voir docs/history.md "INVENTAIRE DE PERSISTANCE") : un fichier
 `campaign-<timestamp>-<label>.json` par campagne, écrit UNE SEULE FOIS à la
 fin (jamais réécrit ensuite), à côté du rapport Markdown existant
 (`_write_report`, test_web_tasks.py, devient une VUE sur ce JSON plutôt

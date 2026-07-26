@@ -137,13 +137,13 @@ CONTEXT_MANAGER_URL = os.environ.get("CONTEXT_MANAGER_URL", "http://context-mana
 SKILL_MANAGER_URL = os.environ.get("SKILL_MANAGER_URL", "http://skill-manager:8001")
 MCP_CLIENT_URL = os.environ.get("MCP_CLIENT_URL", "http://mcp-client:8003")
 
-# Garde-fou fabrication d'URL (Phase 1, voir PLAN.md/HISTORY.md — cible n°1
+# Garde-fou fabrication d'URL (Phase 1, voir PLAN.md/docs/history.md — cible n°1
 # du point zéro Phase 0 : l'agent invente régulièrement des URL plausibles
 # jamais observées — page-4.html sur un catalogue à 3 pages, un chemin de
 # recherche inexistant... — plutôt que de suivre un lien réel du DOM).
 BROWSER_NAVIGATE_GUARDRAIL = os.environ.get("BROWSER_NAVIGATE_GUARDRAIL", "true").lower() == "true"
 
-# Feedback gradué (Phase 1c, voir HISTORY.md) : la 1b (liste complète des
+# Feedback gradué (Phase 1c, voir docs/history.md) : la 1b (liste complète des
 # liens à CHAQUE rejet) a fait reculer T4/T7/T8 par rapport à la 1a — la
 # liste complète était redondante (déjà dans le snapshot structuré) et
 # alourdissait chaque rejet. Trois paliers par NOMBRE DE TENTATIVES
@@ -160,13 +160,13 @@ FABRICATION_LIMIT = int(os.environ.get("FABRICATION_LIMIT", "5"))
 def _fabrication_feedback(fabricated_url: str, attempt_number: int, page_links: list) -> str:
     if attempt_number >= FABRICATION_LIMIT:
         # Plafond (Phase 1c) : redirection conditionnelle vers des "candidats
-        # forts" tentée en Phase 1d puis SUSPENDUE (voir HISTORY.md) —
+        # forts" tentée en Phase 1d puis SUSPENDUE (voir docs/history.md) —
         # l'hypothèse motivant ce branchement (0a, vérification d'archive
         # T5/T8) n'a pas été confirmée par les séquences réellement
         # observées. Revient au message inconditionnel de 1c : au plafond,
         # conclure à l'absence est une réponse valide, point final. Le vrai
         # correctif T5 vit maintenant côté infra (volume de téléchargement
-        # dédié, voir HISTORY.md "Phase 1d-révisée") plutôt que dans une
+        # dédié, voir docs/history.md "Phase 1d-révisée") plutôt que dans une
         # heuristique de similarité sur ce feedback.
         return (
             f"URL non observée (tentative n°{attempt_number}). Plusieurs tentatives vers des URL "
@@ -207,7 +207,7 @@ _PAGE_URL_LINE_RE = re.compile(r"Page URL:\s*(\S+)")
 
 # Borne de sortie d'outil (Phase 1) : un résultat d'outil browser_* trop
 # volumineux (page réelle dense, voir T8/T11 — dépassement de contexte LLM
-# découvert en conditions réelles, voir HISTORY.md) est tronqué à la SOURCE,
+# découvert en conditions réelles, voir docs/history.md) est tronqué à la SOURCE,
 # avant d'entrer dans l'historique de conversation. Distinct de la rétention
 # d'images (Phase 2, MAX_IMAGES_IN_CONTEXT) : ceci borne la taille d'UN SEUL
 # résultat d'outil, pas l'historique complet.
@@ -254,7 +254,7 @@ _AFFORDANCE_LINE_RE = re.compile(r'-\s*\'?(link|button|textbox|combobox|checkbox
 # une vraie page Wikipédia (593 affordances, ~47000 caractères d'inventaire
 # à elle seule), l'inventaire dépassait déjà largement le plafond de sortie
 # et affamait TOUT le contenu descriptif, y compris le lien sémantique entre
-# "Naissance" et "Muret" (voir HISTORY.md, vérification d'archive T8).
+# "Naissance" et "Muret" (voir docs/history.md, vérification d'archive T8).
 AFFORDANCE_THRESHOLD = int(os.environ.get("AFFORDANCE_THRESHOLD", "60"))
 _NAV_KEYWORDS = {
     "suivant", "précédent", "precedent", "next", "previous", "prev", "page",
@@ -305,7 +305,7 @@ def _extract_affordances(text: str) -> list[str]:
     """Voir _truncate_browser_result : cet inventaire est TOUJOURS conservé
     intégralement en dessous d'AFFORDANCE_THRESHOLD éléments — au-delà,
     _prioritize_affordances hiérarchise plutôt que de tout garder (voir
-    ce module, HISTORY.md, "le tronquage affame la navigation")."""
+    ce module, docs/history.md, "le tronquage affame la navigation")."""
     return [_format_affordance(i) for i in _extract_affordances_structured(text)]
 
 
@@ -448,7 +448,7 @@ IMAGE_RETENTION_PLACEHOLDER = "[screenshot antérieure supprimée]"
 # tête de CHAQUE tâche aurait cassé la quasi-totalité des tests existants
 # qui mockaient une séquence FIXE de réponses. Le cœur cognitif est
 # désormais mesuré (campagne finale 29/33, cohérente avec la Campagne A
-# pré-cœur-cognitif à 30/33 — voir HISTORY.md/README) et adopté : le
+# pré-cœur-cognitif à 30/33 — voir docs/history.md/README) et adopté : le
 # comportement NOMINAL doit être le défaut, c'est la DÉSACTIVATION qui doit
 # être explicite. Les tests qui dépendent du comportement pré-cœur-cognitif
 # forcent désormais explicitement "false", ils ne s'appuient plus sur le défaut.
@@ -477,7 +477,7 @@ REPLAN_BUDGET = int(os.environ.get("REPLAN_BUDGET", "2"))
 PLAN_VALIDATION_ENABLED = os.environ.get("PLAN_VALIDATION_ENABLED", "true").lower() == "true"
 # Juge LLM du plan (heuristiques déjà passées, coûteux — un appel LLM par
 # validation). CLAUSE DE RETRAIT (brief Itération 3) mesurée en conditions
-# réelles (voir HISTORY.md, Itération 3) : a réellement vétoté un plan que
+# réelles (voir docs/history.md, Itération 3) : a réellement vétoté un plan que
 # les heuristiques laissaient passer, pour des raisons sémantiques hors de
 # leur portée (preuve d'utilité réelle, pas un validateur "théâtre"), au
 # prix d'une latence notable. DÉFAUT INVERSÉ (docs/briefs/
@@ -520,12 +520,12 @@ GROUNDING_DIRECTIVE = (
 )
 
 # Chemin de consommation de fichier DOCUMENTÉ (Phase 1d-révisée, voir
-# HISTORY.md, T5) : un téléchargement déclenché dans le navigateur atterrit
+# docs/history.md, T5) : un téléchargement déclenché dans le navigateur atterrit
 # dans un volume désormais partagé en lecture seule avec le serveur MCP
 # filesystem (voir docker-compose.yml, --output-dir/agent-downloads), sous
 # /downloads — jamais dans le filesystem du conteneur playwright-mcp
 # lui-même (fetch()/browser_evaluate comme canal de transfert de fichier a
-# été explicitement écarté, voir HISTORY.md : ce n'est pas la primitive
+# été explicitement écarté, voir docs/history.md : ce n'est pas la primitive
 # d'un outil de lecture). Donner le chemin réel plutôt que de laisser le
 # modèle en deviner un (observé : /app/.playwright-mcp/, /.playwright-mcp/
 # — tous deux faux) est l'anti-fabrication directe pour ce cas.
@@ -537,7 +537,7 @@ DOWNLOAD_DIRECTIVE = (
     "navigateur, que tu ne peux pas connaître à l'avance."
 )
 
-# Vérification en masse (trouvé en investiguant T1, voir HISTORY.md) : le
+# Vérification en masse (trouvé en investiguant T1, voir docs/history.md) : le
 # vrai blocage n'était ni un format de requête ni une panne, mais un budget
 # d'itérations insuffisant face à une information visible UNIQUEMENT sur
 # les pages de détail (jamais le listing), forçant potentiellement autant
@@ -561,7 +561,7 @@ BULK_CHECK_DIRECTIVE = (
 
 # Conscience temporelle (PLAN.md Phase 1, point 7 — amendement dédié,
 # jamais implémenté avant ce correctif malgré T11 déjà présente dans le
-# harnais depuis la Phase 0, voir HISTORY.md : confirmé en grep exhaustif
+# harnais depuis la Phase 0, voir docs/history.md : confirmé en grep exhaustif
 # lors du diagnostic T11). Déclenchée par la sonde T11 elle-même :
 # `browser_extract(query="Python 3.13")` — le modèle navigue bien vers
 # python.org (correctif "premier hop") mais interroge la page avec un
@@ -580,7 +580,7 @@ BULK_CHECK_DIRECTIVE = (
 # retenue : ne pas se fier à des versions/faits volatils sans vérifier,
 # quelle que soit la date supposée.
 # Biais de formulation de requête (trouvé APRÈS la 1re version de cette
-# directive, voir HISTORY.md — sonde T11 : le modèle décide bien de
+# directive, voir docs/history.md — sonde T11 : le modèle décide bien de
 # vérifier, "Ma connaissance pourrait être dépassée", MAIS interroge
 # ensuite browser_extract avec "Python 3.13" — sa propre valeur supposée
 # injectée dans la requête de recherche elle-même — au lieu d'un terme
@@ -622,7 +622,7 @@ def _date_directive() -> str:
     """
     Injection de date (PLAN.md Phase 1, point 7a) : granularité JOUR
     UNIQUEMENT, jamais l'heure — préservation du cache de préfixe
-    ExLlamaV3 (voir HISTORY.md, chasse au cache=0) : une valeur qui ne
+    ExLlamaV3 (voir docs/history.md, chasse au cache=0) : une valeur qui ne
     change qu'une fois par jour, pas à chaque tour ni chaque seconde.
     Positionnée en dernier dans le bloc système statique (après
     GROUNDING_DIRECTIVE/DOWNLOAD_DIRECTIVE/PEREMPTION_DIRECTIVE, avant la
@@ -745,7 +745,7 @@ def has_visible_answer(content: str) -> bool:
 
 # Vérification post-action fusionnée dans le tour d'outil lui-même plutôt
 # qu'un appel LLM séparé (historique des 3 versions successives — marqueur
-# texte, tool call dédié, fusion actuelle — dans HISTORY.md, "correctif
+# texte, tool call dédié, fusion actuelle — dans docs/history.md, "correctif
 # latence"). constat_precedent devient un paramètre REQUIS du schéma de
 # CHAQUE outil réel (_inject_constat_param, _get_bound_llm) : un seul appel
 # porte à la fois l'action et son constat sur l'action précédente.
@@ -766,7 +766,7 @@ def has_visible_answer(content: str) -> bool:
 # de couverture (voir verify_action) : à mesurer, pas à supposer acquis.
 _CONSTAT_PARAM_NAME = "constat_precedent"
 _CONSTAT_VERDICTS = ("atteint", "non_atteint", "sans_objet")
-# Dégraissé (correctif "arbitrage post-1/2-ter", voir HISTORY.md) : enum
+# Dégraissé (correctif "arbitrage post-1/2-ter", voir docs/history.md) : enum
 # nu, sans description — mesuré à +6 931 tokens/tour (+65%) avec la
 # description répétée sur les 64 outils réels vs +2 569 tokens (+24%)
 # sans elle (tokenizer réel de TabbyAPI, /v1/token/encode). La sémantique
@@ -986,7 +986,7 @@ PLAN_JUDGE_SYSTEM_PROMPT = (
 async def _judge_plan(plan: list, objective: str, page_snapshot: Optional[str] = None) -> list:
     """
     Verdict du juge LLM (Itération 3, page_snapshot ajouté à l'Itération 4 —
-    correctif d'ancrage, voir HISTORY.md) : liste des motifs de rejet (vide
+    correctif d'ancrage, voir docs/history.md) : liste des motifs de rejet (vide
     = faisable). Dégrade en FAIL-OPEN sur erreur LLM/JSON invalide (aucun
     motif renvoyé, pas de veto par défaut) — cohérent avec "jamais de
     boucle infinie" du brief : un juge indisponible ne doit jamais bloquer
@@ -1025,7 +1025,7 @@ async def _fetch_verification_snapshot(objective: str) -> str:
     """
     Capture un browser_snapshot FRAIS au moment de la vérification —
     correctif d'ancrage trouvé pendant la sonde live de l'Itération 4 (voir
-    HISTORY.md) : le résultat brut du dernier tool_call (ex. la
+    docs/history.md) : le résultat brut du dernier tool_call (ex. la
     confirmation d'un browser_click) est souvent TERSE, sans le contenu de
     la page qui en résulte. verify_action jugeait alors une sous-tâche
     "échouée" en se fiant uniquement à success_criterion — parfois lui-même
@@ -1053,7 +1053,7 @@ async def _grounding_snapshot(state: dict, objective: str) -> Optional[str]:
     """
     Snapshot de la page courante pour ancrer une (re)planification/
     validation sur ce qui existe RÉELLEMENT (Itération 4, suite du
-    correctif verify_action — voir HISTORY.md). `None` si aucune navigation
+    correctif verify_action — voir docs/history.md). `None` si aucune navigation
     n'a encore eu lieu pour cette tâche (state["current_page_url"], Phase
     1) : le TOUT PREMIER plan (plan_task) reste donc structurellement non
     ancré — aucune page n'existe encore à capturer à ce stade, et forcer
@@ -1201,7 +1201,7 @@ class AgentState(TypedDict):
     # pending_verification était vrai mais qu'aucun constat exploitable n'a
     # pu être extrait du tour. Dégradation VOLONTAIREMENT inversée : ce cas
     # se MESURE (métrique dédiée) plutôt que de se FACTURER comme un échec
-    # de sous-tâche (voir verify_action et HISTORY.md, "correctif latence",
+    # de sous-tâche (voir verify_action et docs/history.md, "correctif latence",
     # pour le score cassé par l'ancien mécanisme qui le comptait comme un
     # échec).
     constats_inexploitables: int
@@ -1225,7 +1225,7 @@ llm = ChatOpenAI(
 )
 
 # Bug découvert en conditions réelles en vérifiant la campagne live de
-# l'Itération 3 (voir HISTORY.md) : les appels LLM auxiliaires (plan_task/
+# l'Itération 3 (voir docs/history.md) : les appels LLM auxiliaires (plan_task/
 # revise_plan/verify_action/_judge_plan) utilisaient `llm` ci-dessus, plafonné
 # à LLM_MAX_TOKENS (2048, pensé pour le tour conversationnel principal).
 # Qwen3.6/TabbyAPI raisonne dans un champ reasoning_content SÉPARÉ de
@@ -1248,7 +1248,7 @@ PLANNER_MAX_TOKENS = int(os.environ.get("PLANNER_MAX_TOKENS", "8192"))
 # paramètre PAR REQUÊTE côté serveur
 # (`GET /openapi.json`, schéma ChatCompletionRequest : `enable_thinking:
 # bool`), vérifié EN DIRECT avant d'écrire ce correctif (appel réel avec un
-# prompt de planification JSON, voir HISTORY.md) : `reasoning_content:
+# prompt de planification JSON, voir docs/history.md) : `reasoning_content:
 # null`, JSON valide immédiat, aucun raisonnement. `extra_body` est un
 # paramètre natif de langchain-openai (vérifié :
 # `"extra_body" in inspect.signature(ChatOpenAI).parameters`).
@@ -1351,7 +1351,7 @@ async def select_skill(state: AgentState) -> dict:
 async def _available_tools_hint() -> str:
     """
     Liste réelle des outils MCP disponibles (découvert en conditions
-    réelles pendant la campagne live de l'Itération 3, voir HISTORY.md) :
+    réelles pendant la campagne live de l'Itération 3, voir docs/history.md) :
     sans elle, le planificateur invente des noms d'outils plausibles mais
     inexistants (ex. "web_browser", "search") — systématiquement rejetés
     par les heuristiques (outils référencés existants,
@@ -1437,7 +1437,7 @@ async def validate_plan(state: AgentState) -> dict:
     avant cette itération. Sinon : heuristiques programmatiques
     (app/plan_validation.py, gratuites) puis, UNIQUEMENT si elles passent
     ET que PLAN_JUDGE_ENABLED, juge LLM (coûteux — clause de retrait, voir
-    HISTORY.md). Rejet (heuristiques OU juge) -> plan_validation_cycles
+    docs/history.md). Rejet (heuristiques OU juge) -> plan_validation_cycles
     incrémenté, motifs renvoyés pour route_after_validation.
     """
     if not PLAN_VALIDATION_ENABLED:
@@ -1753,7 +1753,7 @@ def _apply_adaptive_thinking(messages: list, session_grants) -> list:
 def _verification_directive(state: AgentState) -> str:
     """
     Injecte le constat sur l'action précédente dans le raisonnement du
-    tour courant plutôt qu'un appel LLM séparé (historique dans HISTORY.md,
+    tour courant plutôt qu'un appel LLM séparé (historique dans docs/history.md,
     "correctif latence") — coût marginal ~zéro. Le rappel de base
     (constat_precedent requis sur CHAQUE tool_call, _inject_constat_param
     dans _get_bound_llm) est TOUJOURS injecté dès que VERIFICATION_ENABLED
@@ -1841,7 +1841,7 @@ async def call_llm(state: AgentState, config: dict) -> dict:
             )
             merged.tool_calls = [fallback]
 
-    # Observabilité (Phase 1d-révisée, voir HISTORY.md "correctif
+    # Observabilité (Phase 1d-révisée, voir docs/history.md "correctif
     # extraction" -> "OBSERVABILITÉ") : persiste CE tour du modèle
     # (raisonnement <think> + texte + tool_calls éventuels), qu'il soit
     # ensuite auto-approuvé, soumis à approbation ou refusé — contrairement
@@ -2018,7 +2018,7 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
     de nouveau à tracer) — y compris ceux venus de call_tools, quel que
     soit leur tier.
 
-    Angle mort corrigé (voir HISTORY.md, investigation T9) : ce nœud
+    Angle mort corrigé (voir docs/history.md, investigation T9) : ce nœud
     audit-logguait auparavant SEULEMENT les tool_calls d'auto_call_tools,
     au motif qu'un tour passé par require_approval a déjà sa trace dans
     l'historique de conversation ("⚠️ Approbation requise" + la réponse).
@@ -2040,7 +2040,7 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
     # message humain). Recalculé/étendu au fil des tool_calls DE CE TOUR
     # (plusieurs browser_* peuvent apparaître dans le même tour_calls).
     #
-    # Correctif "premier hop" (voir HISTORY.md, chantier fiabilité session
+    # Correctif "premier hop" (voir docs/history.md, chantier fiabilité session
     # navigateur) : `has_prior_navigation` distingue le brut persisté
     # (navigations RÉELLEMENT déjà effectuées) de l'union avec
     # `_task_scope_urls` ci-dessous — sert à exempter la toute PREMIÈRE
@@ -2253,7 +2253,7 @@ def _active_subtask_index(plan: list) -> Optional[int]:
 async def verify_action(state: AgentState, config: dict) -> dict:
     """
     Analyse du constat de vérification post-action (historique des
-    révisions successives dans HISTORY.md, "correctif latence" — voir aussi
+    révisions successives dans docs/history.md, "correctif latence" — voir aussi
     _verification_directive plus haut). NE FAIT PLUS D'APPEL LLM : le
     verdict est parsé depuis les tool_calls que call_llm vient de produire
     (CE même appel a aussi
@@ -2272,7 +2272,7 @@ async def verify_action(state: AgentState, config: dict) -> dict:
     replanification, qui n'exécute aucun outil).
 
     Critère vérifié = success_criterion de la sous-tâche ACTIVE du plan.
-    Dégradation VOLONTAIREMENT INVERSÉE (voir HISTORY.md, "correctif
+    Dégradation VOLONTAIREMENT INVERSÉE (voir docs/history.md, "correctif
     latence", pour le score cassé — 18/33 — par la version précédente qui
     traitait un constat absent comme un échec) : constat absent/mal formé
     -> "sans_objet" (NI succès NI échec, budget de tentatives inchangé),
@@ -2430,7 +2430,7 @@ async def report_failure(state: AgentState) -> dict:
 def route_after_verification(state: AgentState) -> str:
     """
     Routage après verify_action (Itération 2, câblage révisé Itération 4 —
-    correctif latence 1/2, puis 1/2-bis, voir HISTORY.md). verify_action
+    correctif latence 1/2, puis 1/2-bis, voir docs/history.md). verify_action
     tourne maintenant APRÈS call_llm (plus AVANT, voir build_graph) : ce
     routage délègue directement à has_tool_calls (mêmes 4 issues :
     auto_call_tools/call_tools/retry_empty_answer/end), état["messages"][-1]
@@ -2736,7 +2736,7 @@ def build_graph(checkpointer=None):
     )
     graph.add_edge("reject_plan", END)
     # verify_action tourne APRÈS call_llm (analyse du constat que ce même
-    # appel vient de produire, voir HISTORY.md "correctif latence") —
+    # appel vient de produire, voir docs/history.md "correctif latence") —
     # route_after_verification délègue à has_tool_calls
     # (call_tools/auto_call_tools/retry_empty_answer/end). Le dispatch
     # replan/give_up sur sous-tâche "echoue" vit dans

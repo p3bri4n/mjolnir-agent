@@ -32,7 +32,7 @@
 # encore si besoin selon la marge VRAM réelle constatée.
 #
 # cache_size relevé à 49152 (correctif "chasse au cache=0", voir
-# HISTORY.md) : diagnostiqué en archives (journal TabbyAPI de la campagne
+# docs/history.md) : diagnostiqué en archives (journal TabbyAPI de la campagne
 # 1/2-ter) que cache_size == max_seq_len ne laisse quasiment aucune marge
 # pour qu'une requête planner_llm (courte, jamais liée aux outils,
 # intercalée entre deux tours de la boucle principale) coexiste dans le

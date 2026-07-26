@@ -1,6 +1,6 @@
 """
 Conscience temporelle (PLAN.md Phase 1, point 7 — amendement dédié,
-implémenté ici après diagnostic T11, voir HISTORY.md) : injection de date
+implémenté ici après diagnostic T11, voir docs/history.md) : injection de date
 (granularité JOUR, jamais l'heure — préservation du cache de préfixe
 ExLlamaV3) + directive de péremption (le modèle ne doit pas répondre de
 mémoire sur des faits volatils sans vérifier via le web).
@@ -59,7 +59,7 @@ def test_date_directive_format_and_day_granularity(monkeypatch):
 def test_date_directive_stable_within_the_same_day():
     """Deux appels le même jour produisent EXACTEMENT le même texte — la
     valeur ne doit varier qu'une fois par jour, pas à chaque appel/tour
-    (voir chasse au cache=0, HISTORY.md)."""
+    (voir chasse au cache=0, docs/history.md)."""
     import app.graph as g
 
     assert g._date_directive() == g._date_directive()
@@ -74,7 +74,7 @@ def test_peremption_directive_mentions_verification_and_stable_facts():
 
 def test_peremption_directive_warns_against_biased_search_query():
     """Biais trouvé APRÈS la 1re version de cette directive (voir
-    HISTORY.md, sonde T11) : le modèle décidait bien de vérifier, mais
+    docs/history.md, sonde T11) : le modèle décidait bien de vérifier, mais
     interrogeait ensuite browser_extract avec sa propre valeur supposée
     ("Python 3.13") au lieu d'un terme neutre — la vérification devient
     inutile si la requête est déjà biaisée par la réponse supposée."""

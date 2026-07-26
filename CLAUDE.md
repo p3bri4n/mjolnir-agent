@@ -1,10 +1,10 @@
 # Instruction particulières pour ce projet
 
 1. lis `CLAUDE.md`, le README (court) et le brief du chantier en cours en
-   début de session ; `HISTORY.md`/`RESOLVED_BUGS.md` se consultent par
+   début de session ; `docs/history.md`/`docs/resolved-bugs.md` se consultent par
    recherche ciblée (grep sur un mot-clé), jamais en entier.
-2. les bugs résolus doivent être inscrits dans RESOLVED_BUGS.md
-3. l'historique des avancées doit être inscrit dans HISTORY.md
+2. les bugs résolus doivent être inscrits dans docs/resolved-bugs.md
+3. l'historique des avancées doit être inscrit dans docs/history.md
 4. toujours informer l'utilisateur des commandes qu'il doit tapper si besoin de redémarrer/rebuild un service docker
 5. une phase = une PR. Un commit = une nature de changement (jamais un
    déplacement et une réécriture dans le même commit — le diff devient
@@ -21,7 +21,7 @@
     Restent en français : prompts système/directives envoyés au modèle et
     prompts des tâches du benchmark (comportement, pas documentation —
     traduction isolée en phase 6, jamais mêlée à un refactor) ; les entrées
-    déjà écrites de `HISTORY.md`/`RESOLVED_BUGS.md` (archives datées) ;
+    déjà écrites de `docs/history.md`/`docs/resolved-bugs.md` (archives datées) ;
     messages d'approbation/notices utilisateur (décision séparée à venir).
 
 ## Contrat docstrings/commentaires
@@ -34,7 +34,7 @@
 - le commentaire explique le POURQUOI ; un code qui exige d'expliquer le
   QUOI se réécrit plutôt ;
 - l'historique ne vit pas dans le code (« corrigé à l'itération 3 ») → renvoi
-  d'une ligne vers `HISTORY.md`/`RESOLVED_BUGS.md`, jamais le détail recopié ;
+  d'une ligne vers `docs/history.md`/`docs/resolved-bugs.md`, jamais le détail recopié ;
 - **exception assumée** : un bloc qui documente une contrainte externe
   vérifiée (comportement d'une lib, piège d'un backend, raison d'un flag)
   reste — c'est du savoir chèrement acquis. On coupe la paraphrase, on

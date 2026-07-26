@@ -1,5 +1,5 @@
 """
-Journal d'audit (Phase 2, angle mort corrigé — voir HISTORY.md,
+Journal d'audit (Phase 2, angle mort corrigé — voir docs/history.md,
 investigation T9) : trace machine-lisible de chaque tool_call effectivement
 exécuté dont le tier n'est pas TIER_READ (silencieux par design, rien de
 nouveau à auditer) — TIER_REVERSIBLE comme TIER_SENSITIVE, qu'il vienne
@@ -13,14 +13,14 @@ regarde) et de toute façon caduque après un redémarrage du service
 de chaque outil par thread, le plus utile à l'investigation, restait
 invisible.
 
-Résultat d'outil (Phase 1d-révisée, voir HISTORY.md "l'observabilité
+Résultat d'outil (Phase 1d-révisée, voir docs/history.md "l'observabilité
 d'abord") : chaque entrée porte désormais aussi le résultat TEL QUE VU PAR
 LE MODÈLE (déjà tronqué/hiérarchisé par _truncate_browser_result côté
 appelant — jamais la version brute, ce serait dupliquer une donnée que le
 modèle n'a jamais reçue). Sans ça, l'archive ne permettait de reconstruire
 que la SÉQUENCE d'appels (tool + arguments), jamais ce que l'agent a
 réellement perçu à chaque étape — ce qui a bloqué la vérification stricte
-des hypothèses 0a/0b lors du diagnostic T5/T8 (voir HISTORY.md). C'est
+des hypothèses 0a/0b lors du diagnostic T5/T8 (voir docs/history.md). C'est
 aussi la fondation du futur endpoint "contexte de l'agent" du dashboard.
 
 Un fichier JSONL par jour, sous AUDIT_LOG_DIR (défaut /workspace/.audit,
@@ -91,14 +91,14 @@ def log_tool_call(
 
 def log_message(thread_id: str, role: str, content) -> None:
     """
-    Observabilité (Phase 1d-révisée, voir HISTORY.md "correctif extraction"
+    Observabilité (Phase 1d-révisée, voir docs/history.md "correctif extraction"
     -> "OBSERVABILITÉ") : persiste le message ASSISTANT (raisonnement
     <think> inclus + réponse finale, voir call_llm/app/graph.py) produit à
     chaque tour — dernière pièce manquante de l'archive. Sans elle, une
     investigation d'archive ne pouvait reconstruire QUE ce que l'agent a
     perçu (résultats d'outils, voir log_tool_call) et sa séquence d'actions,
     jamais son propre raisonnement/texte — limite honnêtement signalée
-    plusieurs fois pendant le diagnostic T1/T7/T10 (voir HISTORY.md).
+    plusieurs fois pendant le diagnostic T1/T7/T10 (voir docs/history.md).
     `kind: "message"` distingue ces entrées des tool_calls (`kind` absent
     pour ceux-ci, rétrocompatible) à la lecture — voir GET /audit,
     app/main.py, qui reste volontairement générique (renvoie tout, au

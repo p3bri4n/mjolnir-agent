@@ -1,6 +1,6 @@
 # checkpoint-conscience-temporelle — suite de tâches web (Phase 0)
 
-Générée automatiquement le 2026-07-24T15:38:47.871824+00:00 (3 répétitions/tâche). Voir BENCHMARK0.md pour la spec complète et les limites connues de chaque assertion, et la docstring de test_web_tasks.py pour la méthode de sous-classification boucle_fabrication/boucle_budget.
+Générée automatiquement le 2026-07-24T15:38:47.871824+00:00 (3 répétitions/tâche). Voir docs/benchmark-v1.md pour la spec complète et les limites connues de chaque assertion, et la docstring de test_web_tasks.py pour la méthode de sous-classification boucle_fabrication/boucle_budget.
 **Score de campagne : 26/33 passages réussis.**
 **Couverture des constats : 93.8% (212/226).**
 **Prefill total (toutes tâches) : 889.8s** (82/451 requêtes à cache=0, 18.2% — métrique informative).

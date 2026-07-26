@@ -132,7 +132,7 @@ def test_run_preflight_checks_flags_before_schema_but_after_image_freshness():
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# check_tabbyapi_image_fresh (arbitrage post-1/2-ter, voir HISTORY.md)
+# check_tabbyapi_image_fresh (arbitrage post-1/2-ter, voir docs/history.md)
 # ─────────────────────────────────────────────────────────────────────────
 
 

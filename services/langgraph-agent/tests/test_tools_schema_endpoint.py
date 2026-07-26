@@ -2,7 +2,7 @@
 GET /tools/schema (langgraph-agent) : noms d'outils tels qu'EFFECTIVEMENT vus
 par ce process (_tools_schema_cache), distinct du schéma servi par mcp-client
 au moment de l'appel — voir le docstring de la route (app/main.py) et
-HISTORY.md "bug de cache de schéma d'outils" pour la raison d'être de cette
+docs/history.md "bug de cache de schéma d'outils" pour la raison d'être de cette
 distinction. Sert de brique au préambule de campagne du harnais
 (tests_integration/campaign_preflight.py, Itération 0 du brief Phase 1
 « cœur cognitif », docs/briefs/phase-1-coeur-cognitif.md).

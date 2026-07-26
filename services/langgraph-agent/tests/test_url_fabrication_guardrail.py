@@ -1,5 +1,5 @@
 """
-Garde-fou fabrication d'URL (Phase 1, voir PLAN.md/HISTORY.md) : cible n°1
+Garde-fou fabrication d'URL (Phase 1, voir PLAN.md/docs/history.md) : cible n°1
 du point zéro Phase 0 (tests_integration/test_web_tasks.py, T1/T7) — l'agent
 invente régulièrement des URL plausibles jamais observées (page-4.html sur
 un catalogue à 3 pages, un chemin de recherche inexistant...) plutôt que de
@@ -13,7 +13,7 @@ avec un feedback d'outil explicite, et comptée dans
 `fabricated_navigation_attempts`.
 
 Correctif "premier hop" (chantier fiabilité session navigateur, voir
-HISTORY.md) : la toute PREMIÈRE navigation d'une tâche (aucune URL encore
+docs/history.md) : la toute PREMIÈRE navigation d'une tâche (aucune URL encore
 observée, `has_prior_navigation` faux dans `app/graph.py`) est désormais
 TOUJOURS autorisée, même sans URL dans le prompt — root cause trouvée sur
 des tâches réelles sans URL donnée (T8 "sur Wikipédia...", T11 "quelle est
@@ -55,7 +55,7 @@ def mock_side_services():
 
 @pytest.mark.asyncio
 async def test_first_navigate_without_task_url_is_allowed(mock_side_services):
-    """Correctif "premier hop" (voir HISTORY.md) : une tâche réelle sans URL
+    """Correctif "premier hop" (voir docs/history.md) : une tâche réelle sans URL
     dans le prompt (ex. T8/T11) ne doit plus voir sa PREMIÈRE navigation
     bloquée comme fabrication — rien n'a encore été observé, il n'y a pas
     de fabrication possible sur un tout premier choix de départ."""
@@ -191,7 +191,7 @@ def test_truncate_browser_result_leaves_small_text_untouched():
 
 
 def _synthetic_long_catalog_page(n_products: int) -> str:
-    """Simule un snapshot Playwright réel (voir HISTORY.md, "le tronquage
+    """Simule un snapshot Playwright réel (voir docs/history.md, "le tronquage
     affame la navigation") : beaucoup de contenu descriptif AVANT la liste
     de liens, comme la barre latérale de catégories de books.toscrape.com
     qui, en conditions réelles, occupe justement les premiers milliers de
@@ -206,7 +206,7 @@ def _synthetic_long_catalog_page(n_products: int) -> str:
 
 
 def test_structured_truncation_preserves_all_links_below_affordance_threshold():
-    """Critère explicite (voir HISTORY.md) : page catalogue longue mais SOUS
+    """Critère explicite (voir docs/history.md) : page catalogue longue mais SOUS
     AFFORDANCE_THRESHOLD -> le snapshot tronqué contient 100% des liens,
     malgré un plafond de taille largement dépassé par le texte brut."""
     import app.graph as g
@@ -230,7 +230,7 @@ def test_structured_truncation_preserves_all_links_below_affordance_threshold():
 def test_hierarchical_inventory_keeps_pagination_and_relevant_content_on_huge_page():
     """Critère explicite (Phase 1d, point 2) : page à 500 liens -> le
     snapshot tronqué contient la pagination ET le contenu pertinent pour
-    l'objectif de la tâche — voir HISTORY.md, vérification d'archive T8
+    l'objectif de la tâche — voir docs/history.md, vérification d'archive T8
     (593 affordances sur une vraie page Wikipédia affamaient tout le
     contenu, y compris le lien sémantique "Naissance" -> "Muret")."""
     import app.graph as g
@@ -278,7 +278,7 @@ def test_extract_affordances_pairs_labels_with_urls_and_lists_buttons_without():
 
 
 def test_fabrication_feedback_tier1_is_minimal_without_link_list():
-    """Rejets 1-2 (voir HISTORY.md, Phase 1c) : message minimal, AUCUNE
+    """Rejets 1-2 (voir docs/history.md, Phase 1c) : message minimal, AUCUNE
     liste — le snapshot structuré contient déjà l'inventaire complet des
     liens (voir _extract_affordances), le re-fournir à chaque rejet était
     la vraie cause du recul en 1b."""
@@ -311,7 +311,7 @@ def test_fabrication_feedback_at_limit_always_concludes_absence():
     (Phase 1c) — pousse vers une conclusion honnête d'absence plutôt que
     vers une énième supposition (pont vers T7). Une redirection
     conditionnelle vers des "candidats forts" a été tentée en Phase 1d puis
-    SUSPENDUE (voir HISTORY.md, vérification d'archive T5/T8) : l'hypothèse
+    SUSPENDUE (voir docs/history.md, vérification d'archive T5/T8) : l'hypothèse
     motivant ce branchement n'était pas soutenue par les séquences
     observées — le vrai correctif T5 vit côté infra (volume de
     téléchargement dédié), pas dans ce feedback."""
