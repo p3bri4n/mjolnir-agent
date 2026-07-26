@@ -449,6 +449,21 @@ services:
     build: ./services/tabbyapi
     container_name: tabbyapi
     restart: unless-stopped
+    # Explicite plutôt que de dépendre du défaut du daemon Docker de l'hôte
+    # (souvent plus restrictif, ex. Desktop Linux : max-size 20m/max-file 5,
+    # ~100 Mio — insuffisant pour garder les lignes "tokens generated"
+    # exploitées par tests_integration/campaign_persistence.py sur une
+    # campagne complète) : ces logs sont la SEULE source réelle de
+    # performance par requête pour TabbyAPI (pas d'endpoint /metrics, voir
+    # campaign_persistence.py) — les perdre au gré du daemon invaliderait
+    # silencieusement `collect_tabbyapi_raw_samples` sur les runs les plus
+    # anciens d'une campagne. Toujours borné (pas de croissance infinie) :
+    # ~1 Gio cumulé, plusieurs campagnes complètes de marge.
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "10"
     volumes:
       - ./services/tabbyapi/config.yml:/app/config.yml:ro
       - ${MODELS_HOST_PATH:-./models}:/models

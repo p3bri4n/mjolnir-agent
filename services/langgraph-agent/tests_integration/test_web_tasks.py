@@ -68,6 +68,7 @@ sur le site mais que le modèle n'a jamais réellement vue dans un snapshot
 """
 import ast
 import csv
+import hashlib
 import io
 import json
 import os
@@ -84,7 +85,7 @@ from pathlib import Path
 
 import pytest
 
-from tests_integration import campaign_preflight
+from tests_integration import campaign_persistence, campaign_preflight
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("RUN_LIVE_AGENT_TESTS") != "1",
@@ -136,8 +137,12 @@ CAMPAIGN_LABEL = os.environ.get("WEB_TASKS_CAMPAIGN_LABEL", "Campagne A (budget 
 # médiane connue) AVANT de le lancer, pour choisir smoke ou complète en
 # connaissance de cause. Un seul fichier partagé, volontairement : la
 # dernière mesure connue par tâche est la meilleure estimation disponible,
-# qu'elle vienne d'un smoke ou d'une campagne complète.
-DURATION_STATS_PATH = Path(__file__).parent / "CAMPAIGN_DURATION_STATS.json"
+# qu'elle vienne d'un smoke ou d'une campagne complète. Nommé explicitement
+# "cache d'estimation" (pas "stats de campagne") : CE N'EST PAS un
+# historique, chaque campagne écrase la valeur de ses tâches — voir le
+# champ "_note" du fichier lui-même et campaign_persistence.py pour le
+# véritable historique par campagne (campaign-<timestamp>-<label>.json).
+ESTIMATE_CACHE_PATH = Path(__file__).parent / "DURATION_ESTIMATE_CACHE.json"
 
 # Textes exacts émis côté serveur (voir app/main.py) — même convention que
 # test_tool_calling_baseline.py.
@@ -284,14 +289,15 @@ KNOWN_URLS_BY_TASK = {
 }
 
 
-def _audit_entries(prompt: str) -> list:
-    """thread_id dérivé du seul 1er message humain (voir _derive_thread_id,
-    app/main.py) : on peut le retrouver à partir du même prompt."""
-    script = f"""
-import hashlib
-print(hashlib.sha256({prompt!r}.encode()).hexdigest()[:16])
-"""
-    thread_id = _docker_exec_python(AGENT_CONTAINER, script).strip()
+def _derive_thread_id(prompt: str) -> str:
+    """Même algorithme que _derive_thread_id (app/main.py) : hash du seul
+    1er message humain, calculable directement ici (pas besoin d'un aller-
+    retour docker exec juste pour un sha256 — constaté redondant, voir
+    test_tool_calling_baseline.py qui fait déjà ce calcul localement)."""
+    return hashlib.sha256(prompt.encode()).hexdigest()[:16]
+
+
+def _audit_entries(thread_id: str) -> list:
     script = f"""
 import urllib.request
 req = urllib.request.Request('http://localhost:8000/audit?thread_id={{}}'.format({thread_id!r}))
@@ -341,48 +347,15 @@ class TaskResult:
         self.prefill_seconds = 0.0
         self.cache_zero_requests = 0
         self.tabbyapi_requests = 0
+        # Persistance de campagne (voir campaign_persistence.py) : thread_id
+        # calculé ici même algorithme que _derive_thread_id (app/main.py),
+        # clé de jointure avec /workspace/.audit ; tabbyapi_raw_samples un
+        # échantillon PAR REQUÊTE (pas seulement l'agrégat ci-dessus).
+        self.thread_id = ""
+        self.tabbyapi_raw_samples = []
 
 
 TABBYAPI_CONTAINER = os.environ.get("TABBYAPI_CONTAINER", "tabbyapi")
-_TABBY_METRICS_RE = re.compile(
-    r"(\d+) tokens generated in ([\d.]+) seconds \(Queue: ([\d.]+) s, Process: (\d+) cached tokens "
-    r"and (\d+) new tokens at ([\d.]+) T/s"
-)
-
-
-def _fetch_tabbyapi_prefill_stats(since_dt, until_dt) -> dict:
-    """
-    Somme le temps de prefill RÉEL (nouveaux tokens / débit de traitement,
-    tel que journalisé par TabbyAPI/ExLlamaV3) sur la fenêtre temporelle
-    d'UNE tâche — voir TaskResult.prefill_seconds. La campagne tourne tâche
-    par tâche, répétition par répétition (jamais en parallèle, voir
-    _run_campaign) : la fenêtre temps réel de cette répétition attribue
-    donc sans ambiguïté chaque requête TabbyAPI journalisée à cette tâche.
-    Best-effort : ne fait jamais échouer une répétition si `docker logs`
-    échoue (conteneur redémarré entre-temps, etc.) — retourne des zéros.
-    """
-    since_iso = since_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-    until_iso = until_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-    try:
-        result = subprocess.run(
-            ["docker", "logs", "--since", since_iso, "--until", until_iso, TABBYAPI_CONTAINER],
-            capture_output=True, text=True, timeout=30,
-        )
-    except subprocess.TimeoutExpired:
-        return {"prefill_seconds": 0.0, "cache_zero_requests": 0, "tabbyapi_requests": 0}
-    text = (result.stdout or "") + (result.stderr or "")
-    normalized = re.sub(r"\s+", " ", text)
-    prefill_seconds = 0.0
-    cache_zero = 0
-    n = 0
-    for m in _TABBY_METRICS_RE.finditer(normalized):
-        cached, new, proc_speed = int(m.group(4)), int(m.group(5)), float(m.group(6))
-        n += 1
-        if cached == 0:
-            cache_zero += 1
-        if proc_speed > 0:
-            prefill_seconds += new / proc_speed
-    return {"prefill_seconds": round(prefill_seconds, 2), "cache_zero_requests": cache_zero, "tabbyapi_requests": n}
 
 
 def run_task(prompt: str) -> TaskResult:
@@ -417,9 +390,10 @@ def run_task(prompt: str) -> TaskResult:
         result.error = str(exc)
         result.failure_cause = "infra"
     result.duration_seconds = time.monotonic() - start
+    result.thread_id = _derive_thread_id(prompt)
 
     try:
-        entries = _audit_entries(prompt)
+        entries = _audit_entries(result.thread_id)
     except (RuntimeError, subprocess.TimeoutExpired):
         entries = []
     # kind absent = tool_call réel (log_tool_call) ; kind="message" =
@@ -438,7 +412,11 @@ def run_task(prompt: str) -> TaskResult:
             if url:
                 result.observed_navigate_urls.append(url)
 
-    prefill_stats = _fetch_tabbyapi_prefill_stats(wall_start, datetime.now(timezone.utc))
+    wall_end = datetime.now(timezone.utc)
+    result.tabbyapi_raw_samples = campaign_persistence.collect_tabbyapi_raw_samples(
+        wall_start, wall_end, container=TABBYAPI_CONTAINER
+    )
+    prefill_stats = campaign_persistence.aggregate_prefill_stats(result.tabbyapi_raw_samples)
     result.prefill_seconds = prefill_stats["prefill_seconds"]
     result.cache_zero_requests = prefill_stats["cache_zero_requests"]
     result.tabbyapi_requests = prefill_stats["tabbyapi_requests"]
@@ -836,6 +814,7 @@ def _run_campaign():
                 {
                     "task_id": task_id,
                     "repetition": rep,
+                    "thread_id": result.thread_id,
                     "success": ok,
                     "detail": detail,
                     "approvals": result.approvals,
@@ -845,6 +824,7 @@ def _run_campaign():
                     "prefill_seconds": result.prefill_seconds,
                     "cache_zero_requests": result.cache_zero_requests,
                     "tabbyapi_requests": result.tabbyapi_requests,
+                    "tabbyapi_raw_samples": result.tabbyapi_raw_samples,
                     "fabricated_urls": fabricated_urls,
                     "duration_seconds": round(result.duration_seconds, 1),
                     "failure_cause": cause,
@@ -855,9 +835,21 @@ def _run_campaign():
     return rows
 
 
+_ESTIMATE_CACHE_NOTE = (
+    "Cache glissant d'ESTIMATION de durée, PAS un historique de campagnes : "
+    "\"estimates\" est réécrit (médiane fusionnée) à la fin de CHAQUE campagne, "
+    "complète ou smoke — la valeur d'une tâche ne reflète donc que la DERNIÈRE "
+    "campagne qui l'a mesurée, jamais une série dans le temps. Sert uniquement "
+    "à estimer la durée d'un prochain lancement avant de le démarrer "
+    "(scripts/run-campaign.sh). Pour un historique par campagne (thread_id, "
+    "métadonnées, métriques par run), voir campaign-<timestamp>-<label>.json "
+    "(campaign_persistence.py)."
+)
+
+
 def _update_duration_stats(rows: list) -> None:
     """
-    Voir DURATION_STATS_PATH plus haut. Fusionne avec les stats déjà
+    Voir ESTIMATE_CACHE_PATH plus haut. Fusionne avec les estimations déjà
     persistées (une tâche absente de CE run, ex. smoke ciblé, garde sa
     dernière médiane connue plutôt que d'être effacée) — best-effort,
     n'échoue jamais la campagne pour un problème d'écriture de ce fichier
@@ -866,24 +858,33 @@ def _update_duration_stats(rows: list) -> None:
     import statistics
 
     try:
-        existing = json.loads(DURATION_STATS_PATH.read_text(encoding="utf-8")) if DURATION_STATS_PATH.exists() else {}
+        existing = json.loads(ESTIMATE_CACHE_PATH.read_text(encoding="utf-8")) if ESTIMATE_CACHE_PATH.exists() else {}
     except (OSError, ValueError):
         existing = {}
+    estimates = existing.get("estimates", {})
 
     by_task = {}
     for r in rows:
         by_task.setdefault(r["task_id"], []).append(r["duration_seconds"])
 
     for task_id, durations in by_task.items():
-        existing[task_id] = round(statistics.median(durations), 1)
+        estimates[task_id] = round(statistics.median(durations), 1)
 
+    payload = {"_note": _ESTIMATE_CACHE_NOTE, "estimates": estimates}
     try:
-        DURATION_STATS_PATH.write_text(json.dumps(existing, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        ESTIMATE_CACHE_PATH.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     except OSError:
         pass
 
 
 def _write_report(rows: list) -> None:
+    """VUE sur le JSON de campagne (voir campaign_persistence.py et
+    test_web_tasks_baseline plus bas) : `rows` provient d'une relecture du
+    fichier `campaign-<timestamp>-<label>.json` fraîchement écrit, jamais
+    directement de la liste en mémoire de `_run_campaign()` — le JSON est la
+    source de vérité, ce Markdown n'en est qu'un rendu. Signature et rendu
+    inchangés : le rapport reste identique à l'œil à ce qu'il était avant ce
+    chantier."""
     by_task = {}
     for r in rows:
         by_task.setdefault(r["task_id"], []).append(r)
@@ -993,8 +994,24 @@ def _write_report(rows: list) -> None:
 
 
 def test_web_tasks_baseline():
+    # Métadonnées de contexte (commit, digests d'image, modèle chargé, flags
+    # d'env) collectées AVANT le run — stables sur la durée de la campagne,
+    # aucune raison de les répéter par tâche (voir campaign_persistence.py).
+    metadata = campaign_persistence.collect_metadata(CAMPAIGN_LABEL)
+    started_at = datetime.now(timezone.utc).isoformat()
     rows = _run_campaign()
-    _write_report(rows)
+    ended_at = datetime.now(timezone.utc).isoformat()
+
+    cid = campaign_persistence.campaign_id(CAMPAIGN_LABEL)
+    json_path = campaign_persistence.campaign_json_path(REPORT_PATH.parent, cid)
+    campaign_persistence.write_campaign_json(json_path, metadata, started_at, ended_at, rows)
+
+    # _write_report() est une VUE : rendu depuis une RELECTURE du JSON tout
+    # juste écrit (pas depuis `rows` directement) — garantit que le Markdown
+    # ne peut jamais diverger de ce qui a été réellement persisté.
+    persisted_rows = campaign_persistence.read_campaign_json(json_path)["runs"]
+    _write_report(persisted_rows)
+
     # Le harnais lui-même ne doit jamais échouer silencieusement : au moins
     # UNE tâche doit avoir tourné, même si le score global est mauvais (c'est
     # justement le point zéro que ce test capture, pas une assertion de

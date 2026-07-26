@@ -53,12 +53,15 @@ if [[ -z "$REPORT_PATH" ]]; then
   fi
 fi
 
-STATS_PATH="$AGENT_DIR/tests_integration/CAMPAIGN_DURATION_STATS.json"
+STATS_PATH="$AGENT_DIR/tests_integration/DURATION_ESTIMATE_CACHE.json"
 
 # ─────────────────────────────────────────────────────────────────────────
 # Estimation de durée AVANT lancement (médiane courante x tâches x reps) —
-# voir DURATION_STATS_PATH dans test_web_tasks.py, mis à jour à la fin de
-# CHAQUE campagne précédente (smoke ou complète). Défaut 150s/tâche pour
+# voir ESTIMATE_CACHE_PATH dans test_web_tasks.py, mis à jour à la fin de
+# CHAQUE campagne précédente (smoke ou complète) ; ce n'est qu'un cache
+# glissant d'estimation, pas un historique (voir champ "_note" du fichier
+# et campaign_persistence.py pour le véritable historique par campagne).
+# Défaut 150s/tâche pour
 # une tâche jamais mesurée (ordre de grandeur observé sur les campagnes
 # passées, voir HISTORY.md) — approximatif par construction, sert à choisir
 # smoke vs complète en connaissance de cause, pas à garantir un temps exact.
@@ -78,7 +81,7 @@ prefixes = [p for p in tasks_filter.split(",") if p]
 
 try:
     with open(stats_path, encoding="utf-8") as f:
-        stats = json.load(f)
+        stats = json.load(f).get("estimates", {})
 except (OSError, ValueError):
     stats = {}
 

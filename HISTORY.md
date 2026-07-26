@@ -2292,3 +2292,103 @@ Angle mort d'audit (point (2)(c) ci-dessus) noté pour référence future, non
 corrigé ici (hors périmètre de cette investigation) : toute investigation
 sur archives doit garder à l'esprit que le TOUT PREMIER appel de chaque
 outil par thread est invisible dans `/audit`, même en campagne automatisée.
+
+## INVENTAIRE DE PERSISTANCE des campagnes (constat, avant tout correctif)
+
+Demande explicite : pour chaque campagne passée, dire ce qui subsiste sur
+disque (résultats par run en JSON/CSV, journal d'audit rattachable, métriques
+TabbyAPI, config effective du run), sans interprétation. Constat établi en
+lisant le code (`_run_campaign`/`_write_report`, test_web_tasks.py ;
+`audit_log.py` ; `campaign_preflight.py` ; `docker-compose.yml`) plutôt que
+de le supposer :
+
+1. **Résultats par run** : `rows` (une liste de dicts par run) n'existait
+   qu'en mémoire process pytest, jamais sérialisé — seul `_write_report`
+   les transformait en Markdown prose. `CAMPAIGN_DURATION_STATS.json`
+   (introduit au correctif latence 1/2-bis) n'était qu'un cache GLISSANT
+   d'une médiane de durée par tâche, réécrit (fusionné) à chaque campagne
+   ultérieure — aucune valeur d'une campagne antérieure n'y survit une fois
+   écrasée par la suivante.
+2. **Journal d'audit** : `app/audit_log.py` (introduit avant tout ce
+   chantier) persiste en JSONL sous `/workspace/.audit`, jamais purgé,
+   indexé par `thread_id` — mais sans aucun champ `campaign_id`, et le
+   rapport de campagne n'enregistrait le `thread_id` d'aucun run : le lien
+   entre une entrée d'audit et une ligne de rapport n'était reconstituable
+   qu'en corrélant manuellement des fenêtres de timestamp.
+3. **Métriques TabbyAPI** : seuls des agrégats (`prefill_seconds`,
+   `cache_zero_requests`, `tabbyapi_requests`) survivaient dans le rapport
+   Markdown ; les échantillons bruts scrapés depuis `docker logs` n'étaient
+   jamais conservés, et les logs eux-mêmes suivent la politique de
+   rotation par défaut du daemon Docker de l'hôte (aucune config
+   `logging:` dédiée dans `docker-compose.yml` avant ce chantier).
+4. **Config effective du run** : `campaign_preflight.check_tabbyapi_image_fresh`
+   VÉRIFIE la fraîcheur de l'image tabbyapi avant de lancer (gate qui
+   bloque), mais n'écrit nulle part le digest utilisé, ni les flags d'env
+   actifs, ni le commit git — reconstruction possible seulement en
+   corrélant manuellement la date du rapport avec `git log` et la prose de
+   ce fichier/README.md.
+
+## PERSISTANCE DES CAMPAGNES — mécanisme (suite directe du constat ci-dessus)
+
+Nouveau module `tests_integration/campaign_persistence.py` : un fichier
+`campaign-<timestamp>-<label>.json` par campagne, écrit UNE SEULE FOIS à la
+fin (jamais réécrit), à côté du rapport Markdown — métadonnées de contexte
+(commit `git rev-parse HEAD`, ID d'image des conteneurs
+`langgraph-agent`/`mcp-client`/`tabbyapi`/`playwright-mcp` via `docker
+inspect --format '{{.Image}}'`, modèle réellement chargé côté TabbyAPI via
+`GET /v1/model` — vérité terrain, pas une relecture de `config.yml` qui ne
+garantit pas qu'un rechargement a eu lieu — et flags d'env effectifs du
+conteneur `langgraph-agent` filtrés à la liste connue de `os.environ.get`
+trouvés dans `app/*.py`) + une ligne par run (`thread_id` calculé
+localement, même algorithme que `_derive_thread_id`, app/main.py — clé de
+jointure directe avec `/workspace/.audit`, sans toucher au schéma d'audit
+lui-même) + un échantillon TabbyAPI BRUT par requête journalisée (pas
+seulement l'agrégat). `_write_report` (test_web_tasks.py) devient une VUE :
+`test_web_tasks_baseline` écrit le JSON puis le RELIT avant de rendre le
+Markdown — le rapport reste identique à l'œil, mais ne peut plus diverger
+de ce qui a été persisté.
+
+**Correction factuelle actée avant d'écrire une seule ligne de code**
+(CLAUDE.md #8 — toute affirmation sur une lib se vérifie contre le code
+installé) : la demande initiale prévoyait de relever `/metrics` avant et
+après chaque run côté TabbyAPI. Inspection de l'image réellement construite
+(`agentic-ai-playground-tabbyapi`, `docker run --rm --entrypoint sh ... find
+/app/endpoints`) : **TabbyAPI n'expose aucun endpoint `/metrics`
+Prometheus**, contrairement à llama-server — fait déjà consigné dans
+`docker-compose.yml` (commentaire du service `dashboard`, "Pas d'équivalent
+/metrics/{slots} pour TabbyAPI à ce jour") mais pas encore remonté jusqu'à
+cette demande. Adapté sans redemander : les échantillons persistés
+proviennent du texte des logs du conteneur (même regex que l'ancien
+`_fetch_tabbyapi_prefill_stats`, désormais dans `campaign_persistence.py`,
+un échantillon PAR requête plutôt qu'un agrégat unique) — seule source
+réelle disponible. `aggregate_prefill_stats` dérive l'agrégat du rapport
+depuis ces mêmes échantillons, ce qui a permis de retirer un second `docker
+logs` redondant sur la même fenêtre temporelle (simplification trouvée en
+implémentant, pas demandée séparément).
+
+`DURATION_ESTIMATE_CACHE.json` (renommage de `CAMPAIGN_DURATION_STATS.json`,
+même rôle inchangé) documente désormais explicitement, via un champ
+`_note` dans le JSON lui-même, qu'il s'agit d'un cache glissant
+d'ESTIMATION et non d'un historique — `scripts/run-campaign.sh` adapté pour
+lire la sous-clé `estimates`. `docker-compose.yml` : `logging`
+(`max-size: 100m`, `max-file: 10`) ajouté au service `tabbyapi`, pour que
+les logs — seule source de métriques — ne disparaissent plus au gré d'un
+défaut de daemon Docker plus restrictif que prévu sur l'hôte.
+
+**Backfill borné** (`tests_integration/backfill_campaigns_index.py`,
+exécuté une fois, ~10 min réel dans le budget des 30 min prévus) :
+reconstruit `campaigns-index.json` depuis les artefacts déjà existants —
+25 campagnes indexées, fenêtre temporelle APPROXIMATIVE par campagne
+(fin = timestamp `.DONE` ou date "Générée automatiquement", début = fin
+moins la somme des durées par run listées dans le rapport — ignore les
+pauses d'approbation manuelle entre runs, signalé explicitement via
+`window_precision`). Ne ressuscite aucune métrique perdue (constat
+ci-dessus) : rend seulement `/workspace/.audit`, jamais purgé, navigable
+rétroactivement par fenêtre de temps plutôt que par `thread_id` exact.
+
+Tests unitaires (`tests/test_campaign_persistence.py`, 17 tests, aucun
+docker/git réel — subprocess mocké, même esprit que
+`test_campaign_preflight.py`) : 296 tests passent dans
+`services/langgraph-agent` (279 + 17), suite complète du dépôt non
+re-vérifiée dans ce tour (hors périmètre : seul `langgraph-agent` est
+concerné par ce chantier).
