@@ -543,14 +543,19 @@ DOWNLOAD_DIRECTIVE = (
 # les pages de détail (jamais le listing), forçant potentiellement autant
 # de navigations que d'éléments candidats — le modèle finissait par deviner
 # une URL (à raison bloquée par le garde-fou anti-fabrication), preuve
-# qu'il avait identifié le bon problème sans la bonne solution.
+# qu'il avait identifié le bon problème sans la bonne solution. Corrigé une
+# première fois via browser_evaluate (code JS écrit par le modèle,
+# TIER_SENSITIVE/NEVER_GRANTABLE) ; browser_extract accepte désormais un
+# paramètre `urls` (mode bulk, mcp-client) qui fait la même chose en
+# TIER_READ, sans dépendre du modèle pour écrire du JS correct à chaque
+# fois — consigne mise à jour en conséquence.
 BULK_CHECK_DIRECTIVE = (
     "Si l'information cherchée (référence, prix...) n'apparaît PAS sur la "
     "page de listing/index mais seulement sur la page de détail de chaque "
     "élément, et qu'il faudrait en vérifier PLUSIEURS pour la trouver : "
     "n'ouvre pas ces pages une par une avec browser_navigate (budget "
-    "d'itérations limité) — utilise browser_evaluate avec une boucle "
-    "fetch() qui récupère et vérifie TOUTES les pages candidates en UN "
+    "d'itérations limité) — utilise browser_extract avec le paramètre "
+    "urls (liste des URL candidates) pour vérifier TOUTES les pages en UN "
     "seul appel."
 )
 

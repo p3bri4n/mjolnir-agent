@@ -239,17 +239,28 @@ sa propre connaissance figée, ratant la version réellement affichée) :
 Résultat mesuré : T11 3/3 sur campagne complète (0/3 sur les 3 campagnes
 précédentes).
 
-### Vérification en masse (`BULK_CHECK_DIRECTIVE`)
+### Vérification en masse (`BULK_CHECK_DIRECTIVE`, mode bulk de `browser_extract`)
 
 Trouvée en investiguant T1 (voir HISTORY.md) : quand l'information
 cherchée n'apparaît que sur les pages de détail (jamais le listing) et
 qu'il faut en vérifier plusieurs, une navigation page par page épuise le
 budget d'itérations avant même d'avoir tout vérifié — le modèle finissait
 par deviner une URL (bloquée à raison par le garde-fou anti-fabrication).
-La consigne pousse vers `browser_evaluate` avec une boucle `fetch()` en un
-seul appel plutôt qu'une navigation individuelle. Résultat mesuré : T1 3/3
-(0/3 sur les dernières campagnes), 5-6 tool calls par run contre 20-30+
-avant.
+Corrigé une première fois via `browser_evaluate` (boucle `fetch()` écrite
+par le modèle, `TIER_SENSITIVE`/`NEVER_GRANTABLE`, voir
+`approval_policy.py`) : fonctionnel (T1 3/3, 0/3 sur les campagnes
+précédentes, 5-6 tool calls par run contre 20-30+ avant) mais fragile —
+dépend du modèle pour écrire du JS correct à chaque fois, pour un besoin
+qui n'a jamais requis de code arbitraire.
+
+`browser_extract` (`services/mcp-client/app/main.py`) accepte désormais un
+paramètre `urls` optionnel (mode bulk) : même template JS FIXE que la
+recherche mono-page
+(`fetch()` + `DOMParser` + le même parcours de nœuds texte, par URL),
+`TIER_READ` — le modèle ne fournit que la liste d'URL, jamais de code.
+Échec sur une URL individuelle (réseau, CORS cross-origin) capturé par
+page, jamais propagé à tout le lot. `BULK_CHECK_DIRECTIVE` pointe
+désormais vers ce paramètre plutôt que vers `browser_evaluate`.
 
 ### Outillage de campagne (`scripts/run-campaign.sh`)
 

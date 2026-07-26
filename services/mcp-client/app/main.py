@@ -166,12 +166,72 @@ _BROWSER_EXTRACT_JS_TEMPLATE = """() => {{
 }}"""
 
 
-def _build_extract_function(query: str) -> str:
+# Mode bulk (trouvé en investiguant T1, voir HISTORY.md
+# "BULK_CHECK_DIRECTIVE") : quand l'information cherchée n'apparaît que sur
+# des pages de DÉTAIL (jamais le listing) et qu'il faut en vérifier
+# PLUSIEURS, une navigation page par page épuise le budget d'itérations
+# avant même d'avoir tout vérifié. La consigne de prompt poussait le modèle
+# à écrire lui-même une boucle fetch() via browser_evaluate (TIER_SENSITIVE,
+# NEVER_GRANTABLE, code JS arbitraire) — ça a fonctionné, mais c'est fragile
+# (le modèle doit écrire du JS correct à chaque fois) pour un besoin qui
+# n'a jamais requis de code arbitraire, seulement une requête sur PLUSIEURS
+# pages plutôt qu'une seule. `urls` (optionnel) donne cette capacité en
+# TIER_READ, même template FIXE que la recherche mono-page : fetch() +
+# DOMParser + le même parcours de nœuds texte, par URL. Échec sur une URL
+# individuelle (réseau, CORS cross-origin) capturé par page, jamais
+# propagé — une page injoignable ne doit pas invalider tout le lot.
+_BROWSER_EXTRACT_BULK_JS_TEMPLATE = """async () => {{
+  const query = {query_json};
+  const urls = {urls_json};
+  const q = query.toLowerCase();
+  const MAX_PER_PAGE = 20;
+  const MAX_URLS = 50;
+  function extractFrom(doc) {{
+    const results = [];
+    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode())) {{
+      const text = (node.textContent || '').trim();
+      if (!text || !text.toLowerCase().includes(q)) continue;
+      const parent = node.parentElement;
+      const link = parent ? parent.closest('a') : null;
+      results.push({{
+        text: text.slice(0, 300),
+        parent_tag: parent ? parent.tagName.toLowerCase() : null,
+        parent_text: parent ? parent.textContent.trim().slice(0, 300) : null,
+        link_href: link ? link.getAttribute('href') : null,
+      }});
+      if (results.length >= MAX_PER_PAGE) break;
+    }}
+    return results;
+  }}
+  const targets = urls.slice(0, MAX_URLS);
+  const matches = {{}};
+  const errors = {{}};
+  for (const url of targets) {{
+    try {{
+      const resp = await fetch(url);
+      const html = await resp.text();
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const found = extractFrom(doc);
+      if (found.length) matches[url] = found;
+    }} catch (e) {{
+      errors[url] = String(e);
+    }}
+  }}
+  return JSON.stringify({{ checked: targets.length, matches, errors }});
+}}"""
+
+
+def _build_extract_function(query: str, urls: list = None) -> str:
     """Fonction pure (testable sans aucun serveur MCP réel) : construit le
-    JS fixe ci-dessus avec `query` interpolé via `json.dumps` — une syntaxe
-    de chaîne JSON est une syntaxe de chaîne JS valide, donc cet
-    échappement est suffisant pour empêcher toute évasion de la chaîne
-    littérale (guillemets, backslashs, retours à la ligne dans la requête)."""
+    JS fixe (mono-page par défaut, bulk si `urls` non vide) avec `query`/
+    `urls` interpolés via `json.dumps` — une syntaxe de chaîne/tableau JSON
+    est une syntaxe JS valide, donc cet échappement est suffisant pour
+    empêcher toute évasion du littéral (guillemets, backslashs, retours à
+    la ligne dans la requête ou une URL)."""
+    if urls:
+        return _BROWSER_EXTRACT_BULK_JS_TEMPLATE.format(query_json=json.dumps(query), urls_json=json.dumps(urls))
     return _BROWSER_EXTRACT_JS_TEMPLATE.format(query_json=json.dumps(query))
 
 
@@ -183,7 +243,11 @@ _BROWSER_EXTRACT_TOOL = {
         "contexte proche (texte du parent, lien englobant si présent). "
         "Pour trouver une valeur précise dans une page, utilise CET outil : "
         "pas de parcours manuel page par page, pas de raccourci "
-        "clavier de recherche (ctrl+f)."
+        "clavier de recherche (ctrl+f). Si l'information n'apparaît que sur "
+        "des pages de DÉTAIL et qu'il faut en vérifier PLUSIEURS (ex. 30 "
+        "fiches produit) pour la trouver, passe leurs URL dans `urls` en UN "
+        "seul appel plutôt que de naviguer puis appeler cet outil page par "
+        "page — bien plus économe en itérations."
     ),
     "inputSchema": {
         "type": "object",
@@ -191,6 +255,16 @@ _BROWSER_EXTRACT_TOOL = {
             "query": {
                 "type": "string",
                 "description": "Texte exact ou partiel à chercher (ex: une référence produit, un nom).",
+            },
+            "urls": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Optionnel : URL de PLUSIEURS pages à vérifier en un seul appel "
+                    "(mode bulk) plutôt que la seule page actuelle. Chaque URL est "
+                    "récupérée indépendamment (fetch) ; une URL injoignable n'invalide "
+                    "pas les autres. Plafonné à 50 URL par appel."
+                ),
             },
         },
         "required": ["query"],
@@ -398,8 +472,9 @@ async def call_tool(request: CallRequest):
     if request.tool == "browser_extract":
         # Dispatché en interne vers browser_evaluate avec un template JS FIXE
         # (voir _build_extract_function) : le modèle ne fournit jamais de
-        # code, seulement le texte à chercher.
-        js_function = _build_extract_function(request.arguments.get("query", ""))
+        # code, seulement le texte à chercher (et, en mode bulk, la liste
+        # d'URL à vérifier).
+        js_function = _build_extract_function(request.arguments.get("query", ""), request.arguments.get("urls"))
         result = await _run_on_server(
             "browser", lambda s: s.call_tool("browser_evaluate", {"function": js_function})
         )

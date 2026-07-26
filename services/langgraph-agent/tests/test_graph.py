@@ -444,16 +444,17 @@ async def test_tool_schema_from_mcp_client_is_bound_to_llm(mock_side_services):
     assert sent_body["tools"] == tool_schema
 
 
-def test_bulk_check_directive_mentions_browser_evaluate_and_loop():
+def test_bulk_check_directive_mentions_browser_extract_urls():
     """Investigation T1 (voir HISTORY.md) : le vrai blocage était un budget
     d'itérations insuffisant face à une info visible uniquement sur les
-    pages de détail, jamais le listing — la consigne pousse vers une
-    vérification en masse (browser_evaluate + boucle fetch) plutôt qu'une
-    navigation page par page."""
+    pages de détail, jamais le listing — la consigne pousse vers le mode
+    bulk de browser_extract (paramètre urls, mcp-client, TIER_READ) plutôt
+    qu'une navigation page par page ou du code browser_evaluate écrit par
+    le modèle (ancienne consigne, TIER_SENSITIVE)."""
     import app.graph as g
 
-    assert "browser_evaluate" in g.BULK_CHECK_DIRECTIVE
-    assert "fetch()" in g.BULK_CHECK_DIRECTIVE
+    assert "browser_extract" in g.BULK_CHECK_DIRECTIVE
+    assert "urls" in g.BULK_CHECK_DIRECTIVE
     assert "un seul appel" in g.BULK_CHECK_DIRECTIVE.lower()
 
 

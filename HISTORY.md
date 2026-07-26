@@ -2505,3 +2505,37 @@ module), `app/graph.py` (docstring de module, description du flux),
 `docs/architecture/tool-supervision.md`, `docs/operations/testing.md`.
 301/301 tests passent (300 + 1 net, un test remplacé par deux pour isoler
 les deux scénarios ci-dessus).
+
+## MODE BULK DE BROWSER_EXTRACT — dernier point du lot avant checkpoint complet
+
+Correctif T1 (`BULK_CHECK_DIRECTIVE`) fonctionnait via `browser_evaluate`
+(boucle `fetch()` écrite par le modèle) mais restait fragile —
+`TIER_SENSITIVE`/`NEVER_GRANTABLE`, dépend du modèle pour écrire du JS
+correct à chaque campagne, pour un besoin qui n'a jamais requis de code
+arbitraire (juste une requête sur PLUSIEURS pages plutôt qu'une seule).
+
+**Ajouté** (`services/mcp-client/app/main.py`) : `browser_extract` accepte
+désormais un paramètre `urls` optionnel. Sans lui, comportement strictement
+inchangé (template mono-page existant, `_build_extract_function(query)`).
+Avec lui, `_BROWSER_EXTRACT_BULK_JS_TEMPLATE` — même parcours de nœuds
+texte que le template mono-page, mais par URL : `fetch(url)` +
+`new DOMParser().parseFromString(html, 'text/html')`, résultats agrégés
+`{checked, matches: {url: [...]}, errors: {url: "..."}}`. Requête ET URL
+interpolées via `json.dumps` (même garantie d'échappement que le mode
+mono-page, étendue à un tableau) — le modèle ne fournit toujours aucun
+code, `TIER_READ` inchangé. Échec sur une URL individuelle (réseau, CORS
+cross-origin) capturé par page dans `errors`, jamais propagé à tout le
+lot — plafonné à 50 URL/appel et 20 résultats/page (mêmes bornes que le
+mode mono-page).
+
+`BULK_CHECK_DIRECTIVE` (`app/graph.py`) mis à jour pour pointer vers ce
+paramètre plutôt que vers `browser_evaluate`. Tests ajoutés côté
+`mcp-client` (rétrocompatibilité stricte sans `urls`, échappement JSON du
+tableau d'URL, dispatch du template bulk, schéma `urls` optionnel/`query`
+seul requis) et côté `langgraph-agent` (contenu de la directive mis à
+jour). 301/301 (langgraph-agent) + 28/28 (mcp-client, 24+4) passent.
+
+Non re-mesuré en conditions réelles dans ce tour (pas de campagne live
+lancée) — la préférence de ce mode par le modèle face à
+`browser_evaluate`/`browser_navigate` reste à confirmer sur la prochaine
+campagne complète.

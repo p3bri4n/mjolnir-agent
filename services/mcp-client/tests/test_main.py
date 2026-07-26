@@ -445,6 +445,58 @@ def test_browser_extract_dispatches_to_browser_evaluate_with_fixed_template(brow
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# Mode bulk de browser_extract (trouvé en investiguant T1, voir
+# BULK_CHECK_DIRECTIVE app/graph.py) : `urls` optionnel vérifie PLUSIEURS
+# pages en un seul appel via fetch()+DOMParser (TIER_READ, aucun code fourni
+# par le modèle) plutôt que la boucle browser_evaluate écrite par le modèle.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_build_extract_function_without_urls_returns_single_page_template():
+    """Rétrocompatibilité stricte : sans `urls`, le template est
+    inchangé — aucune régression du mode mono-page existant."""
+    import app.main as main_mod
+
+    assert main_mod._build_extract_function("KX-4471", None) == main_mod._build_extract_function("KX-4471")
+    assert main_mod._build_extract_function("KX-4471", []) == main_mod._build_extract_function("KX-4471")
+
+
+def test_build_extract_function_with_urls_embeds_query_and_urls_as_escaped_json():
+    """Requête ET URL interpolées via json.dumps — même garantie
+    d'échappement que le mode mono-page, étendue à un tableau."""
+    import app.main as main_mod
+
+    urls = ["http://catalog/product-1.html", '") ; alert(1); ("']
+    js = main_mod._build_extract_function("KX-4471", urls)
+    assert json.dumps("KX-4471") in js
+    assert json.dumps(urls) in js
+    assert "fetch(url)" in js
+    assert "DOMParser" in js
+    assert "async () =>" in js  # fetch() nécessite une fonction async, contrairement au mode mono-page
+
+
+def test_browser_extract_dispatches_bulk_template_when_urls_provided(browser_evaluate_echo_server):
+    import app.main as main_mod
+
+    urls = ["http://catalog/product-1.html", "http://catalog/product-2.html"]
+    resp = _client().post(
+        "/call", json={"tool": "browser_extract", "arguments": {"query": "KX-4471", "urls": urls}}
+    )
+    assert resp.status_code == 200
+    text = resp.json()["content"][0]["text"]
+    assert text == main_mod._build_extract_function("KX-4471", urls)
+    assert json.dumps(urls) in text
+
+
+def test_browser_extract_schema_declares_optional_urls_array(browser_evaluate_echo_server):
+    resp = _client().get("/tools/schema")
+    tool = next(t for t in resp.json()["tools"] if t["function"]["name"] == "browser_extract")
+    props = tool["function"]["parameters"]["properties"]
+    assert props["urls"]["type"] == "array"
+    assert tool["function"]["parameters"]["required"] == ["query"]  # urls reste optionnel
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # POST /reset-session/{server_name} (Phase 1d-révisée, voir HISTORY.md
 # "isolation entre tâches") : purge une session persistante (état
 # navigateur/onglets pour "browser") entre deux tâches du harnais.
