@@ -740,55 +740,26 @@ def has_visible_answer(content: str) -> bool:
     return bool(_THINK_BLOCK_RE.sub("", content or "").strip())
 
 
-# Correctif latence 1/2 (Itération 4, voir HISTORY.md) : le verdict de
-# vérification post-action ne vient plus d'un appel LLM séparé
-# (planner_llm.ainvoke, ~coût d'un tour entier) mais du raisonnement du
-# TOUR SUIVANT lui-même (call_llm) — voir _verification_directive et
-# verify_action plus bas.
+# Vérification post-action fusionnée dans le tour d'outil lui-même plutôt
+# qu'un appel LLM séparé (historique des 3 versions successives — marqueur
+# texte, tool call dédié, fusion actuelle — dans HISTORY.md, "correctif
+# latence"). constat_precedent devient un paramètre REQUIS du schéma de
+# CHAQUE outil réel (_inject_constat_param, _get_bound_llm) : un seul appel
+# porte à la fois l'action et son constat sur l'action précédente.
+# report_and_act reste le repli pour le seul cas sans action réelle
+# (réponse en texte pur, rien sur quoi accrocher constat_precedent).
 #
-# Correctif latence 1/2-bis (voir HISTORY.md) : le marqueur texte
-# [CONSTAT: ATTEINT|ECHEC] (recherché par regex hors balise <think>) s'est
-# révélé trop fragile en campagne réelle — le modèle l'omettait parfois,
-# et la dégradation conservative de l'ancien mécanisme (marqueur absent ->
-# traité comme un échec) consommait alors à tort le budget de tentatives
-# d'une action peut-être réussie, cassant le score (18/33). Remplacé par un
-# tool call OBLIGATOIRE dédié (report_and_act, en plus de l'action normale
-# du tour). Vérifié EN DIRECT contre TabbyAPI/ExLlamaV3 avant ce choix
-# (voir HISTORY.md) : la génération contrainte par schéma JSON
-# (response_format) existe bien côté serveur mais est implémentée avec
+# Deux contraintes serveur vérifiées qui motivent ce choix : la génération
+# contrainte par schéma JSON (response_format) tourne avec
 # eos_after_completed=True (backends/exllamav3/grammar.py de l'image
-# installée) — elle termine la génération dès que le JSON clôture,
-# empêchant tout tool_calls/texte supplémentaire dans le MÊME tour.
-# Confirmé par un appel réel : réponse strictement `{"constat": "atteint"}`,
-# `tool_calls: null`. Incompatible avec le besoin -> repli sur le tool call.
-#
-# Correctif latence 1/2-ter (voir HISTORY.md) : mesuré sur la campagne
-# post-1/2-bis (26/33, sous le seuil), le taux de couverture réel de
-# report_and_act n'était qu'~9% des tours d'outil (349 constats
-# inexploitables sur 422 tours assistant) — le modèle traitait le "en plus
-# de ton action normale" comme optionnel, PAS comme un second appel
-# obligatoire à coordonner dans le même tour. Le budget d'échec
-# (SUBTASK_ATTEMPT_BUDGET) était donc de facto désactivé sur la quasi
-# totalité des tours (dégradation inversée -> sans_objet -> jamais décompté
-# du budget), expliquant la réapparition des boucles de fabrication d'URL
-# (T1/T7, 0/3) : la protection existait sur le papier, jamais en pratique.
-# FUSION au lieu de coordination (ne plus dépendre du modèle pour émettre
-# DEUX tool_calls dans le même tour) : constat_precedent devient un
-# paramètre REQUIS du schéma de CHAQUE outil réel (_inject_constat_param,
-# appliqué dans _get_bound_llm) — un seul appel d'outil porte à la fois
-# l'action ET son constat sur l'action précédente, pattern natif à un seul
-# tool call. report_and_act reste l'outil de repli pour le seul cas où
-# aucune action réelle n'est décidée ce tour-ci (réponse finale en texte
-# pur, rien sur quoi accrocher constat_precedent) — sa description explique
-# ce cas précis, plus "en plus de ton action normale".
-#
-# À noter : ce backend n'applique par ailleurs AUCUNE contrainte de
-# grammaire sur les tool_calls eux-mêmes (aucun filtre ajouté pour
-# `tools`/`tool_choice`, y compris tool_choice="required", lu dans
-# endpoints/OAI/utils/chat_completion.py de l'image installée) — "requis"
-# dans le schéma JSON n'est donc PAS grammaticalement imposé ; la fiabilité
-# gagnée vient de la fusion en un seul appel (plus rien à coordonner), pas
-# d'une garantie de grammaire côté serveur. D'où le nouveau juge permanent
+# installée) — elle arrête la génération dès que le JSON clôture, excluant
+# tout tool_calls/texte supplémentaire dans le MÊME tour, confirmé par un
+# appel réel (`tool_calls: null`). Et ce backend n'applique par ailleurs
+# aucune contrainte de grammaire sur les tool_calls eux-mêmes (aucun filtre
+# pour `tools`/`tool_choice`, y compris `tool_choice="required"`, lu dans
+# endpoints/OAI/utils/chat_completion.py) — "requis" dans le schéma JSON
+# n'est donc pas grammaticalement imposé ; la fiabilité vient de la fusion
+# en un seul appel, pas d'une garantie de grammaire. D'où le juge permanent
 # de couverture (voir verify_action) : à mesurer, pas à supposer acquis.
 _CONSTAT_PARAM_NAME = "constat_precedent"
 _CONSTAT_VERDICTS = ("atteint", "non_atteint", "sans_objet")
@@ -1215,28 +1186,21 @@ class AgentState(TypedDict):
     plan_approved: Optional[bool]
     plan_grant_session: bool
     plan_grant: bool
-    # Correctif latence 1/2 (Itération 4, voir HISTORY.md) : True dès qu'une
-    # action vient d'être exécutée (_execute_tool_calls), consommé par
-    # verify_action au tour suivant. Remplace une recherche dans l'historique
-    # des messages (repérer le dernier tool_call) — plus robuste : sans ce
-    # marqueur explicite, un tour de replanification (qui n'exécute AUCUN
-    # outil) aurait pu être confondu avec une action encore à constater si le
-    # tour précédent était resté sans tool_calls (constat + budget épuisé,
-    # texte seul) — le marqueur explicite évite de constater une SOUS-TÂCHE
-    # FRAÎCHE contre un résultat d'outil PÉRIMÉ.
+    # True dès qu'une action vient d'être exécutée (_execute_tool_calls),
+    # consommé par verify_action au tour suivant — plus robuste qu'une
+    # recherche du dernier tool_call dans l'historique : sans ce marqueur
+    # explicite, un tour de replanification (qui n'exécute AUCUN outil)
+    # pourrait être confondu avec une action encore à constater si le tour
+    # précédent était resté sans tool_calls.
     pending_verification: bool
-    # Correctif latence 1/2-bis (voir HISTORY.md, remplace le marqueur texte
-    # [CONSTAT: ...] par le tool call obligatoire report_and_act) : compteur
-    # cumulatif sur toute la tâche, incrémenté chaque fois que
-    # pending_verification était vrai mais qu'aucun report_and_act
-    # exploitable n'a pu être extrait du tour (absent, mal formé, ou
-    # arguments non conformes à l'énumération attendue). Dégradation
-    # inversée voulue : ce cas se MESURE (métrique dédiée) plutôt que de se
-    # FACTURER comme un échec de sous-tâche (voir verify_action) — l'ancien
-    # mécanisme punissait l'ambiguïté du marqueur en la comptant comme un
-    # échec, ce qui a cassé le score de la campagne précédente (18/33).
-    # Remis à 0 à chaque nouveau message utilisateur top-level (voir
-    # run_input, app/main.py), comme les autres compteurs cumulatifs.
+    # Compteur cumulatif (remis à 0 à chaque nouveau message utilisateur
+    # top-level, run_input/app/main.py), incrémenté quand
+    # pending_verification était vrai mais qu'aucun constat exploitable n'a
+    # pu être extrait du tour. Dégradation VOLONTAIREMENT inversée : ce cas
+    # se MESURE (métrique dédiée) plutôt que de se FACTURER comme un échec
+    # de sous-tâche (voir verify_action et HISTORY.md, "correctif latence",
+    # pour le score cassé par l'ancien mécanisme qui le comptait comme un
+    # échec).
     constats_inexploitables: int
 
 
@@ -1274,11 +1238,11 @@ llm = ChatOpenAI(
 # petite valeur reste un filet de sécurité voulu contre les dérives de
 # répétition, voir LLM_MAX_TOKENS).
 PLANNER_MAX_TOKENS = int(os.environ.get("PLANNER_MAX_TOKENS", "8192"))
-# Correctif latence 2/2 (voir HISTORY.md) : thinking bridé sur les appels
-# auxiliaires (plan_task/revise_plan/replan_task/_judge_plan, tous via
-# planner_llm) — contrairement à `/no_think` en préfixe de prompt
-# (ADAPTIVE_THINKING, confirmé sans effet sur ce backend, voir commentaire
-# plus haut), TabbyAPI expose un vrai paramètre PAR REQUÊTE côté serveur
+# Thinking bridé sur les appels auxiliaires (plan_task/revise_plan/
+# replan_task/_judge_plan, tous via planner_llm) — contrairement à
+# `/no_think` en préfixe de prompt (ADAPTIVE_THINKING, confirmé sans effet
+# sur ce backend, voir commentaire plus haut), TabbyAPI expose un vrai
+# paramètre PAR REQUÊTE côté serveur
 # (`GET /openapi.json`, schéma ChatCompletionRequest : `enable_thinking:
 # bool`), vérifié EN DIRECT avant d'écrire ce correctif (appel réel avec un
 # prompt de planification JSON, voir HISTORY.md) : `reasoning_content:
@@ -1330,9 +1294,9 @@ async def _get_bound_llm() -> ChatOpenAI:
         return llm
     if not VERIFICATION_ENABLED:
         return llm.bind_tools(schema)
-    # Correctif latence 1/2-ter (voir plus haut) : constat_precedent injecté
-    # comme paramètre requis de CHAQUE outil MCP réel, plus report_and_act
-    # comme seul repli (tour en texte pur, aucune action). Gated sur
+    # constat_precedent injecté comme paramètre requis de CHAQUE outil MCP
+    # réel, plus report_and_act comme seul repli (tour en texte pur, aucune
+    # action) — voir plus haut. Gated sur
     # VERIFICATION_ENABLED : sans lui, ce champ n'a aucun lecteur
     # (_verification_directive ne l'instruit pas) et ne ferait qu'ajouter
     # du bruit au schéma envoyé au modèle.
@@ -1785,24 +1749,17 @@ def _apply_adaptive_thinking(messages: list, session_grants) -> list:
 
 def _verification_directive(state: AgentState) -> str:
     """
-    Correctif latence 1/2 (Itération 4, voir HISTORY.md) : remplace l'appel
-    LLM séparé verify_action par une consigne injectée dans CE tour-ci —
-    le constat sur l'action précédente vit dans le même raisonnement que la
-    décision de la suite, coût marginal ~zéro (aucun aller-retour
-    supplémentaire).
-
-    Correctif latence 1/2-ter (voir HISTORY.md) : le rappel de base
-    (constat_precedent requis sur CHAQUE tool_call, cf. _inject_constat_param
-    dans _get_bound_llm) est désormais TOUJOURS injecté dès que
-    VERIFICATION_ENABLED est actif — plus seulement quand
-    `pending_verification` est vrai, puisque le champ est maintenant requis
-    par le SCHÉMA lui-même dès le tout premier outil appelé de la tâche
-    (rien à constater alors -> "sans_objet", cas normal). Le hint
-    SPÉCIFIQUE (critère de la sous-tâche active à juger) reste conditionné
-    à `pending_verification` + sous-tâche "en_cours" (mêmes conditions
-    qu'avant, DOIT rester synchronisé avec verify_action) : rien de neuf à
-    constater sinon (ex. tour de replanification, qui n'exécute aucun
-    outil).
+    Injecte le constat sur l'action précédente dans le raisonnement du
+    tour courant plutôt qu'un appel LLM séparé (historique dans HISTORY.md,
+    "correctif latence") — coût marginal ~zéro. Le rappel de base
+    (constat_precedent requis sur CHAQUE tool_call, _inject_constat_param
+    dans _get_bound_llm) est TOUJOURS injecté dès que VERIFICATION_ENABLED
+    est actif, dès le tout premier outil appelé de la tâche (rien à
+    constater alors -> "sans_objet"). Le hint SPÉCIFIQUE (critère de la
+    sous-tâche active) reste conditionné à `pending_verification` +
+    sous-tâche "en_cours" (DOIT rester synchronisé avec verify_action) :
+    rien de neuf à constater sinon (ex. tour de replanification, qui
+    n'exécute aucun outil).
     """
     if not VERIFICATION_ENABLED:
         return ""
@@ -2131,9 +2088,9 @@ async def _execute_tool_calls(state: AgentState, config: dict, *, audit: bool) -
                 )
                 continue
 
-            # Correctif latence 1/2-ter : constat_precedent voyage dans les
-            # arguments de l'outil réel lui-même (schéma augmenté, voir
-            # _inject_constat_param) — retiré ICI, avant tout usage de
+            # constat_precedent voyage dans les arguments de l'outil réel
+            # lui-même (schéma augmenté, voir _inject_constat_param) —
+            # retiré ICI, avant tout usage de
             # tool_call["args"] plus bas (dispatch mcp-client, garde-fou
             # anti-fabrication, comparaison anti-répétition, audit). Sans ce
             # retrait, la comparaison stricte nom+args du garde-fou
@@ -2240,9 +2197,8 @@ async def _execute_tool_calls(state: AgentState, config: dict, *, audit: bool) -
         "current_page_url": current_page_url,
         "current_page_links": current_page_links,
         "fabricated_navigation_attempts": state.get("fabricated_navigation_attempts", 0) + fabricated_attempts,
-        # Correctif latence 1/2 (voir AgentState.pending_verification) : une
-        # action vient d'être exécutée, verify_action a quelque chose à
-        # constater au prochain tour.
+        # Une action vient d'être exécutée, verify_action a quelque chose à
+        # constater au prochain tour (voir AgentState.pending_verification).
         "pending_verification": True,
     }
 
@@ -2286,11 +2242,11 @@ def _active_subtask_index(plan: list) -> Optional[int]:
 
 async def verify_action(state: AgentState, config: dict) -> dict:
     """
-    Analyse du constat de vérification post-action (Itération 2, révisé
-    Itération 4 « correctif latence 1/2 », révisé Itération 4 « correctif
-    latence 1/2-bis » — voir HISTORY.md et _verification_directive plus
-    haut). NE FAIT PLUS D'APPEL LLM : le verdict est parsé depuis les
-    tool_calls que call_llm vient de produire (CE même appel a aussi
+    Analyse du constat de vérification post-action (historique des
+    révisions successives dans HISTORY.md, "correctif latence" — voir aussi
+    _verification_directive plus haut). NE FAIT PLUS D'APPEL LLM : le
+    verdict est parsé depuis les tool_calls que call_llm vient de produire
+    (CE même appel a aussi
     constaté le résultat de l'action précédente ET décidé la suite — voir
     _verification_directive). Ce nœud ne fait que lire ce tool call
     (report_and_act) et mettre à jour le plan en conséquence.
@@ -2305,27 +2261,24 @@ async def verify_action(state: AgentState, config: dict) -> dict:
     aucune NOUVELLE action n'a encore été exécutée entre-temps (ex. tour de
     replanification, qui n'exécute aucun outil).
 
-    Critère vérifié = success_criterion de la sous-tâche ACTIVE du plan
-    (Itération 1). Dégradation INVERSÉE (correctif 1/2-bis, remplace la
-    dégradation conservative "absent -> non atteint" de la version
-    précédente — c'est elle qui avait cassé le score, 18/33, en consommant
-    à tort le budget de tentatives d'actions peut-être réussies) : constat
-    absent/mal formé -> traité comme "sans_objet" (NI succès NI échec,
-    budget de tentatives inchangé), et compté dans le compteur cumulatif
-    constats_inexploitables plutôt que facturé à la sous-tâche. Un
-    "sans_objet" légitimement déclaré PAR LE MODÈLE a le même effet sur le
-    plan (aucune mutation) mais n'incrémente PAS ce compteur — seule
+    Critère vérifié = success_criterion de la sous-tâche ACTIVE du plan.
+    Dégradation VOLONTAIREMENT INVERSÉE (voir HISTORY.md, "correctif
+    latence", pour le score cassé — 18/33 — par la version précédente qui
+    traitait un constat absent comme un échec) : constat absent/mal formé
+    -> "sans_objet" (NI succès NI échec, budget de tentatives inchangé),
+    compté dans constats_inexploitables plutôt que facturé à la sous-tâche.
+    Un "sans_objet" légitimement déclaré PAR LE MODÈLE a le même effet sur
+    le plan (aucune mutation) mais n'incrémente PAS ce compteur — seule
     l'ambiguïté (constat manquant/mal formé) se mesure.
 
-    Correctif latence 1/2-ter (voir HISTORY.md) : chaque évaluation ici
-    (exploitable ou non) journalise désormais une entrée d'audit
-    `role="verification"` avec son verdict d'exploitabilité — nouveau juge
-    permanent de COUVERTURE (constats exploitables / opportunités), le
+    Chaque évaluation ici (exploitable ou non) journalise une entrée
+    d'audit `role="verification"` avec son verdict d'exploitabilité — juge
+    permanent de COUVERTURE (constats exploitables / opportunités),
     compagnon de constats_inexploitables qui ne mesurait que la moitié du
     contrat (l'ambiguïté, pas l'absence pure et simple de tentative). Sans
     ce comptage systématique, une campagne peut afficher
     constats_inexploitables ≈ 0 alors que le taux de couverture réel est
-    catastrophique (~9% mesuré sur la campagne qui a motivé ce correctif) :
+    catastrophique (~9% mesuré sur la campagne qui a motivé ce juge) :
     verify_action ne compte comme "inexploitable" QUE les tentatives
     reconnues comme telles, jamais un constat qui n'a même pas été tenté.
     """
@@ -2772,14 +2725,12 @@ def build_graph(checkpointer=None):
         {"call_llm": "call_llm", "reject_plan": "reject_plan"},
     )
     graph.add_edge("reject_plan", END)
-    # Correctif latence 1/2 (Itération 4, voir HISTORY.md) : verify_action
-    # tourne maintenant APRÈS call_llm (analyse du constat que ce même appel
-    # vient de produire), plus AVANT comme appel LLM séparé —
+    # verify_action tourne APRÈS call_llm (analyse du constat que ce même
+    # appel vient de produire, voir HISTORY.md "correctif latence") —
     # route_after_verification délègue à has_tool_calls
-    # (call_tools/auto_call_tools/retry_empty_answer/end). Correctif 1/2-bis
-    # (voir route_after_verification/route_after_tool_execution) : le
-    # dispatch replan/give_up sur sous-tâche "echoue" a été déplacé APRÈS
-    # l'exécution des tool_calls (route_after_tool_execution), pas ici.
+    # (call_tools/auto_call_tools/retry_empty_answer/end). Le dispatch
+    # replan/give_up sur sous-tâche "echoue" vit dans
+    # route_after_tool_execution, pas ici.
     graph.add_edge("call_llm", "verify_action")
     graph.add_conditional_edges(
         "verify_action",
