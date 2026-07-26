@@ -1912,18 +1912,18 @@ async def retry_empty_answer(state: AgentState) -> dict:
 
 
 async def require_approval(state: AgentState) -> dict:
-    """Point de pause : bloque tant qu'un humain n'a pas approuvé/refusé (voir app/main.py)."""
+    """Pause point: blocks until a human has approved/rejected (see app/main.py)."""
     if state.get("approved") is None:
         raise NodeInterrupt("Approbation humaine requise avant exécution d'outil.")
-    # Passage réel par un humain : réarme le budget de tours auto-approuvés
-    # consécutifs (voir AUTO_APPROVAL_STREAK_LIMIT).
+    # A human actually went through: resets the consecutive auto-approved
+    # turns budget (see AUTO_APPROVAL_STREAK_LIMIT).
     updates = {"messages": [], "auto_approval_streak": 0, "grant_session": False}
-    # "approuver pour la session" (Phase 3) : les outils du tour en attente
-    # rejoignent session_grants, plafonnés à TIER_REVERSIBLE (auto + audit)
-    # pour le reste du thread — voir approval_policy.effective_tier() et
-    # AgentState.session_grants. Le tour lui-même reste soumis à CETTE
-    # approbation (un grant ne s'applique qu'à partir du PROCHAIN appel du
-    # même outil, pas rétroactivement à celui qui l'a demandé).
+    # "approve for the session" (Phase 3): the pending turn's tools join
+    # session_grants, capped at TIER_REVERSIBLE (auto + audit) for the
+    # rest of the thread — see approval_policy.effective_tier() and
+    # AgentState.session_grants. The turn itself stays subject to THIS
+    # approval (a grant only applies starting from the NEXT call of the
+    # same tool, not retroactively to the one that requested it).
     if state.get("grant_session"):
         last = state["messages"][-1]
         granted_names = {tc["name"] for tc in last.tool_calls}
@@ -1937,13 +1937,13 @@ def route_after_approval(state: AgentState) -> str:
 
 def _to_png_data_uri(data_b64: str, mime_type: str) -> str:
     """
-    Réencode systématiquement en PNG avant de transmettre au LLM. Le décodeur
-    d'image d'Ollama (mtmd, côté llama.cpp) échoue explicitement sur le WebP
-    ("Failed to load image or audio file") — or c'est le format par défaut de
-    l'outil screen_shot de GhostDesk. Convertir ici plutôt que de compter sur
-    le modèle pour systématiquement demander format="png" à chaque appel.
-    Chemin par défaut (IMAGE_FORMAT_PASSTHROUGH non activé) — voir
-    _to_image_data_uri pour le chemin WebP direct.
+    Always re-encodes to PNG before passing to the LLM. Ollama's image
+    decoder (mtmd, llama.cpp side) explicitly fails on WebP ("Failed to
+    load image or audio file") — which happens to be GhostDesk's
+    screen_shot tool's default format. Converting here rather than
+    relying on the model to systematically request format="png" on every
+    call. Default path (IMAGE_FORMAT_PASSTHROUGH not enabled) — see
+    _to_image_data_uri for the direct WebP path.
     """
     if mime_type == "image/png":
         return f"data:image/png;base64,{data_b64}"
@@ -1956,13 +1956,13 @@ def _to_png_data_uri(data_b64: str, mime_type: str) -> str:
 
 def _to_image_data_uri(data_b64: str, mime_type: str) -> str:
     """
-    IMAGE_FORMAT_PASSTHROUGH=webp : transmet le WebP brut de screen_shot tel
-    quel (data URI directe, aucun décodage/réencodage Pillow), en s'appuyant
-    sur le décodage WebP natif du fork llama.cpp servi par le backend
-    alternatif llama-server (voir README, section Backend d'inférence) —
-    évite le coût CPU de la reconversion PNG à chaque capture. Défaut
-    (variable absente/différente de "webp", cas de TabbyAPI comme
-    d'Ollama) : conversion PNG systématique via _to_png_data_uri.
+    IMAGE_FORMAT_PASSTHROUGH=webp: passes screen_shot's raw WebP through
+    as-is (direct data URI, no Pillow decode/re-encode), relying on the
+    native WebP decoding of the llama.cpp fork served by the alternative
+    llama-server backend (see README, Inference backend section) — avoids
+    the CPU cost of PNG reconversion on every capture. Default (variable
+    absent/different from "webp", the case for both TabbyAPI and Ollama):
+    systematic PNG conversion via _to_png_data_uri.
     """
     if IMAGE_FORMAT_PASSTHROUGH:
         return f"data:{mime_type};base64,{data_b64}"
@@ -1971,13 +1971,14 @@ def _to_image_data_uri(data_b64: str, mime_type: str) -> str:
 
 def _split_image_blocks(result: dict) -> tuple[dict, list[dict]]:
     """
-    Sépare les blocs image (format MCP : {"type": "image", "data": <base64>,
-    "mimeType": ...}) du reste du résultat d'outil. Un ToolMessage (role
-    "tool") ne peut contenir que du texte au format OpenAI-compatible — y
-    mettre le base64 brut (via json.dumps sur tout le résultat, comme avant)
-    produit un blob texte illisible pour le modèle, image ou pas, multimodal
-    ou pas. Les images sont réinjectées séparément en message "user"
-    multimodal (voir call_tools), le seul rôle qui supporte un bloc image_url.
+    Splits image blocks (MCP format: {"type": "image", "data": <base64>,
+    "mimeType": ...}) out of the rest of the tool result. A ToolMessage
+    (role "tool") can only hold OpenAI-compatible text — putting the raw
+    base64 in there (via json.dumps on the whole result, as before)
+    produces an unreadable text blob for the model, whether it's
+    multimodal or not. Images are reinjected separately as a multimodal
+    "user" message (see call_tools), the only role that supports an
+    image_url block.
     """
     content = result.get("content")
     if not isinstance(content, list):
@@ -1991,10 +1992,10 @@ def _split_image_blocks(result: dict) -> tuple[dict, list[dict]]:
 
 async def _call_mcp_tool(client: httpx.AsyncClient, tool_name: str, args: dict) -> tuple[dict, list]:
     """
-    Appel HTTP unique à mcp-client:/call, factorisé entre _execute_tool_calls
-    (tool_calls décidés par le LLM) et run_slash_command_direct (commande
-    tapée directement par l'utilisateur) — même gestion d'erreur/découpage des
-    blocs image dans les deux cas.
+    Single HTTP call to mcp-client:/call, factored out between
+    _execute_tool_calls (tool_calls decided by the LLM) and
+    run_slash_command_direct (command typed directly by the user) — same
+    error handling/image-block splitting in both cases.
     """
     try:
         resp = await client.post(
@@ -2010,71 +2011,70 @@ async def _call_mcp_tool(client: httpx.AsyncClient, tool_name: str, args: dict) 
 
 async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
     """
-    Logique partagée entre call_tools (atteint après require_approval) et
-    auto_call_tools (atteint directement depuis has_tool_calls, jamais vu
-    par un humain CE tour-ci). Journalise (app/audit_log.py) tout tool_call
-    dont le tier effectif n'est pas TIER_READ (silencieux par design, rien
-    de nouveau à tracer) — y compris ceux venus de call_tools, quel que
-    soit leur tier.
+    Logic shared between call_tools (reached after require_approval) and
+    auto_call_tools (reached directly from has_tool_calls, never seen by
+    a human THIS turn). Logs (app/audit_log.py) any tool_call whose
+    effective tier isn't TIER_READ (silent by design, nothing new to
+    trace) — including those coming from call_tools, whatever their tier.
 
-    Angle mort corrigé (voir docs/history.md, investigation T9) : ce nœud
-    audit-logguait auparavant SEULEMENT les tool_calls d'auto_call_tools,
-    au motif qu'un tour passé par require_approval a déjà sa trace dans
-    l'historique de conversation ("⚠️ Approbation requise" + la réponse).
-    Ce raisonnement suppose un humain réel qui a vu passer la demande — en
-    campagne automatisée, `_approve(..., grant_session=True)` (le harnais)
-    joue ce rôle sans qu'aucun humain ne regarde jamais, et l'historique de
-    conversation lui-même ne survit pas à un redémarrage du service
-    (checkpointer MemorySaver, en mémoire uniquement) : le journal d'audit
-    reste alors la SEULE trace persistante, y compris pour le tout premier
-    appel de chaque outil par thread — jusqu'ici invisible dans les deux cas.
+    Blind spot fixed (see docs/history.md, T9 investigation): this node
+    used to audit-log ONLY auto_call_tools's tool_calls, on the grounds
+    that a turn that went through require_approval already has its trace
+    in the conversation history ("⚠️ Approbation requise" + the answer).
+    That reasoning assumes an actual human saw the request go by — in an
+    automated campaign, `_approve(..., grant_session=True)` (the harness)
+    plays that role with no human ever looking, and the conversation
+    history itself doesn't survive a service restart (MemorySaver
+    checkpointer, in-memory only): the audit log then remains the ONLY
+    persistent trace, including for the very first call of each tool per
+    thread — invisible until now in both cases.
     """
     last = state["messages"][-1]
     new_messages = []
     grants = state.get("session_grants") or []
     thread_id = config.get("configurable", {}).get("thread_id", "")
 
-    # Garde-fou fabrication d'URL (Phase 1) : périmètre = URL déjà observées
-    # CE tour-ci/tours précédents de la tâche + racines du périmètre (1er
-    # message humain). Recalculé/étendu au fil des tool_calls DE CE TOUR
-    # (plusieurs browser_* peuvent apparaître dans le même tour_calls).
+    # URL-fabrication guardrail (Phase 1): scope = URLs already observed
+    # THIS turn/previous turns of the task + scope roots (1st human
+    # message). Recomputed/extended as THIS turn's tool_calls are
+    # processed (several browser_* calls can appear in the same
+    # tool_calls list).
     #
-    # Correctif "premier hop" (voir docs/history.md, chantier fiabilité session
-    # navigateur) : `has_prior_navigation` distingue le brut persisté
-    # (navigations RÉELLEMENT déjà effectuées) de l'union avec
-    # `_task_scope_urls` ci-dessous — sert à exempter la toute PREMIÈRE
-    # navigation de la tâche du garde-fou (voir plus bas), pas seulement
-    # celles vers une URL déjà mentionnée dans le prompt. Root cause : des
-    # tâches réelles sans URL dans le prompt (T8 "sur Wikipédia...", T11
-    # "quelle est la dernière version de Python ?") voyaient LEUR PREMIÈRE
-    # navigation, pourtant légitime, bloquée comme fabrication — confondu
-    # au diagnostic avec une panne d'infra playwright-mcp avant de
-    # remonter au vrai résultat d'outil (le message de refus du
-    # garde-fou lui-même).
+    # "First hop" fix (see docs/history.md, browser-session reliability
+    # effort): `has_prior_navigation` distinguishes the persisted raw set
+    # (navigations ACTUALLY already performed) from the union with
+    # `_task_scope_urls` below — used to exempt the task's very FIRST
+    # navigation from the guardrail (see below), not just those to a URL
+    # already mentioned in the prompt. Root cause: real tasks with no URL
+    # in the prompt (T8 "on Wikipedia...", T11 "what's the latest Python
+    # version?") had THEIR VERY FIRST navigation, though legitimate,
+    # blocked as fabrication — mistaken during diagnosis for a
+    # playwright-mcp infra failure before tracing it back to the actual
+    # tool result (the guardrail's own rejection message).
     has_prior_navigation = bool(state.get("observed_urls"))
     observed_urls = set(state.get("observed_urls") or []) | _task_scope_urls(state["messages"])
     current_page_url = state.get("current_page_url")
     current_page_links = state.get("current_page_links") or []
     fabricated_attempts = 0
-    # Objectif de la tâche (voir _prioritize_affordances) : le 1er message
-    # humain, faute de sous-tâches explicites (Phase 1 complète pas encore
-    # faite — ce découpage plus fin viendra avec le nœud planificateur).
+    # Task objective (see _prioritize_affordances): the 1st human message,
+    # for lack of explicit subtasks (full Phase 1 not done yet — this
+    # finer breakdown will come with the planner node).
     first_human = next((m for m in state["messages"] if getattr(m, "type", None) == "human"), None)
     objective = first_human.content if first_human and isinstance(first_human.content, str) else ""
 
-    # Garde-fou "stratégie différente" (Itération 2, voir
-    # _repeated_strategy_feedback) : ne s'applique QUE si un échec de
-    # vérification a déjà été constaté sur la sous-tâche active (attempts >
-    # 0) — un tout premier essai n'a rien à répéter. Comparaison par
-    # égalité stricte nom+args (pas de tolérance ε générique sur des
-    # schémas d'arguments arbitraires — simplification assumée).
+    # "Different strategy" guardrail (Iteration 2, see
+    # _repeated_strategy_feedback): applies ONLY if a verification failure
+    # has already been observed on the active subtask (attempts > 0) — a
+    # very first attempt has nothing to repeat. Comparison by strict
+    # name+args equality (no generic ε tolerance on arbitrary argument
+    # schemas — an accepted simplification).
     plan = state.get("plan") or []
     active_index = _active_subtask_index(plan)
     active_attempts = plan[active_index].get("attempts", 0) if active_index is not None else 0
-    # state["messages"][-1] EST `last`, le tour COURANT dont les tool_calls
-    # sont en train d'être exécutés — exclu de la recherche (messages[:-1])
-    # pour que "previous_tool_calls" désigne vraiment le tour PRÉCÉDENT, pas
-    # celui-ci (sans quoi tout tool_call se comparerait à lui-même).
+    # state["messages"][-1] IS `last`, the CURRENT turn whose tool_calls
+    # are being executed — excluded from the search (messages[:-1]) so
+    # that "previous_tool_calls" truly refers to the PREVIOUS turn, not
+    # this one (otherwise any tool_call would compare against itself).
     previous_tool_calls = (
         (_previous_turn_tool_calls(state["messages"][:-1]) or []) if VERIFICATION_ENABLED else []
     )
@@ -2082,15 +2082,15 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
     async with httpx.AsyncClient(timeout=60) as client:
         for tool_call in last.tool_calls:
             if tool_call["name"] == _REPORT_AND_ACT_TOOL_NAME:
-                # Meta-outil de repli (correctif latence 1/2-ter, voir
-                # _parse_constat) : déjà consommé par verify_action (tourne
-                # AVANT ce nœud, sur le même AIMessage) pour muter le plan —
-                # jamais dispatché à mcp-client (ça n'est pas un outil MCP
-                # réel), jamais audité (TIER_READ, voir
-                # approval_policy._DEFAULT_TIER_READ). Un ToolMessage de
-                # reçu reste néanmoins obligatoire : chaque tool_call de
-                # l'AIMessage précédente doit avoir sa réponse, sans quoi le
-                # prochain appel LLM romprait le format OpenAI.
+                # Fallback meta-tool (latency fix 1/2-ter, see
+                # _parse_constat): already consumed by verify_action (runs
+                # BEFORE this node, on the same AIMessage) to mutate the
+                # plan — never dispatched to mcp-client (it's not a real
+                # MCP tool), never audited (TIER_READ, see
+                # approval_policy._DEFAULT_TIER_READ). An acknowledgment
+                # ToolMessage is still mandatory: every tool_call from the
+                # previous AIMessage must have its response, otherwise the
+                # next LLM call would break the OpenAI format.
                 new_messages.append(
                     {
                         "role": "tool",
@@ -2100,15 +2100,15 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
                 )
                 continue
 
-            # constat_precedent voyage dans les arguments de l'outil réel
-            # lui-même (schéma augmenté, voir _inject_constat_param) —
-            # retiré ICI, avant tout usage de
-            # tool_call["args"] plus bas (dispatch mcp-client, garde-fou
-            # anti-fabrication, comparaison anti-répétition, audit). Sans ce
-            # retrait, la comparaison stricte nom+args du garde-fou
-            # anti-répétition (plus bas) ne matcherait plus JAMAIS deux
-            # tentatives par ailleurs identiques (constat différent à chaque
-            # fois) — désactivant ce garde-fou silencieusement.
+            # constat_precedent travels in the real tool's own arguments
+            # (augmented schema, see _inject_constat_param) — stripped
+            # HERE, before any use of tool_call["args"] below (mcp-client
+            # dispatch, anti-fabrication guardrail, anti-repetition
+            # comparison, audit). Without this stripping, the
+            # anti-repetition guardrail's strict name+args comparison
+            # (below) would NEVER again match two otherwise identical
+            # attempts (a different constat each time) — silently
+            # disabling that guardrail.
             if _CONSTAT_PARAM_NAME in (tool_call.get("args") or {}):
                 tool_call = {
                     **tool_call,
@@ -2165,10 +2165,10 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
                         current_page_url = tool_call["args"]["url"]
 
             if audit_tier is not None:
-                # Journalisé APRÈS exécution (voir plus haut) pour porter le
-                # résultat tel que vu par le modèle (déjà tronqué/hiérarchisé
-                # ci-dessus si browser_*) — voir app/audit_log.py, "Phase
-                # 1d-révisée".
+                # Logged AFTER execution (see above) to carry the result
+                # as seen by the model (already truncated/prioritized
+                # above if browser_*) — see app/audit_log.py, "revised
+                # Phase 1d".
                 audit_log.log_tool_call(thread_id, tool_call["name"], tool_call["args"], audit_tier, result)
 
             new_messages.append(
@@ -2196,34 +2196,34 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
     return {
         "messages": new_messages,
         "tool_iterations": state["tool_iterations"] + 1,
-        "approved": None,  # réarme la pause pour le prochain tour d'outils
-        # Incrémenté systématiquement (tour auto-approuvé ou juste validé par
-        # un humain) : require_approval l'a déjà remis à 0 dans ce second cas,
-        # donc cette exécution repart correctement à 1 (voir
-        # AUTO_APPROVAL_STREAK_LIMIT).
+        "approved": None,  # rearms the pause for the next tool turn
+        # Incremented unconditionally (auto-approved turn or one just
+        # approved by a human): require_approval already reset it to 0 in
+        # that second case, so this execution correctly restarts at 1
+        # (see AUTO_APPROVAL_STREAK_LIMIT).
         "auto_approval_streak": state.get("auto_approval_streak", 0) + 1,
         "observed_urls": sorted(observed_urls),
         "current_page_url": current_page_url,
         "current_page_links": current_page_links,
         "fabricated_navigation_attempts": state.get("fabricated_navigation_attempts", 0) + fabricated_attempts,
-        # Une action vient d'être exécutée, verify_action a quelque chose à
-        # constater au prochain tour (voir AgentState.pending_verification).
+        # An action was just executed, verify_action has something to
+        # observe on the next turn (see AgentState.pending_verification).
         "pending_verification": True,
     }
 
 
 async def call_tools(state: AgentState, config: dict) -> dict:
-    """Atteint après require_approval (humain ou harnais de campagne vient d'approuver) — voir _execute_tool_calls."""
+    """Reached after require_approval (a human or the campaign harness just approved) — see _execute_tool_calls."""
     return await _execute_tool_calls(state, config)
 
 
 async def auto_call_tools(state: AgentState, config: dict) -> dict:
-    """Atteint directement depuis has_tool_calls (aucune approbation ce tour) — voir _execute_tool_calls."""
+    """Reached directly from has_tool_calls (no approval this turn) — see _execute_tool_calls."""
     return await _execute_tool_calls(state, config)
 
 
 async def reject_tools(state: AgentState) -> dict:
-    """Miroir de call_tools quand l'humain a refusé : synthétise un refus, n'appelle jamais mcp-client."""
+    """Mirrors call_tools when the human rejected: synthesizes a rejection, never calls mcp-client."""
     last = state["messages"][-1]
     new_messages = [
         {
@@ -2244,52 +2244,50 @@ _PLAN_STATUS_LABELS_GRAPH = {"a_faire": "à faire", "en_cours": "en cours", "fai
 
 
 def _active_subtask_index(plan: list) -> Optional[int]:
-    """Index de la sous-tâche "en_cours" du plan, ou None (aucune/plan vide) —
-    invariant du plan (Itération 1/2) : au plus une sous-tâche "en_cours" à la fois."""
+    """Index of the plan's "en_cours" subtask, or None (none/empty plan) —
+    plan invariant (Iteration 1/2): at most one "en_cours" subtask at a time."""
     return next((i for i, st in enumerate(plan) if st.get("status") == "en_cours"), None)
 
 
 async def verify_action(state: AgentState, config: dict) -> dict:
     """
-    Analyse du constat de vérification post-action (historique des
-    révisions successives dans docs/history.md, "correctif latence" — voir aussi
-    _verification_directive plus haut). NE FAIT PLUS D'APPEL LLM : le
-    verdict est parsé depuis les tool_calls que call_llm vient de produire
-    (CE même appel a aussi
-    constaté le résultat de l'action précédente ET décidé la suite — voir
-    _verification_directive). Ce nœud ne fait que lire ce tool call
-    (report_and_act) et mettre à jour le plan en conséquence.
+    Analysis of the post-action verification observation (history of
+    successive revisions in docs/history.md, "latency fix" — see also
+    _verification_directive above). NO LONGER MAKES AN LLM CALL: the
+    verdict is parsed from the tool_calls call_llm just produced (THAT
+    SAME call also observed the previous action's result AND decided the
+    next step — see _verification_directive). This node only reads that
+    tool call (report_and_act) and updates the plan accordingly.
 
-    No-op (`{"messages": []}`) si VERIFICATION_ENABLED est désactivé
-    (défaut), s'il n'y a pas de sous-tâche "en_cours", ou si
-    `pending_verification` (AgentState) est faux — mêmes conditions que
-    _verification_directive, à garder synchronisées : si la consigne n'a
-    pas été injectée, il n'y a rien à parser ici non plus. Consomme
-    toujours le flag (`pending_verification: False` en retour) : une fois
-    constatée, une action ne doit pas être reconstatée au prochain tour si
-    aucune NOUVELLE action n'a encore été exécutée entre-temps (ex. tour de
-    replanification, qui n'exécute aucun outil).
+    No-op (`{"messages": []}`) if VERIFICATION_ENABLED is disabled
+    (default), if there's no "en_cours" subtask, or if
+    `pending_verification` (AgentState) is false — same conditions as
+    _verification_directive, to keep in sync: if the instruction wasn't
+    injected, there's nothing to parse here either. Always consumes the
+    flag (`pending_verification: False` on return): once observed, an
+    action must not be re-observed on the next turn if no NEW action has
+    been executed in between (e.g. a replan turn, which executes no tool).
 
-    Critère vérifié = success_criterion de la sous-tâche ACTIVE du plan.
-    Dégradation VOLONTAIREMENT INVERSÉE (voir docs/history.md, "correctif
-    latence", pour le score cassé — 18/33 — par la version précédente qui
-    traitait un constat absent comme un échec) : constat absent/mal formé
-    -> "sans_objet" (NI succès NI échec, budget de tentatives inchangé),
-    compté dans constats_inexploitables plutôt que facturé à la sous-tâche.
-    Un "sans_objet" légitimement déclaré PAR LE MODÈLE a le même effet sur
-    le plan (aucune mutation) mais n'incrémente PAS ce compteur — seule
-    l'ambiguïté (constat manquant/mal formé) se mesure.
+    Criterion verified = success_criterion of the plan's ACTIVE subtask.
+    DELIBERATELY REVERSED degradation (see docs/history.md, "latency fix",
+    for the score broken — 18/33 — by the previous version which treated
+    a missing observation as a failure): missing/malformed observation ->
+    "sans_objet" (NEITHER success NOR failure, attempt budget unchanged),
+    counted in constats_inexploitables rather than billed to the
+    subtask. A "sans_objet" legitimately declared BY THE MODEL has the
+    same effect on the plan (no mutation) but does NOT increment this
+    counter — only ambiguity (missing/malformed observation) is measured.
 
-    Chaque évaluation ici (exploitable ou non) journalise une entrée
-    d'audit `role="verification"` avec son verdict d'exploitabilité — juge
-    permanent de COUVERTURE (constats exploitables / opportunités),
-    compagnon de constats_inexploitables qui ne mesurait que la moitié du
-    contrat (l'ambiguïté, pas l'absence pure et simple de tentative). Sans
-    ce comptage systématique, une campagne peut afficher
-    constats_inexploitables ≈ 0 alors que le taux de couverture réel est
-    catastrophique (~9% mesuré sur la campagne qui a motivé ce juge) :
-    verify_action ne compte comme "inexploitable" QUE les tentatives
-    reconnues comme telles, jamais un constat qui n'a même pas été tenté.
+    Every evaluation here (usable or not) logs an audit entry with
+    `role="verification"` and its usability verdict — a permanent
+    COVERAGE judge (usable observations / opportunities), companion to
+    constats_inexploitables which only measured half the contract
+    (ambiguity, not the plain absence of an attempt). Without this
+    systematic counting, a campaign can show constats_inexploitables ≈ 0
+    while the real coverage rate is catastrophic (~9% measured on the
+    campaign that motivated this judge): verify_action only counts as
+    "unusable" attempts recognized as such, never an observation that
+    wasn't even attempted.
     """
     if not VERIFICATION_ENABLED:
         return {"messages": []}
@@ -2307,8 +2305,8 @@ async def verify_action(state: AgentState, config: dict) -> dict:
 
     if not exploitable:
         logger.warning(
-            "Sous-tâche %d : constat_precedent absent ou mal formé, constat inexploitable "
-            "(sans_objet, budget de tentatives inchangé)",
+            "Subtask %d: constat_precedent missing or malformed, unusable observation "
+            "(sans_objet, attempt budget unchanged)",
             active_index,
         )
         return {
@@ -2317,7 +2315,7 @@ async def verify_action(state: AgentState, config: dict) -> dict:
         }
 
     if verdict == "sans_objet":
-        logger.info("Sous-tâche %d : constat sans_objet (rien à mettre à jour)", active_index)
+        logger.info("Subtask %d: sans_objet observation (nothing to update)", active_index)
         return {"pending_verification": False}
 
     new_plan = [dict(st) for st in plan]
@@ -2326,7 +2324,7 @@ async def verify_action(state: AgentState, config: dict) -> dict:
         new_plan[active_index]["result"] = "critère atteint (constat intégré au tour)"
         if active_index + 1 < len(new_plan):
             new_plan[active_index + 1]["status"] = "en_cours"
-        logger.info("Sous-tâche %d atteinte", active_index)
+        logger.info("Subtask %d reached", active_index)
         return {"plan": new_plan, "pending_verification": False}
 
     # verdict == "non_atteint"
@@ -2334,29 +2332,29 @@ async def verify_action(state: AgentState, config: dict) -> dict:
     new_plan[active_index]["attempts"] = attempts
     if attempts < SUBTASK_ATTEMPT_BUDGET:
         logger.info(
-            "Sous-tâche %d non atteinte (tentative %d/%d)",
+            "Subtask %d not reached (attempt %d/%d)",
             active_index, attempts, SUBTASK_ATTEMPT_BUDGET,
         )
         return {"plan": new_plan, "pending_verification": False}
 
     new_plan[active_index]["status"] = "echoue"
     new_plan[active_index]["result"] = "critère non atteint (constat intégré au tour)"
-    logger.warning("Sous-tâche %d échouée après %d tentatives", active_index, attempts)
+    logger.warning("Subtask %d failed after %d attempts", active_index, attempts)
     return {"plan": new_plan, "pending_verification": False}
 
 
 async def replan_task(state: AgentState) -> dict:
     """
-    Replanification (Itération 2) : atteinte quand verify_action a marqué
-    une sous-tâche "echoue". Réutilise PLANNER_SYSTEM_PROMPT/
-    _validate_plan_json (même schéma que plan_task) avec un prompt de
-    contexte (objectif, sous-tâches déjà "fait", raison de l'échec).
-    Sous-tâches "fait" préservées telles quelles ; la sous-tâche échouée et
-    tout ce qui suivait sont remplacées par la nouvelle décomposition.
-    Échec de replanification (LLM/JSON invalide) : repli SANS lever — remet
-    juste la sous-tâche échouée à "en_cours"/attempts=0 (nouvelle chance sur
-    LE MÊME plan plutôt que de planter). replan_count incrémenté dans tous
-    les cas (budget consommé même si la replanification elle-même échoue).
+    Replanning (Iteration 2): reached when verify_action has marked a
+    subtask "echoue". Reuses PLANNER_SYSTEM_PROMPT/_validate_plan_json
+    (same schema as plan_task) with a context prompt (objective, subtasks
+    already "fait", failure reason). "fait" subtasks preserved as-is; the
+    failed subtask and everything after it are replaced by the new
+    breakdown. Replanning failure (LLM/invalid JSON): falls back WITHOUT
+    raising — just resets the failed subtask to "en_cours"/attempts=0 (a
+    new chance on the SAME plan rather than crashing). replan_count
+    incremented in all cases (budget consumed even if the replanning
+    itself fails).
     """
     plan = state.get("plan") or []
     failed_index = next((i for i, st in enumerate(plan) if st.get("status") == "echoue"), None)
@@ -2394,7 +2392,7 @@ async def replan_task(state: AgentState) -> dict:
         )
         new_subtasks = _validate_plan_json(response.content)
     except Exception:
-        logger.warning("Replanification échouée, nouvelle tentative sur la même sous-tâche.", exc_info=True)
+        logger.warning("Replanning failed, retrying on the same subtask.", exc_info=True)
         new_plan = [dict(st) for st in plan]
         new_plan[failed_index]["status"] = "en_cours"
         new_plan[failed_index]["attempts"] = 0
@@ -2404,7 +2402,7 @@ async def replan_task(state: AgentState) -> dict:
     for i, st in enumerate(new_subtasks):
         rebuilt.append({**st, "status": "en_cours" if i == 0 else "a_faire", "attempts": 0, "result": None})
     logger.info(
-        "Replanification #%d après échec de la sous-tâche %d : %d nouvelle(s) sous-tâche(s)",
+        "Replan #%d after subtask %d failure: %d new subtask(s)",
         replan_count, failed_index, len(new_subtasks),
     )
     return {"plan": rebuilt, "replan_count": replan_count}
@@ -2412,9 +2410,9 @@ async def replan_task(state: AgentState) -> dict:
 
 async def report_failure(state: AgentState) -> dict:
     """
-    Terminal (Itération 2) : atteint quand une sous-tâche est "echoue" ET le
-    budget de replanification (REPLAN_BUDGET) est épuisé. Rapport HONNÊTE de
-    l'état atteint — jamais un faux succès, jamais une boucle infinie.
+    Terminal (Iteration 2): reached when a subtask is "echoue" AND the
+    replanning budget (REPLAN_BUDGET) is exhausted. HONEST report of the
+    state reached — never a false success, never an infinite loop.
     """
     plan = state.get("plan") or []
     lines = ["Je n'ai pas pu terminer la tâche avec le budget de tentatives/replanifications disponible."]
@@ -2428,29 +2426,29 @@ async def report_failure(state: AgentState) -> dict:
 
 def route_after_verification(state: AgentState) -> str:
     """
-    Routage après verify_action (Itération 2, câblage révisé Itération 4 —
-    correctif latence 1/2, puis 1/2-bis, voir docs/history.md). verify_action
-    tourne maintenant APRÈS call_llm (plus AVANT, voir build_graph) : ce
-    routage délègue directement à has_tool_calls (mêmes 4 issues :
-    auto_call_tools/call_tools/retry_empty_answer/end), état["messages"][-1]
-    restant le même AIMessage tout du long (verify_action ne touche jamais
+    Routing after verify_action (Iteration 2, wiring revised in Iteration
+    4 — latency fix 1/2, then 1/2-bis, see docs/history.md). verify_action
+    now runs AFTER call_llm (no longer BEFORE, see build_graph): this
+    routing delegates directly to has_tool_calls (same 4 outcomes:
+    auto_call_tools/call_tools/retry_empty_answer/end), state["messages"][-1]
+    staying the same AIMessage throughout (verify_action never touches
     "messages").
 
-    Correctif 1/2-bis : le dispatch "sous-tâche echoue -> replan/give_up"
-    a été DÉPLACÉ vers route_after_tool_execution (après exécution des
-    tool_calls, plus ici avant). Raison : le constat vit désormais dans un
-    tool call obligatoire (report_and_act), qui a TOUJOURS besoin d'un
-    ToolMessage de reçu pour rester valide au format OpenAI — sauter tout
-    droit vers replan_task/report_failure sans exécuter ce tool_calls
-    (comme avant, quand le constat vivait dans du texte libre sans jamais
-    aucun tool_calls à résoudre) laisserait un tool_call non résolu dans
-    l'historique, cassant le prochain appel LLM qui rejoue cet historique.
+    Fix 1/2-bis: the "subtask echoue -> replan/give_up" dispatch was MOVED
+    to route_after_tool_execution (after the tool_calls execute, no
+    longer here beforehand). Reason: the observation now lives in a
+    mandatory tool call (report_and_act), which ALWAYS needs an
+    acknowledgment ToolMessage to stay valid in the OpenAI format —
+    jumping straight to replan_task/report_failure without executing this
+    tool_calls (as before, when the observation lived in free text with
+    no tool_calls to ever resolve) would leave an unresolved tool_call in
+    the history, breaking the next LLM call that replays that history.
     """
     return has_tool_calls(state)
 
 
 def _coerce_slash_arg_value(raw: str):
-    """int > float > bool ("true"/"false") > string, dans cet ordre."""
+    """int > float > bool ("true"/"false") > string, in that order."""
     try:
         return int(raw)
     except ValueError:
@@ -2467,11 +2465,10 @@ def _coerce_slash_arg_value(raw: str):
 def _parse_slash_command(content: str) -> Optional[tuple]:
     """
     "/toolname a=1 b=texte" -> ("toolname", {"a": 1, "b": "texte"}).
-    None si le contenu ne commence pas par "/" ou est vide après le "/".
-    shlex.split gère les valeurs entre guillemets contenant des espaces. Un
-    token sans "=" (argument malformé) est simplement ignoré (log warning)
-    plutôt que de faire échouer tout le parsing d'une commande par ailleurs
-    valide.
+    None if the content doesn't start with "/" or is empty after the "/".
+    shlex.split handles quoted values containing spaces. A token with no
+    "=" (malformed argument) is simply ignored (warning logged) rather
+    than failing the whole parse of an otherwise valid command.
     """
     if not content or not content.startswith("/"):
         return None
@@ -2485,7 +2482,7 @@ def _parse_slash_command(content: str) -> Optional[tuple]:
     args = {}
     for tok in tokens[1:]:
         if "=" not in tok:
-            logger.warning("Argument de commande slash ignoré (pas de '=') : %r", tok)
+            logger.warning("Slash command argument ignored (no '='): %r", tok)
             continue
         key, _, raw_value = tok.partition("=")
         args[key] = _coerce_slash_arg_value(raw_value)
@@ -2493,15 +2490,17 @@ def _parse_slash_command(content: str) -> Optional[tuple]:
 
 
 def _format_tool_result_as_text(result: dict) -> str:
-    """Extrait le texte des blocs {"type": "text", ...} du résultat d'outil ;
-    à défaut (résultat vide, erreur, forme inattendue), JSON indenté brut."""
+    """Extracts the text from {"type": "text", ...} blocks of the tool
+    result; failing that (empty result, error, unexpected shape), raw
+    indented JSON."""
     blocks = result.get("content", []) if isinstance(result, dict) else []
     if isinstance(blocks, str):
-        # _split_image_blocks retombe sur ce placeholder textuel quand TOUS
-        # les blocs du résultat étaient des images (ex. screen_shot seul) —
-        # ce n'est déjà pas une liste de blocs, le renvoyer tel quel plutôt
-        # que d'itérer sur ses caractères (aucun n'est un dict "text", donc
-        # ça retombait silencieusement sur un dump JSON de tout le dict).
+        # _split_image_blocks falls back to this text placeholder when
+        # ALL of the result's blocks were images (e.g. screen_shot alone)
+        # — this is already not a list of blocks, return it as-is rather
+        # than iterating over its characters (none of which is a "text"
+        # dict, so it would silently fall back to a JSON dump of the
+        # whole dict).
         return blocks
     texts = [b.get("text", "") for b in blocks if isinstance(b, dict) and b.get("type") == "text"]
     if texts:
@@ -2511,10 +2510,11 @@ def _format_tool_result_as_text(result: dict) -> str:
 
 async def prepare_slash_command(state: AgentState, config: dict) -> dict:
     """
-    Parse la commande slash et synthétise le tool_calls correspondant, sans
-    encore l'exécuter — le routage par tier (_route_slash_command_tier)
-    décide ensuite si ça part en direct (run_slash_command_direct) ou par la
-    vraie pause d'approbation (require_approval), selon le tier de l'outil.
+    Parses the slash command and synthesizes the corresponding tool_calls,
+    without executing it yet — tier-based routing
+    (_route_slash_command_tier) then decides whether it goes direct
+    (run_slash_command_direct) or through the real approval pause
+    (require_approval), depending on the tool's tier.
     """
     tool_name, args = _parse_slash_command(state["messages"][-1].content)
     call_id = f"slash_{uuid.uuid4().hex[:12]}"
@@ -2527,15 +2527,15 @@ async def prepare_slash_command(state: AgentState, config: dict) -> dict:
 
 def _route_slash_command_tier(state: AgentState) -> str:
     """
-    GARDE-FOU : une commande slash sur un outil TIER_SENSITIVE (ex. key_type
-    avec texte long, clipboard_get) ne s'exécute PAS directement — elle part
-    par require_approval, exactement comme un tool_calls décidé par le LLM.
-    Le fait de taper explicitement la commande ne vaut approbation que pour
-    TIER_READ/TIER_REVERSIBLE : le tier sensible existe précisément pour
-    imposer une confirmation séparée avant une action potentiellement
-    dangereuse (texte libre tapé dans un terminal, exfiltration du
-    presse-papier...) — un bypass total aurait annulé cette garantie pour
-    n'importe quel outil, y compris ceux jamais voulus auto-approuvés.
+    GUARDRAIL: a slash command on a TIER_SENSITIVE tool (e.g. key_type
+    with long text, clipboard_get) does NOT execute directly — it goes
+    through require_approval, exactly like a tool_calls decided by the
+    LLM. Explicitly typing the command only counts as approval for
+    TIER_READ/TIER_REVERSIBLE: the sensitive tier exists precisely to
+    impose a separate confirmation before a potentially dangerous action
+    (free text typed into a terminal, clipboard exfiltration...) — a
+    total bypass would have voided this guarantee for any tool, including
+    ones never meant to be auto-approved.
     """
     last = state["messages"][-1]
     tool_call = last.tool_calls[0]
@@ -2546,22 +2546,22 @@ def _route_slash_command_tier(state: AgentState) -> str:
 
 async def run_slash_command_direct(state: AgentState, config: dict) -> dict:
     """
-    Exécute directement le tool_calls synthétisé par prepare_slash_command
-    (tier lecture/réversible uniquement, voir _route_slash_command_tier) —
-    ni LLM ni pause d'approbation. Termine sur un AIMessage de forme
-    standard (pas juste le ToolMessage brut) pour rester compatible sans
-    aucune modification avec main.py, qui suppose que le dernier message
-    d'un tour terminé est un AIMessage avec du contenu visible (voir
-    _stream_response/_current_answer, qui basculeraient sinon sur la notice
-    "réponse non exploitable").
+    Directly executes the tool_calls synthesized by prepare_slash_command
+    (read/reversible tier only, see _route_slash_command_tier) — no LLM,
+    no approval pause. Ends on a standard-shaped AIMessage (not just the
+    raw ToolMessage) to stay compatible with no changes needed to
+    main.py, which assumes the last message of a finished turn is an
+    AIMessage with visible content (see _stream_response/_current_answer,
+    which would otherwise fall back to the "réponse non exploitable"
+    notice).
     """
     last = state["messages"][-1]
     tool_call = last.tool_calls[0]
     tool_name, args, call_id = tool_call["name"], tool_call["args"], tool_call["id"]
 
-    # Traçabilité uniquement (parité avec auto_call_tools) : n'influence
-    # jamais l'exécution — le tier sensible a déjà été écarté par
-    # _route_slash_command_tier avant d'arriver ici.
+    # Traceability only (parity with auto_call_tools): never influences
+    # execution — the sensitive tier has already been ruled out by
+    # _route_slash_command_tier before reaching here.
     grants = state.get("session_grants") or []
     tier = approval_policy.effective_tier(tool_name, args, grants)
     thread_id = config.get("configurable", {}).get("thread_id", "")
@@ -2589,21 +2589,21 @@ async def run_slash_command_direct(state: AgentState, config: dict) -> dict:
                 ],
             }
         )
-    # Le message "user" ci-dessus (bloc image_url standard) est ce que voit
-    # un futur tour LLM sur ce thread — format efficace pour un modèle
-    # multimodal (coût fixe par image côté API), PAS de base64 embarqué en
-    # texte brut dans le message assistant final : un essai précédent
-    # embarquait l'image en markdown directement ici, ce qui la faisait
-    # certes apparaître dans CETTE réponse, mais la persistait aussi dans
-    # l'historique sous forme de texte — tokenisée comme du texte ordinaire
-    # (des dizaines de milliers de tokens pour une seule capture) au lieu du
-    # coût fixe d'un vrai bloc image_url, faisant exploser le contexte
-    # (32768 tokens dépassés) dès le tour LLM suivant sur ce thread, même
-    # avec une seule image (MAX_IMAGES_IN_CONTEXT=1 ne trimme jamais LA
-    # dernière image, donc aucune protection possible sous cette forme).
-    # L'affichage de l'image POUR CE TOUR est reconstruit côté main.py
-    # (_render_visible_answer) à partir de ce message "user" séparé, jamais
-    # en la persistant une seconde fois ici.
+    # The "user" message above (standard image_url block) is what a
+    # future LLM turn on this thread sees — an efficient format for a
+    # multimodal model (fixed per-image API cost), NO base64 embedded as
+    # raw text in the final assistant message: an earlier attempt
+    # embedded the image as markdown directly here, which did make it
+    # appear in THIS response, but also persisted it in the history as
+    # text — tokenized as ordinary text (tens of thousands of tokens for
+    # a single capture) instead of a real image_url block's fixed cost,
+    # blowing up the context (32768 tokens exceeded) as early as the next
+    # LLM turn on this thread, even with a single image
+    # (MAX_IMAGES_IN_CONTEXT=1 never trims THE last image, so no
+    # protection is possible in this form). The image display FOR THIS
+    # TURN is reconstructed on main.py's side (_render_visible_answer)
+    # from this separate "user" message, never by persisting it here a
+    # second time.
     new_messages.append({"role": "assistant", "content": _format_tool_result_as_text(result)})
 
     return {
