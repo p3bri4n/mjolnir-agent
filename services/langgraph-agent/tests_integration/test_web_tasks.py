@@ -1,70 +1,72 @@
 """
-Harnais de tâches web (Phase 0 du plan d'autonomie, voir PLAN.md et
-docs/benchmark-v1.md) : rejoue 11 tâches web multi-étapes contre l'agent RÉEL
-(conteneurs Docker, LLM réel, navigateur Playwright réel), avec un critère de
-succès PROGRAMMATIQUE par tâche — jamais un jugement qualitatif.
+Web-task harness (Phase 0 of the autonomy plan, see PLAN.md and
+docs/benchmark-v1.md): replays 11 multi-step web tasks against the REAL
+agent (Docker containers, real LLM, real Playwright browser), with a
+PROGRAMMATIC success criterion per task — never a qualitative judgment.
 
-Comme test_tool_calling_baseline.py/test_semantic_drift.py : parle aux vrais
-conteneurs via `docker exec`, lent et non déterministe par nature. Ignoré par
-défaut ; opt-in explicite :
+Like test_tool_calling_baseline.py/test_semantic_drift.py: talks to the
+real containers via `docker exec`, slow and non-deterministic by nature.
+Skipped by default; explicit opt-in:
 
     RUN_LIVE_AGENT_TESTS=1 python -m pytest tests_integration/test_web_tasks.py -v
 
-Prérequis :
-  - `docker compose up -d` (stack normale) ET
+Prerequisites:
+  - `docker compose up -d` (normal stack) AND
     `docker compose --profile test-fixtures up -d fixture-catalog fixture-docs
-    fixture-hr-app` (voir docker-compose.yml).
-  - Les outils `browser_*` sont TIER_SENSITIVE par défaut (voir
-    approval_policy.py — la Phase 3 du plan doit changer ça, pas encore
-    faite) : CE harnais joue donc lui-même le rôle de l'humain via
-    POST /approve (avec grant_session=True) pour dérouler une tâche sans
-    intervention manuelle, et compte ces approbations comme métrique
-    ("interventions d'approbation" — voir docs/benchmark-v1.md).
+    fixture-hr-app` (see docker-compose.yml).
+  - `browser_*` tools are TIER_SENSITIVE by default (see
+    approval_policy.py — Phase 3 of the plan should change this, not done
+    yet): this harness THEREFORE plays the human's role itself via
+    POST /approve (with grant_session=True) to run a task with no
+    manual intervention, and counts these approvals as a metric
+    ("approval interventions" — see docs/benchmark-v1.md).
 
-Recalibrages faits en construisant ce harnais (voir docs/history.md pour le détail) :
-  - T1 : catalogue réduit de 120/12 pages à 30/3 pages — la recherche
-    exhaustive du pire cas (référence jamais visible dans la liste)
-    dépassait largement MAX_TOOL_ITERATIONS avec l'échelle initiale.
-  - T5 : assertion sur la valeur finale (masse salariale exacte dans la
-    réponse), pas sur un fichier CSV présent dans un répertoire — reste
-    vrai même depuis le volume de téléchargement dédié (Phase 1d-révisée,
-    voir docker-compose.yml `agent-downloads` et docs/history.md) : l'agent doit
-    télécharger PUIS lire via l'outil filesystem sous `/downloads/`
-    (`fetch()`/`browser_evaluate` comme canal de transfert de fichier a été
-    explicitement écarté, voir docs/history.md — ce n'est pas la primitive d'un
-    outil de lecture). `_purge_downloads_volume()` (voir plus bas) vide ce
-    volume avant chaque répétition pour qu'un run ne "réussisse" jamais en
-    lisant l'artefact d'un run précédent.
+Recalibrations made while building this harness (see docs/history.md for
+detail):
+  - T1: catalog reduced from 120/12 pages to 30/3 pages — the worst-case
+    exhaustive search (reference never visible in the listing) far
+    exceeded MAX_TOOL_ITERATIONS at the initial scale.
+  - T5: assertion on the final value (exact payroll total in the
+    answer), not on a CSV file present in a directory — stays true even
+    from the dedicated download volume (revised Phase 1d, see
+    docker-compose.yml `agent-downloads` and docs/history.md): the agent
+    must download THEN read via the filesystem tool under `/downloads/`
+    (`fetch()`/`browser_evaluate` as a file-transfer channel was
+    explicitly ruled out, see docs/history.md — that's not a read tool's
+    primitive). `_purge_downloads_volume()` (see below) empties this
+    volume before each repetition so a run never "succeeds" by reading a
+    previous run's artifact.
 
-Limite connue assumée de la métrique "tokens consommés" (docs/benchmark-v1.md) :
-non mesurée par ce harnais — `/v1/chat/completions` ne renvoie pas de champ
-`usage` (vérifié dans app/main.py), et l'instrumenter proprement dépasse le
-périmètre de cette Phase 0.
+Accepted known limitation of the "tokens consumed" metric
+(docs/benchmark-v1.md): not measured by this harness —
+`/v1/chat/completions` returns no `usage` field (verified in
+app/main.py), and properly instrumenting it is out of scope for this
+Phase 0.
 
-Constat n°1 du point zéro (voir smoke tests, docs/history.md) : les deux premiers
-essais à blanc de ce harnais (T1, T7) ont échoué en butant sur
-MAX_TOOL_ITERATIONS, dans les deux cas après une navigation vers une URL
-FABRIQUÉE par le modèle (`page-4.html` — le catalogue n'a que 3 pages —
-puis `/catalog/search?q=ZZ-9999` — aucune recherche n'existe sur ce
-fixture) plutôt que suivie depuis un lien réellement observé dans le DOM.
-Deux sous-causes distinguées ci-dessous pour ne pas confondre les deux :
+Point-zero finding #1 (see smoke tests, docs/history.md): this harness's
+first two dry runs (T1, T7) failed by hitting MAX_TOOL_ITERATIONS, in
+both cases after a navigation to a URL FABRICATED by the model
+(`page-4.html` — the catalog only has 3 pages — then
+`/catalog/search?q=ZZ-9999` — no search exists on this fixture) rather
+than followed from a link actually observed in the DOM. Two sub-causes
+distinguished below so as not to conflate the two:
 
-  - "boucle_fabrication" : au moins une navigation vers une URL absente du
-    site réel pendant le run (voir `KNOWN_URLS_BY_TASK`/
-    `_classify_boucle_subcause`) — le modèle a inventé un chemin plausible
-    plutôt que de suivre un lien observé.
-  - "boucle_budget" : le modèle progressait sur des URL réelles mais a
-    manqué d'itérations.
+  - "boucle_fabrication": at least one navigation to a URL absent from
+    the real site during the run (see `KNOWN_URLS_BY_TASK`/
+    `_classify_boucle_subcause`) — the model invented a plausible path
+    rather than following an observed link.
+  - "boucle_budget": the model was making progress on real URLs but ran
+    out of iterations.
 
-Limite de cette sous-classification : elle vérifie l'appartenance de chaque
-URL naviguée à l'ensemble des URL RÉELLEMENT servies par le fixture (calculé
-depuis les générateurs, vérité terrain déjà connue) — PAS une reconstruction
-exacte du DOM/des snapshots vus par le modèle tour par tour (les résultats
-des tool_calls ne sont pas journalisés, seuls le nom et les arguments le
-sont). Un faux négatif serait donc une navigation vers une URL qui EXISTE
-sur le site mais que le modèle n'a jamais réellement vue dans un snapshot
-(deviné juste). Pas de sous-classification pour les tâches sur sites réels
-(T8-T10) : aucun sitemap de référence disponible pour ces cibles.
+Limitation of this sub-classification: it checks each navigated URL's
+membership in the set of URLs ACTUALLY served by the fixture (computed
+from the generators, ground truth already known) — NOT an exact
+reconstruction of the DOM/snapshots seen by the model turn by turn
+(tool_call results aren't logged, only the name and arguments are). A
+false negative would therefore be a navigation to a URL that DOES EXIST
+on the site but that the model never actually saw in a snapshot (just
+guessed right). No sub-classification for tasks on real sites (T8-T10):
+no reference sitemap available for these targets.
 """
 import ast
 import csv
@@ -89,8 +91,8 @@ from tests_integration import campaign_persistence, campaign_preflight
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("RUN_LIVE_AGENT_TESTS") != "1",
-    reason="test d'intégration live (agent web réel) : opt-in via RUN_LIVE_AGENT_TESTS=1, "
-    "nécessite docker compose up + profil test-fixtures",
+    reason="live integration test (real web agent): opt-in via RUN_LIVE_AGENT_TESTS=1, "
+    "requires docker compose up + test-fixtures profile",
 )
 
 AGENT_CONTAINER = os.environ.get("LANGGRAPH_AGENT_CONTAINER", "langgraph-agent")
@@ -98,17 +100,16 @@ MCP_CLIENT_CONTAINER = os.environ.get("MCP_CLIENT_CONTAINER", "mcp-client")
 N_REPETITIONS = int(os.environ.get("WEB_TASKS_REPETITIONS", "3"))
 MAX_APPROVAL_ROUNDS = int(os.environ.get("WEB_TASKS_MAX_APPROVAL_ROUNDS", "40"))
 CHAT_TIMEOUT_SECONDS = int(os.environ.get("WEB_TASKS_CHAT_TIMEOUT", "240"))
-# Mode smoke (outillage de campagne, voir docs/history.md et run-campaign.sh) :
-# sous-ensemble de tâches (préfixes séparés par virgule, ex. "T1,T7,T11" —
-# matché en début de task_id, pas de nom exact requis) pour ITÉRER
-# rapidement sur un correctif, avec le MÊME préambule/juges/génération de
-# rapport que la campagne complète (_run_campaign/_write_report
-# inchangés) — jamais une suite parallèle à maintenir séparément.
-# Protocole : smoke pour développer/vérifier vite, campagne complète
-# (WEB_TASKS_SMOKE_TASKS non défini, 3 répétitions) réservée aux
-# checkpoints qui comptent pour un score de référence — un smoke n'a pas
-# la significativité statistique (n réduit) pour arbitrer un seuil de
-# passage/régression.
+# Smoke mode (campaign tooling, see docs/history.md and run-campaign.sh):
+# a subset of tasks (comma-separated prefixes, e.g. "T1,T7,T11" — matched
+# against the start of task_id, no exact name required) to ITERATE
+# quickly on a fix, with the SAME preamble/judges/report generation as
+# the full campaign (_run_campaign/_write_report unchanged) — never a
+# parallel suite to maintain separately. Protocol: smoke to develop/
+# verify fast, full campaign (WEB_TASKS_SMOKE_TASKS unset, 3 repetitions)
+# reserved for checkpoints that count toward a reference score — a smoke
+# run lacks the statistical significance (reduced n) to arbitrate a
+# pass/regression threshold.
 SMOKE_TASK_PREFIXES = [
     p.strip() for p in os.environ.get("WEB_TASKS_SMOKE_TASKS", "").split(",") if p.strip()
 ]
@@ -129,40 +130,39 @@ WORKSPACE_HOST_PATH = Path(
 )
 HR_APP_DATA_FILE = WORKSPACE_HOST_PATH / "hr-app-data" / "leave_submissions.json"
 
-# Convention de rapports (Phase 2, restructuration+anglais) :
-# AAAA-MM-JJ_type_label.md sous docs/campaigns/ — run-campaign.sh construit
-# ce chemin lui-même et l'exporte via WEB_TASKS_REPORT_PATH ; ce défaut ne
-# sert qu'à un lancement direct de pytest sans passer par le script.
+# Report naming convention (Phase 2, restructuration+anglais):
+# YYYY-MM-DD_type_label.md under docs/campaigns/ — run-campaign.sh builds
+# this path itself and exports it via WEB_TASKS_REPORT_PATH; this default
+# only serves a direct pytest launch bypassing the script.
 CAMPAIGNS_DIR = Path(__file__).parents[3] / "docs" / "campaigns"
 REPORT_PATH = Path(
     os.environ.get("WEB_TASKS_REPORT_PATH", CAMPAIGNS_DIR / f"{datetime.now(timezone.utc):%Y-%m-%d}_campaign_default.md")
 )
 CAMPAIGN_LABEL = os.environ.get("WEB_TASKS_CAMPAIGN_LABEL", "Campagne A (budget par défaut)")
-# Outillage de campagne (run-campaign.sh) : durée médiane courante par
-# tâche, mise à jour à la fin de CHAQUE campagne (complète ou smoke) —
-# permet d'estimer la durée d'un prochain lancement (tâches × répétitions ×
-# médiane connue) AVANT de le lancer, pour choisir smoke ou complète en
-# connaissance de cause. Un seul fichier partagé, volontairement : la
-# dernière mesure connue par tâche est la meilleure estimation disponible,
-# qu'elle vienne d'un smoke ou d'une campagne complète. Nommé explicitement
-# "cache d'estimation" (pas "stats de campagne") : CE N'EST PAS un
-# historique, chaque campagne écrase la valeur de ses tâches — voir le
-# champ "_note" du fichier lui-même et campaign_persistence.py pour le
-# véritable historique par campagne (campaign-<timestamp>-<label>.json).
+# Campaign tooling (run-campaign.sh): current median duration per task,
+# updated at the end of EVERY campaign (full or smoke) — lets a next
+# launch's duration be estimated (tasks × repetitions × known median)
+# BEFORE starting it, to choose smoke or full knowingly. Deliberately a
+# single shared file: the last known measurement per task is the best
+# available estimate, whether it came from a smoke or a full campaign.
+# Explicitly named "estimate cache" (not "campaign stats"): this is NOT a
+# history, every campaign overwrites its tasks' value — see the file's
+# own "_note" field and campaign_persistence.py for the real per-campaign
+# history (campaign-<timestamp>-<label>.json).
 ESTIMATE_CACHE_PATH = Path(__file__).parent / "DURATION_ESTIMATE_CACHE.json"
 
-# Textes exacts émis côté serveur (voir app/main.py) — même convention que
+# Exact texts emitted server-side (see app/main.py) — same convention as
 # test_tool_calling_baseline.py.
 _APPROVAL_PREFIX = "⚠️ Approbation requise pour"
-# Pipeline de validation du plan (Itération 3, Phase 1 « cœur cognitif » —
-# voir docs/briefs/phase-1-coeur-cognitif.md et app/main.py:
-# _format_plan_approval_request) : DEUX pauses supplémentaires possibles,
-# au niveau du PLAN plutôt que d'un tool_call — approbation normale par
-# tier, ou escalade humaine après échec de la validation automatique. Sans
-# les reconnaître, run_task() traiterait ces messages comme une réponse
-# FINALE (ils ne commencent pas par _APPROVAL_PREFIX), invalidant toute
-# campagne dès que PLAN_VALIDATION_ENABLED est actif sans qu'aucune erreur
-# ne le signale sur le coup.
+# Plan validation pipeline (Iteration 3, Phase 1 "cognitive core" — see
+# docs/briefs/phase-1-coeur-cognitif.md and app/main.py:
+# _format_plan_approval_request): TWO additional possible pauses, at the
+# PLAN level rather than a tool_call — normal tier-based approval, or
+# human escalation after automatic validation failure. Without
+# recognizing them, run_task() would treat these messages as a FINAL
+# answer (they don't start with _APPROVAL_PREFIX), invalidating any
+# campaign as soon as PLAN_VALIDATION_ENABLED is active with no error
+# flagging it on the spot.
 _PLAN_APPROVAL_PREFIX = "⚠️ Approbation du plan requise"
 _PLAN_ESCALATION_PREFIX = "⚠️ Le plan proposé a été rejeté par la validation automatique"
 _ITERATION_LIMIT_PREFIX = "⚠️ Limite d'itérations d'outils atteinte"
@@ -171,12 +171,12 @@ _INTERNAL_ERROR_TEXT = "⚠️ Erreur interne pendant la génération, réessaye
 
 
 def _is_approval_pending(content: str) -> bool:
-    """Point d'entrée unique pour reconnaître une pause d'approbation,
-    qu'elle porte sur un tool_call (require_approval, historique) ou sur le
-    PLAN entier (require_plan_approval, Itération 3 — approbation normale
-    ou escalade, deux préfixes distincts). report_failure/reject_plan
-    (messages FINAUX, pas des pauses) ne matchent aucun des trois — traités
-    comme réponse finale (échouée), sans changement nécessaire."""
+    """Single entry point to recognize an approval pause, whether it's
+    about a tool_call (require_approval, historical) or the whole PLAN
+    (require_plan_approval, Iteration 3 — normal approval or escalation,
+    two distinct prefixes). report_failure/reject_plan (FINAL messages,
+    not pauses) match none of the three — treated as a final (failed)
+    answer, no change needed."""
     return (
         content.startswith(_APPROVAL_PREFIX)
         or content.startswith(_PLAN_APPROVAL_PREFIX)
@@ -238,11 +238,11 @@ def _approve(prompt: str) -> str:
 
 def _parse_tool_calls(text: str) -> list:
     """
-    [(nom, args_dict), ...] depuis un texte au format
-    _format_approval_request/_format_iteration_limit_notice (app/main.py) :
-    `` `nom`({...}) ``, plusieurs appels séparés par ", ". Les args sont un
-    repr Python de dict (guillemets simples), pas du JSON — ast.literal_eval,
-    pas json.loads.
+    [(name, args_dict), ...] from a text in the
+    _format_approval_request/_format_iteration_limit_notice (app/main.py)
+    format: `` `name`({...}) ``, several calls separated by ", ". The args
+    are a Python dict repr (single quotes), not JSON — ast.literal_eval,
+    not json.loads.
     """
     calls = []
     for m in re.finditer(r"`(\w+)`\((\{.*?\})\)", text):
@@ -283,8 +283,8 @@ def _hr_app_known_urls() -> set:
     }
 
 
-# Association tâche -> sitemap de référence pour _classify_boucle_subcause.
-# Absente du dict (T8-T10, sites réels) = pas de sous-classification possible.
+# Task -> reference sitemap mapping for _classify_boucle_subcause.
+# Absent from the dict (T8-T10, real sites) = no sub-classification possible.
 KNOWN_URLS_BY_TASK = {
     "T1_extraction_paginee": _catalog_known_urls,
     "T7_impossible_par_construction": _catalog_known_urls,
@@ -297,10 +297,11 @@ KNOWN_URLS_BY_TASK = {
 
 
 def _derive_thread_id(prompt: str) -> str:
-    """Même algorithme que _derive_thread_id (app/main.py) : hash du seul
-    1er message humain, calculable directement ici (pas besoin d'un aller-
-    retour docker exec juste pour un sha256 — constaté redondant, voir
-    test_tool_calling_baseline.py qui fait déjà ce calcul localement)."""
+    """Same algorithm as _derive_thread_id (app/main.py): hashes only the
+    1st human message, computable directly here (no need for a docker
+    exec round trip just for a sha256 — found redundant, see
+    test_tool_calling_baseline.py which already does this computation
+    locally)."""
     return hashlib.sha256(prompt.encode()).hexdigest()[:16]
 
 
@@ -320,44 +321,45 @@ class TaskResult:
         self.approvals = 0
         self.rounds = 0
         self.final_text = ""
-        self.failure_cause = None  # None si succès de dialogue (assertion vérifiée séparément)
+        self.failure_cause = None  # None if dialogue succeeded (assertion checked separately)
         self.duration_seconds = 0.0
         self.error = None
         self.observed_navigate_urls = []
-        # Proxy best-effort du nombre réel de tool_calls exécutés : chaque
-        # "approvals" correspond à un PREMIER usage d'un outil dans ce thread
-        # (seul cas où une approbation fraîche est sollicitée) ; les usages
-        # SUIVANTS du même outil, auto-approuvés via le grant de session, ne
-        # ressortent jamais dans le texte streamé mais SONT journalisés
-        # (audit_log : tier réversible auto-approuvé tracé — voir
-        # app/audit_log.py). tool_calls_observed = approvals + entrées
-        # d'audit pour ce thread. Ne prétend pas égaler le compteur interne
-        # exact de MAX_TOOL_ITERATIONS (non exposé par l'API).
+        # Best-effort proxy for the real number of tool_calls executed:
+        # each "approvals" corresponds to a FIRST use of a tool in this
+        # thread (the only case where a fresh approval is requested);
+        # SUBSEQUENT uses of the same tool, auto-approved via the session
+        # grant, never show up in the streamed text but ARE logged
+        # (audit_log: auto-approved reversible tier traced — see
+        # app/audit_log.py). tool_calls_observed = approvals + audit
+        # entries for this thread. Doesn't claim to equal the exact
+        # internal MAX_TOOL_ITERATIONS counter (not exposed by the API).
         self.tool_calls_observed = 0
-        # Juge permanent de couverture des constats (correctif latence
-        # 1/2-ter, voir docs/history.md) : verify_action journalise désormais une
-        # entrée role="verification" à CHAQUE évaluation (exploitable ou
-        # non, voir app/audit_log.py). Distinct de tool_calls_observed
-        # ci-dessus : ces entrées ont kind="message", filtrées à part pour
-        # ne pas gonfler ce dernier ni être confondues avec les tool_calls
-        # réels (kind absent, voir audit_log.log_tool_call).
+        # Permanent observation-coverage judge (latency fix 1/2-ter, see
+        # docs/history.md): verify_action now logs a role="verification"
+        # entry on EVERY evaluation (usable or not, see app/audit_log.py).
+        # Distinct from tool_calls_observed above: these entries have
+        # kind="message", filtered separately so as not to inflate the
+        # latter nor be confused with real tool_calls (kind absent, see
+        # audit_log.log_tool_call).
         self.verification_opportunities = 0
         self.verification_exploitable = 0
-        # Juge de checkpoint "prefill total par tâche" (correctif latence
-        # 2/2, voir docs/history.md) : remplace le taux de cache=0 approximatif
-        # par sa vraie grandeur — le TEMPS effectivement dépensé à traiter
-        # des tokens de prompt (cache manqué ou non), lu directement dans
-        # les métriques TabbyAPI (`Process: N cached tokens and M new
-        # tokens at S T/s` -> M / S secondes de prefill par requête, sommé
-        # sur toute la fenêtre real-time de CETTE tâche). cache_zero_ratio
-        # reste consigné à titre informatif (l'ancien taux approximatif).
+        # "Total prefill per task" checkpoint judge (latency fix 2/2, see
+        # docs/history.md): replaces the approximate cache=0 rate with its
+        # real magnitude — the TIME actually spent processing prompt
+        # tokens (cache hit or miss), read directly from TabbyAPI metrics
+        # (`Process: N cached tokens and M new tokens at S T/s` -> M / S
+        # prefill seconds per request, summed over THIS task's whole
+        # real-time window). cache_zero_ratio stays recorded for
+        # informational purposes (the old approximate rate).
         self.prefill_seconds = 0.0
         self.cache_zero_requests = 0
         self.tabbyapi_requests = 0
-        # Persistance de campagne (voir campaign_persistence.py) : thread_id
-        # calculé ici même algorithme que _derive_thread_id (app/main.py),
-        # clé de jointure avec /workspace/.audit ; tabbyapi_raw_samples un
-        # échantillon PAR REQUÊTE (pas seulement l'agrégat ci-dessus).
+        # Campaign persistence (see campaign_persistence.py): thread_id
+        # computed here with the same algorithm as _derive_thread_id
+        # (app/main.py), join key with /workspace/.audit;
+        # tabbyapi_raw_samples one sample PER REQUEST (not just the
+        # aggregate above).
         self.thread_id = ""
         self.tabbyapi_raw_samples = []
 
@@ -403,9 +405,9 @@ def run_task(prompt: str) -> TaskResult:
         entries = _audit_entries(result.thread_id)
     except (RuntimeError, subprocess.TimeoutExpired):
         entries = []
-    # kind absent = tool_call réel (log_tool_call) ; kind="message" =
-    # raisonnement assistant ou entrée de couverture des constats
-    # (log_message, voir app/audit_log.py) — à ne pas mélanger.
+    # kind absent = real tool_call (log_tool_call); kind="message" =
+    # assistant reasoning or observation-coverage entry (log_message, see
+    # app/audit_log.py) — not to be mixed up.
     tool_call_entries = [e for e in entries if e.get("kind") is None]
     verification_entries = [e for e in entries if e.get("kind") == "message" and e.get("role") == "verification"]
     result.tool_calls_observed = result.approvals + len(tool_call_entries)
@@ -431,7 +433,7 @@ def run_task(prompt: str) -> TaskResult:
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# Assertions par tâche : (id, prompt, fonction(final_text, prompt) -> (bool, str))
+# Per-task assertions: (id, prompt, function(final_text, prompt) -> (bool, str))
 # ─────────────────────────────────────────────────────────────────────────
 
 _PRICE_RE = re.compile(r"84[.,]90")
@@ -474,11 +476,11 @@ def _assert_t4(text: str, _prompt: str):
 
 def _assert_t5(text: str, _prompt: str):
     """
-    Tolère les séparateurs de milliers (espace normale/insécable, virgule,
-    point) : constaté en conditions réelles que le modèle répond
-    naturellement "199 000 €" plutôt que "199000" — une comparaison de
-    sous-chaîne stricte classait ça à tort comme un échec (voir
-    docs/campaigns/2026-07-22_diagnostic_budget60.md, vérification T5).
+    Tolerates thousands separators (regular/non-breaking space, comma,
+    period): observed under real conditions that the model naturally
+    answers "199 000 €" rather than "199000" — a strict substring
+    comparison wrongly classified this as a failure (see
+    docs/campaigns/2026-07-22_diagnostic_budget60.md, T5 verification).
     """
     total = hr_data.T5_ANSWER_TOTAL
     pattern = re.escape(str(total // 1000)) + r"[\s,.  ]?" + f"{total % 1000:03d}"
@@ -491,12 +493,12 @@ def _assert_t6(text: str, _prompt: str):
     return ok, f"attendu {hr_data.T6_ANSWER_PENDING_COUNT}" if not ok else "compte exact trouvé"
 
 
-# "n'ai pas pu terminer"/"budget de tentatives" : phrase de report_failure
-# (app/graph.py) — abandon honnête après épuisement du budget de
-# replanification, sans jamais avoir affirmé un résultat. Distinct d'une
-# déclaration explicite d'absence, mais tout aussi non-fabriqué : compté
-# comme honnête ici pour ne pas pénaliser T7 quand le chemin d'échec est le
-# budget plutôt qu'une conclusion explicite (voir docs/history.md, sonde 4).
+# "n'ai pas pu terminer"/"budget de tentatives": report_failure's phrasing
+# (app/graph.py) — honest give-up after the replanning budget is
+# exhausted, without ever having asserted a result. Distinct from an
+# explicit absence declaration, but just as non-fabricated: counted as
+# honest here so as not to penalize T7 when the failure path is the
+# budget rather than an explicit conclusion (see docs/history.md, probe 4).
 _ABSENCE_KEYWORDS = [
     "introuvable",
     "n'existe pas",
@@ -533,15 +535,15 @@ def _assert_t10(text: str, _prompt: str):
 
 
 def _fetch_latest_python_version() -> str:
-    """Vérité terrain récupérée EN DIRECT à chaque campagne (voir T11,
-    docs/benchmark-v1.md) : jamais figée dans le test, contrairement aux autres
-    tâches locales.
+    """Ground truth fetched LIVE on every campaign (see T11,
+    docs/benchmark-v1.md): never frozen in the test, unlike the other
+    local tasks.
 
-    python.org renvoie du gzip même sans Accept-Encoding explicite (constaté
-    en le fetchant réellement) — `urllib.request`, contrairement à
-    `curl`/`requests`, ne décompresse jamais automatiquement selon
-    Content-Encoding : décompression manuelle obligatoire, sans quoi la
-    regex ne matche jamais rien (silencieusement, pas d'erreur levée)."""
+    python.org returns gzip even with no explicit Accept-Encoding
+    (observed by actually fetching it) — `urllib.request`, unlike
+    `curl`/`requests`, never automatically decompresses based on
+    Content-Encoding: manual decompression is mandatory, otherwise the
+    regex never matches anything (silently, no error raised)."""
     import gzip
 
     with urllib.request.urlopen("https://www.python.org/downloads/", timeout=15) as r:
@@ -636,10 +638,10 @@ def _t11_task():
 
 
 def _classify_boucle_subcause(task_id: str, result: TaskResult) -> str:
-    """Voir docstring du module (constat n°1) : distingue une navigation
-    fabriquée (URL absente du sitemap réel du fixture) d'un simple manque
-    de budget d'itérations. Pas de sitemap de référence pour T8-T10 (sites
-    réels) : reste "boucle" tel quel."""
+    """See the module docstring (finding #1): distinguishes a fabricated
+    navigation (URL absent from the fixture's real sitemap) from a plain
+    lack of iteration budget. No reference sitemap for T8-T10 (real
+    sites): stays "boucle" as-is."""
     known_urls_fn = KNOWN_URLS_BY_TASK.get(task_id)
     if known_urls_fn is None:
         return "boucle"
@@ -665,23 +667,23 @@ def _classify_failure_cause(task_id: str, result: TaskResult, assertion_ok: bool
 
 
 HR_APP_CONTAINER = os.environ.get("HR_APP_CONTAINER", "fixture-hr-app")
-# Volume partagé playwright-mcp (écriture) / filesystem-MCP (lecture seule) —
-# voir docker-compose.yml (agent-downloads) et docs/history.md "Phase
-# 1d-révisée" (T5). Purgé via playwright-mcp (seul côté à disposer d'un accès
-# en écriture au volume).
+# Volume shared between playwright-mcp (write) / filesystem-MCP
+# (read-only) — see docker-compose.yml (agent-downloads) and
+# docs/history.md "revised Phase 1d" (T5). Purged via playwright-mcp (the
+# only side with write access to the volume).
 PLAYWRIGHT_CONTAINER = os.environ.get("PLAYWRIGHT_CONTAINER", "playwright-mcp")
 
 
 def _purge_downloads_volume() -> None:
     """
-    Sans ce nettoyage, un fichier téléchargé par une répétition antérieure de
-    T5 (même échouée par ailleurs) resterait visible pour la répétition
-    suivante — celle-ci "réussirait" alors en lisant un artefact laissé par
-    un run précédent plutôt qu'en le téléchargeant réellement elle-même,
-    biaisant le taux de réussite mesuré (voir docs/history.md, point 4 de la
-    Phase 1d-révisée). Appelé avant CHAQUE répétition de tâche, pas
-    seulement au setup de session : plusieurs tâches pourraient un jour
-    déclencher des téléchargements, pas seulement T5.
+    Without this cleanup, a file downloaded by an earlier T5 repetition
+    (even one that otherwise failed) would stay visible for the next
+    repetition — which would then "succeed" by reading an artifact left
+    by a previous run rather than actually downloading it itself, biasing
+    the measured success rate (see docs/history.md, point 4 of the
+    revised Phase 1d). Called before EVERY task repetition, not just at
+    session setup: several tasks could one day trigger downloads, not
+    just T5.
     """
     subprocess.run(
         ["docker", "exec", PLAYWRIGHT_CONTAINER, "sh", "-c", "rm -rf /downloads/* 2>/dev/null || true"],
@@ -694,18 +696,18 @@ GHOSTDESK_CONTAINER = os.environ.get("GHOSTDESK_CONTAINER", "ghostdesk")
 
 def _reset_ghostdesk_desktop() -> None:
     """
-    Isolation entre tâches, deuxième canal (voir docs/history.md, investigation
-    T9) : `app_launch` (GhostDesk) ouvre une VRAIE fenêtre sur le bureau du
-    conteneur `ghostdesk`, à l'échelle de la MACHINE, sans aucun rapport
-    avec la session Playwright déjà isolée par `_reset_browser_session` ni
-    avec le thread langgraph-agent en cours. Constaté en conditions
-    réelles : un Firefox lancé par un thread T9 des heures plus tôt restait
-    ouvert sur insee.fr ; un thread T9 ultérieur, bloqué par le garde-fou
-    anti-fabrication sur browser_navigate, a pris un `screen_shot` et lu ce
-    Firefox résiduel — "réussite" qui ne prouve rien sur la capacité de
-    l'agent à refaire la tâche à froid. `pkill -f firefox` (best-effort,
-    check=False) avant CHAQUE répétition, même garantie que les deux resets
-    déjà en place.
+    Cross-task isolation, second channel (see docs/history.md, T9
+    investigation): `app_launch` (GhostDesk) opens a REAL window on the
+    `ghostdesk` container's desktop, at the MACHINE scale, with no
+    relation whatsoever to the Playwright session already isolated by
+    `_reset_browser_session` nor to the current langgraph-agent thread.
+    Observed under real conditions: a Firefox launched by a T9 thread
+    hours earlier stayed open on insee.fr; a later T9 thread, blocked by
+    the anti-fabrication guardrail on browser_navigate, took a
+    `screen_shot` and read this leftover Firefox — a "success" that
+    proves nothing about the agent's ability to redo the task cold.
+    `pkill -f firefox` (best-effort, check=False) before EVERY repetition,
+    the same guarantee as the two resets already in place.
     """
     subprocess.run(
         ["docker", "exec", GHOSTDESK_CONTAINER, "pkill", "-f", "firefox"],
@@ -716,17 +718,18 @@ def _reset_ghostdesk_desktop() -> None:
 
 def _reset_browser_session() -> None:
     """
-    Isolation entre tâches (Phase 1d-révisée, voir docs/history.md "isolation
-    entre tâches") : la session Playwright de mcp-client est PERSISTANTE et
-    PARTAGÉE (voir services/mcp-client/app/main.py, "browser"), pas scopée
-    par thread langgraph-agent ni par tâche — sans ce reset, un onglet
-    laissé ouvert par une tâche (ex. T10, books.toscrape.com) reste visible
-    dans le snapshot d'une tâche suivante COMPLÈTEMENT différente (ex. T7),
-    parfois plusieurs campagnes/heures plus tard (constaté en conditions
-    réelles). Appelé avant CHAQUE répétition, comme
-    `_purge_downloads_volume` — mêmes garanties, même échelle. `check=False`
-    (best-effort) : un mcp-client temporairement indisponible ne doit pas
-    faire échouer toute la tâche pour un simple nettoyage préventif.
+    Cross-task isolation (revised Phase 1d, see docs/history.md
+    "cross-task isolation"): mcp-client's Playwright session is
+    PERSISTENT and SHARED (see services/mcp-client/app/main.py,
+    "browser"), not scoped per langgraph-agent thread or per task —
+    without this reset, a tab left open by one task (e.g. T10,
+    books.toscrape.com) stays visible in a COMPLETELY DIFFERENT
+    subsequent task's snapshot (e.g. T7), sometimes several campaigns/
+    hours later (observed under real conditions). Called before EVERY
+    repetition, like `_purge_downloads_volume` — same guarantees, same
+    scale. `check=False` (best-effort): a temporarily unavailable
+    mcp-client must not fail the whole task for a simple preventive
+    cleanup.
     """
     script = """
 import urllib.request, urllib.error
@@ -745,14 +748,14 @@ except urllib.error.HTTPError:
 
 @pytest.fixture(scope="session", autouse=True)
 def _reset_hr_submissions():
-    """T2 vérifie la DERNIÈRE soumission : repartir d'un fichier propre évite
-    qu'une soumission d'une campagne précédente masque un échec réel.
+    """T2 checks the LAST submission: starting from a clean file avoids a
+    previous campaign's submission masking a real failure.
 
-    Le fichier est écrit par le conteneur Flask (uid root) sur un bind mount :
-    le process pytest (host, uid utilisateur normal) n'a pas forcément le
-    droit de le supprimer directement (`PermissionError` constatée en
-    conditions réelles) — repli sur `docker exec` dans le conteneur qui l'a
-    écrit, qui lui a toujours les permissions."""
+    The file is written by the Flask container (root uid) on a bind
+    mount: the pytest process (host, normal user uid) doesn't
+    necessarily have permission to delete it directly (`PermissionError`
+    observed under real conditions) — falls back to `docker exec` in the
+    container that wrote it, which always has permission."""
     if HR_APP_DATA_FILE.exists():
         try:
             HR_APP_DATA_FILE.unlink()
@@ -765,10 +768,10 @@ def _reset_hr_submissions():
 
 
 def _run_campaign():
-    # Préambule de campagne (Itération 0, docs/briefs/phase-1-coeur-cognitif.md) :
-    # lève PreflightError et interrompt AVANT le premier run si le schéma
-    # d'outils vu par langgraph-agent est périmé/incomplet — voir
-    # campaign_preflight.py pour la leçon qui motive ce garde-fou.
+    # Campaign preamble (Iteration 0, docs/briefs/phase-1-coeur-cognitif.md):
+    # raises PreflightError and stops BEFORE the first run if the tool
+    # schema seen by langgraph-agent is stale/incomplete — see
+    # campaign_preflight.py for the lesson motivating this guardrail.
     campaign_preflight.run_preflight(
         purge_downloads=_purge_downloads_volume,
         reset_browser_session=_reset_browser_session,
@@ -777,10 +780,10 @@ def _run_campaign():
     tasks = list(TASKS)
     tasks.append(_t11_task())
     if SMOKE_TASK_PREFIXES:
-        # Bug trouvé en conditions réelles (voir docs/history.md) : un simple
-        # startswith(p) fait matcher "T1" contre "T10_..."/"T11_..." aussi
-        # (préfixe numérique partagé) — exige la frontière "_" (ou une
-        # correspondance exacte) pour ne matcher QUE la tâche voulue.
+        # Bug found under real conditions (see docs/history.md): a plain
+        # startswith(p) also matches "T1" against "T10_..."/"T11_..."
+        # (shared numeric prefix) — requires the "_" boundary (or an
+        # exact match) to match ONLY the intended task.
         tasks = [
             t for t in tasks
             if any(t[0] == p or t[0].startswith(p + "_") for p in SMOKE_TASK_PREFIXES)
@@ -794,18 +797,18 @@ def _run_campaign():
     rows = []
     for task_id, base_prompt, assert_fn in tasks:
         for rep in range(1, N_REPETITIONS + 1):
-            # Marqueur unique par répétition (voir _derive_thread_id,
-            # app/main.py : hachage du texte EXACT du 1er message humain) —
-            # même correctif que test_t7_noise_baseline/
-            # test_download_then_filesystem_read_roundtrip plus bas, jamais
-            # appliqué ici : sans lui, les N_REPETITIONS d'une même tâche
-            # partagent le MÊME thread_id (prompt fixe et identique), donc
-            # le MÊME état de checkpointer — une répétition qui bloque le
-            # thread avant toute sauvegarde de checkpoint (ex. dépassement
-            # de contexte) fait alors rejouer les répétitions suivantes sur
-            # ce même état bloqué, pas des essais indépendants. Trouvé sur
-            # la campagne finale Itération 4 (T8_wikipedia, voir docs/history.md
-            # et docs/resolved-bugs.md).
+            # Unique marker per repetition (see _derive_thread_id,
+            # app/main.py: hashes the EXACT text of the 1st human message)
+            # — same fix as test_t7_noise_baseline/
+            # test_download_then_filesystem_read_roundtrip below, never
+            # applied here before: without it, a task's N_REPETITIONS
+            # share the SAME thread_id (fixed, identical prompt), hence
+            # the SAME checkpointer state — a repetition that blocks the
+            # thread before any checkpoint save (e.g. context overflow)
+            # then makes the following repetitions replay on that same
+            # blocked state, not independent attempts. Found on the
+            # Iteration 4 final campaign (T8_wikipedia, see
+            # docs/history.md and docs/resolved-bugs.md).
             prompt = f"{base_prompt} (essai {uuid.uuid4().hex[:8]})"
             _purge_downloads_volume()
             _reset_browser_session()
@@ -856,11 +859,11 @@ _ESTIMATE_CACHE_NOTE = (
 
 def _update_duration_stats(rows: list) -> None:
     """
-    Voir ESTIMATE_CACHE_PATH plus haut. Fusionne avec les estimations déjà
-    persistées (une tâche absente de CE run, ex. smoke ciblé, garde sa
-    dernière médiane connue plutôt que d'être effacée) — best-effort,
-    n'échoue jamais la campagne pour un problème d'écriture de ce fichier
-    annexe (permissions, disque plein...).
+    See ESTIMATE_CACHE_PATH above. Merges with already-persisted
+    estimates (a task absent from THIS run, e.g. a targeted smoke, keeps
+    its last known median rather than being erased) — best-effort, never
+    fails the campaign over a write issue with this side file
+    (permissions, disk full...).
     """
     import statistics
 
@@ -885,13 +888,13 @@ def _update_duration_stats(rows: list) -> None:
 
 
 def _write_report(rows: list) -> None:
-    """VUE sur le JSON de campagne (voir campaign_persistence.py et
-    test_web_tasks_baseline plus bas) : `rows` provient d'une relecture du
-    fichier `campaign-<timestamp>-<label>.json` fraîchement écrit, jamais
-    directement de la liste en mémoire de `_run_campaign()` — le JSON est la
-    source de vérité, ce Markdown n'en est qu'un rendu. Signature et rendu
-    inchangés : le rapport reste identique à l'œil à ce qu'il était avant ce
-    chantier."""
+    """VIEW over the campaign JSON (see campaign_persistence.py and
+    test_web_tasks_baseline below): `rows` comes from re-reading the
+    freshly written `campaign-<timestamp>-<label>.json` file, never
+    directly from `_run_campaign()`'s in-memory list — the JSON is the
+    source of truth, this Markdown is just a rendering of it. Signature
+    and rendering unchanged: the report stays visually identical to what
+    it was before this effort."""
     by_task = {}
     for r in rows:
         by_task.setdefault(r["task_id"], []).append(r)
@@ -951,10 +954,10 @@ def _write_report(rows: list) -> None:
         )
 
     lines.insert(3, f"**Score de campagne : {total_ok}/{total_n} passages réussis.**")
-    # Juge de checkpoint "prefill total par tâche" (correctif latence 2/2,
-    # voir docs/history.md) : remplace le taux de cache=0 comme juge PRINCIPAL —
-    # celui-ci reste consigné à titre informatif seulement (voir la colonne
-    # "Cache=0" ci-dessus et cette ligne agrégée).
+    # "Total prefill per task" checkpoint judge (latency fix 2/2, see
+    # docs/history.md): replaces the cache=0 rate as the MAIN judge —
+    # the latter stays recorded for informational purposes only (see the
+    # "Cache=0" column above and this aggregated line).
     lines.insert(
         4,
         f"**Prefill total (toutes tâches) : {total_prefill_seconds:.1f}s** "
@@ -962,11 +965,11 @@ def _write_report(rows: list) -> None:
         f"{100*total_cache_zero/total_tabbyapi_requests:.1f}% — métrique informative)."
         if total_tabbyapi_requests else "",
     )
-    # Juge permanent de couverture des constats (correctif latence 1/2-ter,
-    # voir docs/history.md, seuil de passage >= 95%) : constats exploitables /
-    # opportunités totales, tous accumulés sur la campagne — compagnon de
-    # constats_inexploitables, qui ne mesurait que l'ambiguïté (pas
-    # l'absence pure et simple de tentative).
+    # Permanent observation-coverage judge (latency fix 1/2-ter, see
+    # docs/history.md, pass threshold >= 95%): usable observations /
+    # total opportunities, all accumulated over the campaign — companion
+    # to constats_inexploitables, which only measured ambiguity (not the
+    # plain absence of an attempt).
     coverage_pct = 100 * total_exploitable / total_opportunities if total_opportunities else None
     coverage_line = (
         f"**Couverture des constats : {coverage_pct:.1f}% ({total_exploitable}/{total_opportunities}).**"
@@ -1001,9 +1004,10 @@ def _write_report(rows: list) -> None:
 
 
 def test_web_tasks_baseline():
-    # Métadonnées de contexte (commit, digests d'image, modèle chargé, flags
-    # d'env) collectées AVANT le run — stables sur la durée de la campagne,
-    # aucune raison de les répéter par tâche (voir campaign_persistence.py).
+    # Context metadata (commit, image digests, loaded model, env flags)
+    # collected BEFORE the run — stable for the campaign's whole
+    # duration, no reason to repeat it per task (see
+    # campaign_persistence.py).
     metadata = campaign_persistence.collect_metadata(CAMPAIGN_LABEL)
     started_at = datetime.now(timezone.utc).isoformat()
     rows = _run_campaign()
@@ -1013,16 +1017,16 @@ def test_web_tasks_baseline():
     json_path = campaign_persistence.campaign_json_path(REPORT_PATH.parent, cid)
     campaign_persistence.write_campaign_json(json_path, metadata, started_at, ended_at, rows)
 
-    # _write_report() est une VUE : rendu depuis une RELECTURE du JSON tout
-    # juste écrit (pas depuis `rows` directement) — garantit que le Markdown
-    # ne peut jamais diverger de ce qui a été réellement persisté.
+    # _write_report() is a VIEW: rendered from a RE-READ of the JSON just
+    # written (not from `rows` directly) — guarantees the Markdown can
+    # never diverge from what was actually persisted.
     persisted_rows = campaign_persistence.read_campaign_json(json_path)["runs"]
     _write_report(persisted_rows)
 
-    # Le harnais lui-même ne doit jamais échouer silencieusement : au moins
-    # UNE tâche doit avoir tourné, même si le score global est mauvais (c'est
-    # justement le point zéro que ce test capture, pas une assertion de
-    # qualité — voir docstring du module).
+    # The harness itself must never fail silently: at least ONE task must
+    # have run, even if the overall score is bad (that's exactly the
+    # point-zero this test captures, not a quality assertion — see the
+    # module docstring).
     assert rows, "aucune tâche exécutée"
 
 
@@ -1031,15 +1035,15 @@ T7_NOISE_REPORT_PATH = CAMPAIGNS_DIR / f"{datetime.now(timezone.utc):%Y-%m-%d}_d
 
 def test_t7_noise_baseline():
     """
-    Mesure de bruit dédiée (Phase 1d-révisée, voir docs/history.md "correctif
-    extraction") : T7 recule 3/3 (1c) -> 1/3 (post-1d) sans qu'aucune des
-    variables identifiées (browser_evaluate, DOWNLOAD_DIRECTIVE, volume
-    d'approbations) ne l'explique dans les archives — son succès 1c
-    n'utilisait déjà pas browser_evaluate. Avec n=3, un 3/3->1/3 peut être
-    de la variance pure du LLM (temperature=0.2, pas 0). 5 répétitions
-    supplémentaires ICI, à CONFIGURATION INCHANGÉE (avant le correctif
-    d'extraction), pour dimensionner ce bruit AVANT d'introduire une
-    nouvelle variable — sert de référence de comparaison.
+    Dedicated noise measurement (revised Phase 1d, see docs/history.md
+    "extraction fix"): T7 regresses 3/3 (1c) -> 1/3 (post-1d) with none of
+    the identified variables (browser_evaluate, DOWNLOAD_DIRECTIVE,
+    approval volume) explaining it in the archives — its 1c success
+    already wasn't using browser_evaluate. With n=3, a 3/3->1/3 could be
+    pure LLM variance (temperature=0.2, not 0). 5 additional repetitions
+    HERE, at UNCHANGED CONFIGURATION (before the extraction fix), to size
+    this noise BEFORE introducing a new variable — serves as a comparison
+    baseline.
     """
     campaign_preflight.run_preflight(
         purge_downloads=_purge_downloads_volume,
@@ -1048,14 +1052,14 @@ def test_t7_noise_baseline():
     task_id, base_prompt, assert_fn = next(t for t in TASKS if t[0] == "T7_impossible_par_construction")
     rows = []
     for rep in range(1, 6):
-        # Marqueur unique par répétition (voir _derive_thread_id, app/main.py :
-        # hachage du texte EXACT du 1er message humain) : sans lui, les 5
-        # "répétitions" partageraient le MÊME thread que la campagne
-        # précédente (déjà chaud, grants déjà accordés) — constaté en
-        # conditions réelles lors d'un premier essai (0 approbation sur les 5
-        # répétitions, détail et tool_calls_observed strictement identiques :
-        # signe que le modèle rejouait depuis la mémoire de conversation,
-        # pas une mesure indépendante).
+        # Unique marker per repetition (see _derive_thread_id, app/main.py:
+        # hashes the EXACT text of the 1st human message): without it,
+        # the 5 "repetitions" would share the SAME thread as the previous
+        # campaign (already warm, grants already given) — observed under
+        # real conditions on a first attempt (0 approvals across the 5
+        # repetitions, strictly identical detail and tool_calls_observed:
+        # a sign the model was replaying from conversation memory, not an
+        # independent measurement).
         prompt = f"{base_prompt} (essai {uuid.uuid4().hex[:8]})"
         _reset_browser_session()
         _reset_ghostdesk_desktop()
@@ -1098,24 +1102,24 @@ def test_t7_noise_baseline():
 
 def test_download_then_filesystem_read_roundtrip():
     """
-    Test dédié (Phase 1d-révisée, point 6 — voir docs/history.md, T5) : vérifie
-    le round-trip complet volume de téléchargement, isolé de la campagne
-    complète (répétée 3x, plus lente à diagnostiquer en cas d'échec) —
-    téléchargement déclenché dans le navigateur -> fichier réellement
-    présent dans le volume partagé (vérifié directement via playwright-mcp,
-    pas seulement déduit de la réponse finale de l'agent) -> lecture réussie
-    via l'outil filesystem -> assertion sur le contenu (masse salariale).
+    Dedicated test (revised Phase 1d, point 6 — see docs/history.md, T5):
+    verifies the full download-volume round trip, isolated from the full
+    campaign (repeated 3x, slower to diagnose on failure) — download
+    triggered in the browser -> file actually present in the shared
+    volume (verified directly via playwright-mcp, not just inferred from
+    the agent's final answer) -> successful read via the filesystem tool
+    -> assertion on the content (payroll total).
 
-    `thread_id` dérivé par hachage du texte EXACT du premier message humain
-    (voir `app/main.py`, `_derive_thread_id`) : sans un marqueur unique par
-    exécution, ce test réutiliserait le MÊME thread qu'une exécution
-    antérieure (campagne complète comprise) tant que le conteneur
-    `langgraph-agent` n'a pas redémarré — l'agent répondrait alors
-    correctement EN MÉMOIRE de la conversation précédente, sans retélécharger
-    ni relire le fichier, ce qui invaliderait justement la vérification
-    round-trip que ce test existe pour faire (constaté en conditions
-    réelles : un rejeu immédiat après un premier run répondait juste en 7s
-    sans un seul appel d'outil).
+    `thread_id` derived by hashing the EXACT text of the first human
+    message (see `app/main.py`, `_derive_thread_id`): without a unique
+    marker per run, this test would reuse the SAME thread as an earlier
+    run (including the full campaign) as long as the `langgraph-agent`
+    container hasn't restarted — the agent would then correctly answer
+    FROM MEMORY of the previous conversation, without re-downloading or
+    re-reading the file, which would invalidate exactly the round-trip
+    verification this test exists to do (observed under real conditions:
+    an immediate replay after a first run answered in just 7s with not a
+    single tool call).
     """
     campaign_preflight.run_preflight(
         purge_downloads=_purge_downloads_volume,

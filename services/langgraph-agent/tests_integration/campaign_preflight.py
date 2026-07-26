@@ -1,32 +1,32 @@
 """
-Préambule de campagne (Itération 0, docs/briefs/phase-1-coeur-cognitif.md) :
-avant de lancer une campagne du harnais (test_web_tasks.py), vérifie que le
-schéma d'outils effectivement vu par langgraph-agent correspond à l'attendu
-ET à ce que sert mcp-client au même instant, puis force un état de départ
-propre (reset de session navigateur, purge du volume downloads). Un
-manquement lève PreflightError AVANT le premier run de la campagne — jamais
-un run qui démarre puis échoue pour une raison d'infra déjà détectable.
+Campaign preamble (Iteration 0, docs/briefs/phase-1-coeur-cognitif.md):
+before launching a harness campaign (test_web_tasks.py), checks that the
+tool schema actually seen by langgraph-agent matches what's expected AND
+what mcp-client serves at that same instant, then forces a clean starting
+state (browser session reset, downloads volume purge). A gap raises
+PreflightError BEFORE the campaign's first run — never a run that starts
+then fails for an infra reason that was already detectable.
 
-Raison d'être (leçon du "bug de cache de schéma d'outils", voir docs/history.md,
-Phase 1d-révisée) : `_tools_schema_cache` (app/graph.py) est rempli une
-seule fois pour la durée du process langgraph-agent et n'est JAMAIS
-invalidé. Un redémarrage de mcp-client seul (nouvel outil ajouté/schéma mis
-à jour côté serveur) peut donc laisser langgraph-agent tourner avec une vue
-périmée, silencieusement — une première tentative de campagne complète
-Phase 1d-révisée a tourné entièrement sur un schéma figé avant même
-l'activation réelle de `browser_extract`, invalidant tout le run sans
-qu'aucune erreur ne le signale sur le coup. Ce module rend cette classe de
-bug détectable AVANT de dépenser une campagne entière dessus.
+Raison d'être (lesson from the "tool-schema cache bug", see
+docs/history.md, revised Phase 1d): `_tools_schema_cache` (app/graph.py)
+is filled once for the langgraph-agent process's lifetime and is NEVER
+invalidated. Restarting mcp-client alone (new tool added/schema updated
+server-side) can therefore leave langgraph-agent running with a stale
+view, silently — a first full-campaign attempt in revised Phase 1d ran
+entirely on a frozen schema before `browser_extract` was even really
+active, invalidating the whole run with no error flagging it on the
+spot. This module makes this class of bug detectable BEFORE spending a
+whole campaign on it.
 
-EXPECTED_TOOLS n'est PAS une tentative d'énumération exhaustive du schéma
-(la plupart des outils browser_* proviennent de l'image officielle
-mcp/playwright, dont le nom exact de chaque tool n'est pas maintenu dans ce
-dépôt — les deviner violerait la règle "toute affirmation sur le
-comportement d'une lib se vérifie contre le code installé", CLAUDE.md #8).
-Se limite donc à l'union des outils déjà nommés ailleurs dans CE dépôt :
-les tiers de app/approval_policy.py (déjà la config de référence
-maintenue) + browser_navigate (seul nom de tool browser_* littéralement
-référencé dans app/graph.py, via le garde-fou de fabrication d'URL).
+EXPECTED_TOOLS is NOT an attempt at an exhaustive enumeration of the
+schema (most browser_* tools come from the official mcp/playwright
+image, whose exact tool names aren't maintained in this repo — guessing
+them would violate the rule "any claim about a library's behavior is
+verified against the installed code", CLAUDE.md #8). It's therefore
+limited to the union of tools already named elsewhere in THIS repo: the
+tiers from app/approval_policy.py (already the maintained reference
+config) + browser_navigate (the only browser_* tool name literally
+referenced in app/graph.py, via the URL-fabrication guardrail).
 """
 
 import json
@@ -42,16 +42,16 @@ MCP_CLIENT_CONTAINER = "mcp-client"
 TABBYAPI_CONTAINER = "tabbyapi"
 TABBYAPI_IMAGE_TAG = "agentic-ai-playground-tabbyapi"
 
-# Readiness LLM (outillage de campagne, voir docs/history.md) : trouvé en
-# conditions réelles — un `docker compose up --build langgraph-agent` a
-# aussi recréé tabbyapi (dérive de config détectée) ; la campagne a démarré
-# ~20s après "Model successfully loaded" mais AVANT que le serveur HTTP
-# n'écoute réellement, produisant 30 échecs quasi instantanés
-# (openai.APIConnectionError, capturé comme notice d'erreur interne) avant
-# qu'aucune assertion n'ait pu révéler le problème. Le préambule
-# précédent (check_tools_schema) ne vérifiait QUE le schéma d'outils via
-# mcp-client, jamais que le backend LLM répond réellement à une
-# complétion — angle mort désormais couvert par wait_for_llm_ready.
+# LLM readiness (campaign tooling, see docs/history.md): found under real
+# conditions — a `docker compose up --build langgraph-agent` also
+# recreated tabbyapi (config drift detected); the campaign started ~20s
+# after "Model successfully loaded" but BEFORE the HTTP server was
+# actually listening, producing 30 near-instant failures
+# (openai.APIConnectionError, captured as an internal error notice)
+# before any assertion could reveal the problem. The previous preamble
+# (check_tools_schema) checked ONLY the tool schema via mcp-client, never
+# that the LLM backend actually answers a completion — blind spot now
+# covered by wait_for_llm_ready.
 LLM_READY_TIMEOUT_SECONDS = 180
 LLM_READY_POLL_INTERVAL_SECONDS = 5
 
@@ -59,17 +59,17 @@ EXPECTED_TOOLS = policy.TIER_READ_TOOLS | policy.TIER_REVERSIBLE_TOOLS | policy.
     "browser_navigate"
 }
 
-# Contrôle des flags effectifs (docs/briefs/flags-du-coeur-cognitif.md,
-# point 2) : valeurs attendues DANS LE CONTENEUR qui tourne — les 4 flags du
-# cœur cognitif (défaut "true" désormais, voir app/graph.py et
-# docker-compose.yml) + les autres variables qui pilotent le comportement
-# mesuré (budgets de tentatives/replanification, thinking bridé, overrides
-# de tiers, seuils de tronquage). Liste et valeurs reprises telles quelles
-# de app/graph.py/app/approval_policy.py (jamais devinées) — voir
-# CAMPAIGN_ENV_FLAGS (campaign_persistence.py) pour la même liste de NOMS,
-# réutilisée ici pour ne pas la dupliquer. Une valeur absente du conteneur
-# (docker-compose.yml ne la passe pas en environment) compare à "" (chaîne
-# vide, jamais None — évite un faux écart de type au diff).
+# Effective flags control (docs/briefs/flags-du-coeur-cognitif.md, point
+# 2): expected values INSIDE THE RUNNING CONTAINER — the 4 cognitive-core
+# flags (default "true" now, see app/graph.py and docker-compose.yml) +
+# the other variables that drive measured behavior (attempt/replan
+# budgets, curbed thinking, tier overrides, truncation thresholds). List
+# and values taken as-is from app/graph.py/app/approval_policy.py (never
+# guessed) — see CAMPAIGN_ENV_FLAGS (campaign_persistence.py) for the
+# same list of NAMES, reused here to avoid duplicating it. A value absent
+# from the container (docker-compose.yml doesn't pass it in environment)
+# compares to "" (empty string, never None — avoids a false type
+# mismatch in the diff).
 EXPECTED_AGENT_FLAGS = {
     "MAX_TOOL_ITERATIONS": "20",
     "LLM_MAX_TOKENS": "2048",
@@ -98,15 +98,15 @@ EXPECTED_AGENT_FLAGS = {
 
 
 class PreflightError(RuntimeError):
-    """Levée par run_preflight() : la campagne ne doit PAS démarrer."""
+    """Raised by run_preflight(): the campaign must NOT start."""
 
 
 def check_tools_schema(agent_tools: Iterable[str], mcp_tools: Iterable[str]) -> Optional[str]:
     """
-    Pure, unit-testable sans docker : None si tout va bien, sinon un message
-    motivant le refus (comparaison AVANT expected, car une désynchronisation
-    entre les deux services rend toute conclusion sur "l'attendu" trompeuse
-    tant qu'elle n'est pas résolue).
+    Pure, unit-testable without docker: None if all is well, otherwise a
+    message explaining the rejection (compared BEFORE expected, since a
+    desync between the two services makes any conclusion about "the
+    expected" misleading until it's resolved).
     """
     agent_tools = set(agent_tools)
     mcp_tools = set(mcp_tools)
@@ -127,16 +127,16 @@ def check_tools_schema(agent_tools: Iterable[str], mcp_tools: Iterable[str]) -> 
 
 def check_agent_flags(actual_flags: dict) -> Optional[str]:
     """
-    Pure, unit-testable sans docker (voir check_tools_schema ci-dessus,
-    même style) : None si `actual_flags` (voir _fetch_agent_env plus bas)
-    correspond exactement à EXPECTED_AGENT_FLAGS pour chaque clé attendue,
-    sinon un message listant le diff (clé, attendu, effectif) — une
-    campagne mesurée contre un flag dérivé (ex. .env local qui override
-    encore l'ancien défaut "false") ne doit jamais se prétendre comparable
-    à la campagne de référence sans le signaler AVANT le premier run.
-    Une clé absente de `actual_flags` (docker exec n'a rien renvoyé, ex.
-    conteneur non redémarré depuis l'ajout d'une variable à
-    docker-compose.yml) compare à "" comme une valeur vide, jamais ignorée.
+    Pure, unit-testable without docker (see check_tools_schema above,
+    same style): None if `actual_flags` (see _fetch_agent_env below)
+    exactly matches EXPECTED_AGENT_FLAGS for every expected key, otherwise
+    a message listing the diff (key, expected, actual) — a campaign
+    measured against a drifted flag (e.g. a local .env still overriding
+    the old "false" default) must never claim to be comparable to the
+    reference campaign without flagging it BEFORE the first run. A key
+    absent from `actual_flags` (docker exec returned nothing, e.g. a
+    container not restarted since a variable was added to
+    docker-compose.yml) compares to "" as an empty value, never ignored.
     """
     diffs = []
     for key, expected in EXPECTED_AGENT_FLAGS.items():
@@ -185,13 +185,13 @@ print(json.dumps(sorted({t["function"]["name"] for t in body.get("tools", [])}))
 
 def _fetch_llm_ready() -> bool:
     """
-    Appel de complétion RÉEL (pas un /health) contre LLM_BASE_URL tel que vu
-    par langgraph-agent lui-même (portable au backend alternatif
-    llama-server, voir README « Backend d'inférence » — pas seulement
-    TabbyAPI) : c'est la seule vérification qui aurait détecté le cas
-    trouvé en conditions réelles (serveur pas encore à l'écoute malgré un
-    modèle déjà chargé). enable_thinking=False + max_tokens=1 : le plus
-    rapide possible, on ne veut qu'un finish_reason, pas une vraie réponse.
+    REAL completion call (not a /health) against LLM_BASE_URL as seen by
+    langgraph-agent itself (portable to the alternative llama-server
+    backend, see README "Inference backend" — not just TabbyAPI): this
+    is the only check that would have caught the real-conditions case
+    found (server not yet listening despite a model already loaded).
+    enable_thinking=False + max_tokens=1: as fast as possible, we only
+    want a finish_reason, not a real answer.
     """
     script = """
 import json, os, urllib.request, urllib.error
@@ -224,9 +224,9 @@ def _run_docker(args: list, timeout: int = 15) -> str:
 
 
 def _fetch_tabbyapi_image_ids() -> tuple:
-    """(id de l'image RÉELLEMENT utilisée par le conteneur tabbyapi qui
-    tourne, id de la dernière image construite localement pour ce tag) —
-    voir check_tabbyapi_image_fresh."""
+    """(id of the image ACTUALLY used by the running tabbyapi container,
+    id of the last locally built image for this tag) — see
+    check_tabbyapi_image_fresh."""
     running = _run_docker(["inspect", "--format", "{{.Image}}", TABBYAPI_CONTAINER])
     built = _run_docker(["image", "inspect", "--format", "{{.Id}}", TABBYAPI_IMAGE_TAG])
     return running, built
@@ -234,17 +234,17 @@ def _fetch_tabbyapi_image_ids() -> tuple:
 
 def check_tabbyapi_image_fresh(fetch_image_ids: Callable[[], tuple] = _fetch_tabbyapi_image_ids) -> Optional[str]:
     """
-    Vérification du digest d'image (arbitrage post-1/2-ter, voir
-    docs/history.md, action 1) : détecte un conteneur tabbyapi qui tournerait
-    sur une image DIFFÉRENTE de la dernière construite localement pour ce
-    tag — ex. `docker compose build` exécuté sans le `up -d` qui applique
-    le changement, ou un rollback d'image manuel oublié. Un tel écart
-    laisserait tourner une campagne entière contre un modèle/une version
-    différente de celle attendue, silencieusement (aucune erreur, juste un
-    comportement différent) — même classe de risque que la désynchronisation
-    de schéma d'outils que check_tools_schema détecte déjà côté
-    langgraph-agent/mcp-client. Pure une fois fetch_image_ids injecté (voir
-    tests/test_campaign_preflight.py) : aucun docker réel dans les tests.
+    Image digest check (post-1/2-ter arbitration, see docs/history.md,
+    action 1): detects a tabbyapi container running on an image
+    DIFFERENT from the last one built locally for this tag — e.g.
+    `docker compose build` run without the `up -d` that applies the
+    change, or a forgotten manual image rollback. Such a gap would let a
+    whole campaign run against a different model/version than expected,
+    silently (no error, just different behavior) — the same class of
+    risk as the tool-schema desync that check_tools_schema already
+    detects on the langgraph-agent/mcp-client side. Pure once
+    fetch_image_ids is injected (see tests/test_campaign_preflight.py):
+    no real docker in the tests.
     """
     running_id, built_id = fetch_image_ids()
     if running_id != built_id:
@@ -257,10 +257,10 @@ def check_tabbyapi_image_fresh(fetch_image_ids: Callable[[], tuple] = _fetch_tab
 
 
 def _fetch_agent_env() -> dict:
-    """Flags effectifs DANS le conteneur langgraph-agent qui tourne — voir
-    check_agent_flags. Réutilise campaign_persistence.collect_env_flags
-    (même primitive `docker exec ... env` que la sérialisation de campagne,
-    voir campaign_persistence.py) plutôt que d'en dupliquer une variante ici."""
+    """Effective flags INSIDE the running langgraph-agent container — see
+    check_agent_flags. Reuses campaign_persistence.collect_env_flags (the
+    same `docker exec ... env` primitive as campaign serialization, see
+    campaign_persistence.py) rather than duplicating a variant here."""
     return campaign_persistence.collect_env_flags(AGENT_CONTAINER, list(EXPECTED_AGENT_FLAGS))
 
 
@@ -273,10 +273,10 @@ def wait_for_llm_ready(
     now: Callable[[], float] = time.monotonic,
 ) -> None:
     """
-    Interroge fetch_llm_ready jusqu'à succès ou expiration — voir
-    LLM_READY_TIMEOUT_SECONDS plus haut pour la raison d'être. `sleep`/`now`
-    injectables pour un test unitaire rapide (voir
-    tests/test_campaign_preflight.py), sans vrai délai ni docker.
+    Polls fetch_llm_ready until success or timeout — see
+    LLM_READY_TIMEOUT_SECONDS above for the rationale. `sleep`/`now`
+    injectable for a fast unit test (see tests/test_campaign_preflight.py),
+    with no real delay or docker.
     """
     deadline = now() + timeout_seconds
     while not fetch_llm_ready():
@@ -299,22 +299,21 @@ def run_preflight(
     fetch_agent_env: Callable[[], dict] = _fetch_agent_env,
 ) -> None:
     """
-    Appelé UNE fois par campagne (pas par répétition, contrairement à
-    purge_downloads/reset_browser_session qui restent aussi appelés avant
-    chaque répétition individuelle — voir test_web_tasks.py). Callables de
-    fetch injectables pour permettre un test unitaire complet de
-    l'orchestration sans docker (voir tests/test_campaign_preflight.py) ;
-    purge_downloads/reset_browser_session restent des paramètres obligatoires
-    plutôt que des défauts internes pour ne jamais dupliquer leur
-    implémentation (déjà dans test_web_tasks.py, avec leurs propres raisons
-    d'être documentées).
+    Called ONCE per campaign (not per repetition, unlike
+    purge_downloads/reset_browser_session which also stay called before
+    each individual repetition — see test_web_tasks.py). Fetch callables
+    injectable to allow a full unit test of the orchestration with no
+    docker (see tests/test_campaign_preflight.py); purge_downloads/
+    reset_browser_session remain mandatory parameters rather than
+    internal defaults so as never to duplicate their implementation
+    (already in test_web_tasks.py, with their own documented rationale).
 
-    Ordre : readiness LLM D'ABORD (le moins cher à constater EN ERREUR —
-    inutile de comparer des schémas d'outils si le backend ne répond même
-    pas), puis fraîcheur d'image tabbyapi (arbitrage post-1/2-ter, voir
-    docs/history.md), puis flags d'env effectifs (docs/briefs/
-    flags-du-coeur-cognitif.md — inutile de mesurer une campagne contre une
-    config qu'on n'a pas vraiment), puis schéma d'outils, puis purge/reset.
+    Order: LLM readiness FIRST (cheapest to observe IN ERROR — no point
+    comparing tool schemas if the backend doesn't even respond), then
+    tabbyapi image freshness (post-1/2-ter arbitration, see
+    docs/history.md), then effective env flags (docs/briefs/
+    flags-du-coeur-cognitif.md — no point measuring a campaign against a
+    config we don't actually have), then tool schema, then purge/reset.
     """
     wait_for_llm_ready(fetch_llm_ready)
     error = check_tabbyapi_image_fresh(fetch_tabbyapi_image_ids)
