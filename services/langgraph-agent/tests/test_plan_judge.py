@@ -43,7 +43,7 @@ def test_validate_judge_json_accepts_full_verdict():
 def test_validate_judge_json_rejects_invalid_json():
     import app.graph as g
 
-    with pytest.raises(g.PlanJudgeValidationError, match="JSON invalide"):
+    with pytest.raises(g.PlanJudgeValidationError, match="invalid JSON"):
         g._validate_judge_json("pas du json")
 
 

@@ -1,42 +1,42 @@
 """
-Graphe d'orchestration LangGraph.
+LangGraph orchestration graph.
 
-Flux :
-  1. retrieve_context   -> interroge Context Manager (RAG / mémoire)
-  2. select_skill        -> interroge Skill Manager pour injecter un prompt de skill pertinent
-  3. plan_task            -> si PLANNER_ENABLED (Itération 1, Phase 1 « cœur
-     cognitif », voir docs/briefs/phase-1-coeur-cognitif.md), décompose
-     l'objectif en sous-tâches JSON une seule fois par tâche ; no-op sinon
-     ou si déjà planifié (voir AgentState.plan)
-  4. call_llm             -> appelle le backend d'inférence (TabbyAPI par
-     défaut, API OpenAI-compatible) avec function calling
-  6. has_tool_calls       -> route vers require_approval, ou directement vers
-     auto_call_tools si TOUS les tool_calls du tour sont auto-approuvés selon
-     la politique par tiers (app/approval_policy.py, voir plus bas)
-  7. require_approval (option) -> si le LLM demande un outil non auto-approuvé,
-     met le graphe en pause (NodeInterrupt) tant qu'un humain n'a pas
-     approuvé/refusé via l'état "approved"
-  8. call_tools | auto_call_tools | reject_tools -> exécute l'outil via MCP
-     Client (même logique partagée, voir _execute_tool_calls), ou synthétise
-     un refus si l'humain a refusé. Les deux journalisent dans le journal
-     d'audit (Phase 2, voir app/audit_log.py) tout tier hors TIER_READ.
-  9. verify_action        -> si VERIFICATION_ENABLED (Itération 2, Phase 1
-     « cœur cognitif »), compare le résultat du tour au success_criterion de
-     la sous-tâche active du plan ; no-op sinon (reboucle direct sur
-     call_llm, comme avant cette itération) — voir route_after_verification.
-  10. replan_task | report_failure -> si une sous-tâche est marquée
-     "echoue" : replanifie (budget REPLAN_BUDGET) ou rapporte un échec
-     honnête à l'utilisateur (END) une fois ce budget épuisé.
-  11. END                  -> réponse finale
+Flow:
+  1. retrieve_context   -> queries the Context Manager (RAG / memory)
+  2. select_skill        -> queries the Skill Manager to inject a relevant skill prompt
+  3. plan_task            -> if PLANNER_ENABLED (Iteration 1, Phase 1 "cognitive
+     core", see docs/briefs/phase-1-coeur-cognitif.md), decomposes the
+     objective into JSON subtasks once per task; no-op otherwise or if
+     already planned (see AgentState.plan)
+  4. call_llm             -> calls the inference backend (TabbyAPI by
+     default, OpenAI-compatible API) with function calling
+  6. has_tool_calls       -> routes to require_approval, or directly to
+     auto_call_tools if ALL the turn's tool_calls are auto-approved per
+     the per-tier policy (app/approval_policy.py, see below)
+  7. require_approval (optional) -> if the LLM requests a non-auto-approved
+     tool, pauses the graph (NodeInterrupt) until a human has
+     approved/refused via the "approved" state
+  8. call_tools | auto_call_tools | reject_tools -> runs the tool via the
+     MCP Client (same shared logic, see _execute_tool_calls), or
+     synthesizes a refusal if the human refused. Both log to the audit
+     log (Phase 2, see app/audit_log.py) any tier other than TIER_READ.
+  9. verify_action        -> if VERIFICATION_ENABLED (Iteration 2, Phase 1
+     "cognitive core"), compares the turn's result to the active
+     subtask's success_criterion; no-op otherwise (loops straight back to
+     call_llm, as before this iteration) — see route_after_verification.
+  10. replan_task | report_failure -> if a subtask is marked
+     "echoue": replans (REPLAN_BUDGET budget) or reports an honest
+     failure to the user (END) once that budget is exhausted.
+  11. END                  -> final answer
 
-Supervision humaine : par défaut, tout appel d'outil est soumis à
-approbation (voir require_approval/reject_tools ci-dessous), à l'exception
-des outils classés tier "read" ou "reversible" par app/approval_policy.py
-(souris/capture d'écran GhostDesk, lecture filesystem/git, par défaut — voir
-ce module pour le détail des tiers). Le graphe est donc compilé avec un
-checkpointer (MemorySaver, en mémoire) pour pouvoir suspendre puis reprendre
-l'exécution — au prix de perdre les approbations en attente si le service
-redémarre (acceptable pour un usage local, voir README).
+Human supervision: by default, every tool call is subject to approval
+(see require_approval/reject_tools below), except for tools classified as
+"read" or "reversible" tier by app/approval_policy.py (GhostDesk
+mouse/screenshot, filesystem/git reads, by default — see that module for
+the tier detail). The graph is therefore compiled with a checkpointer
+(MemorySaver, in-memory) so it can suspend then resume execution — at the
+cost of losing pending approvals if the service restarts (acceptable for
+local use, see README).
 """
 
 import base64
@@ -69,31 +69,31 @@ from app import approval_policy, audit_log, plan_validation
 
 logger = logging.getLogger(__name__)
 
-# Le raisonnement d'un modèle "thinking" arrive dans un champ dédié des
-# deltas SSE, en plus de "content" — hors du format OpenAI standard, que
-# langchain-openai ignore silencieusement (_convert_delta_to_message_chunk ne
-# lit que "content"/"tool_calls"/"function_call"). Le NOM de ce champ diffère
-# selon le backend : "reasoning" avec Ollama (modèles Qwen3+), "reasoning_
-# content" avec llama-server (confirmé en conditions réelles avec le fork
-# turboquant-webp servant Qwen3.6 — llama-server suit ici la convention
-# DeepSeek-R1/OpenAI o1, pas celle d'Ollama). Sans gérer les deux noms, le
-# raisonnement streamé par llama-server disparaîtrait silencieusement (aucune
-# erreur, juste absent du flux) — vérifié par un vrai appel streamé avant ce
-# correctif : les deltas ne contenaient que "reasoning_content", jamais
-# "reasoning". On réinjecte le contenu trouvé (quel que soit le nom du champ)
-# en le repliant dans "content", entouré de <think>...</think> (convention
-# reconnue par Open WebUI pour afficher une bulle de pensée repliable), ce
-# qui le fait apparaître dans le flux de streaming existant sans toucher à
-# app/main.py.
+# A "thinking" model's reasoning arrives in a dedicated field of the SSE
+# deltas, alongside "content" — outside the standard OpenAI format, which
+# langchain-openai silently ignores (_convert_delta_to_message_chunk only
+# reads "content"/"tool_calls"/"function_call"). The NAME of this field
+# differs by backend: "reasoning" with Ollama (Qwen3+ models),
+# "reasoning_content" with llama-server (confirmed under real conditions
+# with the turboquant-webp fork serving Qwen3.6 — llama-server follows the
+# DeepSeek-R1/OpenAI o1 convention here, not Ollama's). Without handling
+# both names, reasoning streamed by llama-server would silently disappear
+# (no error, just absent from the stream) — verified via a real streamed
+# call before this fix: the deltas only ever contained "reasoning_content",
+# never "reasoning". We reinject whatever content is found (regardless of
+# the field name) by folding it into "content", wrapped in
+# <think>...</think> (a convention recognized by Open WebUI to display a
+# collapsible thinking bubble), which makes it show up in the existing
+# streaming flow without touching app/main.py.
 #
-# TabbyAPI (backend par défaut depuis la migration ExLlamaV3, voir README
-# section Backend d'inférence) a son propre toggle `reasoning: true` côté
-# config.yml, mais le NOM du champ SSE qu'il émet sur le fil n'a pas encore
-# été vérifié empiriquement (voir tests_integration/CUDA-DIAGNOSTIC.md /
-# plan d'implémentation tabbyapi, risque ouvert #3) — si ni "reasoning" ni
-# "reasoning_content" ne matchent en conditions réelles, ajouter un troisième
-# `or _dict.get(...)` ci-dessous une fois le nom réel confirmé par un appel
-# streamé réel, pas deviné.
+# TabbyAPI (the default backend since the ExLlamaV3 migration, see README
+# section Inference backend) has its own `reasoning: true` toggle on the
+# config.yml side, but the NAME of the SSE field it emits on the wire
+# hasn't been empirically verified yet (see
+# tests_integration/CUDA-DIAGNOSTIC.md / tabbyapi implementation plan, open
+# risk #3) — if neither "reasoning" nor "reasoning_content" match under
+# real conditions, add a third `or _dict.get(...)` below once the real
+# name is confirmed by a real streamed call, not guessed.
 _think_state: contextvars.ContextVar[Optional[dict]] = contextvars.ContextVar(
     "_think_state", default=None
 )
@@ -112,14 +112,15 @@ def _convert_delta_with_reasoning(_dict, default_class):
         state["opened"] = True
         pieces = [prefix, reasoning]
         if real_content:
-            # Ce delta contient à la fois la fin du raisonnement ET le début
-            # de la réponse finale dans le MÊME chunk (observé avec
-            # TabbyAPI/ExLlamaV3 — llama-server/Ollama séparaient toujours
-            # les deux en chunks distincts, d'où ce bug invisible avant
-            # cette migration). Sans ce cas, chunk.content écrasé par le
-            # seul raisonnement juste en dessous jetait silencieusement la
-            # vraie réponse — le tour se terminait alors sans contenu
-            # visible, déclenchant à tort le filet de secours empty-answer.
+            # This delta contains both the end of the reasoning AND the
+            # start of the final answer in the SAME chunk (observed with
+            # TabbyAPI/ExLlamaV3 — llama-server/Ollama always kept the two
+            # in separate chunks, hence this bug being invisible before
+            # this migration). Without this case, chunk.content being
+            # overwritten by the reasoning alone right below would
+            # silently drop the real answer — the turn would then end
+            # with no visible content, wrongly triggering the
+            # empty-answer safety net.
             state["closed"] = True
             pieces.append("</think>\n\n")
             pieces.append(real_content)
@@ -137,37 +138,38 @@ CONTEXT_MANAGER_URL = os.environ.get("CONTEXT_MANAGER_URL", "http://context-mana
 SKILL_MANAGER_URL = os.environ.get("SKILL_MANAGER_URL", "http://skill-manager:8001")
 MCP_CLIENT_URL = os.environ.get("MCP_CLIENT_URL", "http://mcp-client:8003")
 
-# Garde-fou fabrication d'URL (Phase 1, voir PLAN.md/docs/history.md — cible n°1
-# du point zéro Phase 0 : l'agent invente régulièrement des URL plausibles
-# jamais observées — page-4.html sur un catalogue à 3 pages, un chemin de
-# recherche inexistant... — plutôt que de suivre un lien réel du DOM).
+# URL-fabrication guardrail (Phase 1, see PLAN.md/docs/history.md — target
+# #1 of the Phase 0 point zero: the agent regularly invents plausible URLs
+# it never observed — page-4.html on a 3-page catalog, a nonexistent
+# search path... — rather than following a real link from the DOM).
 BROWSER_NAVIGATE_GUARDRAIL = os.environ.get("BROWSER_NAVIGATE_GUARDRAIL", "true").lower() == "true"
 
-# Feedback gradué (Phase 1c, voir docs/history.md) : la 1b (liste complète des
-# liens à CHAQUE rejet) a fait reculer T4/T7/T8 par rapport à la 1a — la
-# liste complète était redondante (déjà dans le snapshot structuré) et
-# alourdissait chaque rejet. Trois paliers par NOMBRE DE TENTATIVES
-# fabriquées pour cette tâche (pas par sous-tâche — la Phase 1 complète,
-# pas encore faite, introduira ce découpage plus fin) :
-#   1-2  : message minimal, aucune liste (le snapshot l'a déjà).
-#   3..LIMIT-1 : + les quelques liens les plus proches de l'URL fabriquée
-#                (aide ciblée, pas un annuaire).
-#   >=LIMIT : le feedback change de nature — pousse vers une conclusion
-#             honnête d'absence plutôt que vers une énième supposition
-#             (pont vers T7 : l'obstination devient un aveu d'échec légitime).
+# Graduated feedback (Phase 1c, see docs/history.md): 1b (the full link
+# list on EVERY rejection) made T4/T7/T8 regress compared to 1a — the
+# full list was redundant (already in the structured snapshot) and
+# weighed down every rejection. Three tiers by NUMBER OF FABRICATED
+# ATTEMPTS for this task (not per subtask — the full Phase 1, not yet
+# done, will introduce this finer breakdown):
+#   1-2: minimal message, no list (the snapshot already has it).
+#   3..LIMIT-1: + a few links closest to the fabricated URL
+#                (targeted help, not a directory).
+#   >=LIMIT: the feedback changes nature — pushes toward an honest
+#             conclusion of absence rather than yet another guess
+#             (bridge to T7: persistence becomes a legitimate admission
+#             of failure).
 FABRICATION_LIMIT = int(os.environ.get("FABRICATION_LIMIT", "5"))
 
 def _fabrication_feedback(fabricated_url: str, attempt_number: int, page_links: list) -> str:
     if attempt_number >= FABRICATION_LIMIT:
-        # Plafond (Phase 1c) : redirection conditionnelle vers des "candidats
-        # forts" tentée en Phase 1d puis SUSPENDUE (voir docs/history.md) —
-        # l'hypothèse motivant ce branchement (0a, vérification d'archive
-        # T5/T8) n'a pas été confirmée par les séquences réellement
-        # observées. Revient au message inconditionnel de 1c : au plafond,
-        # conclure à l'absence est une réponse valide, point final. Le vrai
-        # correctif T5 vit maintenant côté infra (volume de téléchargement
-        # dédié, voir docs/history.md "Phase 1d-révisée") plutôt que dans une
-        # heuristique de similarité sur ce feedback.
+        # Cap (Phase 1c): conditional redirection to "strong candidates"
+        # tried in Phase 1d then SUSPENDED (see docs/history.md) — the
+        # hypothesis behind this branch (0a, T5/T8 archive check) wasn't
+        # confirmed by the sequences actually observed. Reverts to 1c's
+        # unconditional message: at the cap, concluding absence is a valid
+        # answer, full stop. The real T5 fix now lives on the infra side
+        # (dedicated download volume, see docs/history.md
+        # "Phase 1d-revised") rather than in a similarity heuristic on
+        # this feedback.
         return (
             f"URL non observée (tentative n°{attempt_number}). Plusieurs tentatives vers des URL "
             "inexistantes. Si la cible ne figure dans aucune page observée, conclure qu'elle "
@@ -205,26 +207,26 @@ _URL_RE = re.compile(r"https?://[^\s'\")\]]+")
 _SNAPSHOT_URL_LINE_RE = re.compile(r"/url:\s*(\S+)")
 _PAGE_URL_LINE_RE = re.compile(r"Page URL:\s*(\S+)")
 
-# Borne de sortie d'outil (Phase 1) : un résultat d'outil browser_* trop
-# volumineux (page réelle dense, voir T8/T11 — dépassement de contexte LLM
-# découvert en conditions réelles, voir docs/history.md) est tronqué à la SOURCE,
-# avant d'entrer dans l'historique de conversation. Distinct de la rétention
-# d'images (Phase 2, MAX_IMAGES_IN_CONTEXT) : ceci borne la taille d'UN SEUL
-# résultat d'outil, pas l'historique complet.
+# Tool-output bound (Phase 1): an oversized browser_* tool result (a dense
+# real page, see T8/T11 — LLM context overflow discovered under real
+# conditions, see docs/history.md) is truncated at the SOURCE, before
+# entering the conversation history. Distinct from image retention (Phase
+# 2, MAX_IMAGES_IN_CONTEXT): this bounds the size of a SINGLE tool result,
+# not the whole history.
 BROWSER_TOOL_OUTPUT_MAX_CHARS = int(os.environ.get("BROWSER_TOOL_OUTPUT_MAX_CHARS", "8000"))
 
 
 def _clean_url(url: str) -> str:
-    """Retire la ponctuation de fin de phrase accolée par erreur au match
-    (ex. "http://exemple.com/page.html," dans une phrase française) — une
-    URL réelle ne se termine normalement jamais par ces caractères."""
+    """Strips trailing sentence punctuation mistakenly glued to the match
+    (e.g. "http://example.com/page.html," in a French sentence) — a real
+    URL normally never ends with these characters."""
     return url.rstrip(",.;:")
 
 
 def _extract_urls(text: str, base_url: Optional[str]) -> set:
-    """URL absolues et relatives (résolues via base_url) trouvées dans un
-    texte de résultat d'outil browser_* (snapshot Playwright au format YAML,
-    "- /url: ...", ou texte libre contenant des URL absolues)."""
+    """Absolute and relative URLs (resolved via base_url) found in a
+    browser_* tool result's text (Playwright snapshot in YAML format,
+    "- /url: ...", or free text containing absolute URLs)."""
     found = {_clean_url(m) for m in _URL_RE.findall(text)}
     for match in _SNAPSHOT_URL_LINE_RE.findall(text):
         match = _clean_url(match)
@@ -238,9 +240,9 @@ def _extract_page_url(text: str) -> Optional[str]:
 
 
 def _task_scope_urls(messages: list) -> set:
-    """Racines du périmètre de la tâche : URL mentionnées dans le premier
-    message humain (voir tests_integration/test_web_tasks.py, convention de
-    prompt — une tâche mentionne toujours l'URL du site cible)."""
+    """Roots of the task's scope: URLs mentioned in the first human
+    message (see tests_integration/test_web_tasks.py, prompt convention —
+    a task always mentions the target site's URL)."""
     first_human = next((m for m in messages if getattr(m, "type", None) == "human"), None)
     if first_human is None or not isinstance(first_human.content, str):
         return set()
@@ -249,12 +251,13 @@ def _task_scope_urls(messages: list) -> set:
 
 _AFFORDANCE_LINE_RE = re.compile(r'-\s*\'?(link|button|textbox|combobox|checkbox|option)\s+"([^"]*)"')
 
-# Inventaire hiérarchisé (Phase 1d, point 2) : au-delà de ce nombre
-# d'affordances, préserver la liste COMPLÈTE devient contre-productif — sur
-# une vraie page Wikipédia (593 affordances, ~47000 caractères d'inventaire
-# à elle seule), l'inventaire dépassait déjà largement le plafond de sortie
-# et affamait TOUT le contenu descriptif, y compris le lien sémantique entre
-# "Naissance" et "Muret" (voir docs/history.md, vérification d'archive T8).
+# Tiered inventory (Phase 1d, point 2): beyond this number of
+# affordances, preserving the FULL list becomes counterproductive — on a
+# real Wikipedia page (593 affordances, ~47000 characters for the
+# inventory alone), the inventory already far exceeded the output cap and
+# starved out ALL the descriptive content, including the semantic link
+# between "Naissance" and "Muret" (see docs/history.md, T8 archive
+# check).
 AFFORDANCE_THRESHOLD = int(os.environ.get("AFFORDANCE_THRESHOLD", "60"))
 _NAV_KEYWORDS = {
     "suivant", "précédent", "precedent", "next", "previous", "prev", "page",
@@ -269,11 +272,11 @@ def _is_nav_label(label: str) -> bool:
 
 def _extract_affordances_structured(text: str) -> list[dict]:
     """
-    Inventaire structuré des éléments INTERACTIFS d'un snapshot (liens avec
-    href, boutons, champs de formulaire). Une ligne "link/button/..." est
-    suivie (dans les 2 lignes suivantes, format Playwright) d'une ligne
-    "- /url: ..." si l'élément a une cible ; sinon (bouton, champ) elle est
-    listée sans URL.
+    Structured inventory of a snapshot's INTERACTIVE elements (links with
+    href, buttons, form fields). A "link/button/..." line is followed (in
+    the next 2 lines, Playwright format) by a "- /url: ..." line if the
+    element has a target; otherwise (button, field) it's listed without a
+    URL.
     """
     lines = text.splitlines()
     items = []
@@ -293,29 +296,29 @@ def _extract_affordances_structured(text: str) -> list[dict]:
 
 
 def _format_affordance(item: dict) -> str:
-    # Garde le motif littéral "/url: <cible>" (pas "-> url") : ce bloc
-    # repasse ensuite par _extract_urls (voir _execute_tool_calls), qui
-    # reconnaît spécifiquement ce motif pour les liens relatifs — un autre
-    # format y serait invisible et casserait le suivi observed_urls sur
-    # tout résultat tronqué.
+    # Keeps the literal "/url: <target>" pattern (not "-> url"): this
+    # block later goes back through _extract_urls (see
+    # _execute_tool_calls), which specifically recognizes this pattern
+    # for relative links — any other format would be invisible to it and
+    # would break observed_urls tracking on any truncated result.
     return f'- {item["kind"]} "{item["label"]}"' + (f' /url: {item["url"]}' if item["url"] else "")
 
 
 def _extract_affordances(text: str) -> list[str]:
-    """Voir _truncate_browser_result : cet inventaire est TOUJOURS conservé
-    intégralement en dessous d'AFFORDANCE_THRESHOLD éléments — au-delà,
-    _prioritize_affordances hiérarchise plutôt que de tout garder (voir
-    ce module, docs/history.md, "le tronquage affame la navigation")."""
+    """See _truncate_browser_result: this inventory is ALWAYS kept in full
+    below AFFORDANCE_THRESHOLD elements — beyond that, _prioritize_affordances
+    tiers it instead of keeping everything (see this module, docs/history.md,
+    "truncation starves navigation")."""
     return [_format_affordance(i) for i in _extract_affordances_structured(text)]
 
 
 def _prioritize_affordances(items: list[dict], objective: str) -> tuple[list[str], int]:
     """
-    Au-delà d'AFFORDANCE_THRESHOLD : la pagination/navigation reste
-    TOUJOURS intégrale (jamais le goulot), les liens de zone de contenu
-    sont triés par proximité avec l'objectif de la tâche courante (le
-    prompt initial, faute de sous-tâches explicites — Phase 1 complète pas
-    encore faite) et plafonnés ; le reste est compté, pas listé.
+    Beyond AFFORDANCE_THRESHOLD: pagination/navigation ALWAYS stays in
+    full (never the bottleneck), content-area links are sorted by
+    proximity to the current task's objective (the initial prompt, for
+    lack of explicit subtasks — full Phase 1 not done yet) and capped;
+    the rest is counted, not listed.
     """
     nav = [i for i in items if _is_nav_label(i["label"])]
     content = [i for i in items if not _is_nav_label(i["label"])]
@@ -332,13 +335,14 @@ def _prioritize_affordances(items: list[dict], objective: str) -> tuple[list[str
 
 def _truncate_browser_result(result: dict, max_chars: int, objective: str = "") -> dict:
     """
-    Tronque un résultat d'outil browser_* trop volumineux SANS jamais perdre
-    l'inventaire des affordances PERTINENTES (voir _extract_affordances /
-    _prioritize_affordances) : celui-ci est placé en tête, avant le contenu
-    (potentiellement tronqué). Le budget max_chars s'applique au CONTENU,
-    pas à l'inventaire — si l'inventaire (déjà hiérarchisé si besoin) dépasse
-    quand même max_chars, il reste entier : préserver la navigation prime
-    sur le respect strict du plafond dans ce cas rare.
+    Truncates an oversized browser_* tool result WITHOUT ever losing the
+    RELEVANT affordances inventory (see _extract_affordances /
+    _prioritize_affordances): it's placed at the top, before the content
+    (potentially truncated). The max_chars budget applies to the
+    CONTENT, not the inventory — if the inventory (already tiered if
+    needed) still exceeds max_chars, it stays whole: preserving
+    navigation takes priority over strictly respecting the cap in this
+    rare case.
     """
     content = result.get("content")
     if not isinstance(content, list):
@@ -384,134 +388,136 @@ def _truncate_browser_result(result: dict, max_chars: int, objective: str = "") 
         new_content.append(block)
     return {**result, "content": new_content}
 
-# Format transmis au LLM pour les résultats image d'outil (screen_shot
-# GhostDesk, format WebP natif) : vide (le défaut) reconvertit
-# systématiquement en PNG — le backend par défaut (TabbyAPI/ExLlamaV3,
-# voir README section Backend d'inférence) n'est pas connu pour décoder le
-# WebP nativement (à vérifier empiriquement, voir plan d'implémentation
-# tabbyapi, risque ouvert #2 ; nécessaire de toute façon avec Ollama, dont
-# le décodeur mtmd échoue explicitement sur le WebP). "webp" ne s'active
-# qu'avec le backend alternatif llama-server, dont le fork llama.cpp décode
-# le WebP nativement (voir _to_png_data_uri plus bas et le tableau des bugs
-# du README).
+# Format sent to the LLM for tool image results (GhostDesk screen_shot,
+# native WebP format): empty (the default) always re-encodes to PNG — the
+# default backend (TabbyAPI/ExLlamaV3, see README section Inference
+# backend) is not known to decode WebP natively (to be verified
+# empirically, see the tabbyapi implementation plan, open risk #2;
+# necessary anyway with Ollama, whose mtmd decoder explicitly fails on
+# WebP). "webp" only activates with the alternative llama-server backend,
+# whose llama.cpp fork decodes WebP natively (see _to_png_data_uri below
+# and the README's bug table).
 IMAGE_FORMAT_PASSTHROUGH = os.environ.get("IMAGE_FORMAT_PASSTHROUGH", "").lower() == "webp"
 
-# Budget cumulé d'appels d'outils pour une même tâche : partagé sur toute la
-# chaîne d'approbations d'un thread, PAS remis à zéro entre deux tours
-# "approuver" (tool_iterations ne repart de 0 que sur un tout nouveau message
-# utilisateur, voir _resolve_run dans app/main.py) — un ancien défaut de 5
-# s'épuisait après 2-3 aller-retours d'approbation à peine, avant même
-# d'atteindre la boucle GhostDesk auto-approuvée (capture/clic) qui consomme
-# elle seule 2 itérations par geste. Dépassement signalé explicitement à
-# l'utilisateur plutôt que silencieux (voir _current_answer, app/main.py).
+# Cumulative tool-call budget for a single task: shared across a
+# thread's whole approval chain, NOT reset to zero between two
+# "approve" turns (tool_iterations only starts back at 0 on a brand-new
+# user message, see _resolve_run in app/main.py) — an old default of 5
+# used to run out after barely 2-3 approval round-trips, before even
+# reaching the auto-approved GhostDesk loop (capture/click) which alone
+# consumes 2 iterations per gesture. Overflow reported explicitly to the
+# user rather than silently (see _current_answer, app/main.py).
 MAX_TOOL_ITERATIONS = int(os.environ.get("MAX_TOOL_ITERATIONS", "20"))
 
-# Politique d'approbation par tiers de réversibilité (voir
-# app/approval_policy.py) : un tour est auto-approuvé si TOUS ses tool_calls
-# sont en tier "read" ou "reversible" ; un tour mixte (même un seul outil en
-# tier "sensitive") reste entièrement soumis à approbation, par sécurité —
-# pas d'approbation partielle par outil. AUTO_APPROVED_TOOLS (ancienne
-# variable d'env) continue de fonctionner comme override rétrocompatible,
-# géré dans approval_policy.tool_tier().
+# Approval policy by reversibility tier (see app/approval_policy.py): a
+# turn is auto-approved if ALL its tool_calls are "read" or "reversible"
+# tier; a mixed turn (even a single "sensitive"-tier tool) stays fully
+# subject to approval, for safety — no partial per-tool approval.
+# AUTO_APPROVED_TOOLS (old env var) keeps working as a backward-compatible
+# override, handled in approval_policy.tool_tier().
 
-# Nombre de tours auto-approuvés consécutifs tolérés avant de forcer malgré
-# tout un passage par require_approval, même si tous les tool_calls du tour
-# restent auto-approuvés (tier "read"/"reversible") — le garde-fou contre le
-# clavier virtuel : un clic seul est anodin, mais une SUITE de clics peut
-# composer une saisie complète via un clavier virtuel à l'écran, contournant
-# de fait l'exclusion de key_type/key_press (tier "sensitive"). Sans plafond,
-# une longue suite de clics pourrait au final saisir n'importe quel texte
-# sans jamais qu'un humain ne valide quoi que ce soit. Remis à 0 à chaque
-# passage réel par require_approval (voir cette fonction plus bas), pas
-# seulement au début d'une nouvelle tâche — contrairement à tool_iterations,
-# qui lui mesure un budget total et non un nombre de tours consécutifs SANS
-# supervision humaine.
+# Number of consecutive auto-approved turns tolerated before forcing a
+# pass through require_approval anyway, even if all the turn's tool_calls
+# remain auto-approved ("read"/"reversible" tier) — the guardrail against
+# a virtual keyboard: a single click is harmless, but a SEQUENCE of clicks
+# could compose full text input via an on-screen virtual keyboard,
+# effectively bypassing the key_type/key_press ("sensitive" tier)
+# exclusion. Without a cap, a long click sequence could ultimately type
+# any text without a human ever validating anything. Reset to 0 on every
+# real pass through require_approval (see this function below), not just
+# at the start of a new task — unlike tool_iterations, which measures a
+# total budget rather than a number of consecutive turns WITHOUT human
+# supervision.
 AUTO_APPROVAL_STREAK_LIMIT = int(os.environ.get("AUTO_APPROVAL_STREAK_LIMIT", "6"))
 
-# Rétention d'images dans l'historique soumis au LLM : chaque screenshot
-# GhostDesk (screen_shot) ajoute un message multimodal coûteux en tokens
-# visuels (voir _split_image_blocks) ; sur une boucle capture/clic répétée,
-# les conserver TOUTES finit par saturer le contexte pour un intérêt
-# quasi nul (seule la capture la plus récente reflète l'état actuel de
-# l'écran). Ne garde que les MAX_IMAGES_IN_CONTEXT dernières images dans ce
-# qui est envoyé au LLM ; les précédentes sont remplacées par un texte
-# indicatif — uniquement pour CET appel (voir _apply_image_retention),
-# jamais persisté dans l'état du graphe/checkpointer : l'historique complet
-# (avec toutes les images d'origine) reste inchangé et consultable/rejoué.
+# Image retention in the history submitted to the LLM: every GhostDesk
+# screenshot (screen_shot) adds a multimodal message costly in visual
+# tokens (see _split_image_blocks); on a repeated capture/click loop,
+# keeping ALL of them ends up saturating the context for near-zero value
+# (only the most recent capture reflects the screen's current state).
+# Keeps only the last MAX_IMAGES_IN_CONTEXT images in what's sent to the
+# LLM; earlier ones are replaced by a placeholder text — only for THIS
+# call (see _apply_image_retention), never persisted in the graph's
+# state/checkpointer: the full history (with all original images) stays
+# unchanged and replayable/inspectable.
 MAX_IMAGES_IN_CONTEXT = int(os.environ.get("MAX_IMAGES_IN_CONTEXT", "1"))
 IMAGE_RETENTION_PLACEHOLDER = "[screenshot antérieure supprimée]"
 
-# Nœud planificateur (Itération 1, Phase 1 « cœur cognitif » — voir
-# docs/briefs/phase-1-coeur-cognitif.md). DÉFAUT INVERSÉ (docs/briefs/
-# flags-du-coeur-cognitif.md) : le "false" par défaut datait de la
-# validation itération par itération, où un appel LLM supplémentaire en
-# tête de CHAQUE tâche aurait cassé la quasi-totalité des tests existants
-# qui mockaient une séquence FIXE de réponses. Le cœur cognitif est
-# désormais mesuré (campagne finale 29/33, cohérente avec la Campagne A
-# pré-cœur-cognitif à 30/33 — voir docs/history.md/README) et adopté : le
-# comportement NOMINAL doit être le défaut, c'est la DÉSACTIVATION qui doit
-# être explicite. Les tests qui dépendent du comportement pré-cœur-cognitif
-# forcent désormais explicitement "false", ils ne s'appuient plus sur le défaut.
+# Planner node (Iteration 1, Phase 1 "cognitive core" — see
+# docs/briefs/phase-1-coeur-cognitif.md). DEFAULT FLIPPED (docs/briefs/
+# flags-du-coeur-cognitif.md): the "false" default dated back to
+# iteration-by-iteration validation, where an extra LLM call at the start
+# of EVERY task would have broken almost all existing tests, which
+# mocked a FIXED sequence of replies. The cognitive core is now measured
+# (final campaign 29/33, consistent with pre-cognitive-core Campaign A at
+# 30/33 — see docs/history.md/README) and adopted: the NOMINAL behavior
+# must be the default, it's DISABLING it that must be explicit. Tests
+# that depend on pre-cognitive-core behavior now explicitly force
+# "false", they no longer rely on the default.
 PLANNER_ENABLED = os.environ.get("PLANNER_ENABLED", "true").lower() == "true"
 
-# Vérification post-action + budget d'échec (Itération 2, Phase 1 « cœur
-# cognitif » — voir docs/briefs/phase-1-coeur-cognitif.md). N'A D'EFFET QUE
-# SI PLANNER_ENABLED EST AUSSI ACTIVÉ : la vérification compare le résultat
-# d'un tour d'outils au success_criterion de la sous-tâche ACTIVE du plan
-# (voir verify_action plus bas) — sans plan, rien à vérifier. DÉFAUT
-# INVERSÉ, même justification que PLANNER_ENABLED ci-dessus (mesuré et
-# adopté, voir docs/briefs/flags-du-coeur-cognitif.md).
+# Post-action verification + failure budget (Iteration 2, Phase 1
+# "cognitive core" — see docs/briefs/phase-1-coeur-cognitif.md). ONLY HAS
+# AN EFFECT IF PLANNER_ENABLED IS ALSO ON: verification compares a
+# tool-call turn's result to the ACTIVE subtask's success_criterion (see
+# verify_action below) — nothing to verify without a plan. DEFAULT
+# FLIPPED, same justification as PLANNER_ENABLED above (measured and
+# adopted, see docs/briefs/flags-du-coeur-cognitif.md).
 VERIFICATION_ENABLED = os.environ.get("VERIFICATION_ENABLED", "true").lower() == "true"
-# Tentatives par sous-tâche avant de la marquer "echoue" (voir verify_action).
+# Attempts per subtask before marking it "echoue" (see verify_action).
 SUBTASK_ATTEMPT_BUDGET = int(os.environ.get("SUBTASK_ATTEMPT_BUDGET", "3"))
-# Replanifications tolérées pour une même tâche avant d'abandonner
-# honnêtement (voir replan_task/report_failure) plutôt que de boucler à
-# l'infini ou de prétendre un faux succès.
+# Replans tolerated for a single task before honestly giving up (see
+# replan_task/report_failure) rather than looping forever or claiming a
+# false success.
 REPLAN_BUDGET = int(os.environ.get("REPLAN_BUDGET", "2"))
 
-# Pipeline de validation du plan (Itération 3, Phase 1 « cœur cognitif » —
-# voir docs/briefs/phase-1-coeur-cognitif.md et app/plan_validation.py).
-# N'A D'EFFET QUE SI PLANNER_ENABLED EST AUSSI ACTIVÉ. DÉFAUT INVERSÉ, même
-# justification que PLANNER_ENABLED/VERIFICATION_ENABLED ci-dessus (voir
+# Plan validation pipeline (Iteration 3, Phase 1 "cognitive core" — see
+# docs/briefs/phase-1-coeur-cognitif.md and app/plan_validation.py). ONLY
+# HAS AN EFFECT IF PLANNER_ENABLED IS ALSO ON. DEFAULT FLIPPED, same
+# justification as PLANNER_ENABLED/VERIFICATION_ENABLED above (see
 # docs/briefs/flags-du-coeur-cognitif.md).
 PLAN_VALIDATION_ENABLED = os.environ.get("PLAN_VALIDATION_ENABLED", "true").lower() == "true"
-# Juge LLM du plan (heuristiques déjà passées, coûteux — un appel LLM par
-# validation). CLAUSE DE RETRAIT (brief Itération 3) mesurée en conditions
-# réelles (voir docs/history.md, Itération 3) : a réellement vétoté un plan que
-# les heuristiques laissaient passer, pour des raisons sémantiques hors de
-# leur portée (preuve d'utilité réelle, pas un validateur "théâtre"), au
-# prix d'une latence notable. DÉFAUT INVERSÉ (docs/briefs/
-# flags-du-coeur-cognitif.md) : décision explicite d'activer par défaut
-# avec les 3 flags ci-dessus, la campagne finale 29/33 ayant mesuré les 4
-# flags actifs ensemble.
+# LLM judge of the plan (heuristics already passed, costly — one LLM call
+# per validation). WITHDRAWAL CLAUSE (Iteration 3 brief) measured under
+# real conditions (see docs/history.md, Iteration 3): it did really veto a
+# plan the heuristics let through, for semantic reasons beyond their
+# reach (proof of real usefulness, not a "theater" validator), at the
+# cost of noticeable latency. DEFAULT FLIPPED (docs/briefs/
+# flags-du-coeur-cognitif.md): explicit decision to enable it by default
+# along with the 3 flags above, the final campaign at 29/33 having
+# measured all 4 flags active together.
 PLAN_JUDGE_ENABLED = os.environ.get("PLAN_JUDGE_ENABLED", "true").lower() == "true"
-# "Rejet motivé → retour planificateur, max 2 cycles puis escalade
-# humaine" (brief) : nombre de rejets (heuristiques OU juge) tolérés avant
-# qu'un humain ne tranche (require_plan_approval, avec les motifs de rejet
-# affichés) plutôt que de laisser le planificateur boucler indéfiniment.
+# "Justified rejection → back to the planner, max 2 cycles then human
+# escalation" (brief): number of rejections (heuristics OR judge)
+# tolerated before a human decides (require_plan_approval, with the
+# rejection reasons displayed) rather than letting the planner loop
+# indefinitely.
 PLAN_VALIDATION_CYCLES_MAX = 2
 
-# Qwen3.6 raisonne par défaut sur chaque tour (balises de pensée étendue) —
-# utile pour une décision initiale, coûteux en latence/tokens pour une
-# boucle perception-action rapide (capture -> clic -> capture...) où chaque
-# tour n'a qu'à décider "où cliquer ensuite" sans reconsidérer toute la
-# tâche. Si ADAPTIVE_THINKING est activé, /no_think est injecté (system
-# prompt transitoire, non persisté — voir _apply_adaptive_thinking) quand
-# TOUS les tool_calls du tour précédent étaient auto-approuvés (même
-# politique par tiers que has_tool_calls, voir approval_policy.py) ; le
-# thinking normal reste actif pour le premier tour d'une tâche ou dès qu'un
-# outil sensible est en jeu, où le raisonnement a le plus de valeur.
+# Qwen3.6 reasons by default on every turn (extended thinking tags) —
+# useful for an initial decision, costly in latency/tokens for a fast
+# perception-action loop (capture -> click -> capture...) where each
+# turn only has to decide "where to click next" without reconsidering
+# the whole task. If ADAPTIVE_THINKING is enabled, /no_think is injected
+# (transient system prompt, not persisted — see
+# _apply_adaptive_thinking) when ALL of the previous turn's tool_calls
+# were auto-approved (same per-tier policy as has_tool_calls, see
+# approval_policy.py); normal thinking stays active for a task's first
+# turn or as soon as a sensitive tool is involved, where reasoning has
+# the most value.
 ADAPTIVE_THINKING = os.environ.get("ADAPTIVE_THINKING", "false").lower() == "true"
 NO_THINK_DIRECTIVE = "/no_think"
 
-# Le VLM servi (Qwen3.6 MoE) raisonne bien mais localise mal : son grounding
-# visuel (viser le bon pixel d'un élément à l'écran) reste imprécis, sans
-# OCR/détection d'éléments UI dédiée (voir README, Limites connues assumées).
-# find_text/read_screen (services/ocr-service, tier lecture — voir
-# approval_policy.py) compensent avec des coordonnées OCR exactes. Consigne
-# transitoire (jamais persistée dans l'état du graphe, même principe que
-# NO_THINK_DIRECTIVE ci-dessus) plutôt qu'une modification du prompt système
-# par tour : reste valable identiquement sur toute la conversation.
+# The served VLM (Qwen3.6 MoE) reasons well but localizes poorly: its
+# visual grounding (aiming at the right on-screen pixel for an element)
+# remains imprecise, with no dedicated OCR/UI-element detection (see
+# README, Known, accepted limitations). find_text/read_screen
+# (services/ocr-service, read tier — see approval_policy.py) compensate
+# with exact OCR coordinates. Transient instruction (never persisted in
+# the graph's state, same principle as NO_THINK_DIRECTIVE above) rather
+# than a per-turn system prompt change: stays identically valid across
+# the whole conversation. Kept in French: sent to the model, behavior not
+# documentation (CLAUDE.md rule #11).
 GROUNDING_DIRECTIVE = (
     "Pour cliquer sur un élément contenant du texte, appelle d'abord "
     "find_text pour obtenir ses coordonnées exactes plutôt que d'estimer "
@@ -519,16 +525,17 @@ GROUNDING_DIRECTIVE = (
     "éléments sans texte (icônes)."
 )
 
-# Chemin de consommation de fichier DOCUMENTÉ (Phase 1d-révisée, voir
-# docs/history.md, T5) : un téléchargement déclenché dans le navigateur atterrit
-# dans un volume désormais partagé en lecture seule avec le serveur MCP
-# filesystem (voir docker-compose.yml, --output-dir/agent-downloads), sous
-# /downloads — jamais dans le filesystem du conteneur playwright-mcp
-# lui-même (fetch()/browser_evaluate comme canal de transfert de fichier a
-# été explicitement écarté, voir docs/history.md : ce n'est pas la primitive
-# d'un outil de lecture). Donner le chemin réel plutôt que de laisser le
-# modèle en deviner un (observé : /app/.playwright-mcp/, /.playwright-mcp/
-# — tous deux faux) est l'anti-fabrication directe pour ce cas.
+# DOCUMENTED file-consumption path (Phase 1d-revised, see docs/history.md,
+# T5): a download triggered in the browser lands in a volume now shared
+# read-only with the filesystem MCP server (see docker-compose.yml,
+# --output-dir/agent-downloads), under /downloads — never in the
+# playwright-mcp container's own filesystem (fetch()/browser_evaluate as
+# a file-transfer channel was explicitly ruled out, see docs/history.md:
+# that's not a read tool's primitive). Giving the real path rather than
+# letting the model guess one (observed: /app/.playwright-mcp/,
+# /.playwright-mcp/ — both wrong) is direct anti-fabrication for this
+# case. Directive text kept in French (sent to the model, behavior not
+# documentation — CLAUDE.md rule #11).
 DOWNLOAD_DIRECTIVE = (
     "Pour un fichier à télécharger (lien/bouton de téléchargement) : "
     "déclenche le téléchargement dans le navigateur, puis lis son contenu "
@@ -537,18 +544,19 @@ DOWNLOAD_DIRECTIVE = (
     "navigateur, que tu ne peux pas connaître à l'avance."
 )
 
-# Vérification en masse (trouvé en investiguant T1, voir docs/history.md) : le
-# vrai blocage n'était ni un format de requête ni une panne, mais un budget
-# d'itérations insuffisant face à une information visible UNIQUEMENT sur
-# les pages de détail (jamais le listing), forçant potentiellement autant
-# de navigations que d'éléments candidats — le modèle finissait par deviner
-# une URL (à raison bloquée par le garde-fou anti-fabrication), preuve
-# qu'il avait identifié le bon problème sans la bonne solution. Corrigé une
-# première fois via browser_evaluate (code JS écrit par le modèle,
-# TIER_SENSITIVE/NEVER_GRANTABLE) ; browser_extract accepte désormais un
-# paramètre `urls` (mode bulk, mcp-client) qui fait la même chose en
-# TIER_READ, sans dépendre du modèle pour écrire du JS correct à chaque
-# fois — consigne mise à jour en conséquence.
+# Bulk verification (found while investigating T1, see docs/history.md):
+# the real blocker was neither a request format nor an outage, but an
+# insufficient iteration budget facing information visible ONLY on
+# detail pages (never the listing), potentially forcing as many
+# navigations as candidate items — the model would end up guessing a URL
+# (rightly blocked by the anti-fabrication guardrail), proof it had
+# identified the right problem without the right solution. First fixed
+# via browser_evaluate (JS code written by the model,
+# TIER_SENSITIVE/NEVER_GRANTABLE); browser_extract now accepts a `urls`
+# parameter (bulk mode, mcp-client) that does the same thing in
+# TIER_READ, without depending on the model to write correct JS every
+# time — instruction updated accordingly. Directive text kept in French
+# (behavior, CLAUDE.md rule #11).
 BULK_CHECK_DIRECTIVE = (
     "Si l'information cherchée (référence, prix...) n'apparaît PAS sur la "
     "page de listing/index mais seulement sur la page de détail de chaque "
@@ -559,35 +567,33 @@ BULK_CHECK_DIRECTIVE = (
     "seul appel."
 )
 
-# Conscience temporelle (PLAN.md Phase 1, point 7 — amendement dédié,
-# jamais implémenté avant ce correctif malgré T11 déjà présente dans le
-# harnais depuis la Phase 0, voir docs/history.md : confirmé en grep exhaustif
-# lors du diagnostic T11). Déclenchée par la sonde T11 elle-même :
-# `browser_extract(query="Python 3.13")` — le modèle navigue bien vers
-# python.org (correctif "premier hop") mais interroge la page avec un
-# préfixe de version issu de SA PROPRE connaissance figée, manquant la
-# version réellement affichée (3.14.x).
+# Temporal awareness (PLAN.md Phase 1, point 7 — a dedicated amendment,
+# never implemented until this fix despite T11 already being present in
+# the harness since Phase 0, see docs/history.md: confirmed via an
+# exhaustive grep during the T11 diagnosis). Triggered by the T11 probe
+# itself: `browser_extract(query="Python 3.13")` — the model does
+# navigate to python.org (the "first hop" fix) but queries the page with
+# a version prefix drawn from ITS OWN frozen knowledge, missing the
+# version actually displayed (3.14.x).
 #
-# Date de coupure : AUCUNE date officielle publiée dans le model card
-# local (models/qwen3.6-27b-exl3-3.50bpw/README.md, vérifié — pas de
-# mention "knowledge cutoff"). Le model card situe la sortie de Qwen3.6
-# après "the February release of the Qwen3.5 series" et cite des
-# problèmes AIME 2026 dans ses benchmarks — mais l'observation empirique
-# ci-dessus (Python 3.13 avancé comme dernière version alors que 3.14
-# existe déjà) montre que la connaissance réelle du modèle est plus
-# ancienne que sa date de sortie annoncée (cas courant : les données
-# d'entraînement figent des mois avant la sortie). Borne CONSERVATRICE
-# retenue : ne pas se fier à des versions/faits volatils sans vérifier,
-# quelle que soit la date supposée.
-# Biais de formulation de requête (trouvé APRÈS la 1re version de cette
-# directive, voir docs/history.md — sonde T11 : le modèle décide bien de
-# vérifier, "Ma connaissance pourrait être dépassée", MAIS interroge
-# ensuite browser_extract avec "Python 3.13" — sa propre valeur supposée
-# injectée dans la requête de recherche elle-même — au lieu d'un terme
-# neutre, et récupère donc l'ancienne version toujours présente ailleurs
-# sur la page (historique des releases). Vérifier via le web ne sert à
-# rien si la requête de vérification est déjà biaisée par la réponse
-# supposée.
+# Cutoff date: NO official date published in the local model card
+# (models/qwen3.6-27b-exl3-3.50bpw/README.md, checked — no "knowledge
+# cutoff" mention). The model card places Qwen3.6's release after "the
+# February release of the Qwen3.5 series" and cites AIME 2026 issues in
+# its benchmarks — but the empirical observation above (Python 3.13
+# claimed as the latest version when 3.14 already exists) shows the
+# model's actual knowledge is older than its announced release date (a
+# common case: training data freezes months before release).
+# CONSERVATIVE bound chosen: don't trust volatile versions/facts without
+# checking, whatever the assumed date.
+# Query-wording bias (found AFTER the first version of this directive,
+# see docs/history.md — T11 probe: the model does decide to check, "My
+# knowledge might be outdated", BUT then queries browser_extract with
+# "Python 3.13" — its own assumed value injected into the search query
+# itself — instead of a neutral term, and so retrieves the old version
+# still present elsewhere on the page (release history). Checking via
+# the web is pointless if the verification query is already biased by
+# the assumed answer.
 PEREMPTION_DIRECTIVE = (
     "\nTes connaissances ont une date de coupure antérieure à aujourd'hui "
     "— probablement plus ancienne que tu ne le penses (déjà observé : tu "
@@ -605,11 +611,11 @@ PEREMPTION_DIRECTIVE = (
     "cherches (« dernière version stable », « version actuelle »)."
 )
 
-# Timezone de l'agent (PLAN.md Phase 1, point 7a) : depuis l'env hôte
-# (TZ, voir docker-compose.yml), défaut Europe/Paris (fuseau de ce
-# déploiement, vérifié via `timedatectl` sur l'hôte — les conteneurs
-# Docker n'héritent PAS automatiquement du fuseau hôte, ils tournent en
-# UTC par défaut sans ce réglage explicite).
+# Agent timezone (PLAN.md Phase 1, point 7a): from the host env (TZ, see
+# docker-compose.yml), default Europe/Paris (this deployment's timezone,
+# verified via `timedatectl` on the host — Docker containers do NOT
+# automatically inherit the host's timezone, they run in UTC by default
+# without this explicit setting).
 _AGENT_TIMEZONE = os.environ.get("TZ", "Europe/Paris")
 _WEEKDAYS_FR = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
 _MONTHS_FR = [
@@ -620,86 +626,86 @@ _MONTHS_FR = [
 
 def _date_directive() -> str:
     """
-    Injection de date (PLAN.md Phase 1, point 7a) : granularité JOUR
-    UNIQUEMENT, jamais l'heure — préservation du cache de préfixe
-    ExLlamaV3 (voir docs/history.md, chasse au cache=0) : une valeur qui ne
-    change qu'une fois par jour, pas à chaque tour ni chaque seconde.
-    Positionnée en dernier dans le bloc système statique (après
-    GROUNDING_DIRECTIVE/DOWNLOAD_DIRECTIVE/PEREMPTION_DIRECTIVE, avant la
-    consigne de vérification par tour de _verification_directive, encore
-    plus volatile) — maximise la longueur du préfixe réellement stable
-    d'un tour à l'autre au sein d'une même journée.
+    Date injection (PLAN.md Phase 1, point 7a): DAY granularity ONLY,
+    never the time — preserves the ExLlamaV3 prefix cache (see
+    docs/history.md, "chasing cache=0"): a value that only changes once a
+    day, not on every turn or every second. Placed last in the static
+    system block (after GROUNDING_DIRECTIVE/DOWNLOAD_DIRECTIVE/
+    PEREMPTION_DIRECTIVE, before _verification_directive's per-turn
+    verification instruction, which is even more volatile) — maximizes
+    the length of the prefix that's actually stable from one turn to the
+    next within the same day.
     """
     now = datetime.now(zoneinfo.ZoneInfo(_AGENT_TIMEZONE))
     return f"\nDate actuelle : {_WEEKDAYS_FR[now.weekday()]} {now.day} {_MONTHS_FR[now.month - 1]} {now.year} ({_AGENT_TIMEZONE})."
 
 
-# Filet de sécurité (bug réel observé en usage réel avec llama-server —
-# fork turboquant-webp — sur la tâche "va sur wikipedia.org et cherche
-# l'article sur la ville de toulouse", voir README, tableau des bugs) : un
-# modèle peut terminer un tour SANS tool_calls structuré ET sans texte de
-# réponse visible.
+# Safety net (a real bug observed in real usage with llama-server — the
+# turboquant-webp fork — on the task "go to wikipedia.org and search for
+# the article about the city of Toulouse", see README, bug table): a
+# model can end a turn WITH NO structured tool_calls AND no visible
+# answer text.
 #
-# Cause racine confirmée en lisant le parseur du fork
-# (common/chat-auto-parser-generator.cpp) : le raisonnement (<think>...)
-# est capturé comme texte LIBRE, NON contraint par la grammaire, jusqu'à
-# rencontrer la balise fermante </think> — la grammaire stricte du
-# tool-calling n'est appliquée qu'APRÈS cette balise. Si le modèle "tente"
-# un appel d'outil en prose (ex. syntaxe <tool_call><function=...> qu'il a
-# vue rendue par le template pour ses propres tours précédents) SANS avoir
-# fermé </think> au préalable — typiquement après un raisonnement anormalement
-# long/répétitif, à rapprocher de la dérive sémantique déjà documentée pour
-# Ollama — cette tentative reste piégée dans la zone non contrainte et
-# n'est jamais reconnue comme un vrai tool_calls OpenAI. Confirmé
-# NON-déterministe par ailleurs (rejouer le MÊME prompt donne tantôt un
-# tool_calls correct, tantôt cet échec) et confirmé résolu par
-# ADAPTIVE_THINKING/no_think (qui évite entièrement ce chemin de code
-# vulnérable, voir plus haut) — mais /no_think ne s'injecte qu'à partir du
-# tour SUIVANT un tour auto-approuvé, pas sur le tout premier tour d'une
-# tâche, là où le bug a justement été observé.
+# Root cause confirmed by reading the fork's parser
+# (common/chat-auto-parser-generator.cpp): reasoning (<think>...) is
+# captured as FREE text, NOT constrained by the grammar, until the
+# closing </think> tag is encountered — the strict tool-calling grammar
+# is only applied AFTER that tag. If the model "attempts" a tool call in
+# prose (e.g. the <tool_call><function=...> syntax it has seen rendered
+# by the template for its own previous turns) WITHOUT having closed
+# </think> beforehand — typically after abnormally long/repetitive
+# reasoning, akin to the semantic drift already documented for Ollama —
+# this attempt stays trapped in the unconstrained zone and is never
+# recognized as a real OpenAI tool_calls. Also confirmed NON-deterministic
+# (replaying the SAME prompt sometimes gives a correct tool_calls,
+# sometimes this failure) and confirmed fixed by ADAPTIVE_THINKING/no_think
+# (which entirely avoids this vulnerable code path, see above) — but
+# /no_think only gets injected starting from the turn FOLLOWING an
+# auto-approved turn, not on a task's very first turn, which is exactly
+# where the bug was observed.
 #
-# Deux mitigations complémentaires, aucune ne corrigeant la cause côté
-# modèle/serveur (hors de portée ici) :
-#   1. has_tool_calls reboucle automatiquement sur call_llm jusqu'à
-#      MAX_EMPTY_ANSWER_RETRIES fois avant d'abandonner (voir cette
-#      fonction plus bas) — budget cumulé pour toute la tâche, comme
-#      tool_iterations, pas remis à zéro à chaque tentative.
-#   2. _extract_fallback_tool_call (voir plus bas) : avant même de compter
-#      ce tour comme un échec, tente d'extraire un appel <tool_call> piégé
-#      dans le texte et de le reconstruire en tool_calls structuré — quand
-#      ça réussit, le tour continue normalement (approbation, exécution...)
-#      sans jamais consommer de retry ni afficher la notice de repli.
-# Au-delà des deux, app/main.py affiche une notice explicite
-# (_format_empty_answer_notice) plutôt que de laisser la conversation
-# silencieuse.
+# Two complementary mitigations, neither fixing the cause on the
+# model/server side (out of scope here):
+#   1. has_tool_calls automatically loops back to call_llm up to
+#      MAX_EMPTY_ANSWER_RETRIES times before giving up (see this function
+#      below) — cumulative budget for the whole task, like
+#      tool_iterations, not reset to zero on every attempt.
+#   2. _extract_fallback_tool_call (see below): before even counting this
+#      turn as a failure, attempts to extract a <tool_call> trapped in
+#      the text and reconstruct it into structured tool_calls — when
+#      that succeeds, the turn continues normally (approval,
+#      execution...) without ever consuming a retry or displaying the
+#      fallback notice.
+# Beyond both, app/main.py displays an explicit notice
+# (_format_empty_answer_notice) rather than leaving the conversation
+# silent.
 MAX_EMPTY_ANSWER_RETRIES = int(os.environ.get("MAX_EMPTY_ANSWER_RETRIES", "1"))
 
-# Forfait de tokens par image dans l'estimation de composition du contexte
-# (voir describe_context/POST /context, services/dashboard) : un compte exact
-# dépendrait du tokenizer visuel du modèle servi (hors de portée ici, voir
-# README, Hors périmètre) — une constante suffit pour un ordre de grandeur
-# affiché sur le dashboard d'observabilité.
+# Fixed per-image token allowance in the context-composition estimate
+# (see describe_context/POST /context, services/dashboard): an exact
+# count would depend on the served model's visual tokenizer (out of
+# scope here, see README, Out of scope) — a constant is enough for an
+# order of magnitude shown on the observability dashboard.
 IMAGE_TOKEN_ESTIMATE = int(os.environ.get("IMAGE_TOKEN_ESTIMATE", "1500"))
 
 
 def estimate_tokens(text: str) -> int:
     """
-    Estimation grossière (~3.5 caractères/token, ordre de grandeur pour
-    l'anglais/français mélangés), pas un tokenizer exact — utilisée
-    uniquement par POST /context pour le dashboard d'observabilité
-    (services/dashboard), qui affiche des tendances plutôt que des comptes
-    exacts (voir README, Hors périmètre : tokenizer exact explicitement
-    écarté).
+    Rough estimate (~3.5 characters/token, order of magnitude for mixed
+    English/French), not an exact tokenizer — used only by POST /context
+    for the observability dashboard (services/dashboard), which shows
+    trends rather than exact counts (see README, Out of scope: an exact
+    tokenizer is explicitly ruled out).
     """
     if not text:
         return 0
     return math.ceil(len(text) / 3.5)
 
-# Reconnaît un appel d'outil écrit en prose au format XML-ish de Qwen
-# (<tool_call><function=NOM><parameter=CLE>VALEUR</parameter>...</function>
-# </tool_call>), tel qu'observé piégé dans reasoning_content en usage réel.
-# DOTALL pour capturer des valeurs de paramètre multi-lignes (ex. texte à
-# taper contenant un saut de ligne).
+# Recognizes a tool call written in prose using Qwen's XML-ish format
+# (<tool_call><function=NAME><parameter=KEY>VALUE</parameter>...</function>
+# </tool_call>), as observed trapped in reasoning_content in real usage.
+# DOTALL to capture multi-line parameter values (e.g. text to type
+# containing a line break).
 _FALLBACK_TOOL_CALL_RE = re.compile(
     r"<tool_call>\s*<function=([a-zA-Z0-9_]+)>(.*?)</function>\s*</tool_call>", re.DOTALL
 )
@@ -710,15 +716,14 @@ _FALLBACK_PARAMETER_RE = re.compile(
 
 def _extract_fallback_tool_call(content: str) -> Optional[dict]:
     """
-    Tente d'extraire un tool_call valide depuis du texte (reasoning ou
-    content) quand le modèle en a écrit un en prose au lieu de le faire
-    reconnaître par la grammaire du serveur (voir le commentaire de
-    MAX_EMPTY_ANSWER_RETRIES ci-dessus pour la cause racine). Best-effort :
-    un seul appel reconnu par tour (le premier trouvé), aucune validation
-    contre le schéma JSON de l'outil — call_tools/mcp-client échoueront
-    proprement si les arguments extraits sont incorrects, comme pour un
-    tool_call normalement structuré. Retourne None si rien de reconnaissable
-    n'est trouvé.
+    Attempts to extract a valid tool_call from text (reasoning or
+    content) when the model wrote one in prose instead of having it
+    recognized by the server's grammar (see the MAX_EMPTY_ANSWER_RETRIES
+    comment above for the root cause). Best-effort: a single call
+    recognized per turn (the first one found), no validation against the
+    tool's JSON schema — call_tools/mcp-client will fail cleanly if the
+    extracted arguments are wrong, same as for a normally structured
+    tool_call. Returns None if nothing recognizable is found.
     """
     match = _FALLBACK_TOOL_CALL_RE.search(content or "")
     if not match:
@@ -730,52 +735,54 @@ def _extract_fallback_tool_call(content: str) -> Optional[dict]:
     }
     return {"name": tool_name, "args": arguments, "id": f"fallback_{uuid.uuid4().hex[:12]}"}
 
-# Le "?" final rend la balise fermante optionnelle : couvre aussi bien le
-# contenu déjà persisté par call_llm (toujours refermé avant retour) que du
-# texte encore en cours de streaming côté app/main.py (potentiellement pas
-# encore refermé au moment du test).
+# The trailing "?" makes the closing tag optional: covers both content
+# already persisted by call_llm (always closed before returning) and
+# text still being streamed on the app/main.py side (potentially not
+# closed yet at test time).
 _THINK_BLOCK_RE = re.compile(r"<think>.*?(</think>|\Z)", re.DOTALL)
 
 
 def has_visible_answer(content: str) -> bool:
-    """Reste-t-il du texte hors balise <think> ? Utilisé par has_tool_calls
-    (retry automatique) et app/main.py (notice de réponse vide)."""
+    """Is there any text left outside a <think> tag? Used by
+    has_tool_calls (automatic retry) and app/main.py (empty-answer
+    notice)."""
     return bool(_THINK_BLOCK_RE.sub("", content or "").strip())
 
 
-# Vérification post-action fusionnée dans le tour d'outil lui-même plutôt
-# qu'un appel LLM séparé (historique des 3 versions successives — marqueur
-# texte, tool call dédié, fusion actuelle — dans docs/history.md, "correctif
-# latence"). constat_precedent devient un paramètre REQUIS du schéma de
-# CHAQUE outil réel (_inject_constat_param, _get_bound_llm) : un seul appel
-# porte à la fois l'action et son constat sur l'action précédente.
-# report_and_act reste le repli pour le seul cas sans action réelle
-# (réponse en texte pur, rien sur quoi accrocher constat_precedent).
+# Post-action verification merged into the tool turn itself rather than
+# a separate LLM call (history of the 3 successive versions — text
+# marker, dedicated tool call, current merge — in docs/history.md,
+# "latency fix"). constat_precedent becomes a REQUIRED parameter of the
+# schema of EVERY real tool (_inject_constat_param, _get_bound_llm): a
+# single call carries both the action and its observation of the
+# previous action. report_and_act remains the fallback for the sole case
+# with no real action (plain-text reply, nothing to hang
+# constat_precedent on).
 #
-# Deux contraintes serveur vérifiées qui motivent ce choix : la génération
-# contrainte par schéma JSON (response_format) tourne avec
-# eos_after_completed=True (backends/exllamav3/grammar.py de l'image
-# installée) — elle arrête la génération dès que le JSON clôture, excluant
-# tout tool_calls/texte supplémentaire dans le MÊME tour, confirmé par un
-# appel réel (`tool_calls: null`). Et ce backend n'applique par ailleurs
-# aucune contrainte de grammaire sur les tool_calls eux-mêmes (aucun filtre
-# pour `tools`/`tool_choice`, y compris `tool_choice="required"`, lu dans
-# endpoints/OAI/utils/chat_completion.py) — "requis" dans le schéma JSON
-# n'est donc pas grammaticalement imposé ; la fiabilité vient de la fusion
-# en un seul appel, pas d'une garantie de grammaire. D'où le juge permanent
-# de couverture (voir verify_action) : à mesurer, pas à supposer acquis.
+# Two verified server constraints motivate this choice: JSON-schema
+# constrained generation (response_format) runs with
+# eos_after_completed=True (backends/exllamav3/grammar.py of the
+# installed image) — it stops generation as soon as the JSON closes,
+# ruling out any extra tool_calls/text in the SAME turn, confirmed by a
+# real call (`tool_calls: null`). And this backend otherwise applies no
+# grammar constraint on the tool_calls themselves (no filter for
+# `tools`/`tool_choice`, including `tool_choice="required"`, read in
+# endpoints/OAI/utils/chat_completion.py) — "required" in the JSON schema
+# is therefore not grammatically enforced; reliability comes from
+# merging into a single call, not from a grammar guarantee. Hence the
+# permanent coverage judge (see verify_action): to be measured, not
+# assumed.
 _CONSTAT_PARAM_NAME = "constat_precedent"
 _CONSTAT_VERDICTS = ("atteint", "non_atteint", "sans_objet")
-# Dégraissé (correctif "arbitrage post-1/2-ter", voir docs/history.md) : enum
-# nu, sans description — mesuré à +6 931 tokens/tour (+65%) avec la
-# description répétée sur les 64 outils réels vs +2 569 tokens (+24%)
-# sans elle (tokenizer réel de TabbyAPI, /v1/token/encode). La sémantique
-# n'a besoin d'être expliquée qu'UNE fois : elle vit dans
-# _verification_directive (injectée dans le system prompt à chaque tour,
-# une seule copie), pas dans le schéma de CHAQUE outil. Protégé par le
-# juge de couverture (verify_action/constats_inexploitables) : si ce
-# dégraissage fait chuter la couverture réelle sous 95%, la description
-# revient.
+# Trimmed down (the "post-1/2-ter arbitration" fix, see docs/history.md):
+# a bare enum, no description — measured at +6,931 tokens/turn (+65%)
+# with the description repeated across the 64 real tools vs. +2,569
+# tokens (+24%) without it (TabbyAPI's real tokenizer, /v1/token/encode).
+# The semantics only need explaining ONCE: it lives in
+# _verification_directive (injected into the system prompt on every
+# turn, a single copy), not in the schema of EVERY tool. Protected by the
+# coverage judge (verify_action/constats_inexploitables): if this
+# trimming drops real coverage below 95%, the description comes back.
 _CONSTAT_PARAM_SCHEMA = {
     "type": "string",
     "enum": list(_CONSTAT_VERDICTS),
@@ -784,11 +791,11 @@ _CONSTAT_PARAM_SCHEMA = {
 
 def _inject_constat_param(tool: dict) -> dict:
     """
-    Augmente le schéma OpenAI function-calling d'un outil MCP réel avec le
-    paramètre requis constat_precedent (voir plus haut) — copie, ne mute
-    jamais le schéma d'origine (partagé via _tools_schema_cache). Retiré
-    des arguments AVANT tout dispatch réel (voir _execute_tool_calls) : les
-    serveurs MCP eux-mêmes ne le connaissent pas.
+    Augments a real MCP tool's OpenAI function-calling schema with the
+    required constat_precedent parameter (see above) — a copy, never
+    mutates the original schema (shared via _tools_schema_cache). Removed
+    from the arguments BEFORE any real dispatch (see
+    _execute_tool_calls): the MCP servers themselves don't know about it.
     """
     fn = tool.get("function", {})
     params = dict(fn.get("parameters") or {"type": "object", "properties": {}})
@@ -800,10 +807,10 @@ def _inject_constat_param(tool: dict) -> dict:
     return {**tool, "function": {**fn, "parameters": {**params, "properties": properties, "required": required}}}
 
 
-# Nom partagé avec approval_policy.REPORT_AND_ACT_TOOL_NAME (source de
-# vérité pour le tiering, voir tool_tier()) — dupliqué ici en constante
-# locale plutôt que réimporté à chaque usage, uniquement pour la lisibilité
-# des nombreuses références ci-dessous ; DOIT rester identique.
+# Name shared with approval_policy.REPORT_AND_ACT_TOOL_NAME (source of
+# truth for tiering, see tool_tier()) — duplicated here as a local
+# constant rather than re-imported on every use, purely for the
+# readability of the many references below; MUST stay identical.
 _REPORT_AND_ACT_TOOL_NAME = approval_policy.REPORT_AND_ACT_TOOL_NAME
 _REPORT_AND_ACT_TOOL = {
     "type": "function",
@@ -828,16 +835,16 @@ _REPORT_AND_ACT_TOOL = {
 
 def _parse_constat(tool_calls: Optional[list]) -> tuple[Optional[str], bool]:
     """
-    Cherche constat_precedent parmi les tool_calls du tour — soit sur
-    report_and_act (priorité, cas "texte pur, aucune action"), soit sur le
-    premier tool_call réel qui le porte (cas normal, fusionné). Retourne
-    (verdict, exploitable) :
-    - (None, False) si absent de tous les tool_calls, ou trouvé mais hors
-      énumération (mal formé) ;
-    - (verdict, True) sinon, verdict ∈ _CONSTAT_VERDICTS.
-    "exploitable=False" pilote le compteur constats_inexploitables et le
-    juge de couverture (verify_action) — distinct d'un "sans_objet"
-    légitimement déclaré par le modèle (exploitable=True dans ce cas).
+    Looks for constat_precedent among the turn's tool_calls — either on
+    report_and_act (priority, "plain text, no action" case), or on the
+    first real tool_call carrying it (normal, merged case). Returns
+    (verdict, exploitable):
+    - (None, False) if absent from all tool_calls, or found but outside
+      the enum (malformed);
+    - (verdict, True) otherwise, verdict ∈ _CONSTAT_VERDICTS.
+    "exploitable=False" drives the constats_inexploitables counter and
+    the coverage judge (verify_action) — distinct from a "sans_objet"
+    legitimately declared by the model (exploitable=True in that case).
     """
     report_call = next((tc for tc in tool_calls or [] if tc.get("name") == _REPORT_AND_ACT_TOOL_NAME), None)
     if report_call is not None:
@@ -851,11 +858,11 @@ def _parse_constat(tool_calls: Optional[list]) -> tuple[Optional[str], bool]:
     return None, False
 
 
-# Nœud planificateur (Itération 1, voir plan_task plus bas) : reconnaît un
-# éventuel enrobage ```json ... ``` / ``` ... ``` autour de la réponse — le
-# modèle peut envelopper le JSON malgré la consigne de sortie brute, comme
-# déjà observé pour d'autres formats de sortie dans ce fichier (voir
-# _extract_fallback_tool_call ci-dessus).
+# Planner node (Iteration 1, see plan_task below): recognizes a possible
+# ```json ... ``` / ``` ... ``` wrapper around the reply — the model may
+# wrap the JSON despite the raw-output instruction, as already observed
+# for other output formats in this file (see _extract_fallback_tool_call
+# above).
 _CODE_FENCE_RE = re.compile(r"^```[a-zA-Z]*\n?(.*?)\n?```$", re.DOTALL)
 
 
@@ -865,7 +872,7 @@ def _strip_code_fence(text: str) -> str:
 
 
 class PlanValidationError(ValueError):
-    """Levée par _validate_plan_json : réponse du planificateur inexploitable."""
+    """Raised by _validate_plan_json: the planner's reply is unusable."""
 
 
 _PLAN_SUBTASKS_MIN = 1
@@ -874,45 +881,46 @@ _PLAN_SUBTASKS_MAX = 8
 
 def _validate_plan_json(raw: str) -> list[dict]:
     """
-    Schéma validé PROGRAMMATIQUEMENT (Itération 1) : retire <think>...</think>
-    puis un éventuel enrobage de fences, exige {"sous_taches": [{"description":...,
-    "critere_succes":..., "outils": [...]}, ...]}, 1 à 8 éléments,
-    description/critère non vides. `outils` optionnelle côté LLM (repli sur
-    liste vide) — sert de base concrète au pipeline de validation
-    (Itération 3, app/plan_validation.py : existence/tier des outils
-    déclarés), sans quoi une sous-tâche purement rédactionnelle (ex.
-    "formuler la réponse finale") n'aurait pas de représentation valide.
-    Lève PlanValidationError avec un motif explicite sinon — jamais un plan
-    partiellement construit à partir d'une réponse invalide.
+    Schema validated PROGRAMMATICALLY (Iteration 1): strips
+    <think>...</think> then a possible fence wrapper, requires
+    {"sous_taches": [{"description":..., "critere_succes":..., "outils":
+    [...]}, ...]}, 1 to 8 items, non-empty description/criterion. `outils`
+    optional on the LLM side (falls back to an empty list) — provides a
+    concrete basis for the validation pipeline (Iteration 3,
+    app/plan_validation.py: existence/tier of the declared tools),
+    without which a purely editorial subtask (e.g. "write up the final
+    answer") would have no valid representation. Raises
+    PlanValidationError with an explicit reason otherwise — never a
+    partially built plan from an invalid reply.
     """
     text = _strip_code_fence(_THINK_BLOCK_RE.sub("", raw or ""))
     try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise PlanValidationError(f"JSON invalide : {exc}") from exc
+        raise PlanValidationError(f"invalid JSON: {exc}") from exc
     subtasks = data.get("sous_taches") if isinstance(data, dict) else None
     if not isinstance(subtasks, list):
-        raise PlanValidationError("clé 'sous_taches' (liste) absente ou invalide")
+        raise PlanValidationError("'sous_taches' key (list) missing or invalid")
     if not (_PLAN_SUBTASKS_MIN <= len(subtasks) <= _PLAN_SUBTASKS_MAX):
         raise PlanValidationError(
-            f"nombre de sous-tâches hors bornes ({len(subtasks)}, attendu "
+            f"number of subtasks out of bounds ({len(subtasks)}, expected "
             f"{_PLAN_SUBTASKS_MIN}-{_PLAN_SUBTASKS_MAX})"
         )
     validated = []
     for i, item in enumerate(subtasks):
         if not isinstance(item, dict):
-            raise PlanValidationError(f"sous-tâche {i} n'est pas un objet JSON")
+            raise PlanValidationError(f"subtask {i} is not a JSON object")
         description = item.get("description")
         critere = item.get("critere_succes")
         if not isinstance(description, str) or not description.strip():
-            raise PlanValidationError(f"sous-tâche {i} : description manquante ou vide")
+            raise PlanValidationError(f"subtask {i}: description missing or empty")
         if not isinstance(critere, str) or not critere.strip():
-            raise PlanValidationError(f"sous-tâche {i} : critere_succes manquant ou vide")
+            raise PlanValidationError(f"subtask {i}: critere_succes missing or empty")
         outils = item.get("outils")
         if outils is None:
             outils = []
         if not isinstance(outils, list) or not all(isinstance(t, str) for t in outils):
-            raise PlanValidationError(f"sous-tâche {i} : outils doit être une liste de strings")
+            raise PlanValidationError(f"subtask {i}: outils must be a list of strings")
         validated.append(
             {
                 "description": description.strip(),
@@ -937,24 +945,24 @@ PLANNER_SYSTEM_PROMPT = (
 
 
 class PlanJudgeValidationError(ValueError):
-    """Levée par _validate_judge_json : verdict du juge de plan inexploitable."""
+    """Raised by _validate_judge_json: the plan judge's verdict is unusable."""
 
 
 def _validate_judge_json(raw: str) -> dict:
     """
-    Schéma validé PROGRAMMATIQUEMENT (Itération 3, même pipeline que
-    _validate_plan_json) : exige
-    {"faisable": bool}, "risques"/"etapes_manquantes" optionnelles (repli
-    sur liste vide si absentes/mal formées — accessoires pour la
-    visibilité, pas pour la décision).
+    Schema validated PROGRAMMATICALLY (Iteration 3, same pipeline as
+    _validate_plan_json): requires {"faisable": bool},
+    "risques"/"etapes_manquantes" optional (falls back to an empty list
+    if absent/malformed — accessories for visibility, not for the
+    decision).
     """
     text = _strip_code_fence(_THINK_BLOCK_RE.sub("", raw or ""))
     try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise PlanJudgeValidationError(f"JSON invalide : {exc}") from exc
+        raise PlanJudgeValidationError(f"invalid JSON: {exc}") from exc
     if not isinstance(data, dict) or not isinstance(data.get("faisable"), bool):
-        raise PlanJudgeValidationError("clé 'faisable' (bool) absente ou invalide")
+        raise PlanJudgeValidationError("'faisable' key (bool) missing or invalid")
     risques = data.get("risques")
     etapes = data.get("etapes_manquantes")
     return {
@@ -985,12 +993,12 @@ PLAN_JUDGE_SYSTEM_PROMPT = (
 
 async def _judge_plan(plan: list, objective: str, page_snapshot: Optional[str] = None) -> list:
     """
-    Verdict du juge LLM (Itération 3, page_snapshot ajouté à l'Itération 4 —
-    correctif d'ancrage, voir docs/history.md) : liste des motifs de rejet (vide
-    = faisable). Dégrade en FAIL-OPEN sur erreur LLM/JSON invalide (aucun
-    motif renvoyé, pas de veto par défaut) — cohérent avec "jamais de
-    boucle infinie" du brief : un juge indisponible ne doit jamais bloquer
-    indéfiniment une tâche par ailleurs valide selon les heuristiques.
+    LLM judge verdict (Iteration 3, page_snapshot added in Iteration 4 —
+    grounding fix, see docs/history.md): list of rejection reasons (empty
+    = feasible). Degrades to FAIL-OPEN on LLM error/invalid JSON (no
+    reason returned, no veto by default) — consistent with the brief's
+    "never an infinite loop": an unavailable judge must never
+    indefinitely block a task that's otherwise valid per the heuristics.
     """
     payload = json.dumps(
         {
