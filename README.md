@@ -2,187 +2,189 @@
 
 ![Logo](docs/assets/logo.png)
 
-Stack Docker Compose pour un agent IA local : Open WebUI → LangGraph Agent →
+Docker Compose stack for a local AI agent: Open WebUI → LangGraph Agent →
 (Skill Manager / Context Manager / MCP Client) → TabbyAPI.
 
-## Démarrage rapide
+## Quick start
 
 ```bash
 cp .env.example .env
-# éditer .env : WORKSPACE_HOST_PATH doit être le chemin ABSOLU de ./workspace sur l'hôte
-# (requis car mcp-client monte ce chemin dans des conteneurs qu'il spawn lui-même)
-# placer le quant EXL3 du modèle (safetensors + config.json + tokenizer,
-# format HuggingFace) sous ./models/agent-llm/ — backend TabbyAPI par défaut,
-# jamais téléchargé automatiquement (voir docs/architecture/inference-backend.md).
-# Pour le backend alternatif llama-server (.gguf), éditer .env :
-# LLAMA_MODEL_FILE/LLAMA_MMPROJ_FILE doivent correspondre aux fichiers
-# réellement présents dans ./models
+# edit .env: WORKSPACE_HOST_PATH must be the ABSOLUTE path of ./workspace on the host
+# (required because mcp-client mounts this path into containers it spawns itself)
+# place the model's EXL3 quant (safetensors + config.json + tokenizer,
+# HuggingFace format) under ./models/agent-llm/ — TabbyAPI is the default
+# backend, never downloaded automatically (see docs/architecture/inference-backend.md).
+# For the alternative llama-server backend (.gguf), edit .env:
+# LLAMA_MODEL_FILE/LLAMA_MMPROJ_FILE must match the files
+# actually present in ./models
 
 docker pull mcp/filesystem:latest
 docker pull mcp/git:latest
-docker pull mcp/playwright:latest   # serveur HTTP persistant (service playwright-mcp), voir docs/resolved-bugs.md
-docker compose --profile build-only build mcp-terminal-build   # construit l'image locale mcp-terminal:local
+docker pull mcp/playwright:latest   # persistent HTTP server (playwright-mcp service), see docs/resolved-bugs.md
+docker compose --profile build-only build mcp-terminal-build   # builds the local mcp-terminal:local image
 
 docker compose up -d
 ```
 
-Interface accessible sur http://localhost:3000 (Open WebUI). Commandes de
-rebuild/redémarrage : voir `docs/operations/runbook.md`.
+UI available at http://localhost:3000 (Open WebUI). Rebuild/restart
+commands: see `docs/operations/runbook.md`.
 
-## Arborescence
+## Layout
 
 ```
 docker-compose.yml
 .env.example
-requirements-test.txt   dépendances de test communes (pytest, respx)
+requirements-test.txt   shared test dependencies (pytest, respx)
 services/
-  langgraph-agent/   API compatible OpenAI + graphe LangGraph (autonomie,
-                     supervision humaine — voir docs/architecture/)
+  langgraph-agent/   OpenAI-compatible API + LangGraph graph (autonomy,
+                     human supervision — see docs/architecture/)
     app/
     tests/
-  skill-manager/      liste/sélectionne les skills (./skills)
+  skill-manager/      lists/matches skills (./skills)
     app/
     tests/
-  context-manager/    RAG + mémoire (Qdrant + sentence-transformers)
+  context-manager/    RAG + memory (Qdrant + sentence-transformers)
     app/
     tests/
-  mcp-client/          spawn filesystem/git/terminal à la demande (docker.sock) ;
-                       browser/desktop/ocr sont des serveurs HTTP persistants
-                       (mcp-client s'y connecte en Streamable HTTP)
+  mcp-client/          spawns filesystem/git/terminal on demand (docker.sock) ;
+                       browser/desktop/ocr are persistent HTTP servers
+                       (mcp-client connects to them over Streamable HTTP)
     app/
     tests/
-  mcp-terminal/        serveur MCP "terminal" maison, liste blanche stricte
+  mcp-terminal/        homegrown "terminal" MCP server, strict allowlist
     server.py
     tests/
-  ghostdesk/           image officielle YV17labs, bureau virtuel piloté par
-                       l'agent (service docker-compose à part, Streamable HTTP)
-  playwright-mcp/      image officielle mcp/playwright, navigateur piloté par
-                       l'agent (service docker-compose à part, serveur HTTP
-                       natif — voir docs/resolved-bugs.md)
-  llama-server/        build du fork llama.cpp servant le modèle (backend
-                       alternatif — voir docs/architecture/inference-backend.md)
-  ocr-service/         OCR d'appoint pour le grounding du VLM (PaddleOCR CPU,
-                       find_text/read_screen — voir docs/architecture/autonomy.md)
+  ghostdesk/           official YV17labs image, virtual desktop driven by
+                       the agent (separate docker-compose service, Streamable HTTP)
+  playwright-mcp/      official mcp/playwright image, browser driven by
+                       the agent (separate docker-compose service, native HTTP
+                       server — see docs/resolved-bugs.md)
+  llama-server/        build of the llama.cpp fork serving the model (alternative
+                       backend — see docs/architecture/inference-backend.md)
+  ocr-service/         supplementary OCR for VLM grounding (PaddleOCR CPU,
+                       find_text/read_screen — see docs/architecture/autonomy.md)
     app/
     tests/
-  dashboard/           Cockpit d'observabilité local — voir
+  dashboard/           local observability cockpit — see
                        docs/architecture/observability.md
     app/
-      static/          page HTML/JS vanille servie telle quelle (pas de build)
+      static/          vanilla HTML/JS page served as-is (no build step)
     tests/
-skills/     à remplir (un sous-dossier par skill, avec un SKILL.md)
-workspace/  partagé avec les serveurs MCP filesystem/git/terminal, ainsi
-            qu'avec langgraph-agent pour le journal d'audit (.audit/, voir
+skills/     to be filled in (one subfolder per skill, each with a SKILL.md)
+workspace/  shared with the filesystem/git/terminal MCP servers, and
+            with langgraph-agent for the audit log (.audit/, see
             docs/architecture/tool-supervision.md)
-models/     poids (.gguf) du modèle et du projecteur multimodal servis par
-            llama-server — jamais téléchargés automatiquement, voir
+models/     weights (.gguf) of the model and multimodal projector served by
+            llama-server — never downloaded automatically, see
             docs/architecture/inference-backend.md
 ```
 
 ## Documentation
 
-- `docs/architecture/inference-backend.md` — TabbyAPI/llama-server, conversion
-  d'images, thinking adaptatif.
-- `docs/architecture/autonomy.md` — boucle plan → agir → vérifier →
-  replanifier (Phase 1 « cœur cognitif »), OCR d'appoint.
-- `docs/architecture/tool-supervision.md` — approbation humaine, tiers de
-  réversibilité, grants de session, journal d'audit.
-- `docs/architecture/observability.md` — dashboard, persistance des données.
-- `docs/operations/testing.md` — suites de tests par service, streaming SSE.
-- `docs/operations/runbook.md` — commandes de rebuild/redémarrage.
-- `docs/project-status.md` — état d'avancement (change à chaque checkpoint).
-- `PLAN.md` — feuille de route (change rarement, source de vérité).
-- `docs/history.md` / `docs/resolved-bugs.md` — journal d'avancement et bugs résolus
-  (se consultent par recherche ciblée, jamais en entier — voir `CLAUDE.md`).
-- `docs/briefs/` — briefs de chantier en cours.
+- `docs/architecture/inference-backend.md` — TabbyAPI/llama-server, image
+  conversion, adaptive thinking.
+- `docs/architecture/autonomy.md` — plan → act → verify → replan loop
+  ("cognitive core" Phase 1), supplementary OCR.
+- `docs/architecture/tool-supervision.md` — human approval, reversibility
+  tiers, session grants, audit log.
+- `docs/architecture/observability.md` — dashboard, data persistence.
+- `docs/operations/testing.md` — per-service test suites, SSE streaming.
+- `docs/operations/runbook.md` — rebuild/restart commands.
+- `docs/project-status.md` — progress status (changes at every checkpoint).
+- `PLAN.md` — roadmap (changes rarely, source of truth).
+- `docs/history.md` / `docs/resolved-bugs.md` — progress log and resolved bugs
+  (consult by targeted search, never read in full — see `CLAUDE.md`).
+- `docs/briefs/` — briefs for ongoing work.
 
-## Limites connues assumées (choix de conception, pas des bugs)
+## Known, accepted limitations (design choices, not bugs)
 
-- **`mcp-terminal` n'expose pas de shell libre** : liste blanche stricte
-  (`ls`, `pwd`, `cat`, `git status`), confinée à `/workspace`. Étendre cette
-  liste avec prudence : chaque commande ajoutée est une nouvelle surface
-  d'attaque potentielle.
-- **`mcp-client` monte `/var/run/docker.sock`** : équivaut à un accès root sur
-  l'hôte. Acceptable en usage local ; à remplacer par un socket-proxy filtrant
-  avant toute exposition réseau.
-- **Matching de skills et RAG volontairement simplistes** (mot-clé naïf, pas
-  de reranker) — à muscler si le volume de skills/documents grossit.
-- **`ghostdesk` (serveur MCP "desktop") tourne avec `cap_add: SYS_ADMIN` et
-  expose un shell** : surface d'attaque bien plus large que `mcp-terminal`
-  (pas de whitelist, contrôle GUI complet). À ne jamais exposer au-delà du
-  réseau interne `agent-net` — seul le port noVNC (6080) est publié sur
-  l'hôte, volontairement, pour observer l'agent piloter le bureau ; le port
-  MCP (3000) ne l'est pas. `mcp-terminal` reste l'outil par défaut pour les
-  commandes simples ; `ghostdesk` n'est sollicité que pour du pilotage GUI
-  qui le justifie réellement — les deux coexistent sciemment plutôt que de
-  remplacer l'un par l'autre. Accès : http://localhost:6080 une fois le
-  service démarré, mot de passe = `GHOSTDESK_VNC_PASSWORD` (voir `.env`).
-- **Limite historique levée** : les outils de capture d'écran/clic guidé de
-  `ghostdesk` n'étaient pas exploitables par l'agent tant que le modèle
-  servi (Qwen2.5-Coder, via vLLM) n'était pas multimodal. Le backend par
-  défaut est désormais `llama-server` (voir docs/architecture/inference-backend.md),
-  servant Qwen3.6-35B-A3B avec un projecteur multimodal (`--mmproj`) —
-  l'agent peut donc désormais recevoir et interpréter les captures d'écran
-  GhostDesk. Reste néanmoins une limite distincte, désormais atténuée mais
-  pas résolue : la précision du grounding (viser le bon élément à l'écran)
-  d'un modèle de vision généraliste. `ocr-service` (voir
-  docs/architecture/autonomy.md) compense pour les éléments TEXTUELS via
-  `find_text`/`read_screen` (coordonnées OCR exactes plutôt qu'une
-  estimation visuelle) ; les éléments sans texte (icônes) restent estimés
-  visuellement par le VLM, sans détection d'éléments UI dédiée (type
-  OmniParser, explicitement hors périmètre pour l'instant).
-- **`ghostdesk` est un serveur MCP HTTP persistant avec état** (bureau/session
-  VNC), contrairement aux autres serveurs MCP du projet qui sont spawnés en
-  STDIO éphémère par `mcp-client` (`docker run -i --rm` par appel). Il tourne
-  en continu comme service `docker-compose` à part ; `mcp-client` s'y
-  connecte via `streamablehttp_client` (SDK `mcp` ≥ 1.8, d'où le bump de
-  `mcp==1.2.0` vers `mcp==1.9.4` dans `services/mcp-client/requirements.txt`),
-  authentifié par bearer token (`GHOSTDESK_AUTH_TOKEN`, voir `.env.example`).
-- **`playwright-mcp` (serveur "browser") est un serveur HTTP persistant
-  depuis le correctif documenté en détail dans `docs/resolved-bugs.md`** — auparavant
-  spawné en STDIO éphémère (`docker run -i --rm mcp/playwright:latest` par
-  appel), il perdait tout état de navigation entre deux appels d'outils.
-  L'image officielle expose nativement un mode serveur HTTP
-  (`--host 0.0.0.0 --port 8931`, endpoint Streamable HTTP `/mcp`) ; ceci ne
-  suffisait cependant PAS à lui seul, car Playwright MCP scope son contexte
-  navigateur (page, cookies, historique) à la SESSION MCP et non au process
-  serveur — `mcp-client` doit donc en plus garder la session "browser"
-  ouverte entre deux appels HTTP (`_get_persistent_session`/
-  `_persistent_sessions` dans `services/mcp-client/app/main.py`), au lieu
-  d'en rouvrir une neuve à chaque fois comme pour les autres serveurs.
-- **Volume de téléchargement partagé `agent-downloads`** (Phase 1d-révisée,
-  voir docs/history.md, T5) : `playwright-mcp` garde son profil navigateur
-  `--isolated` (en mémoire, jamais persisté), mais un téléchargement
-  déclenché dans la page (lien/bouton avec `Content-Disposition:
-  attachment`) atterrit désormais dans un chemin EXPLICITE et partagé
-  (`--output-dir=/downloads`, volume nommé `agent-downloads`) plutôt que
-  dans le filesystem interne du conteneur (défaut réel constaté :
-  `/home/node/.playwright-mcp/`, jamais deviné correctement par le modèle).
-  Le serveur MCP filesystem monte ce même volume en LECTURE SEULE
-  (`services/mcp-client/app/main.py`, racine `/downloads` en plus de
-  `/projects`) : on partage l'artefact téléchargé, jamais l'état du
-  navigateur. Le system prompt documente ce chemin explicitement
-  (`DOWNLOAD_DIRECTIVE`, `app/graph.py`) plutôt que de laisser le modèle en
-  deviner un.
-- **Précision des clics avec les modèles Qwen** : ces modèles raisonnent
-  nativement en repère de coordonnées normalisé 0-1000, alors que GhostDesk
-  attend par défaut des pixels écran natifs (documenté par GhostDesk) — sans
-  correction, les clics atterrissent à côté de leur cible. `mcp-client`
-  envoie donc l'en-tête `GhostDesk-Model-Space` (valeur `GHOSTDESK_MODEL_SPACE`,
-  défaut `1000`) sur chaque appel HTTP vers GhostDesk (`_run_on_server`,
-  `services/mcp-client/app/main.py`). À vider (`GHOSTDESK_MODEL_SPACE=`) si
-  le modèle servi passe à un modèle frontière (Claude, GPT-4o), qui travaille
-  nativement en pixels écran. Ce fix ne résout pas le grounding en soi (viser
-  le bon élément reste imprécis avec un modèle de vision généraliste) — voir
-  la limite ci-dessus sur l'absence d'OCR/détection d'éléments UI.
-- **Mémoire long-terme (`context-manager`) jamais branchée à la conversation** :
-  `POST /remember` (stocke un fait lié à un `user_id`, collection Qdrant
-  `memory`) et `POST /retrieve` avec `collection="memory"` existent et sont
-  testés au niveau de `context-manager` lui-même, mais rien dans
-  `langgraph-agent` ne les appelle. Le nœud `retrieve_context`
-  (`app/graph.py`), qui tourne automatiquement à chaque tour, n'interroge
-  QUE la collection `documents` (RAG) — jamais `memory`. Concrètement : un
-  souvenir stocké via `/remember` ne remonte jamais tout seul dans une
-  conversation, et il n'existe aujourd'hui aucun outil MCP ni commande slash
-  pour en stocker ou en rappeler un depuis le chat — seul un appel direct à
-  l'API `context-manager` (curl, etc.) permet de s'en servir.
+- **`mcp-terminal` does not expose a free-form shell**: strict allowlist
+  (`ls`, `pwd`, `cat`, `git status`), confined to `/workspace`. Extend this
+  list with caution: every added command is a new potential attack surface.
+- **`mcp-client` mounts `/var/run/docker.sock`**: equivalent to root access
+  on the host. Acceptable for local use; should be replaced by a filtering
+  socket proxy before any network exposure.
+- **Skill matching and RAG are deliberately simplistic** (naive keyword
+  match, no reranker) — to be strengthened if the volume of skills/documents
+  grows.
+- **`ghostdesk` (the "desktop" MCP server) runs with `cap_add: SYS_ADMIN`
+  and exposes a shell**: a much larger attack surface than `mcp-terminal`
+  (no allowlist, full GUI control). Never expose it beyond the internal
+  `agent-net` network — only the noVNC port (6080) is published on the
+  host, deliberately, to observe the agent driving the desktop; the MCP
+  port (3000) is not. `mcp-terminal` remains the default tool for simple
+  commands; `ghostdesk` is only used for GUI control that genuinely
+  warrants it — the two knowingly coexist rather than one replacing the
+  other. Access: http://localhost:6080 once the service is started,
+  password = `GHOSTDESK_VNC_PASSWORD` (see `.env`).
+- **Historical limitation lifted**: GhostDesk's screenshot/guided-click
+  tools were not usable by the agent as long as the model served
+  (Qwen2.5-Coder, via vLLM) was not multimodal. The default backend is now
+  `llama-server` (see docs/architecture/inference-backend.md), serving
+  Qwen3.6-35B-A3B with a multimodal projector (`--mmproj`) — the agent can
+  therefore now receive and interpret GhostDesk screenshots. A distinct
+  limitation remains, however, now mitigated but not resolved: the
+  grounding accuracy (aiming at the right on-screen element) of a
+  general-purpose vision model. `ocr-service` (see
+  docs/architecture/autonomy.md) compensates for TEXTUAL elements via
+  `find_text`/`read_screen` (exact OCR coordinates rather than a visual
+  estimate); elements without text (icons) are still estimated visually by
+  the VLM, with no dedicated UI-element detection (OmniParser-style,
+  explicitly out of scope for now).
+- **`ghostdesk` is a stateful, persistent HTTP MCP server** (desktop/VNC
+  session), unlike the other MCP servers in the project, which are spawned
+  as ephemeral STDIO processes by `mcp-client` (`docker run -i --rm` per
+  call). It runs continuously as a separate `docker-compose` service;
+  `mcp-client` connects to it via `streamablehttp_client` (`mcp` SDK ≥ 1.8,
+  hence the bump from `mcp==1.2.0` to `mcp==1.9.4` in
+  `services/mcp-client/requirements.txt`), authenticated with a bearer
+  token (`GHOSTDESK_AUTH_TOKEN`, see `.env.example`).
+- **`playwright-mcp` (the "browser" server) has been a persistent HTTP
+  server since the fix documented in detail in `docs/resolved-bugs.md`** —
+  it used to be spawned as an ephemeral STDIO process
+  (`docker run -i --rm mcp/playwright:latest` per call), losing all
+  navigation state between two tool calls. The official image natively
+  exposes an HTTP server mode (`--host 0.0.0.0 --port 8931`, Streamable
+  HTTP endpoint `/mcp`); this alone was NOT enough, though, because
+  Playwright MCP scopes its browser context (page, cookies, history) to
+  the MCP SESSION, not the server process — `mcp-client` therefore also
+  has to keep the "browser" session open between two HTTP calls
+  (`_get_persistent_session`/`_persistent_sessions` in
+  `services/mcp-client/app/main.py`), instead of reopening a fresh one
+  every time as it does for the other servers.
+- **Shared download volume `agent-downloads`** (Phase 1d-revised, see
+  docs/history.md, T5): `playwright-mcp` keeps its `--isolated` browser
+  profile (in memory, never persisted), but a download triggered on the
+  page (a link/button with `Content-Disposition: attachment`) now lands in
+  an EXPLICIT, shared path (`--output-dir=/downloads`, named volume
+  `agent-downloads`) rather than in the container's internal filesystem
+  (actual observed default: `/home/node/.playwright-mcp/`, never guessed
+  correctly by the model). The filesystem MCP server mounts this same
+  volume READ-ONLY (`services/mcp-client/app/main.py`, root `/downloads`
+  in addition to `/projects`): the downloaded artifact is shared, never
+  the browser's state. The system prompt documents this path explicitly
+  (`DOWNLOAD_DIRECTIVE`, `app/graph.py`) rather than letting the model
+  guess one.
+- **Click accuracy with Qwen models**: these models natively reason in a
+  normalized 0-1000 coordinate space, whereas GhostDesk expects native
+  screen pixels by default (documented by GhostDesk) — without
+  correction, clicks land next to their target. `mcp-client` therefore
+  sends the `GhostDesk-Model-Space` header (value `GHOSTDESK_MODEL_SPACE`,
+  default `1000`) on every HTTP call to GhostDesk (`_run_on_server`,
+  `services/mcp-client/app/main.py`). Clear it (`GHOSTDESK_MODEL_SPACE=`)
+  if the served model switches to a frontier model (Claude, GPT-4o), which
+  natively works in screen pixels. This fix does not solve grounding
+  itself (aiming at the right element remains imprecise with a
+  general-purpose vision model) — see the limitation above on the absence
+  of OCR/UI-element detection.
+- **Long-term memory (`context-manager`) never wired into the
+  conversation**: `POST /remember` (stores a fact tied to a `user_id`,
+  Qdrant `memory` collection) and `POST /retrieve` with
+  `collection="memory"` exist and are tested at the `context-manager`
+  level itself, but nothing in `langgraph-agent` calls them. The
+  `retrieve_context` node (`app/graph.py`), which runs automatically on
+  every turn, queries ONLY the `documents` collection (RAG) — never
+  `memory`. Concretely: a fact stored via `/remember` never resurfaces on
+  its own in a conversation, and there is currently no MCP tool nor slash
+  command to store or recall one from the chat — only a direct call to the
+  `context-manager` API (curl, etc.) allows using it.

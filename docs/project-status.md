@@ -1,50 +1,56 @@
-# État d'avancement
+# Progress status
 
-Change à chaque checkpoint — voir `PLAN.md` pour la feuille de route (change
-rarement, source de vérité en cas de divergence) et `docs/history.md` pour le
-détail chronologique complet.
+Changes at every checkpoint — see `PLAN.md` for the roadmap (changes
+rarely, source of truth in case of divergence) and `docs/history.md` for
+the full chronological detail.
 
-## Phase 0 — harnais de niveau tâche
+## Phase 0 — task-level harness
 
-Livré : `tests_integration/test_web_tasks.py`, 11 tâches (`docs/benchmark-v1.md`),
-critères programmatiques, métriques par run, baseline consignée.
+Delivered: `tests_integration/test_web_tasks.py`, 11 tasks
+(`docs/benchmark-v1.md`), programmatic criteria, per-run metrics, baseline
+recorded.
 
-## Phase 1 — boucle plan → agir → vérifier → replanifier
+## Phase 1 — plan → act → verify → replan loop
 
-**1ère tranche** (garde-fou fabrication d'URL + tronquage snapshots) :
-Campagne A budget 20, score global 16/33 → 24/33 — aucun des 5 critères de
-réussite fixés au checkpoint n'était intégralement atteint (voir docs/history.md).
+**First slice** (URL-fabrication guardrail + snapshot truncation):
+Campaign A, budget 20, overall score 16/33 → 24/33 — none of the 5 pass
+criteria set at the checkpoint were fully met (see docs/history.md).
 
-**Campagne A finale** (isolation entre tâches + `browser_extract`) : 30/33.
+**Final Campaign A** (cross-task isolation + `browser_extract`): 30/33.
 
-**« Cœur cognitif »** (les 7 points de la Phase 1, séquencés itération par
-itération — voir `docs/briefs/phase-1-coeur-cognitif.md`) : livré et mesuré.
-Campagne finale (4 mécanismes actifs) : 29/33, cohérent avec la Campagne A
-(30/33, pas une régression) — détail tâche par tâche dans docs/history.md et
-`tests_integration/TASKS-BASELINE-post-coeur-cognitif.md`. Backlog T1/T7/T9
-investigué et clos (voir docs/history.md, « INVENTAIRE DE PERSISTANCE » et les
-investigations T7/T9).
+**"Cognitive core"** (the 7 points of Phase 1, sequenced iteration by
+iteration — see `docs/briefs/phase-1-coeur-cognitif.md`): delivered and
+measured. Final campaign (4 mechanisms active): 29/33, consistent with
+Campaign A (30/33, not a regression) — task-by-task detail in
+docs/history.md and `docs/campaigns/2026-07-23_campaign_coeur-cognitif.md`.
+T1/T7/T9 backlog investigated and closed (see docs/history.md,
+"PERSISTENCE INVENTORY" and the T7/T9 investigations).
 
-**Suivi de ce lot** (voir docs/history.md) :
-- Persistance de campagne (`campaign_persistence.py`) : JSON par run,
-  `thread_id`, échantillons TabbyAPI bruts — livré.
-- Flags du cœur cognitif : défauts inversés à `true` (mesuré et adopté),
-  garde-fou de préambule (`check_agent_flags`) — livré.
-- Restructuration + anglais (`docs/briefs/restructuration-et-anglais.md`) :
-  phase 0 (contrats) livrée, phase 1 (allègement) faite sur `graph.py`
-  seul (reste des services non traité), phase 3 (découpage README) en
-  cours.
+**Follow-up on this batch** (see docs/history.md):
+- Campaign persistence (`campaign_persistence.py`): JSON per run,
+  `thread_id`, raw TabbyAPI samples — delivered.
+- Cognitive-core flags: defaults flipped to `true` (measured and
+  adopted), preflight guardrail (`check_agent_flags`) — delivered.
+- Audit blind spot: `call_tools` (post-approval) now logs to the audit
+  trail too, closing the gap where the first call of each tool per
+  thread was invisible — delivered.
+- Bulk mode for `browser_extract`: `urls` parameter checks several pages
+  in one call, TIER_READ, replacing the `browser_evaluate`-based
+  workaround — delivered.
+- Restructuring + English (`docs/briefs/restructuration-et-anglais.md`):
+  phase 0 (contracts) delivered, phase 1 (trimming) done on `graph.py`
+  only (rest of the services untouched), phase 2 (moves/renames)
+  delivered, phase 3 (README split) delivered, phase 4 (translation) in
+  progress (top-level docs first).
 
-**Non traité de ce lot** (prérequis du chantier restructuration) : angle
-mort d'audit (le tout premier appel de chaque outil par thread est invisible
-dans `/audit`, voir docs/history.md), mode bulk de `browser_extract`, campagne
-complète 33 runs de clôture.
+**Not yet done from this batch** (prerequisite for the restructuring
+effort): full 33-run closing campaign.
 
-## Phases 2 à 4
+## Phases 2 to 4 (of PLAN.md)
 
-Non démarrées (discipline de contexte, tiers de sécurité par nature
-d'action, consolidation — voir `PLAN.md`).
+Not started (context discipline, security tiers by action nature,
+consolidation — see `PLAN.md`).
 
-## Chantier différé : dossier Mjolnir (second modèle)
+## Deferred effort: Mjolnir folder (second model)
 
-Non démarré — voir `PLAN.md`.
+Not started — see `PLAN.md`.

@@ -1,63 +1,64 @@
-# Instruction particulières pour ce projet
+# Project-specific instructions
 
-1. lis `CLAUDE.md`, le README (court) et le brief du chantier en cours en
-   début de session ; `docs/history.md`/`docs/resolved-bugs.md` se consultent par
-   recherche ciblée (grep sur un mot-clé), jamais en entier.
-2. les bugs résolus doivent être inscrits dans docs/resolved-bugs.md
-3. l'historique des avancées doit être inscrit dans docs/history.md
-4. toujours informer l'utilisateur des commandes qu'il doit tapper si besoin de redémarrer/rebuild un service docker
-5. une phase = une PR. Un commit = une nature de changement (jamais un
-   déplacement et une réécriture dans le même commit — le diff devient
-   illisible et l'historique de fichiers, argument central de ce dépôt,
-   se perd).
-6. STOP 🧑 aux checkpoints.
-7. Pas de refactor opportuniste hors périmètre — le proposer au checkpoint.
-8. Toute affirmation sur le comportement d'une lib se vérifie contre le code installé.
-9. README mis à jour au fil de l'eau, style existant.
-10. Suggérer des simplification évidentes quand c'est opportun
-11. Langue du code/doc (chantier « restructuration + anglais », voir
-    `docs/briefs/`) : nouveau contenu en anglais — docstrings, commentaires,
-    identifiants internes non exposés, README/CLAUDE.md/PLAN.md/docs.
-    Restent en français : prompts système/directives envoyés au modèle et
-    prompts des tâches du benchmark (comportement, pas documentation —
-    traduction isolée en phase 6, jamais mêlée à un refactor) ; les entrées
-    déjà écrites de `docs/history.md`/`docs/resolved-bugs.md` (archives datées) ;
-    messages d'approbation/notices utilisateur (décision séparée à venir).
+1. read `CLAUDE.md`, the README (short) and the brief for the ongoing
+   effort at the start of a session; `docs/history.md`/`docs/resolved-bugs.md`
+   are consulted via targeted search (grep on a keyword), never in full.
+2. resolved bugs must be recorded in docs/resolved-bugs.md
+3. progress history must be recorded in docs/history.md
+4. always inform the user of the commands they need to type if a docker
+   service needs restarting/rebuilding
+5. one phase = one PR. One commit = one nature of change (never a move
+   and a rewrite in the same commit — the diff becomes unreadable and the
+   file history, this repo's central argument, is lost).
+6. STOP 🧑 at checkpoints.
+7. No opportunistic refactor outside scope — propose it at the checkpoint.
+8. Any claim about a library's behavior is verified against the installed code.
+9. README updated as you go, existing style.
+10. Suggest obvious simplifications when it's opportune
+11. Code/doc language ("restructuring + English" effort, see
+    `docs/briefs/`): new content in English — docstrings, comments,
+    non-exposed internal identifiers, README/CLAUDE.md/PLAN.md/docs.
+    Stays in French: system prompts/directives sent to the model and
+    benchmark task prompts (behavior, not documentation — translated in
+    an isolated phase 6, never mixed with a refactor); already-written
+    entries of `docs/history.md`/`docs/resolved-bugs.md` (dated
+    archives); approval messages/user-facing notices (separate decision
+    to come).
 
-## Contrat docstrings/commentaires
+## Docstrings/comments contract
 
-- une ligne par défaut ; docstring développée seulement si le comportement
-  est non évident (effet de bord, invariant, contrat d'erreur, POURQUOI de
-  ce choix) ;
-- jamais de paraphrase de la signature, jamais de section
-  Args/Returns/Raises quand noms et types suffisent déjà ;
-- le commentaire explique le POURQUOI ; un code qui exige d'expliquer le
-  QUOI se réécrit plutôt ;
-- l'historique ne vit pas dans le code (« corrigé à l'itération 3 ») → renvoi
-  d'une ligne vers `docs/history.md`/`docs/resolved-bugs.md`, jamais le détail recopié ;
-- **exception assumée** : un bloc qui documente une contrainte externe
-  vérifiée (comportement d'une lib, piège d'un backend, raison d'un flag)
-  reste — c'est du savoir chèrement acquis. On coupe la paraphrase, on
-  garde la justification.
+- one line by default; expanded docstring only if the behavior is
+  non-obvious (side effect, invariant, error contract, WHY of this
+  choice);
+- never a paraphrase of the signature, never an Args/Returns/Raises
+  section when names and types already suffice;
+- the comment explains the WHY; code that requires explaining the WHAT
+  should be rewritten instead;
+- history does not live in the code ("fixed in iteration 3") → a
+  one-line pointer to `docs/history.md`/`docs/resolved-bugs.md`, never
+  the detail copied in;
+- **accepted exception**: a block documenting a verified external
+  constraint (library behavior, backend gotcha, reason for a flag)
+  stays — it's hard-won knowledge. Cut the paraphrase, keep the
+  justification.
 
-## Contrat markdown
+## Markdown contract
 
-Pas de résumé de ce qui précède, pas de section « Conclusion »/« Points
-clés » dans la doc technique, pas de tableau quand trois lignes suffisent.
-Un document = une fonction.
-
-
-# Contexte
-
-La stack sert désormais Qwen3.6-27B EXL3 via
-TabbyAPI/ExLlamaV3 (dual-GPU, vision + MTP), le trio langgraph/langchain-openai/
-openai est migré en 1.x/2.x, et un serveur MCP Playwright est branché aux côtés
-de GhostDesk. Objectif du chantier : faire passer l'agent de « exécute des
-actions approuvées » à « accomplit des tâches web multi-étapes en autonomie »,
-sans affaiblir le modèle de sécurité existant (tiers d'approbation, PromptGuard,
-firewall egress).
+No summary of what precedes, no "Conclusion"/"Key points" section in
+technical docs, no table when three lines suffice. One document = one
+function.
 
 
-# Plan de développement
+# Context
 
-Voir `PLAN.md` — plan détaillé par phases (0 à 4), amendements intégrés.
+The stack now serves Qwen3.6-27B EXL3 via TabbyAPI/ExLlamaV3 (dual-GPU,
+vision + MTP), the langgraph/langchain-openai/openai trio is migrated to
+1.x/2.x, and an MCP Playwright server is wired in alongside GhostDesk.
+Goal of this effort: move the agent from "executes approved actions" to
+"accomplishes multi-step web tasks autonomously", without weakening the
+existing security model (approval tiers, PromptGuard, egress firewall).
+
+
+# Development plan
+
+See `PLAN.md` — detailed plan by phase (0 to 4), amendments integrated.
