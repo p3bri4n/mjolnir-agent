@@ -1,17 +1,17 @@
 """
-Moteur OCR : PaddleOCR en CPU (les deux GPU sont déjà saturés par llama-server,
-voir README) pour find_text/read_screen.
+OCR engine: PaddleOCR on CPU (both GPUs are already saturated by
+llama-server, see README) for find_text/read_screen.
 
-Langues fr + en : PaddleOCR regroupe le français et l'anglais (alphabet latin)
-sous un seul modèle de reconnaissance ("lang=fr" couvre déjà l'anglais en
-pratique, les deux partagent le même jeu de caractères latins) — inutile de
-faire tourner deux passes OCR séparées pour ce projet. OCR_LANGS reste
-configurable si un déploiement a besoin d'un autre alphabet.
+fr + en languages: PaddleOCR groups French and English (Latin alphabet)
+under a single recognition model ("lang=fr" already covers English in
+practice, both share the same Latin character set) — no need to run two
+separate OCR passes for this project. OCR_LANGS stays configurable if a
+deployment needs a different alphabet.
 
-En environnement de test, OCR_ENGINE=fake bascule sur un moteur déterministe
-sans dépendance à PaddleOCR (même principe que EMBEDDING_MODEL=fake du
-context-manager) : les détections retournées sont injectées par le test via
-set_fake_detections(), jamais calculées à partir de l'image reçue.
+In test environments, OCR_ENGINE=fake switches to a deterministic engine
+with no PaddleOCR dependency (same principle as context-manager's
+EMBEDDING_MODEL=fake): the returned detections are injected by the test
+via set_fake_detections(), never computed from the received image.
 """
 
 import os
@@ -23,7 +23,7 @@ _fake_detections: list[dict] = []
 
 
 def set_fake_detections(detections: list[dict]) -> None:
-    """Réservé aux tests (OCR_ENGINE=fake) : contrôle ce que renvoie FakeOCREngine.run()."""
+    """Reserved for tests (OCR_ENGINE=fake): controls what FakeOCREngine.run() returns."""
     global _fake_detections
     _fake_detections = detections
 
@@ -35,9 +35,9 @@ class FakeOCREngine:
 
 class PaddleOCREngine:
     def __init__(self, lang: str):
-        # import paresseux : seuls les déploiements qui ne fixent pas
-        # OCR_ENGINE=fake ont besoin de paddleocr/paddlepaddle, dépendances
-        # lourdes absentes de l'environnement de test.
+        # lazy import: only deployments that don't set OCR_ENGINE=fake
+        # need paddleocr/paddlepaddle, heavy dependencies absent from the
+        # test environment.
         from paddleocr import PaddleOCR
 
         self._ocr = PaddleOCR(use_angle_cls=False, lang=lang, show_log=False)

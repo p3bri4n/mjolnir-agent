@@ -1,24 +1,26 @@
 """
-OCR Service : serveur MCP HTTP (Streamable HTTP, comme GhostDesk) qui donne à
-l'agent des coordonnées de texte EXACTES sur le bureau GhostDesk, en
-complément du VLM (Qwen3.6 MoE) qui raisonne bien mais localise mal (grounding
-imprécis d'un modèle de vision généraliste sans détection d'éléments UI
-dédiée — voir README, section Limites connues assumées).
+OCR Service: an HTTP MCP server (Streamable HTTP, like GhostDesk) that
+gives the agent EXACT text coordinates on the GhostDesk desktop,
+complementing the VLM (Qwen3.6 MoE), which reasons well but localizes
+poorly (imprecise grounding from a general-purpose vision model with no
+dedicated UI-element detection — see README, Accepted known limitations
+section).
 
-Capture : ce service se connecte lui-même en Streamable HTTP au serveur MCP
-GhostDesk (réseau interne agent-net, bearer GHOSTDESK_AUTH_TOKEN), exactement
-comme mcp-client le fait pour le serveur "desktop" — AUCUNE image ne transite
-par mcp-client ni par le LLM pour ce flux, entièrement interne à ocr-service.
-format="png" explicite : ocr-service ne dépend jamais du décodage WebP natif
-du fork llama-server, non pertinent ici (aucun LLM dans cette boucle).
+Capture: this service connects itself over Streamable HTTP to the
+GhostDesk MCP server (internal agent-net network, bearer
+GHOSTDESK_AUTH_TOKEN), exactly as mcp-client does for the "desktop"
+server — NO image passes through mcp-client or the LLM for this flow,
+entirely internal to ocr-service. Explicit format="png": ocr-service
+never depends on the llama-server fork's native WebP decoding, not
+relevant here (no LLM in this loop).
 
-Deux tools exposés à langgraph-agent (via mcp-client, voir Phase 2) :
-  - find_text(query, fuzzy=True) : coordonnées des correspondances, triées
-    par confiance décroissante, liste vide si aucune (jamais d'erreur).
-  - read_screen() : tout le texte détecté, plafonné à ~80 éléments.
+Two tools exposed to langgraph-agent (via mcp-client, see Phase 2):
+  - find_text(query, fuzzy=True): coordinates of matches, sorted by
+    decreasing confidence, empty list if none (never an error).
+  - read_screen(): all detected text, capped at ~80 elements.
 
-Les deux sont TIER_READ côté langgraph-agent (approval_policy.py) : lecture
-pure, aucun effet de bord, rien à exfiltrer.
+Both are TIER_READ on the langgraph-agent side (approval_policy.py): pure
+read, no side effect, nothing to exfiltrate.
 """
 
 import base64
@@ -41,12 +43,12 @@ GHOSTDESK_URL = os.environ.get("MCP_GHOSTDESK_URL", "http://ghostdesk:3000/mcp")
 GHOSTDESK_AUTH_TOKEN = os.environ.get("GHOSTDESK_AUTH_TOKEN", "")
 OCR_AUTH_TOKEN = os.environ.get("OCR_AUTH_TOKEN", "")
 
-# Voir app/coords.py : "1000" (défaut) convertit vers le repère normalisé
-# GhostDesk/mouse_click, "pixels" désactive la conversion.
+# See app/coords.py: "1000" (default) converts to the GhostDesk/
+# mouse_click normalized coordinate space, "pixels" disables conversion.
 OCR_COORD_SPACE = os.environ.get("OCR_COORD_SPACE", "1000")
 
-# Plafond de read_screen : au-delà, le texte détecté (souvent bruité sur un
-# bureau chargé) gonfle le contexte du LLM pour un intérêt décroissant.
+# read_screen cap: beyond this, detected text (often noisy on a busy
+# desktop) inflates the LLM's context for diminishing returns.
 READ_SCREEN_MAX_ELEMENTS = int(os.environ.get("OCR_READ_SCREEN_MAX_ELEMENTS", "80"))
 
 engine = get_engine()
@@ -108,8 +110,8 @@ async def health(_request: Request) -> JSONResponse:
 
 
 class RequireBearerToken:
-    """N'exige le bearer token que sur les routes MCP — /health reste
-    accessible sans authentification, pour le healthcheck docker-compose."""
+    """Only requires the bearer token on MCP routes — /health stays
+    accessible with no authentication, for the docker-compose healthcheck."""
 
     def __init__(self, asgi_app: ASGIApp, token: str):
         self.asgi_app = asgi_app
