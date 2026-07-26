@@ -1,19 +1,19 @@
 """
-Context Manager : retrieval (RAG) et mémoire long-terme, stockés dans Qdrant
-(deux collections distinctes : "documents" et "memory").
+Context Manager: retrieval (RAG) and long-term memory, stored in Qdrant
+(two distinct collections: "documents" and "memory").
 
-NOTE : ce squelette utilise sentence-transformers pour les embeddings (modèle
-téléchargé depuis Hugging Face au premier démarrage -> accès réseau requis).
-Remplacer par un modèle local si le déploiement doit être 100% air-gapped.
-En environnement de test, EMBEDDING_MODEL=fake bascule sur un embedder
-déterministe sans dépendance réseau ni sur sentence-transformers (voir
-tests/conftest.py).
+NOTE: this skeleton uses sentence-transformers for embeddings (model
+downloaded from Hugging Face on first startup -> network access
+required). Replace with a local model if the deployment must be 100%
+air-gapped. In test environments, EMBEDDING_MODEL=fake switches to a
+deterministic embedder with no network or sentence-transformers
+dependency (see tests/conftest.py).
 
-Les briques LlamaIndex / Mem0 / LLMLingua / reranker mentionnées dans
-l'architecture peuvent se greffer ici : LlamaIndex pour le chunking/ingestion
-avancée, Mem0 pour une mémoire structurée par utilisateur, LLMLingua pour
-compresser le contexte avant de l'envoyer au LLM, un cross-encoder pour
-reranker les résultats avant de les retourner à l'agent.
+The LlamaIndex / Mem0 / LLMLingua / reranker building blocks mentioned in
+the architecture can be plugged in here: LlamaIndex for advanced
+chunking/ingestion, Mem0 for per-user structured memory, LLMLingua to
+compress context before sending it to the LLM, a cross-encoder to
+rerank results before returning them to the agent.
 """
 
 import os
@@ -30,11 +30,11 @@ EMBEDDING_MODEL_NAME = os.environ.get("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 
 class _DeterministicFakeEmbedder:
     """
-    Embedder sans dépendance réseau, activé via EMBEDDING_MODEL=fake.
-    Utilisé uniquement par la suite de tests : il ne produit aucun embedding
-    sémantiquement valide, seulement un vecteur déterministe basé sur un hash
-    du texte, suffisant pour exercer la logique Qdrant (upsert/query) sans
-    télécharger de modèle depuis Hugging Face.
+    Embedder with no network dependency, enabled via EMBEDDING_MODEL=fake.
+    Used only by the test suite: it produces no semantically valid
+    embedding, only a deterministic vector based on a hash of the text,
+    enough to exercise Qdrant's logic (upsert/query) without downloading
+    a model from Hugging Face.
     """
 
     def __init__(self, dim: int = 384):
@@ -54,15 +54,15 @@ class _DeterministicFakeEmbedder:
 
 app = FastAPI(title="Context Manager")
 
-# ":memory:" permet de faire tourner les tests sans instance Qdrant réelle ;
-# en production, QDRANT_URL pointe toujours vers le conteneur qdrant du compose.
+# ":memory:" lets the tests run with no real Qdrant instance;
+# in production, QDRANT_URL always points to the compose's qdrant container.
 qdrant = QdrantClient(location=":memory:") if QDRANT_URL == ":memory:" else QdrantClient(url=QDRANT_URL)
 
 def _build_embedder():
     if EMBEDDING_MODEL_NAME == "fake":
         return _DeterministicFakeEmbedder()
-    # importé ici seulement : évite de dépendre de sentence-transformers/torch
-    # quand EMBEDDING_MODEL=fake (mode test, cf. tests/conftest.py)
+    # imported here only: avoids depending on sentence-transformers/torch
+    # when EMBEDDING_MODEL=fake (test mode, see tests/conftest.py)
     from sentence_transformers import SentenceTransformer
 
     return SentenceTransformer(EMBEDDING_MODEL_NAME)
@@ -74,10 +74,11 @@ VECTOR_SIZE = embedder.get_sentence_embedding_dimension()
 
 def _ensure_collections(max_retries: int = 10, delay_seconds: float = 3.0):
     """
-    Attend que Qdrant soit joignable avant de créer les collections.
-    `depends_on` dans docker-compose garantit seulement que le CONTENEUR Qdrant
-    a démarré, pas qu'il accepte déjà des connexions : sans ce retry, une
-    course au démarrage fait planter ce service au premier `docker compose up`.
+    Waits for Qdrant to be reachable before creating the collections.
+    `depends_on` in docker-compose only guarantees that the Qdrant
+    CONTAINER has started, not that it already accepts connections:
+    without this retry, a startup race crashes this service on the first
+    `docker compose up`.
     """
     last_error = None
     for attempt in range(1, max_retries + 1):
@@ -89,10 +90,10 @@ def _ensure_collections(max_retries: int = 10, delay_seconds: float = 3.0):
                         vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
                     )
             return
-        except Exception as exc:  # noqa: BLE001 - on veut retenter sur toute erreur réseau
+        except Exception as exc:  # noqa: BLE001 - retry on any network error
             last_error = exc
             time.sleep(delay_seconds)
-    raise RuntimeError(f"Impossible de joindre Qdrant après {max_retries} tentatives") from last_error
+    raise RuntimeError(f"Unable to reach Qdrant after {max_retries} attempts") from last_error
 
 
 _ensure_collections()
@@ -148,7 +149,7 @@ async def ingest(request: IngestRequest):
 
 @app.post("/remember")
 async def remember(request: RememberRequest):
-    """Stocke un fait de mémoire long-terme lié à un utilisateur."""
+    """Stores a long-term memory fact tied to a user."""
     vector = embedder.encode(request.text).tolist()
     point_id = str(uuid.uuid4())
     qdrant.upsert(

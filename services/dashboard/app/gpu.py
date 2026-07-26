@@ -1,9 +1,9 @@
 """
-VRAM des GPU via `nvidia-smi` (subprocess, best-effort). Actif uniquement si
-ENABLE_GPU_STATS=true (voir app/main.py) : sans GPU visible dans le
-conteneur (pas de runtime nvidia dans docker-compose.yml), la commande est
-absente ou échoue — dans les deux cas, section renvoyée à None plutôt qu'une
-erreur qui ferait échouer tout /api/snapshot.
+GPU VRAM via `nvidia-smi` (subprocess, best-effort). Active only if
+ENABLE_GPU_STATS=true (see app/main.py): with no GPU visible in the
+container (no nvidia runtime in docker-compose.yml), the command is
+either absent or fails — in both cases, the section is returned as None
+rather than an error that would fail the whole /api/snapshot.
 """
 
 import subprocess
@@ -18,9 +18,9 @@ _NVIDIA_SMI_ARGS = [
 
 def run_nvidia_smi(timeout: float = 2.0) -> Optional[str]:
     """
-    Isolé dans sa propre fonction pour rester facilement mockable en test
-    (monkeypatch de cette seule fonction) sans dépendre d'un vrai binaire
-    nvidia-smi ni d'un GPU réel.
+    Isolated in its own function to stay easily mockable in tests
+    (monkeypatching this one function) with no dependency on a real
+    nvidia-smi binary or a real GPU.
     """
     try:
         result = subprocess.run(_NVIDIA_SMI_ARGS, capture_output=True, text=True, timeout=timeout)

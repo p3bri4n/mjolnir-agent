@@ -1,8 +1,8 @@
 """
-Charge les "skills" présentes dans /app/skills (une convention similaire à
-skills/<nom>/SKILL.md avec une courte description en tête de fichier) et
-propose un matching mot-clé très simple. À remplacer par un vrai reranker
-(cf. Context Manager) si le nombre de skills grossit.
+Loads the "skills" present in /app/skills (a convention similar to
+skills/<name>/SKILL.md with a short description at the top of the file)
+and offers a very simple keyword match. Replace with a real reranker
+(see Context Manager) if the number of skills grows.
 """
 
 import re
@@ -23,7 +23,7 @@ def load_skills():
     for skill_file in SKILLS_DIR.glob("*/SKILL.md"):
         name = skill_file.parent.name
         content = skill_file.read_text(encoding="utf-8")
-        # convention : la description est la 1re ligne non vide après un éventuel titre
+        # convention: the description is the 1st non-empty line after any title
         description_match = re.search(r"^description:\s*(.+)$", content, re.MULTILINE | re.IGNORECASE)
         description = description_match.group(1).strip() if description_match else content.split("\n", 1)[0]
         skills[name] = {"name": name, "description": description, "content": content}
@@ -52,7 +52,7 @@ async def get_skill(name: str):
 
 @app.post("/match")
 async def match_skill(request: MatchRequest):
-    """Retourne la skill dont la description partage le plus de mots avec la requête."""
+    """Returns the skill whose description shares the most words with the query."""
     query_words = set(re.findall(r"\w+", request.query.lower()))
     best_skill, best_score = None, 0
 
