@@ -2615,13 +2615,13 @@ async def run_slash_command_direct(state: AgentState, config: dict) -> dict:
 
 async def _route_entry(state: AgentState) -> str:
     """
-    Point d'entrée conditionnel du graphe : bascule sur prepare_slash_command
-    si le dernier message est une commande slash dont le nom d'outil est
-    CONNU (_tools_schema_cache, format OpenAI function-calling imbriqué
-    {"function": {"name": ...}}, voir mcp-client:/tools/schema) — un message
-    qui commence juste par "/" sans être une commande valide (ex. un chemin
-    de fichier) suit le flux normal plutôt que de déclencher une erreur 404
-    confuse pour un nom qui n'était jamais censé être un outil.
+    Graph's conditional entry point: switches to prepare_slash_command if
+    the last message is a slash command whose tool name is KNOWN
+    (_tools_schema_cache, nested OpenAI function-calling format
+    {"function": {"name": ...}}, see mcp-client:/tools/schema) — a message
+    that just starts with "/" without being a valid command (e.g. a file
+    path) follows the normal flow rather than triggering a confusing 404
+    error for a name that was never meant to be a tool.
     """
     parsed = _parse_slash_command(state["messages"][-1].content)
     if parsed is None:
@@ -2634,27 +2634,27 @@ async def _route_entry(state: AgentState) -> str:
 
 def route_after_tool_execution(state: AgentState) -> str:
     """
-    Routage après call_tools/auto_call_tools (correctif latence 1/2-bis,
-    voir route_after_verification pour la raison du déplacement) :
+    Routing after call_tools/auto_call_tools (latency fix 1/2-bis, see
+    route_after_verification for why this moved here):
 
-    1. Sous-tâche "echoue" (verify_action vient de la marquer, budget de
-       tentatives épuisé, voir plus haut) -> replan_task/report_failure —
-       le tool_calls du tour (report_and_act au minimum) vient d'être
-       exécuté juste avant, donc déjà résolu par un ToolMessage, quel que
-       soit le chemin choisi ensuite.
-    2. Court-circuit sinon : si le SEUL tool_calls du tour était
-       report_and_act (aucune action réelle décidée) ET que ce même tour
-       portait déjà une réponse visible (cas fréquent : dernière sous-tâche
-       atteinte, réponse finale donnée dans le même tour que son constat),
-       reboucler sur call_llm coûterait un appel LLM entier pour ne faire
-       répéter au modèle qu'une réponse déjà produite — exactement le coût
-       que ce chantier cherche à éliminer. Route vers finalize_after_report
-       plutôt que directement END (voir ce nœud : sans lui, le dernier
-       message du thread serait le ToolMessage de reçu de report_and_act,
-       pas la réponse visible — cassant _current_answer/app/main.py, qui
-       suppose partout que messages[-1] est l'AIMessage de réponse).
-    3. Cas normal (une vraie action a aussi été exécutée, ou aucune réponse
-       visible) : comportement inchangé, retour à call_llm.
+    1. Subtask "echoue" (verify_action just marked it, attempt budget
+       exhausted, see above) -> replan_task/report_failure — the turn's
+       tool_calls (at minimum report_and_act) was just executed right
+       before, hence already resolved by a ToolMessage, whichever path is
+       chosen next.
+    2. Shortcut otherwise: if the turn's ONLY tool_calls was
+       report_and_act (no real action decided) AND that same turn already
+       carried a visible answer (frequent case: last subtask reached,
+       final answer given in the same turn as its observation), looping
+       back to call_llm would cost a whole LLM call just to have the
+       model repeat an answer already produced — exactly the cost this
+       effort aims to eliminate. Routes to finalize_after_report rather
+       than straight to END (see that node: without it, the thread's last
+       message would be report_and_act's acknowledgment ToolMessage, not
+       the visible answer — breaking _current_answer/app/main.py, which
+       assumes everywhere that messages[-1] is the answer's AIMessage).
+    3. Normal case (a real action was also executed, or no visible
+       answer): unchanged behavior, back to call_llm.
     """
     plan = state.get("plan") or []
     if any(st.get("status") == "echoue" for st in plan):
@@ -2674,14 +2674,14 @@ def route_after_tool_execution(state: AgentState) -> str:
 
 async def finalize_after_report_and_act(state: AgentState) -> dict:
     """
-    Voir route_after_tool_execution ("finalize") : ré-émet le texte de la
-    réponse déjà produite (et déjà streamée au client par call_llm) comme un
-    NOUVEL AIMessage propre, SANS tool_calls — pour que messages[-1] reste
-    l'AIMessage de réponse visible, pas le ToolMessage de reçu de
-    report_and_act qui vient d'être exécuté. Même précédent que
-    run_slash_command_direct (voir sa docstring) : aucun appel LLM, un
-    simple message de forme standard pour rester compatible avec
-    app/main.py.
+    See route_after_tool_execution ("finalize"): re-emits the text of the
+    answer already produced (and already streamed to the client by
+    call_llm) as a NEW clean AIMessage, WITHOUT tool_calls — so that
+    messages[-1] stays the visible answer's AIMessage, not the
+    acknowledgment ToolMessage from report_and_act that was just
+    executed. Same precedent as run_slash_command_direct (see its
+    docstring): no LLM call, a plain standard-shaped message to stay
+    compatible with app/main.py.
     """
     last_ai = next((m for m in reversed(state["messages"]) if getattr(m, "type", None) == "ai"), None)
     content = last_ai.content if last_ai is not None else ""
@@ -2734,12 +2734,12 @@ def build_graph(checkpointer=None):
         {"call_llm": "call_llm", "reject_plan": "reject_plan"},
     )
     graph.add_edge("reject_plan", END)
-    # verify_action tourne APRÈS call_llm (analyse du constat que ce même
-    # appel vient de produire, voir docs/history.md "correctif latence") —
-    # route_after_verification délègue à has_tool_calls
-    # (call_tools/auto_call_tools/retry_empty_answer/end). Le dispatch
-    # replan/give_up sur sous-tâche "echoue" vit dans
-    # route_after_tool_execution, pas ici.
+    # verify_action runs AFTER call_llm (analysis of the observation that
+    # same call just produced, see docs/history.md "latency fix") —
+    # route_after_verification delegates to has_tool_calls
+    # (call_tools/auto_call_tools/retry_empty_answer/end). The
+    # replan/give_up dispatch on a "echoue" subtask lives in
+    # route_after_tool_execution, not here.
     graph.add_edge("call_llm", "verify_action")
     graph.add_conditional_edges(
         "verify_action",
@@ -2767,13 +2767,13 @@ def build_graph(checkpointer=None):
     graph.add_edge("replan_task", "validate_plan")
     graph.add_edge("report_failure", END)
     graph.add_edge("finalize_after_report_and_act", END)
-    # reject_tools résout aussi TOUS les tool_calls du tour (dont
-    # report_and_act, voir reject_tools) — même routage post-exécution que
-    # call_tools/auto_call_tools, pour ne jamais sauter par-dessus un
-    # échoue/give_up potentiellement posé par verify_action juste avant
-    # (correctif latence 1/2-bis : ce cas n'était pas exercé par les tests
-    # avant que report_and_act rende un tool_calls quasi systématique sur
-    # les tours vérifiés).
+    # reject_tools also resolves ALL of the turn's tool_calls (including
+    # report_and_act, see reject_tools) — same post-execution routing as
+    # call_tools/auto_call_tools, so as never to skip over an
+    # echoue/give_up potentially set by verify_action just before
+    # (latency fix 1/2-bis: this case wasn't exercised by the tests
+    # before report_and_act made a tool_calls near-systematic on verified
+    # turns).
     graph.add_conditional_edges(
         "reject_tools",
         route_after_tool_execution,
