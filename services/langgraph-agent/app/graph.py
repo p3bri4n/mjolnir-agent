@@ -444,23 +444,26 @@ MAX_IMAGES_IN_CONTEXT = int(os.environ.get("MAX_IMAGES_IN_CONTEXT", "1"))
 IMAGE_RETENTION_PLACEHOLDER = "[screenshot antérieure supprimée]"
 
 # Nœud planificateur (Itération 1, Phase 1 « cœur cognitif » — voir
-# docs/briefs/phase-1-coeur-cognitif.md). Défaut désactivé : un appel LLM
-# supplémentaire en tête de CHAQUE tâche casserait la quasi-totalité des
-# tests existants qui mockent une séquence FIXE de réponses sur
-# /v1/chat/completions (voir plan_task plus bas) — même convention que
-# ADAPTIVE_THINKING/IMAGE_FORMAT_PASSTHROUGH : off par défaut, à activer
-# explicitement pour mesurer le mécanisme en conditions réelles.
-PLANNER_ENABLED = os.environ.get("PLANNER_ENABLED", "false").lower() == "true"
+# docs/briefs/phase-1-coeur-cognitif.md). DÉFAUT INVERSÉ (docs/briefs/
+# flags-du-coeur-cognitif.md) : le "false" par défaut datait de la
+# validation itération par itération, où un appel LLM supplémentaire en
+# tête de CHAQUE tâche aurait cassé la quasi-totalité des tests existants
+# qui mockaient une séquence FIXE de réponses. Le cœur cognitif est
+# désormais mesuré (campagne finale 29/33, cohérente avec la Campagne A
+# pré-cœur-cognitif à 30/33 — voir HISTORY.md/README) et adopté : le
+# comportement NOMINAL doit être le défaut, c'est la DÉSACTIVATION qui doit
+# être explicite. Les tests qui dépendent du comportement pré-cœur-cognitif
+# forcent désormais explicitement "false", ils ne s'appuient plus sur le défaut.
+PLANNER_ENABLED = os.environ.get("PLANNER_ENABLED", "true").lower() == "true"
 
 # Vérification post-action + budget d'échec (Itération 2, Phase 1 « cœur
 # cognitif » — voir docs/briefs/phase-1-coeur-cognitif.md). N'A D'EFFET QUE
 # SI PLANNER_ENABLED EST AUSSI ACTIVÉ : la vérification compare le résultat
 # d'un tour d'outils au success_criterion de la sous-tâche ACTIVE du plan
-# (voir verify_action plus bas) — sans plan, rien à vérifier. Défaut
-# désactivé pour la même raison que PLANNER_ENABLED : un appel LLM juge
-# supplémentaire par tour d'outils casserait les tests existants qui
-# mockent une séquence fixe de réponses.
-VERIFICATION_ENABLED = os.environ.get("VERIFICATION_ENABLED", "false").lower() == "true"
+# (voir verify_action plus bas) — sans plan, rien à vérifier. DÉFAUT
+# INVERSÉ, même justification que PLANNER_ENABLED ci-dessus (mesuré et
+# adopté, voir docs/briefs/flags-du-coeur-cognitif.md).
+VERIFICATION_ENABLED = os.environ.get("VERIFICATION_ENABLED", "true").lower() == "true"
 # Tentatives par sous-tâche avant de la marquer "echoue" (voir verify_action).
 SUBTASK_ATTEMPT_BUDGET = int(os.environ.get("SUBTASK_ATTEMPT_BUDGET", "3"))
 # Replanifications tolérées pour une même tâche avant d'abandonner
@@ -470,16 +473,20 @@ REPLAN_BUDGET = int(os.environ.get("REPLAN_BUDGET", "2"))
 
 # Pipeline de validation du plan (Itération 3, Phase 1 « cœur cognitif » —
 # voir docs/briefs/phase-1-coeur-cognitif.md et app/plan_validation.py).
-# N'A D'EFFET QUE SI PLANNER_ENABLED EST AUSSI ACTIVÉ. Défaut désactivé,
-# même raison que PLANNER_ENABLED/VERIFICATION_ENABLED : casserait les
-# tests existants qui mockent une séquence fixe de réponses.
-PLAN_VALIDATION_ENABLED = os.environ.get("PLAN_VALIDATION_ENABLED", "false").lower() == "true"
+# N'A D'EFFET QUE SI PLANNER_ENABLED EST AUSSI ACTIVÉ. DÉFAUT INVERSÉ, même
+# justification que PLANNER_ENABLED/VERIFICATION_ENABLED ci-dessus (voir
+# docs/briefs/flags-du-coeur-cognitif.md).
+PLAN_VALIDATION_ENABLED = os.environ.get("PLAN_VALIDATION_ENABLED", "true").lower() == "true"
 # Juge LLM du plan (heuristiques déjà passées, coûteux — un appel LLM par
-# validation). CLAUSE DE RETRAIT (brief) : si une campagne live montre que
-# ce juge n'attrape rien que les heuristiques ne voyaient pas, désactivé
-# par défaut et consigné — voir HISTORY.md, Itération 3, pour le résultat
-# de cette mesure et la valeur par défaut retenue en conséquence.
-PLAN_JUDGE_ENABLED = os.environ.get("PLAN_JUDGE_ENABLED", "false").lower() == "true"
+# validation). CLAUSE DE RETRAIT (brief Itération 3) mesurée en conditions
+# réelles (voir HISTORY.md, Itération 3) : a réellement vétoté un plan que
+# les heuristiques laissaient passer, pour des raisons sémantiques hors de
+# leur portée (preuve d'utilité réelle, pas un validateur "théâtre"), au
+# prix d'une latence notable. DÉFAUT INVERSÉ (docs/briefs/
+# flags-du-coeur-cognitif.md) : décision explicite d'activer par défaut
+# avec les 3 flags ci-dessus, la campagne finale 29/33 ayant mesuré les 4
+# flags actifs ensemble.
+PLAN_JUDGE_ENABLED = os.environ.get("PLAN_JUDGE_ENABLED", "true").lower() == "true"
 # "Rejet motivé → retour planificateur, max 2 cycles puis escalade
 # humaine" (brief) : nombre de rejets (heuristiques OU juge) tolérés avant
 # qu'un humain ne tranche (require_plan_approval, avec les motifs de rejet

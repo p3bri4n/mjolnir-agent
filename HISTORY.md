@@ -2392,3 +2392,73 @@ docker/git réel — subprocess mocké, même esprit que
 `services/langgraph-agent` (279 + 17), suite complète du dépôt non
 re-vérifiée dans ce tour (hors périmètre : seul `langgraph-agent` est
 concerné par ce chantier).
+
+## FLAGS DU CŒUR COGNITIF — défauts inversés, garde-fou de préambule, même lot que la persistance
+
+Trois correctifs demandés par brief écrit (`docs/briefs/
+flags-du-coeur-cognitif.md`), à faire avant le checkpoint complet du
+chantier persistance ci-dessus :
+
+**1. Défauts inversés** : `PLANNER_ENABLED`/`VERIFICATION_ENABLED`/
+`PLAN_VALIDATION_ENABLED`/`PLAN_JUDGE_ENABLED` passent de `"false"` à
+`"true"` par défaut dans `app/graph.py` ET dans `.env.example` — le cœur
+cognitif est mesuré (campagne finale 29/33, cohérente avec la Campagne A
+pré-cœur-cognitif à 30/33) et adopté, c'est la DÉSACTIVATION qui doit
+désormais être explicite. **Piège trouvé en relisant le code avant de
+toucher quoi que ce soit** : `docker-compose.yml` fixait CES MÊMES défauts
+séparément (`${PLANNER_ENABLED:-false}` etc., dans le bloc `environment:`
+du service `langgraph-agent`) — sans corriger aussi ce fichier, le flip
+côté `app/graph.py` aurait été silencieusement annulé en production (un
+conteneur sans `PLANNER_ENABLED` dans `.env` aurait reçu la chaîne
+`"false"` explicite de docker-compose, jamais l'absence de variable qui
+aurait laissé le nouveau défaut Python s'appliquer). Corrigé aux deux
+endroits, cohérence vérifiée par `docker compose config --quiet`.
+
+Impact sur la suite de tests existante : 71 tests en échec immédiatement
+après le flip (toute la boucle d'outils de base — `test_graph.py`,
+`test_streaming_endpoint.py`, etc. — mockait une séquence FIXE de réponses
+`/v1/chat/completions` sans jamais viser ces mécanismes, cassée par le
+premier appel planificateur désormais déclenché par défaut). Plutôt que
+d'ajouter `monkeypatch.setattr(g, "X_ENABLED", False)` dans chacun des ~65
+tests concernés, nouvelle fixture autouse `tests/conftest.py::
+_default_cognitive_core_flags_to_false` : ramène le comportement de TEST
+au défaut pré-cœur-cognitif pour toute la suite, un test qui veut
+spécifiquement exercer un mécanisme continue de forcer sa propre valeur
+(déjà le cas pour `test_plan_task.py` etc.) — même instance `monkeypatch`
+partagée dans un test, la valeur du test l'emporte. 296/296 repassent.
+
+**2. `check_agent_flags()`** (`tests_integration/campaign_preflight.py`) :
+nouvelle vérification de préambule, câblée entre la fraîcheur d'image
+tabbyapi et le schéma d'outils (readiness LLM d'abord, la moins chère à
+constater en erreur). Compare les flags EFFECTIFS du conteneur
+`langgraph-agent` (`docker exec ... env`, réutilise
+`campaign_persistence.collect_env_flags` plutôt que d'en dupliquer une
+variante) à `EXPECTED_AGENT_FLAGS` — 23 variables reprises telles quelles
+de `app/graph.py`/`app/approval_policy.py` (jamais devinées). Écart →
+`PreflightError` avec le diff clé/attendu/effectif et la commande à taper.
+Complète le même besoin trouvé pour `check_tabbyapi_image_fresh` (arbitrage
+post-1/2-ter) : une config qu'on croit mesurer mais qu'on ne mesure pas
+réellement, silencieusement.
+
+**Découverte en construisant ce garde-fou** : 10 des 23 variables
+(`LLM_MAX_TOKENS`, `MAX_IMAGES_IN_CONTEXT`, `AUTO_APPROVAL_STREAK_LIMIT`,
+`AUTO_APPROVED_TOOLS`, `APPROVAL_RULES_PATH`,
+`BROWSER_TOOL_OUTPUT_MAX_CHARS`, `AFFORDANCE_THRESHOLD`,
+`FABRICATION_LIMIT`, `BROWSER_NAVIGATE_GUARDRAIL`, `AUDIT_LOG_MAX_BYTES`)
+n'étaient PAS passées en `environment:` dans `docker-compose.yml` — `docker
+exec ... env` les aurait montrées absentes quel que soit le défaut réel du
+code Python, rendant `check_agent_flags` inopérant pour elles.
+`docker-compose.yml` étendu pour toutes les passer explicitement avec un
+défaut `${VAR:-<défaut du code>}`, identique au code — nécessaire pour que
+le garde-fou soit réellement vérifiable, pas une extension hors périmètre.
+
+**3. Sérialisation** : déjà couvert par `campaign_persistence.
+CAMPAIGN_ENV_FLAGS`/`collect_metadata` (chantier persistance ci-dessus) —
+23 des 24 noms de `EXPECTED_AGENT_FLAGS` y sont déjà, la seule différence
+étant `TZ` (capturé côté persistance pour contexte, absent côté préambule
+car aucune valeur "correcte" unique à imposer). Aucun changement de code
+nécessaire, vérifié par comparaison programmatique des deux listes.
+
+4 nouveaux tests (`test_check_agent_flags_*`,
+`test_run_preflight_checks_flags_before_schema_but_after_image_freshness`)
++ suite complète : 300/300 passent.

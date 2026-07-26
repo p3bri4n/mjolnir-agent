@@ -46,6 +46,7 @@ def test_run_preflight_raises_before_any_reset_on_desync():
             fetch_mcp_tools=lambda: preflight.EXPECTED_TOOLS | {"nouvel_outil"},
             fetch_llm_ready=lambda: True,
             fetch_tabbyapi_image_ids=lambda: ("sha256:same", "sha256:same"),
+            fetch_agent_env=lambda: dict(preflight.EXPECTED_AGENT_FLAGS),
         )
     assert calls == [], "purge/reset ne doivent jamais tourner si le préambule échoue"
 
@@ -60,6 +61,7 @@ def test_run_preflight_purges_and_resets_when_schema_ok():
         fetch_mcp_tools=lambda: preflight.EXPECTED_TOOLS,
         fetch_llm_ready=lambda: True,
         fetch_tabbyapi_image_ids=lambda: ("sha256:same", "sha256:same"),
+        fetch_agent_env=lambda: dict(preflight.EXPECTED_AGENT_FLAGS),
     )
     assert calls == ["purge", "reset"]
 
@@ -85,6 +87,48 @@ def test_run_preflight_checks_llm_ready_before_schema():
             fetch_llm_ready=fetch_llm_ready,
         )
     assert schema_calls == [], "le schéma ne doit pas être comparé si le LLM ne répond pas"
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# check_agent_flags (docs/briefs/flags-du-coeur-cognitif.md, point 2)
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_check_agent_flags_ok_when_matching_expected():
+    assert preflight.check_agent_flags(dict(preflight.EXPECTED_AGENT_FLAGS)) is None
+
+
+def test_check_agent_flags_flags_stale_override():
+    actual = dict(preflight.EXPECTED_AGENT_FLAGS)
+    actual["PLANNER_ENABLED"] = "false"
+    error = preflight.check_agent_flags(actual)
+    assert error is not None
+    assert "PLANNER_ENABLED" in error
+    assert "attendu='true'" in error
+    assert "effectif='false'" in error
+    assert "docker compose up -d --force-recreate langgraph-agent" in error
+
+
+def test_check_agent_flags_treats_missing_key_as_empty_string():
+    actual = dict(preflight.EXPECTED_AGENT_FLAGS)
+    del actual["APPROVAL_RULES_PATH"]
+    assert preflight.check_agent_flags(actual) is None, "APPROVAL_RULES_PATH attendu est déjà '' "
+
+
+def test_run_preflight_checks_flags_before_schema_but_after_image_freshness():
+    schema_calls = []
+
+    with pytest.raises(preflight.PreflightError, match="PLANNER_ENABLED"):
+        preflight.run_preflight(
+            purge_downloads=lambda: None,
+            reset_browser_session=lambda: None,
+            fetch_agent_tools=lambda: schema_calls.append("agent") or preflight.EXPECTED_TOOLS,
+            fetch_mcp_tools=lambda: schema_calls.append("mcp") or preflight.EXPECTED_TOOLS,
+            fetch_llm_ready=lambda: True,
+            fetch_tabbyapi_image_ids=lambda: ("sha256:same", "sha256:same"),
+            fetch_agent_env=lambda: {**preflight.EXPECTED_AGENT_FLAGS, "PLANNER_ENABLED": "false"},
+        )
+    assert schema_calls == [], "le schéma ne doit pas être comparé si les flags sont désynchronisés"
 
 
 # ─────────────────────────────────────────────────────────────────────────

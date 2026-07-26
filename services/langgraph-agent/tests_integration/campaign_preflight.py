@@ -35,6 +35,7 @@ import time
 from typing import Callable, Iterable, Optional
 
 import app.approval_policy as policy
+from tests_integration import campaign_persistence
 
 AGENT_CONTAINER = "langgraph-agent"
 MCP_CLIENT_CONTAINER = "mcp-client"
@@ -56,6 +57,43 @@ LLM_READY_POLL_INTERVAL_SECONDS = 5
 
 EXPECTED_TOOLS = policy.TIER_READ_TOOLS | policy.TIER_REVERSIBLE_TOOLS | policy.NEVER_GRANTABLE_TOOLS | {
     "browser_navigate"
+}
+
+# Contrôle des flags effectifs (docs/briefs/flags-du-coeur-cognitif.md,
+# point 2) : valeurs attendues DANS LE CONTENEUR qui tourne — les 4 flags du
+# cœur cognitif (défaut "true" désormais, voir app/graph.py et
+# docker-compose.yml) + les autres variables qui pilotent le comportement
+# mesuré (budgets de tentatives/replanification, thinking bridé, overrides
+# de tiers, seuils de tronquage). Liste et valeurs reprises telles quelles
+# de app/graph.py/app/approval_policy.py (jamais devinées) — voir
+# CAMPAIGN_ENV_FLAGS (campaign_persistence.py) pour la même liste de NOMS,
+# réutilisée ici pour ne pas la dupliquer. Une valeur absente du conteneur
+# (docker-compose.yml ne la passe pas en environment) compare à "" (chaîne
+# vide, jamais None — évite un faux écart de type au diff).
+EXPECTED_AGENT_FLAGS = {
+    "MAX_TOOL_ITERATIONS": "20",
+    "LLM_MAX_TOKENS": "2048",
+    "PLANNER_ENABLED": "true",
+    "PLANNER_MAX_TOKENS": "8192",
+    "PLANNER_THINKING_ENABLED": "false",
+    "VERIFICATION_ENABLED": "true",
+    "SUBTASK_ATTEMPT_BUDGET": "3",
+    "REPLAN_BUDGET": "2",
+    "PLAN_VALIDATION_ENABLED": "true",
+    "PLAN_JUDGE_ENABLED": "true",
+    "ADAPTIVE_THINKING": "true",
+    "MAX_IMAGES_IN_CONTEXT": "1",
+    "IMAGE_FORMAT_PASSTHROUGH": "",
+    "IMAGE_TOKEN_ESTIMATE": "1500",
+    "AUTO_APPROVAL_STREAK_LIMIT": "6",
+    "AUTO_APPROVED_TOOLS": "",
+    "APPROVAL_RULES_PATH": "",
+    "BROWSER_TOOL_OUTPUT_MAX_CHARS": "8000",
+    "AFFORDANCE_THRESHOLD": "60",
+    "FABRICATION_LIMIT": "5",
+    "BROWSER_NAVIGATE_GUARDRAIL": "true",
+    "MAX_EMPTY_ANSWER_RETRIES": "1",
+    "AUDIT_LOG_MAX_BYTES": str(20 * 1024 * 1024),
 }
 
 
@@ -84,6 +122,33 @@ def check_tools_schema(agent_tools: Iterable[str], mcp_tools: Iterable[str]) -> 
     missing_expected = sorted(EXPECTED_TOOLS - agent_tools)
     if missing_expected:
         return f"outils attendus absents du schéma effectif de langgraph-agent : {missing_expected}"
+    return None
+
+
+def check_agent_flags(actual_flags: dict) -> Optional[str]:
+    """
+    Pure, unit-testable sans docker (voir check_tools_schema ci-dessus,
+    même style) : None si `actual_flags` (voir _fetch_agent_env plus bas)
+    correspond exactement à EXPECTED_AGENT_FLAGS pour chaque clé attendue,
+    sinon un message listant le diff (clé, attendu, effectif) — une
+    campagne mesurée contre un flag dérivé (ex. .env local qui override
+    encore l'ancien défaut "false") ne doit jamais se prétendre comparable
+    à la campagne de référence sans le signaler AVANT le premier run.
+    Une clé absente de `actual_flags` (docker exec n'a rien renvoyé, ex.
+    conteneur non redémarré depuis l'ajout d'une variable à
+    docker-compose.yml) compare à "" comme une valeur vide, jamais ignorée.
+    """
+    diffs = []
+    for key, expected in EXPECTED_AGENT_FLAGS.items():
+        actual = actual_flags.get(key, "")
+        if actual != expected:
+            diffs.append(f"{key} : attendu={expected!r} effectif={actual!r}")
+    if diffs:
+        return (
+            "flags d'env effectifs de langgraph-agent différents de la config mesurée "
+            f"({'; '.join(diffs)}) — commande à taper si un changement de .env n'a pas "
+            "encore été appliqué : docker compose up -d --force-recreate langgraph-agent"
+        )
     return None
 
 
@@ -191,6 +256,14 @@ def check_tabbyapi_image_fresh(fetch_image_ids: Callable[[], tuple] = _fetch_tab
     return None
 
 
+def _fetch_agent_env() -> dict:
+    """Flags effectifs DANS le conteneur langgraph-agent qui tourne — voir
+    check_agent_flags. Réutilise campaign_persistence.collect_env_flags
+    (même primitive `docker exec ... env` que la sérialisation de campagne,
+    voir campaign_persistence.py) plutôt que d'en dupliquer une variante ici."""
+    return campaign_persistence.collect_env_flags(AGENT_CONTAINER, list(EXPECTED_AGENT_FLAGS))
+
+
 def wait_for_llm_ready(
     fetch_llm_ready: Callable[[], bool] = _fetch_llm_ready,
     *,
@@ -223,6 +296,7 @@ def run_preflight(
     fetch_mcp_tools: Callable[[], Iterable[str]] = _fetch_mcp_tools,
     fetch_llm_ready: Callable[[], bool] = _fetch_llm_ready,
     fetch_tabbyapi_image_ids: Callable[[], tuple] = _fetch_tabbyapi_image_ids,
+    fetch_agent_env: Callable[[], dict] = _fetch_agent_env,
 ) -> None:
     """
     Appelé UNE fois par campagne (pas par répétition, contrairement à
@@ -238,10 +312,15 @@ def run_preflight(
     Ordre : readiness LLM D'ABORD (le moins cher à constater EN ERREUR —
     inutile de comparer des schémas d'outils si le backend ne répond même
     pas), puis fraîcheur d'image tabbyapi (arbitrage post-1/2-ter, voir
-    HISTORY.md), puis schéma d'outils, puis purge/reset.
+    HISTORY.md), puis flags d'env effectifs (docs/briefs/
+    flags-du-coeur-cognitif.md — inutile de mesurer une campagne contre une
+    config qu'on n'a pas vraiment), puis schéma d'outils, puis purge/reset.
     """
     wait_for_llm_ready(fetch_llm_ready)
     error = check_tabbyapi_image_fresh(fetch_tabbyapi_image_ids)
+    if error:
+        raise PreflightError(error)
+    error = check_agent_flags(fetch_agent_env())
     if error:
         raise PreflightError(error)
     error = check_tools_schema(fetch_agent_tools(), fetch_mcp_tools())

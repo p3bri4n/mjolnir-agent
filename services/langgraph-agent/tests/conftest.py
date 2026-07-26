@@ -59,3 +59,27 @@ def _reset_audit_log_dir():
     shutil.rmtree(audit_log.AUDIT_LOG_DIR, ignore_errors=True)
     os.makedirs(audit_log.AUDIT_LOG_DIR, exist_ok=True)
     yield
+
+
+@pytest.fixture(autouse=True)
+def _default_cognitive_core_flags_to_false(monkeypatch):
+    """
+    Défauts de PRODUCTION inversés à "true" (docs/briefs/
+    flags-du-coeur-cognitif.md — le cœur cognitif est mesuré et adopté,
+    voir app/graph.py). La quasi-totalité de la suite existante (boucle
+    d'outils de base, approbation, streaming...) mocke une séquence FIXE de
+    réponses sur /v1/chat/completions et n'a jamais visé ces mécanismes :
+    plutôt que d'ajouter `monkeypatch.setattr(g, "X_ENABLED", False)` dans
+    chacun de ces ~65 tests, cette fixture ramène le comportement de TEST au
+    défaut pré-cœur-cognitif — un test qui veut spécifiquement exercer un de
+    ces mécanismes continue de forcer explicitement sa propre valeur (déjà
+    le cas pour test_plan_task.py etc.), et cette valeur l'emporte : même
+    fixture `monkeypatch`, appliquée après celle-ci dans le corps du test.
+    """
+    import app.graph as g
+
+    monkeypatch.setattr(g, "PLANNER_ENABLED", False)
+    monkeypatch.setattr(g, "VERIFICATION_ENABLED", False)
+    monkeypatch.setattr(g, "PLAN_VALIDATION_ENABLED", False)
+    monkeypatch.setattr(g, "PLAN_JUDGE_ENABLED", False)
+    yield
