@@ -1,11 +1,17 @@
 """
-Journal d'audit (Phase 2) : trace machine-lisible de chaque tool_call
-TIER_REVERSIBLE effectivement exécuté (auto-approuvé silencieusement, ou
-après approbation humaine explicite d'un tour mixte/streak-limit — voir
-call_tools, app/graph.py). Les tool_calls TIER_READ ne sont volontairement
-PAS tracés (silencieux par design, rien de nouveau à auditer), pas plus que
-les TIER_SENSITIVE (déjà tracés dans l'historique de conversation via le
-message "⚠️ Approbation requise" et la réponse "approuver"/"refuser").
+Journal d'audit (Phase 2, angle mort corrigé — voir HISTORY.md,
+investigation T9) : trace machine-lisible de chaque tool_call effectivement
+exécuté dont le tier n'est pas TIER_READ (silencieux par design, rien de
+nouveau à auditer) — TIER_REVERSIBLE comme TIER_SENSITIVE, qu'il vienne
+d'auto_call_tools (auto-approuvé) ou de call_tools (après approbation,
+humaine ou via le harnais de campagne — voir _execute_tool_calls,
+app/graph.py). Auparavant, seul auto_call_tools journalisait : un tour
+passé par require_approval était supposé "déjà tracé dans l'historique de
+conversation", supposition fausse en campagne automatisée (aucun humain ne
+regarde) et de toute façon caduque après un redémarrage du service
+(checkpointer MemorySaver, en mémoire uniquement) — le tout premier appel
+de chaque outil par thread, le plus utile à l'investigation, restait
+invisible.
 
 Résultat d'outil (Phase 1d-révisée, voir HISTORY.md "l'observabilité
 d'abord") : chaque entrée porte désormais aussi le résultat TEL QUE VU PAR

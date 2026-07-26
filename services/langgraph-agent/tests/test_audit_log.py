@@ -97,13 +97,58 @@ async def test_tier_read_call_is_not_audited(mock_side_services):
 
 
 @pytest.mark.asyncio
-async def test_granted_sensitive_tool_is_audited_once_auto_approved(mock_side_services):
+async def test_first_sensitive_call_approved_without_grant_is_audited(mock_side_services):
     """
-    Un outil TIER_SENSITIVE accordé pour la session (Phase 3) devient
-    TIER_REVERSIBLE pour les appels suivants : ceux-ci doivent apparaître
-    dans le journal d'audit, contrairement au tout premier appel (qui, lui,
-    est passé par une approbation humaine explicite, déjà tracée dans
-    l'historique de conversation).
+    Angle mort corrigé (voir HISTORY.md, investigation T9) : le tout premier
+    appel d'un outil TIER_SENSITIVE, passé par require_approval, est
+    désormais audité lui aussi (tier="sensitive") — "un humain a déjà vu
+    passer la demande" ne tient pas en campagne automatisée
+    (`_approve(..., grant_session=True)` joue ce rôle sans qu'aucun humain
+    ne regarde), et l'historique de conversation ne survit de toute façon
+    pas à un redémarrage du service (checkpointer en mémoire). Sans grant de
+    session ici (voir test suivant pour ce cas) : une seconde demande du
+    même outil repasse par require_approval et reste donc TIER_SENSITIVE,
+    auditée elle aussi — chaque approbation individuelle est désormais
+    tracée.
+    """
+    import app.audit_log as audit_log
+    import app.graph as g
+
+    route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
+    route.side_effect = [
+        _sse_response(tool_call_response("key_type", "call_1", '{"text": "Ceci est un texte assez long pour rester sensible par defaut"}')),
+        _sse_response(text_response(["Fini", "."])),
+    ]
+    mock_side_services.post("http://fake-mcp-client/call").mock(
+        return_value=httpx.Response(200, json={"content": [{"type": "text", "text": "ok"}]})
+    )
+    g.agent_graph = g.build_graph()
+
+    state = {"messages": [{"role": "user", "content": "Tape hello"}], "tool_iterations": 0, "approved": None}
+    await g.agent_graph.ainvoke(state, CONFIG)
+    await g.agent_graph.aupdate_state(CONFIG, {"approved": True, "grant_session": False})
+    await g.agent_graph.ainvoke(None, CONFIG)
+
+    entries = _tool_call_entries(audit_log.read_entries())
+    assert len(entries) == 1
+    assert entries[0]["tool"] == "key_type"
+    assert entries[0]["tier"] == "sensitive"
+    assert entries[0]["arguments"] == {"text": "Ceci est un texte assez long pour rester sensible par defaut"}
+
+
+@pytest.mark.asyncio
+async def test_granted_followup_call_is_also_audited(mock_side_services):
+    """
+    Suite du correctif ci-dessus : un outil accordé "pour la session"
+    (Phase 3) devient TIER_REVERSIBLE pour les appels suivants, toujours
+    audités (comportement inchangé par ce correctif — seul le TOUT PREMIER
+    appel, ci-dessus, était l'angle mort). Note : `session_grants` est mis à
+    jour par require_approval AVANT que ce même tour n'exécute son
+    tool_call via call_tools — le tout premier appel qui déclenche le grant
+    est donc déjà, à l'exécution, résolu en tier "reversible" plutôt que
+    "sensitive" dans ce scénario précis (voir test précédent pour le cas
+    sans grant, qui isole proprement le tier "sensitive" du tout premier
+    appel).
     """
     import app.audit_log as audit_log
     import app.graph as g
@@ -125,9 +170,12 @@ async def test_granted_sensitive_tool_is_audited_once_auto_approved(mock_side_se
     await g.agent_graph.ainvoke(None, CONFIG)
 
     entries = _tool_call_entries(audit_log.read_entries())
-    assert len(entries) == 1  # seul le deuxième appel (auto-approuvé via le grant) est audité
+    assert len(entries) == 2
     assert entries[0]["tool"] == "key_type"
-    assert entries[0]["arguments"] == {"text": "Un second texte tout aussi long pour verifier le comportement"}
+    assert entries[0]["arguments"] == {"text": "Ceci est un texte assez long pour rester sensible par defaut"}
+    assert entries[1]["tool"] == "key_type"
+    assert entries[1]["tier"] == "reversible"
+    assert entries[1]["arguments"] == {"text": "Un second texte tout aussi long pour verifier le comportement"}
 
 
 @pytest.mark.asyncio

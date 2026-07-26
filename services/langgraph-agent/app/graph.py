@@ -18,10 +18,8 @@ Flux :
      approuvé/refusé via l'état "approved"
   8. call_tools | auto_call_tools | reject_tools -> exécute l'outil via MCP
      Client (même logique partagée, voir _execute_tool_calls), ou synthétise
-     un refus si l'humain a refusé. Seul auto_call_tools journalise dans le
-     journal d'audit (Phase 2, voir app/audit_log.py) : call_tools est
-     TOUJOURS atteint après un passage humain par require_approval CE
-     tour-ci, déjà tracé dans la conversation.
+     un refus si l'humain a refusé. Les deux journalisent dans le journal
+     d'audit (Phase 2, voir app/audit_log.py) tout tier hors TIER_READ.
   9. verify_action        -> si VERIFICATION_ENABLED (Itération 2, Phase 1
      « cœur cognitif »), compare le résultat du tour au success_criterion de
      la sous-tâche active du plan ; no-op sinon (reboucle direct sur
@@ -2006,16 +2004,26 @@ async def _call_mcp_tool(client: httpx.AsyncClient, tool_name: str, args: dict) 
     return _split_image_blocks(result)
 
 
-async def _execute_tool_calls(state: AgentState, config: dict, *, audit: bool) -> dict:
+async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
     """
-    Logique partagée entre call_tools (atteint après require_approval, donc
-    un humain vient d'examiner ce tour) et auto_call_tools (atteint
-    directement depuis has_tool_calls, jamais vu par un humain CE tour-ci).
-    `audit` distingue les deux : seul auto_call_tools journalise (Phase 2,
-    app/audit_log.py) — un tour passé par require_approval a déjà sa trace
-    dans l'historique de conversation ("⚠️ Approbation requise" + la réponse
-    de l'utilisateur), inutile de le dupliquer dans le journal d'audit, qui
-    sert justement à tracer ce qui n'a PAS été vu par un humain.
+    Logique partagée entre call_tools (atteint après require_approval) et
+    auto_call_tools (atteint directement depuis has_tool_calls, jamais vu
+    par un humain CE tour-ci). Journalise (app/audit_log.py) tout tool_call
+    dont le tier effectif n'est pas TIER_READ (silencieux par design, rien
+    de nouveau à tracer) — y compris ceux venus de call_tools, quel que
+    soit leur tier.
+
+    Angle mort corrigé (voir HISTORY.md, investigation T9) : ce nœud
+    audit-logguait auparavant SEULEMENT les tool_calls d'auto_call_tools,
+    au motif qu'un tour passé par require_approval a déjà sa trace dans
+    l'historique de conversation ("⚠️ Approbation requise" + la réponse).
+    Ce raisonnement suppose un humain réel qui a vu passer la demande — en
+    campagne automatisée, `_approve(..., grant_session=True)` (le harnais)
+    joue ce rôle sans qu'aucun humain ne regarde jamais, et l'historique de
+    conversation lui-même ne survit pas à un redémarrage du service
+    (checkpointer MemorySaver, en mémoire uniquement) : le journal d'audit
+    reste alors la SEULE trace persistante, y compris pour le tout premier
+    appel de chaque outil par thread — jusqu'ici invisible dans les deux cas.
     """
     last = state["messages"][-1]
     new_messages = []
@@ -2103,11 +2111,8 @@ async def _execute_tool_calls(state: AgentState, config: dict, *, audit: bool) -
                     "args": {k: v for k, v in tool_call["args"].items() if k != _CONSTAT_PARAM_NAME},
                 }
 
-            audit_tier = None
-            if audit:
-                tier = approval_policy.effective_tier(tool_call["name"], tool_call.get("args"), grants)
-                if tier == approval_policy.TIER_REVERSIBLE:
-                    audit_tier = tier
+            tier = approval_policy.effective_tier(tool_call["name"], tool_call.get("args"), grants)
+            audit_tier = tier if tier != approval_policy.TIER_READ else None
 
             blocked = False
             if (
@@ -2204,13 +2209,13 @@ async def _execute_tool_calls(state: AgentState, config: dict, *, audit: bool) -
 
 
 async def call_tools(state: AgentState, config: dict) -> dict:
-    """Atteint après require_approval (humain déjà passé) : jamais audité, voir _execute_tool_calls."""
-    return await _execute_tool_calls(state, config, audit=False)
+    """Atteint après require_approval (humain ou harnais de campagne vient d'approuver) — voir _execute_tool_calls."""
+    return await _execute_tool_calls(state, config)
 
 
 async def auto_call_tools(state: AgentState, config: dict) -> dict:
-    """Atteint directement depuis has_tool_calls (aucun humain CE tour) : audité, voir _execute_tool_calls."""
-    return await _execute_tool_calls(state, config, audit=True)
+    """Atteint directement depuis has_tool_calls (aucune approbation ce tour) — voir _execute_tool_calls."""
+    return await _execute_tool_calls(state, config)
 
 
 async def reject_tools(state: AgentState) -> dict:

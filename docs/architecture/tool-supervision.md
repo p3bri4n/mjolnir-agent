@@ -121,36 +121,38 @@ local : pas de persistance de grants inter-redémarrage, chaque nouvelle
 conversation (ou reprise après redémarrage) repart sans historique
 d'approbation.
 
-**Journal d'audit** (Phase 2, `services/langgraph-agent/app/audit_log.py`) :
-chaque tool_call `TIER_REVERSIBLE` **effectivement auto-approuvé** (arrivé
-directement depuis `has_tool_calls`, sans passer par `require_approval` CE
-tour-ci) est loggé en JSONL sous `AUDIT_LOG_DIR` (défaut `/workspace/.audit`,
-même bind mount que les serveurs MCP filesystem/git/terminal — voir
-`docker-compose.yml`), un fichier par jour (`YYYY-MM-DD.jsonl`). Chaque
-ligne : `timestamp`, `thread_id`, `tool`, `arguments`, `tier`, `result` (le
-résultat de l'outil TEL QUE VU PAR LE MODÈLE — déjà tronqué/hiérarchisé si
-`browser_*`, jamais la version brute ; ajouté en Phase 1d-révisée, voir
-HISTORY.md, pour reconstruire non seulement la séquence d'appels mais aussi
-ce que l'agent a réellement perçu à chaque étape). Rotation par volume en
-plus du fichier quotidien : au-delà de `AUDIT_LOG_MAX_BYTES` (défaut 20 Mio),
-le fichier du jour est compressé (`.N.jsonl.gz`) avant la prochaine écriture
-— `read_entries`/`GET /audit` relisent les archives compressées de façon
-transparente. Volontairement **pas** de trace pour :
-- les tool_calls `TIER_READ` (silencieux par design, rien de nouveau à
-  auditer) ;
-- les tool_calls exécutés après un passage par `require_approval` (même
-  s'ils sont `TIER_REVERSIBLE`) : ce tour a déjà un humain dans la boucle,
-  déjà tracé dans l'historique de conversation ("⚠️ Approbation requise" +
-  la réponse) — dupliquer cette trace dans le journal d'audit irait à
-  l'encontre de son objet, qui est justement de tracer ce qu'un humain n'a
-  PAS vu passer.
+**Journal d'audit** (Phase 2, `services/langgraph-agent/app/audit_log.py`,
+angle mort corrigé — voir HISTORY.md, investigation T9) : chaque tool_call
+effectivement exécuté dont le tier n'est pas `TIER_READ` (silencieux par
+design, rien de nouveau à auditer) est loggé en JSONL sous `AUDIT_LOG_DIR`
+(défaut `/workspace/.audit`, même bind mount que les serveurs MCP
+filesystem/git/terminal — voir `docker-compose.yml`), un fichier par jour
+(`YYYY-MM-DD.jsonl`). Chaque ligne : `timestamp`, `thread_id`, `tool`,
+`arguments`, `tier`, `result` (le résultat de l'outil TEL QUE VU PAR LE
+MODÈLE — déjà tronqué/hiérarchisé si `browser_*`, jamais la version brute ;
+ajouté en Phase 1d-révisée, voir HISTORY.md, pour reconstruire non
+seulement la séquence d'appels mais aussi ce que l'agent a réellement perçu
+à chaque étape). Rotation par volume en plus du fichier quotidien :
+au-delà de `AUDIT_LOG_MAX_BYTES` (défaut 20 Mio), le fichier du jour est
+compressé (`.N.jsonl.gz`) avant la prochaine écriture — `read_entries`/
+`GET /audit` relisent les archives compressées de façon transparente.
 
-Concrètement, pour un outil accordé "pour la session" (voir Grants de
-session ci-dessus) : le tout premier appel (celui qui a déclenché
-`require_approval`) n'apparaît jamais dans le journal, seuls les appels
-*suivants* du même outil, désormais auto-approuvés via le grant, y
-apparaissent. `GET /audit?thread_id=...` (optionnel, sans lui renvoie tout
-le journal disponible) permet la consultation ; une ligne corrompue
+**Avant ce correctif**, seul un tool_call arrivé directement depuis
+`has_tool_calls` (sans passer par `require_approval` ce tour-ci) était
+audité — l'hypothèse étant qu'un tour passé par `require_approval` a déjà
+un humain dans la boucle, déjà tracé dans l'historique de conversation
+("⚠️ Approbation requise" + la réponse), donc inutile à dupliquer.
+Hypothèse fausse en pratique : en campagne automatisée,
+`_approve(..., grant_session=True)` (le harnais de tests) joue ce rôle sans
+qu'aucun humain ne regarde jamais, et l'historique de conversation lui-même
+ne survit pas à un redémarrage du service (checkpointer `MemorySaver`, en
+mémoire uniquement — voir Persistance des données plus bas) : le journal
+d'audit reste alors la SEULE trace persistante. Le tout premier appel de
+chaque outil par thread — le plus utile à l'investigation — restait donc
+invisible, même en campagne. Désormais, tout tool_call passé par
+`require_approval` est audité lui aussi, avec son tier réel (y compris
+`TIER_SENSITIVE`) — `GET /audit?thread_id=...` (optionnel, sans lui renvoie
+tout le journal disponible) permet la consultation ; une ligne corrompue
 individuelle est ignorée à la lecture plutôt que de faire échouer toute la
 requête.
 

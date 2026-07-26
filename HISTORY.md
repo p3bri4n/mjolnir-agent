@@ -2462,3 +2462,46 @@ nécessaire, vérifié par comparaison programmatique des deux listes.
 4 nouveaux tests (`test_check_agent_flags_*`,
 `test_run_preflight_checks_flags_before_schema_but_after_image_freshness`)
 + suite complète : 300/300 passent.
+
+## ANGLE MORT D'AUDIT — correctif (dernier point du lot avant checkpoint complet)
+
+Corrige l'angle mort noté depuis l'investigation T9 (voir plus haut) :
+seul `auto_call_tools` journalisait dans `/workspace/.audit` — un tour
+passé par `require_approval` (`call_tools`) n'était JAMAIS audité, au motif
+qu'"un humain a déjà vu passer la demande, déjà tracée dans l'historique de
+conversation". Ce raisonnement ne tient pas en campagne automatisée
+(`_approve(..., grant_session=True)` joue ce rôle sans qu'aucun humain ne
+regarde), et l'historique de conversation lui-même ne survit pas à un
+redémarrage du service (checkpointer `MemorySaver`, en mémoire uniquement)
+— le journal d'audit est alors la SEULE trace persistante, et le tout
+premier appel de chaque outil par thread (le plus utile à l'investigation)
+restait invisible, même en campagne.
+
+**Correctif** (`app/graph.py`) : `_execute_tool_calls` audite désormais
+tout tool_call dont le tier effectif n'est pas `TIER_READ` (silencieux par
+design), qu'il vienne de `call_tools` ou `auto_call_tools` — retrait du
+paramètre `audit: bool` devenu sans objet, le gating est maintenant
+purement par tier. `call_tools`/`auto_call_tools` appellent la même
+fonction sans distinction.
+
+**Subtilité trouvée en écrivant les tests** : `require_approval` met à
+jour `session_grants` (ajout du/des outil(s) du tour) AVANT que ce même
+tour n'exécute son tool_call via `call_tools` — le tout premier appel qui
+déclenche un grant "pour la session" est donc déjà résolu en tier
+`"reversible"` (pas `"sensitive"`) au moment de l'audit, puisque
+`effective_tier` consulte `session_grants` qui contient déjà l'outil.
+Comportement préexistant (pas introduit par ce correctif, jamais visible
+avant puisque rien n'était audité côté `call_tools`) : documenté tel quel
+dans `test_granted_followup_call_is_also_audited`, pas corrigé ici (hors
+périmètre de cet angle mort précis — la correction complète nécessiterait
+de distinguer le tier "au moment de la demande" du tier "au moment de
+l'exécution", un chantier séparé). Un test dédié sans grant de session
+(`test_first_sensitive_call_approved_without_grant_is_audited`) isole
+proprement le cas simple où le tier `"sensitive"` du tout premier appel est
+correctement audité.
+
+Documentation mise à jour en cohérence : `audit_log.py` (docstring de
+module), `app/graph.py` (docstring de module, description du flux),
+`docs/architecture/tool-supervision.md`, `docs/operations/testing.md`.
+301/301 tests passent (300 + 1 net, un test remplacé par deux pour isoler
+les deux scénarios ci-dessus).
