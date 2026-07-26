@@ -1,17 +1,16 @@
 """
-Expose une API compatible OpenAI (/v1/chat/completions) consommée par Open WebUI,
-et qui délègue en interne au graphe LangGraph (app/graph.py). Supporte le
-streaming SSE token-par-token via astream_events.
+Exposes an OpenAI-compatible API (/v1/chat/completions) consumed by Open
+WebUI, delegating internally to the LangGraph graph (app/graph.py).
+Supports token-by-token SSE streaming via astream_events.
 
-Supervision humaine : chaque appel d'outil suspend le graphe (voir
-require_approval dans app/graph.py) jusqu'à ce que l'utilisateur réponde
-"approuver"/"refuser" dans le tour de conversation suivant. Open WebUI
-renvoyant l'historique complet à chaque requête sans identifiant de
-conversation stable, le thread LangGraph est retrouvé en dérivant un
-thread_id déterministe à partir du premier message humain (cf.
-_derive_thread_id) — deux conversations démarrant par un message strictement
-identique partageraient donc le même thread, limite assumée pour un usage
-local mono-utilisateur.
+Human supervision: every tool call suspends the graph (see
+require_approval in app/graph.py) until the user replies
+"approuver"/"refuser" on the next conversation turn. Since Open WebUI
+resends the full history on every request with no stable conversation
+identifier, the LangGraph thread is recovered by deriving a deterministic
+thread_id from the first human message (see _derive_thread_id) — two
+conversations starting with a strictly identical message would therefore
+share the same thread, an accepted limitation for local single-user use.
 """
 
 import hashlib
@@ -52,44 +51,44 @@ class ChatCompletionRequest(BaseModel):
 
 
 class PendingCheckRequest(BaseModel):
-    """Ne nécessite que de dériver le même thread_id que le reste (voir
-    _derive_thread_id, basé uniquement sur le premier message humain) — donc
-    insensible au fait que le contenu du dernier message assistant, tel que
-    renvoyé par le client, puisse être vide ou tronqué (observé avec Open
-    WebUI sur les messages contenant des balises <think>, indépendamment de
-    ce service : sa valeur affichée et sa valeur stockée en interne peuvent
-    diverger). Permet à un client (bouton d'UI) de savoir s'il y a une
-    approbation en attente sans dépendre de ce contenu."""
+    """Only needs to derive the same thread_id as everything else (see
+    _derive_thread_id, based solely on the first human message) — hence
+    indifferent to whether the last assistant message's content, as
+    returned by the client, might be empty or truncated (observed with
+    Open WebUI on messages containing <think> tags, independent of this
+    service: its displayed value and its internally stored value can
+    diverge). Lets a client (UI button) know whether an approval is
+    pending without depending on that content."""
 
     messages: List[ChatMessage]
 
 
 class ContextRequest(BaseModel):
     """
-    POST /context (dashboard d'observabilité, services/dashboard) : accepte
-    soit `messages` (même contrat que PendingCheckRequest, thread_id dérivé
-    via _derive_thread_id), soit directement `thread_id` (Phase 3 — le
-    dashboard le récupère via GET /threads/recent plutôt que de rejouer tout
-    l'historique Open WebUI qu'il n'a de toute façon jamais eu). `thread_id`
-    prend le pas s'il est fourni."""
+    POST /context (observability dashboard, services/dashboard): accepts
+    either `messages` (same contract as PendingCheckRequest, thread_id
+    derived via _derive_thread_id), or `thread_id` directly (Phase 3 — the
+    dashboard fetches it via GET /threads/recent rather than replaying the
+    whole Open WebUI history it never had in the first place). `thread_id`
+    takes precedence if provided."""
 
     messages: Optional[List[ChatMessage]] = None
     thread_id: Optional[str] = None
 
 
 class ApprovalDecisionRequest(BaseModel):
-    """Décision transmise hors bande, depuis un bouton d'UI (Open WebUI Action
-    function) plutôt que par un message texte "approuver"/"refuser" — voir
-    /approve. `messages` doit être l'historique complet tel que vu par Open
-    WebUI au moment du clic (même contrat que ChatCompletionRequest.messages),
-    nécessaire pour dériver le même thread_id et tenir owui_message_count à
-    jour de la même façon que le flux texte existant."""
+    """Decision passed out-of-band, from a UI button (Open WebUI Action
+    function) rather than via an "approuver"/"refuser" text message — see
+    /approve. `messages` must be the full history as seen by Open WebUI at
+    click time (same contract as ChatCompletionRequest.messages), needed
+    to derive the same thread_id and keep owui_message_count up to date
+    the same way the existing text flow does."""
 
     messages: List[ChatMessage]
     approved: bool
-    # "approuver pour la session" (Phase 3) : accorde l'outil pour tout le
-    # thread plutôt que pour ce seul tour — voir AgentState.session_grants,
-    # app/graph.py. Ignoré si approved=False.
+    # "approve for the session" (Phase 3): grants the tool for the whole
+    # thread rather than just this turn — see AgentState.session_grants,
+    # app/graph.py. Ignored if approved=False.
     grant_session: bool = False
 
 
@@ -98,14 +97,14 @@ def _derive_thread_id(messages: List[ChatMessage]) -> str:
     return hashlib.sha256(first_human.encode()).hexdigest()[:16]
 
 
-# Registre en mémoire process (Phase 3, jamais persisté — cohérent avec le
-# checkpointer MemorySaver lui-même en mémoire uniquement, voir README
-# section Persistance des données) des threads vus récemment, pour que le
-# dashboard d'observabilité (services/dashboard) puisse appeler POST /context
-# sans avoir à rejouer l'historique Open WebUI complet, qu'il n'a de toute
-# façon jamais reçu. Alimenté uniquement par les endpoints qui font
-# réellement progresser une conversation (_resolve_run, /approve) — pas par
-# /pending ni /context eux-mêmes, strictement lecture seule.
+# Process-in-memory registry (Phase 3, never persisted — consistent with
+# the MemorySaver checkpointer itself being in-memory only, see README
+# Data persistence section) of recently seen threads, so the
+# observability dashboard (services/dashboard) can call POST /context
+# without having to replay the full Open WebUI history, which it never
+# received in the first place. Fed only by the endpoints that actually
+# advance a conversation (_resolve_run, /approve) — not by /pending or
+# /context themselves, strictly read-only.
 _recent_threads: dict = {}
 
 
@@ -118,11 +117,12 @@ _PLAN_STATUS_LABELS = {"a_faire": "à faire", "en_cours": "en cours", "fait": "f
 
 def _format_plan_summary(plan: Optional[list]) -> str:
     """
-    Résumé du plan (Itération 1, Phase 1 « cœur cognitif » — voir
-    docs/briefs/phase-1-coeur-cognitif.md et app/graph.py:plan_task) pour le
-    message d'approbation. `plan` vide/None -> chaîne vide (PLANNER_ENABLED
-    désactivé par défaut, voir app/graph.py) : ne change alors RIEN au texte
-    existant, pour ne casser aucun test qui vérifie ce message aujourd'hui.
+    Plan summary (Iteration 1, Phase 1 "cognitive core" — see
+    docs/briefs/phase-1-coeur-cognitif.md and app/graph.py:plan_task) for
+    the approval message. Empty/None `plan` -> empty string
+    (PLANNER_ENABLED disabled by default, see app/graph.py): changes
+    NOTHING to the existing text then, so as not to break any test that
+    checks this message today.
     """
     if not plan:
         return ""
@@ -149,12 +149,12 @@ def _format_approval_request(tool_calls: list, plan: Optional[list] = None) -> s
 
 def _format_plan_approval_request(plan: list, tier: str, reasons: Optional[list] = None) -> str:
     """
-    Message d'approbation du PLAN (Itération 3, app/graph.py:
-    require_plan_approval) — distinct de _format_approval_request
-    (approbation d'un tool_call précis). Deux cas : approbation normale par
-    tier (`reasons` vide, le plan a passé la validation) ou escalade
-    humaine après échec répété de la validation automatique (`reasons`
-    non vide — motifs affichés, voir route_after_validation).
+    PLAN approval message (Iteration 3, app/graph.py:
+    require_plan_approval) — distinct from _format_approval_request
+    (approval of a specific tool_call). Two cases: normal tier-based
+    approval (`reasons` empty, the plan passed validation) or human
+    escalation after repeated automatic validation failure (`reasons`
+    non-empty — reasons displayed, see route_after_validation).
     """
     if reasons:
         header = (
@@ -171,12 +171,12 @@ def _format_plan_approval_request(plan: list, tier: str, reasons: Optional[list]
 
 def _pending_approval_text(snapshot) -> Optional[str]:
     """
-    Texte de la pause d'approbation en cours pour ce snapshot, ou None s'il
-    n'y en a pas. Centralise la distinction pause PLAN
-    (require_plan_approval, Itération 3) vs pause OUTIL (require_approval,
-    existant) déjà introduite dans _resolve_run — évite de la dupliquer aux
-    4 endroits qui affichent ce texte (streaming, _current_answer,
-    /pending, /context).
+    Text of the current approval pause for this snapshot, or None if
+    there isn't one. Centralizes the PLAN pause (require_plan_approval,
+    Iteration 3) vs TOOL pause (require_approval, existing) distinction
+    already introduced in _resolve_run — avoids duplicating it at the 4
+    places that display this text (streaming, _current_answer, /pending,
+    /context).
     """
     if not snapshot.next:
         return None
@@ -192,10 +192,11 @@ def _pending_approval_text(snapshot) -> Optional[str]:
 
 def _parse_approval_reply(text: str) -> tuple:
     """
-    Distingue les trois réponses possibles au message d'approbation (voir
-    _format_approval_request) : "approuver pour la session" contenant lui-même
-    "approuver", le grant est détecté en cherchant "session" EN PLUS
-    d'"approuver" — un simple "approuver" ne grant jamais rien.
+    Distinguishes the three possible replies to the approval message (see
+    _format_approval_request): since "approuver pour la session" itself
+    contains "approuver", the grant is detected by looking for "session"
+    IN ADDITION to "approuver" — a plain "approuver" never grants
+    anything.
     """
     lowered = text.lower()
     approved = "approuver" in lowered
@@ -216,17 +217,16 @@ def _format_iteration_limit_notice(tool_calls: list) -> str:
 
 def _format_empty_answer_notice() -> str:
     """
-    Non-régression (bug réel observé en usage réel, cf. tableau des bugs du
-    README) : un modèle peut terminer un tour sans aucun tool_calls
-    structuré ET sans texte de réponse visible — ex. une tentative d'appel
-    d'outil écrite en prose (imitant la syntaxe <tool_call> qu'il voit
-    rendue par le template pour ses propres tours précédents) noyée dans le
-    raisonnement, jamais reconnue comme un tool_calls OpenAI. Sans ce
-    message, l'utilisateur ne voit que la bulle de raisonnement se refermer
-    sur rien : le même symptôme de "l'agent semble s'arrêter en plein
-    milieu d'une tâche" que MAX_TOOL_ITERATIONS (voir
-    _format_iteration_limit_notice), mais via un chemin différent (aucun
-    tool_calls en attente, juste une réponse vide).
+    Non-regression (real bug observed in real usage, see the README's bug
+    table): a model can end a turn with no structured tool_calls AND no
+    visible answer text — e.g. a tool-call attempt written in prose
+    (mimicking the <tool_call> syntax it sees rendered by the template for
+    its own previous turns) buried in the reasoning, never recognized as
+    an OpenAI tool_calls. Without this message, the user only sees the
+    reasoning bubble close on nothing: the same "the agent seems to stop
+    mid-task" symptom as MAX_TOOL_ITERATIONS (see
+    _format_iteration_limit_notice), but via a different path (no
+    tool_calls pending, just an empty answer).
     """
     return (
         "⚠️ Le modèle a terminé son tour sans réponse exploitable (probablement une "
@@ -237,29 +237,30 @@ def _format_empty_answer_notice() -> str:
 
 async def _resolve_run(request: ChatCompletionRequest):
     """
-    Prépare le (config, run_input) à passer au graphe.
+    Prepares the (config, run_input) to pass to the graph.
 
-    Trois cas, distingués via l'état persisté par le checkpointer pour ce
-    thread :
-      - une pause d'approbation est en cours -> on injecte la décision et on
-        reprend (run_input=None) ;
-      - le thread existe déjà (conversation en cours, tours précédents déjà
-        persistés) -> Open WebUI renvoie l'historique COMPLET à chaque
-        requête, mais ce thread a déjà persisté les tours précédents via le
-        checkpointer ; ne soumettre que les nouveaux messages (au-delà de
-        owui_message_count) évite de dupliquer tout l'historique déjà stocké ;
-      - tout premier tour de cette conversation -> aucun état persisté encore,
-        on soumet l'historique initial tel quel.
+    Three cases, distinguished via the state persisted by the
+    checkpointer for this thread:
+      - an approval pause is in progress -> inject the decision and
+        resume (run_input=None);
+      - the thread already exists (conversation in progress, previous
+        turns already persisted) -> Open WebUI resends the FULL history
+        on every request, but this thread has already persisted previous
+        turns via the checkpointer; submitting only the new messages
+        (beyond owui_message_count) avoids duplicating the whole
+        already-stored history;
+      - this conversation's very first turn -> no state persisted yet,
+        submit the initial history as-is.
     """
-    # recursion_limit compte les NŒUDS visités (pas les appels d'outils) et
-    # vaut 25 par défaut côté LangGraph — indépendant de MAX_TOOL_ITERATIONS
-    # et bien plus vite atteint : la boucle GhostDesk auto-approuvée peut
-    # enchaîner de nombreux tours call_llm/call_tools sans jamais repasser
-    # par une pause d'approbation qui, elle, découperait le run en plusieurs
-    # appels de ainvoke() avec un budget de récursion frais à chaque fois.
-    # Sans cet ajustement, un run auto-approuvé assez long lève un
-    # GraphRecursionError brut (500) avant même d'atteindre notre propre
-    # notice de limite (voir _format_iteration_limit_notice plus haut).
+    # recursion_limit counts the NODES visited (not tool calls) and
+    # defaults to 25 on the LangGraph side — independent of
+    # MAX_TOOL_ITERATIONS and reached much faster: an auto-approved
+    # GhostDesk loop can chain many call_llm/call_tools turns without ever
+    # going back through an approval pause, which would otherwise split
+    # the run into several ainvoke() calls each with a fresh recursion
+    # budget. Without this adjustment, a long enough auto-approved run
+    # raises a raw GraphRecursionError (500) before even reaching our own
+    # limit notice (see _format_iteration_limit_notice above).
     thread_id = _derive_thread_id(request.messages)
     _touch_thread(thread_id)
     config = {
@@ -267,8 +268,8 @@ async def _resolve_run(request: ChatCompletionRequest):
         "recursion_limit": MAX_TOOL_ITERATIONS * 4 + 10,
     }
     snapshot = await agent_graph.aget_state(config)
-    # Nombre de messages Open WebUI que ce tour aura entièrement couverts une
-    # fois sa réponse (unique) produite : l'historique actuel + cette réponse.
+    # Number of Open WebUI messages this turn will fully cover once its
+    # (single) answer is produced: the current history + this answer.
     owui_message_count = len(request.messages) + 1
 
     if snapshot.next:
@@ -276,11 +277,11 @@ async def _resolve_run(request: ChatCompletionRequest):
             (m.content for m in reversed(request.messages) if m.role == "user"), ""
         )
         approved, grant_session = _parse_approval_reply(last_human)
-        # Deux raisons de pause possibles depuis l'Itération 3 (pipeline de
-        # validation du plan) : require_plan_approval (le PLAN) ou
-        # require_approval (un tool_call), jamais les deux en même temps
-        # (des nœuds distincts du graphe) — snapshot.next contient le nom du
-        # nœud interrompu, assez pour les distinguer sans état supplémentaire.
+        # Two possible pause reasons since Iteration 3 (plan validation
+        # pipeline): require_plan_approval (the PLAN) or require_approval
+        # (a tool_call), never both at once (distinct graph nodes) —
+        # snapshot.next holds the interrupted node's name, enough to tell
+        # them apart with no extra state.
         if "require_plan_approval" in snapshot.next:
             await agent_graph.aupdate_state(
                 config,
@@ -336,7 +337,7 @@ async def health():
 
 @app.get("/v1/models")
 async def list_models():
-    # nécessaire pour que Open WebUI découvre le "modèle" agent
+    # needed so Open WebUI discovers the agent "model"
     return {
         "object": "list",
         "data": [{"id": "agent-llm", "object": "model", "owned_by": "langgraph-agent"}],
@@ -354,16 +355,15 @@ def _sse_chunk(completion_id: str, model: str, delta: dict, finish_reason: Optio
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
-# Taille max d'un morceau de contenu par chunk SSE. Nécessaire depuis que
-# certains contenus envoyés d'un seul bloc (notices, et surtout une image en
-# data URI base64 pour une commande slash sur un outil comme screen_shot —
-# voir app/graph.py, run_slash_command_direct) peuvent dépasser largement la
-# taille d'un token de streaming LLM normal. Sans ce découpage, un client
-# HTTP avec une limite de taille de ligne (ex. aiohttp côté Open WebUI,
-# 131072 octets par défaut) rejette la réponse en bloc avec une erreur peu
-# parlante ("Got more than 131072 bytes when reading") plutôt que de la
-# recevoir en plusieurs petits morceaux comme le ferait un vrai streaming
-# token-par-token.
+# Max size of a content piece per SSE chunk. Needed since some content
+# sent as a single block (notices, and especially a base64 data-URI image
+# for a slash command on a tool like screen_shot — see app/graph.py,
+# run_slash_command_direct) can far exceed the size of a normal LLM
+# streaming token. Without this splitting, an HTTP client with a
+# line-size limit (e.g. aiohttp on the Open WebUI side, 131072 bytes by
+# default) rejects the response wholesale with an unhelpful error ("Got
+# more than 131072 bytes when reading") instead of receiving it in
+# several small pieces like real token-by-token streaming would.
 _SSE_CONTENT_CHUNK_SIZE = 8192
 
 
@@ -382,12 +382,12 @@ async def _stream_response(config: dict, run_input: Optional[dict], model: str):
     streamed_text = []
 
     try:
-        # Ne transmet au client QUE les tokens de contenu (on_chat_model_stream).
-        # Les itérations qui décident d'un appel d'outil ont un contenu vide côté
-        # LLM (le tool_call arrive dans un canal séparé), donc rien de visible
-        # n'est envoyé pendant la résolution des outils : seule la réponse finale
-        # apparaît, token par token. Si le graphe se met en pause pour
-        # approbation, aucun token n'est émis par ce mécanisme (voir plus bas).
+        # Only forwards content tokens to the client (on_chat_model_stream).
+        # Iterations that decide on a tool call have empty content on the
+        # LLM side (the tool_call arrives on a separate channel), so
+        # nothing visible is sent while tools are being resolved: only the
+        # final answer appears, token by token. If the graph pauses for
+        # approval, no token is emitted by this mechanism (see below).
         async for event in agent_graph.astream_events(run_input, config, version="v2"):
             if event["event"] != "on_chat_model_stream":
                 continue
@@ -401,28 +401,30 @@ async def _stream_response(config: dict, run_input: Optional[dict], model: str):
             else:
                 yield _sse_chunk(completion_id, model, {"content": chunk.content})
 
-        # Si le modèle a raisonné avant de décider d'appeler un outil, les tokens
-        # <think>...</think> streamés ci-dessus (voir app/graph.py) n'ont jamais
-        # reçu leur balise fermante : côté LLM, un tour qui aboutit à un
-        # tool_call a un content final vide, donc aucun chunk de contenu "réel"
-        # n'arrive jamais pour déclencher la fermeture (voir
-        # _convert_delta_with_reasoning). call_llm referme bien la balise sur le
-        # message PERSISTÉ après coup, mais ça ne corrige pas les chunks déjà
-        # envoyés au client dans la boucle ci-dessus — c'est donc sur ce qui a été
-        # réellement streamé (`streamed_text`) qu'il faut vérifier, pas sur
-        # l'état déjà réparé. Sans ce correctif, le texte ajouté ensuite (pause
-        # d'approbation ou notice de limite) se retrouve avalé dans le <think>
-        # resté ouvert côté client, invisible en dehors de la bulle repliée.
+        # If the model reasoned before deciding to call a tool, the
+        # <think>...</think> tokens streamed above (see app/graph.py) never
+        # got their closing tag: on the LLM side, a turn that ends in a
+        # tool_call has empty final content, so no "real" content chunk
+        # ever arrives to trigger the closing (see
+        # _convert_delta_with_reasoning). call_llm does close the tag on
+        # the PERSISTED message afterward, but that doesn't fix the chunks
+        # already sent to the client in the loop above — so it's what was
+        # actually streamed (`streamed_text`) that must be checked, not
+        # the already-repaired state. Without this fix, the text added
+        # next (approval pause or limit notice) ends up swallowed inside
+        # the <think> that stayed open on the client side, invisible
+        # outside the collapsed bubble.
         full_streamed = "".join(streamed_text)
         closing_prefix = "</think>\n\n" if full_streamed.count("<think>") > full_streamed.count("</think>") else ""
-        # closing_prefix ferme la balise côté client, mais AgentState.think_closed
-        # (app/graph.py) reste False puisque call_llm n'a pas pu la fermer
-        # lui-même (tool_calls présent). Sans cette mise à jour, une reprise après
-        # approbation repartirait avec think_opened=True/think_closed=False :
-        # un nouveau round de raisonnement ne recevrait alors aucune balise
-        # ouvrante (déjà "opened" selon l'état persisté) mais recevrait quand
-        # même une balise fermante en fin de tour — un </think> orphelin visible
-        # côté client, sans <think> correspondant dans ce qu'il a reçu.
+        # closing_prefix closes the tag on the client side, but
+        # AgentState.think_closed (app/graph.py) stays False since call_llm
+        # couldn't close it itself (tool_calls present). Without this
+        # update, a resumption after approval would restart with
+        # think_opened=True/think_closed=False: a new reasoning round
+        # would then receive no opening tag (already "opened" per
+        # persisted state) but would still receive a closing tag at the
+        # end of the turn — an orphaned </think> visible on the client
+        # side, with no matching <think> in what it received.
         if closing_prefix:
             await agent_graph.aupdate_state(config, {"think_opened": False, "think_closed": False})
 
@@ -434,52 +436,53 @@ async def _stream_response(config: dict, run_input: Optional[dict], model: str):
         else:
             last_message = snapshot.values["messages"][-1]
             if getattr(last_message, "tool_calls", None):
-                # Le graphe s'est arrêté sur MAX_TOOL_ITERATIONS avec un
-                # tool_call encore en attente côté modèle : sans ce message,
-                # l'agent semble juste "s'arrêter" en plein milieu d'une tâche,
-                # sans qu'aucune erreur ni pause d'approbation ne l'explique
-                # (voir MAX_TOOL_ITERATIONS, app/graph.py).
+                # The graph stopped on MAX_TOOL_ITERATIONS with a tool_call
+                # still pending on the model side: without this message,
+                # the agent just seems to "stop" mid-task, with no error
+                # or approval pause explaining it (see MAX_TOOL_ITERATIONS,
+                # app/graph.py).
                 notice = closing_prefix + _format_iteration_limit_notice(last_message.tool_calls)
                 for chunk in _sse_content_chunks(completion_id, model, notice):
                     yield chunk
             elif not has_visible_answer(full_streamed + closing_prefix):
                 if has_visible_answer(last_message.content):
-                    # Le message final PERSISTÉ a bien une réponse visible,
-                    # mais elle n'a jamais transité par on_chat_model_stream
-                    # ci-dessus (ex. commande slash — app/graph.py,
-                    # run_slash_command_direct — qui n'invoque jamais le LLM
-                    # et ne produit donc aucun chunk de contenu ici). Sans ce
-                    # cas, cette réponse pourtant bien présente en base serait
-                    # remplacée à tort par la notice "réponse non
-                    # exploitable" ci-dessous, qui suppose que rien n'a
-                    # streamé ET que rien n'existe. Découpée en plusieurs
-                    # chunks (_sse_content_chunks) : peut contenir une image
-                    # en data URI base64 (screen_shot via commande slash),
-                    # largement au-dessus de la limite de taille de ligne de
-                    # certains clients HTTP (aiohttp côté Open WebUI).
+                    # The PERSISTED final message does have a visible
+                    # answer, but it never went through on_chat_model_stream
+                    # above (e.g. a slash command — app/graph.py,
+                    # run_slash_command_direct — which never invokes the
+                    # LLM and hence produces no content chunk here).
+                    # Without this case, this answer, though genuinely
+                    # present in state, would be wrongly replaced by the
+                    # "réponse non exploitable" notice below, which
+                    # assumes nothing streamed AND nothing exists. Split
+                    # into several chunks (_sse_content_chunks): may
+                    # contain a base64 data-URI image (screen_shot via a
+                    # slash command), far above the line-size limit of
+                    # some HTTP clients (aiohttp on the Open WebUI side).
                     visible = _render_visible_answer(snapshot.values)
                     for chunk in _sse_content_chunks(completion_id, model, visible):
                         yield chunk
                 else:
-                    # Voir _format_empty_answer_notice : aucun tool_calls en
-                    # attente ET rien de visible hors <think>, ni ici ni dans
-                    # le message persisté — même symptôme "agent silencieux"
-                    # que ci-dessus, cause différente.
+                    # See _format_empty_answer_notice: no tool_calls
+                    # pending AND nothing visible outside <think>, neither
+                    # here nor in the persisted message — same "silent
+                    # agent" symptom as above, different cause.
                     notice = closing_prefix + _format_empty_answer_notice()
                     for chunk in _sse_content_chunks(completion_id, model, notice):
                         yield chunk
     except Exception:
-        # Sans ce filet, une erreur ici (llama-server qui coupe la connexion
-        # en plein streaming, checkpointer indisponible...) fait mourir ce
-        # générateur en plein milieu d'une réponse "Transfer-Encoding:
-        # chunked" déjà entamée : uvicorn ferme alors la connexion sans
-        # jamais envoyer le chunk terminal, et le client (ex. aiohttp côté
-        # Open WebUI) échoue avec "TransferEncodingError: Not enough data to
-        # satisfy transfer length header" — un symptôme côté client d'un
-        # crash côté serveur, pas un bug client. On répond plutôt une notice
-        # visible et on termine proprement le flux SSE ci-dessous.
+        # Without this safety net, an error here (llama-server cutting the
+        # connection mid-stream, checkpointer unavailable...) kills this
+        # generator in the middle of an already-started
+        # "Transfer-Encoding: chunked" response: uvicorn then closes the
+        # connection without ever sending the terminal chunk, and the
+        # client (e.g. aiohttp on the Open WebUI side) fails with
+        # "TransferEncodingError: Not enough data to satisfy transfer
+        # length header" — a client-side symptom of a server-side crash,
+        # not a client bug. Instead, a visible notice is returned and the
+        # SSE stream is closed cleanly below.
         logger.exception(
-            "Erreur pendant le streaming SSE (thread_id=%s)", config["configurable"]["thread_id"]
+            "Error during SSE streaming (thread_id=%s)", config["configurable"]["thread_id"]
         )
         yield _sse_chunk(
             completion_id,
@@ -493,21 +496,21 @@ async def _stream_response(config: dict, run_input: Optional[dict], model: str):
 
 def _render_visible_answer(snapshot_values: dict) -> str:
     """
-    Reconstruit le texte final visible pour CE tour à partir de l'état
-    persisté — si slash_command_image_shown est vrai (voir app/graph.py,
-    run_slash_command_direct : commande slash sur un outil image-only, ex.
-    /screen_shot), ajoute l'image du message "human" juste avant en markdown
-    à la réponse renvoyée ICI UNIQUEMENT. Jamais persisté sous cette forme :
-    le message assistant stocké reste léger (texte seul), pour ne pas
-    retokeniser le base64 comme du texte brut lors d'un futur tour LLM sur
-    ce thread — sans cette séparation, une seule capture d'écran
-    (MAX_IMAGES_IN_CONTEXT=1 ne trimme jamais LA dernière image) suffisait à
-    elle seule à dépasser 32768 tokens dès le tour LLM suivant (bug réel
-    observé via Open WebUI). Le signal explicite slash_command_image_shown
-    (plutôt que deviner depuis la forme des messages) est nécessaire : un
-    tour LLM normal qui a lui-même analysé une image via vision produit
-    aussi un AIMessage juste après un message image, sans qu'il faille lui
-    rajouter l'image une seconde fois (elle est déjà correctement décrite).
+    Reconstructs the final visible text for THIS turn from persisted
+    state — if slash_command_image_shown is true (see app/graph.py,
+    run_slash_command_direct: a slash command on an image-only tool, e.g.
+    /screen_shot), adds the image from the preceding "human" message as
+    markdown to the answer returned HERE ONLY. Never persisted in this
+    form: the stored assistant message stays light (text only), so as not
+    to re-tokenize the base64 as raw text on a future LLM turn on this
+    thread — without this separation, a single screenshot
+    (MAX_IMAGES_IN_CONTEXT=1 never trims THE last image) was enough on its
+    own to exceed 32768 tokens as early as the next LLM turn (real bug
+    observed via Open WebUI). The explicit slash_command_image_shown
+    signal (rather than guessing from message shape) is needed: a normal
+    LLM turn that itself analyzed an image via vision also produces an
+    AIMessage right after an image message, without needing the image
+    added a second time (it's already correctly described).
     """
     messages = snapshot_values["messages"]
     text = messages[-1].content
@@ -537,7 +540,7 @@ async def _current_answer(config: dict) -> str:
 
 @app.post("/pending")
 async def pending(request: PendingCheckRequest):
-    """Lecture seule : n'invoque jamais le graphe, ne modifie aucun état."""
+    """Read-only: never invokes the graph, never modifies any state."""
     config = {"configurable": {"thread_id": _derive_thread_id(request.messages)}}
     snapshot = await agent_graph.aget_state(config)
     if not snapshot.next:
@@ -548,17 +551,17 @@ async def pending(request: PendingCheckRequest):
 @app.get("/tools/schema")
 async def tools_schema():
     """
-    Lecture seule (même convention que /pending) : noms d'outils tels
-    qu'EFFECTIVEMENT vus par ce process langgraph-agent (_tools_schema_cache,
-    voir app/graph.py), pas ceux servis par mcp-client au moment de l'appel —
-    la distinction a mordu en conditions réelles (Phase 1d-révisée, voir
-    docs/history.md "bug de cache de schéma d'outils") : _tools_schema_cache est
-    rempli une fois pour la durée du process et jamais invalidé, donc un
-    redémarrage de mcp-client seul (schéma mis à jour côté serveur) peut
-    laisser cet endpoint répondre un schéma périmé tant que langgraph-agent
-    lui-même n'a pas redémarré. Existe pour permettre à un appelant externe
-    (harnais de tests, dashboard) de détecter cet écart plutôt que de le
-    découvrir après coup dans un run raté.
+    Read-only (same convention as /pending): tool names as ACTUALLY seen
+    by this langgraph-agent process (_tools_schema_cache, see
+    app/graph.py), not those served by mcp-client at call time — the
+    distinction has bitten under real conditions (revised Phase 1d, see
+    docs/history.md "tool-schema cache bug"): _tools_schema_cache is
+    filled once for the process's lifetime and never invalidated, so
+    restarting mcp-client alone (schema updated server-side) can leave
+    this endpoint answering with a stale schema until langgraph-agent
+    itself restarts. Exists so an external caller (test harness,
+    dashboard) can detect this gap rather than discovering it after the
+    fact in a failed run.
     """
     schema = await _get_tools_schema()
     names = sorted({t.get("function", {}).get("name") for t in schema if t.get("function", {}).get("name")})
@@ -568,16 +571,16 @@ async def tools_schema():
 @app.post("/context")
 async def context(request: ContextRequest):
     """
-    Lecture seule (même convention que /pending, jamais d'effet de bord) :
-    décomposition approximative du contexte persisté pour ce thread, à
-    l'usage du dashboard d'observabilité (services/dashboard, POST
-    /api/snapshot). Voir describe_context (app/graph.py) pour le détail des
-    blocs. thread_id explicite (Phase 3, via GET /threads/recent) ou dérivé
-    de `messages` comme /pending. Aucun état pour ce thread (thread_id
-    inconnu du checkpointer, ou jamais renseigné) -> 200 avec des blocs
-    vides plutôt qu'une 404 : le dashboard poll ce endpoint en continu, une
-    404 transitoire (ex. juste avant le tout premier message d'une
-    conversation) serait juste du bruit à gérer côté client.
+    Read-only (same convention as /pending, no side effect): approximate
+    breakdown of the context persisted for this thread, for use by the
+    observability dashboard (services/dashboard, POST /api/snapshot). See
+    describe_context (app/graph.py) for the block details. Explicit
+    thread_id (Phase 3, via GET /threads/recent) or derived from
+    `messages` like /pending. No state for this thread (thread_id unknown
+    to the checkpointer, or never provided) -> 200 with empty blocks
+    rather than a 404: the dashboard polls this endpoint continuously, a
+    transient 404 (e.g. right before a conversation's very first message)
+    would just be noise for the client to handle.
     """
     thread_id = request.thread_id or _derive_thread_id(request.messages or [])
     config = {"configurable": {"thread_id": thread_id}}
@@ -597,10 +600,10 @@ async def context(request: ContextRequest):
 @app.get("/threads/recent")
 async def threads_recent():
     """
-    Threads vus récemment (Phase 3, voir _recent_threads plus haut) : les 5
-    plus récents, triés du plus récent au plus ancien — alimente le menu
-    déroulant du dashboard d'observabilité (services/dashboard), qui n'a
-    sinon aucun moyen de savoir quel thread interroger via POST /context.
+    Recently seen threads (Phase 3, see _recent_threads above): the 5
+    most recent, sorted newest to oldest — feeds the observability
+    dashboard's (services/dashboard) dropdown menu, which otherwise has
+    no way of knowing which thread to query via POST /context.
     """
     ordered = sorted(_recent_threads.items(), key=lambda item: item[1], reverse=True)[:5]
     return {"threads": [{"thread_id": tid, "last_seen": last_seen} for tid, last_seen in ordered]}
@@ -609,11 +612,10 @@ async def threads_recent():
 @app.get("/audit")
 async def audit(thread_id: Optional[str] = None):
     """
-    Consultation du journal d'audit (Phase 2, app/audit_log.py) : les
-    tool_calls TIER_REVERSIBLE effectivement exécutés (auto-approuvés ou
-    accordés pour la session). Sans thread_id, renvoie tout le journal
-    disponible (tous fichiers journaliers confondus) ; avec thread_id, ne
-    renvoie que les entrées de ce thread.
+    Reads the audit log (Phase 2, app/audit_log.py): TIER_REVERSIBLE
+    tool_calls actually executed (auto-approved or granted for the
+    session). Without thread_id, returns the whole available log (across
+    all daily files); with thread_id, returns only that thread's entries.
     """
     return {"entries": audit_log.read_entries(thread_id)}
 
@@ -621,23 +623,23 @@ async def audit(thread_id: Optional[str] = None):
 @app.post("/approve")
 async def approve(request: ApprovalDecisionRequest):
     """
-    Reprend un thread en pause d'approbation directement depuis une décision
-    hors bande (bouton d'UI), sans passer par le message texte "approuver"/
-    "refuser" qu'attend normalement _resolve_run.
+    Resumes a thread paused for approval directly from an out-of-band
+    decision (UI button), without going through the "approuver"/
+    "refuser" text message _resolve_run normally expects.
 
-    Bookkeeping owui_message_count (voir _resolve_run) : contrairement au
-    flux texte, où le message "approuver" de l'utilisateur ET la réponse
-    finale s'ajoutent tous deux à l'historique Open WebUI (d'où le +1 sur le
-    compte déjà présent), ce bouton ne fait qu'éditer EN PLACE le message
-    "⚠️ Approbation requise" existant avec la réponse finale (voir la
-    fonction Action Open WebUI fournie) — aucun nouveau message n'est ajouté.
-    Le compte reste donc celui déjà vu, sans +1, sous peine de désynchroniser
-    le découpage `request.messages[already_seen:]` du tour normal suivant et
-    de perdre le premier message que l'utilisateur enverra après.
+    owui_message_count bookkeeping (see _resolve_run): unlike the text
+    flow, where the user's "approuver" message AND the final answer both
+    get added to the Open WebUI history (hence the +1 on the already
+    present count), this button only edits the existing "⚠️ Approbation
+    requise" message IN PLACE with the final answer (see the provided
+    Open WebUI Action function) — no new message is added. The count
+    therefore stays the one already seen, with no +1, or it would
+    desynchronize the next normal turn's `request.messages[already_seen:]`
+    split and lose the first message the user sends afterward.
     """
-    # Voir la note sur recursion_limit dans _resolve_run : ce endpoint reprend
-    # aussi une exécution du graphe (ainvoke plus bas), donc soumis au même
-    # risque de GraphRecursionError sur une boucle auto-approuvée longue.
+    # See the recursion_limit note in _resolve_run: this endpoint also
+    # resumes a graph execution (ainvoke below), so it's subject to the
+    # same GraphRecursionError risk on a long auto-approved loop.
     thread_id = _derive_thread_id(request.messages)
     _touch_thread(thread_id)
     config = {
@@ -649,13 +651,13 @@ async def approve(request: ApprovalDecisionRequest):
         raise HTTPException(status_code=409, detail="Aucune approbation en attente pour ce thread.")
 
     owui_message_count = len(request.messages)
-    # Même distinction plan vs outil qu'en _resolve_run (Itération 3, voir
-    # commentaire là-bas) — bug réel trouvé en conditions réelles pendant
-    # la campagne live de l'Itération 3 : ce endpoint mettait
-    # inconditionnellement à jour "approved"/"grant_session", laissant une
-    # pause require_plan_approval indéfiniment bloquée (plan_approved
-    # jamais renseigné) puisque approuvée via /approve plutôt que via le
-    # message texte "approuver".
+    # Same plan-vs-tool distinction as in _resolve_run (Iteration 3, see
+    # the comment there) — real bug found under real conditions during
+    # the Iteration 3 live campaign: this endpoint used to
+    # unconditionally update "approved"/"grant_session", leaving a
+    # require_plan_approval pause blocked indefinitely (plan_approved
+    # never set) since it was approved via /approve rather than via the
+    # "approuver" text message.
     if "require_plan_approval" in snapshot.next:
         await agent_graph.aupdate_state(
             config,
@@ -677,14 +679,15 @@ async def approve(request: ApprovalDecisionRequest):
     try:
         await agent_graph.ainvoke(None, config)
     except Exception:
-        # Parité avec _stream_response (chemin streaming) : sans ce filet,
-        # une erreur ici (ex. dépassement de contexte LLM, `llama-server`/
-        # TabbyAPI qui coupe la connexion...) remontait en 500 brut au lieu
-        # d'une notice propre — constaté en conditions réelles pendant le
-        # harnais tests_integration/test_web_tasks.py (T8/T11, pages web
-        # réelles volumineuses). `_current_answer` n'est PAS appelé ici : le
-        # graphe a pu s'arrêter en plein milieu sans état cohérent à relire.
-        logger.exception("Erreur pendant /approve (thread_id=%s)", thread_id)
+        # Parity with _stream_response (streaming path): without this
+        # safety net, an error here (e.g. LLM context overflow,
+        # `llama-server`/TabbyAPI cutting the connection...) used to
+        # surface as a raw 500 instead of a clean notice — observed under
+        # real conditions during the tests_integration/test_web_tasks.py
+        # harness (T8/T11, large real web pages). `_current_answer` is
+        # NOT called here: the graph may have stopped mid-way with no
+        # coherent state to re-read.
+        logger.exception("Error during /approve (thread_id=%s)", thread_id)
         return {"content": _INTERNAL_ERROR_NOTICE}
 
     return {"content": await _current_answer(config)}
@@ -702,10 +705,10 @@ async def chat_completions(request: ChatCompletionRequest):
     try:
         await agent_graph.ainvoke(run_input, config)
     except Exception:
-        # Voir la même parenthèse dans /approve ci-dessus : même filet que
-        # le chemin streaming (_stream_response), absent ici jusqu'ici.
+        # See the same note in /approve above: same safety net as the
+        # streaming path (_stream_response), missing here until now.
         logger.exception(
-            "Erreur pendant /v1/chat/completions non-streaming (thread_id=%s)",
+            "Error during non-streaming /v1/chat/completions (thread_id=%s)",
             config["configurable"]["thread_id"],
         )
         return {
