@@ -285,7 +285,7 @@ a re-read of this JSON, never directly from in-memory data — the sole
 source of truth.
 
 Factual correction made during this effort (CLAUDE.md #8): TabbyAPI
-(verified in the `agentic-ai-playground-tabbyapi` image,
+(verified in the `mjolnir-agent-tabbyapi` image,
 `/app/endpoints/*/router.py`) does NOT expose a Prometheus `/metrics`
 endpoint, unlike llama-server (see Observability below and the comment
 already present in `docker-compose.yml`, `dashboard` service) — a
