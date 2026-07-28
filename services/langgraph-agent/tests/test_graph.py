@@ -1,9 +1,10 @@
 """
-Tests du graphe LangGraph (app/graph.py) et de l'endpoint HTTP (app/main.py).
-Tous les appels HTTP sortants (LLM inclus) sont interceptés par respx, qui
-patche au niveau du transport httpx sans remplacer la classe httpx.AsyncClient
-elle-même — contrairement à un monkeypatch naïf, cela n'interfère pas avec le
-client interne du SDK openai (voir le README pour le détail de ce piège).
+Tests for the LangGraph graph (app/graph.py) and the HTTP endpoint
+(app/main.py). All outgoing HTTP calls (LLM included) are intercepted by
+respx, which patches at the httpx transport level without replacing the
+httpx.AsyncClient class itself — unlike a naive monkeypatch, this doesn't
+interfere with the openai SDK's internal client (see the README for the
+detail of this pitfall).
 """
 
 import base64
@@ -24,7 +25,7 @@ from tests.fixtures.llm_sse import (
 
 @pytest.fixture
 def mock_side_services():
-    """Mock les services annexes (contexte vide, aucune skill) pour isoler le LLM."""
+    """Mocks the side services (empty context, no skill) to isolate the LLM."""
     with respx.mock(assert_all_called=False) as mock:
         mock.post("http://fake-context-manager/retrieve").mock(
             return_value=httpx.Response(200, json={"results": []})
@@ -61,14 +62,14 @@ async def test_simple_response_without_tool_call(mock_side_services):
     result = await g.agent_graph.ainvoke(state, CONFIG)
 
     assert result["messages"][-1].content == "Bonjour !"
-    # human + réponse finale, rien de plus : pas de message system ajouté
-    # puisque le contexte et le skill matching sont vides.
+    # human + final answer, nothing more: no system message added since
+    # context and skill matching are both empty.
     assert len(result["messages"]) == 2
 
 
 @pytest.mark.asyncio
 async def test_tool_call_pauses_for_approval_without_calling_mcp_client(mock_side_services):
-    """Le nœud require_approval doit bloquer avant tout appel réel à mcp-client."""
+    """The require_approval node must block before any real call to mcp-client."""
     import app.graph as g
 
     mock_side_services.post("http://fake-vllm/v1/chat/completions").mock(
@@ -90,10 +91,10 @@ async def test_tool_call_pauses_for_approval_without_calling_mcp_client(mock_sid
 @pytest.mark.asyncio
 async def test_auto_approved_tool_skips_require_approval(mock_side_services):
     """
-    Les outils souris/capture d'écran GhostDesk (AUTO_APPROVED_TOOLS) doivent
-    s'exécuter sans passer par require_approval : sinon un modèle qui vise
-    mal (limite de vision/grounding, voir README) oblige un humain à valider
-    chaque clic un par un.
+    GhostDesk mouse/screenshot tools (AUTO_APPROVED_TOOLS) must execute
+    without going through require_approval: otherwise a model with poor
+    aim (vision/grounding limitation, see README) forces a human to
+    validate every single click.
     """
     import app.graph as g
 
@@ -111,7 +112,7 @@ async def test_auto_approved_tool_skips_require_approval(mock_side_services):
     result = await g.agent_graph.ainvoke(state, CONFIG)
 
     snapshot = await g.agent_graph.aget_state(CONFIG)
-    assert snapshot.next == ()  # pas de pause : le tour est allé jusqu'au bout
+    assert snapshot.next == ()  # no pause: the turn ran to completion
     assert mcp_route.call_count == 1
     assert result["messages"][-1].content == "Cliqué."
 
@@ -119,9 +120,10 @@ async def test_auto_approved_tool_skips_require_approval(mock_side_services):
 @pytest.mark.asyncio
 async def test_all_tier_read_tools_skip_approval_silently(mock_side_services):
     """
-    Un tour dont TOUS les tool_calls sont en tier 1 (lecture pure, ex.
-    run_command/git_status côté MCP) doit s'exécuter sans jamais passer par
-    require_approval — pas seulement les outils historiques d'AUTO_APPROVED_TOOLS.
+    A turn where ALL tool_calls are tier 1 (pure read, e.g.
+    run_command/git_status on the MCP side) must execute without ever
+    going through require_approval — not just the historical
+    AUTO_APPROVED_TOOLS tools.
     """
     import app.graph as g
 
@@ -154,9 +156,9 @@ async def test_all_tier_read_tools_skip_approval_silently(mock_side_services):
 @pytest.mark.asyncio
 async def test_find_text_skips_approval_silently(mock_side_services):
     """
-    find_text (services/ocr-service, tier lecture — voir approval_policy.py)
-    doit s'exécuter sans jamais passer par require_approval, comme
-    screen_shot/run_command : lecture pure, aucun effet de bord.
+    find_text (services/ocr-service, read tier — see approval_policy.py)
+    must execute without ever going through require_approval, like
+    screen_shot/run_command: pure read, no side effect.
     """
     import app.graph as g
 
@@ -174,14 +176,14 @@ async def test_find_text_skips_approval_silently(mock_side_services):
     result = await g.agent_graph.ainvoke(state, CONFIG)
 
     snapshot = await g.agent_graph.aget_state(CONFIG)
-    assert snapshot.next == ()  # pas de pause : aucun passage par require_approval
+    assert snapshot.next == ()  # no pause: no pass through require_approval
     assert mcp_route.call_count == 1
     assert result["messages"][-1].content == "Trouvé."
 
 
 @pytest.mark.asyncio
 async def test_unknown_tool_requires_approval(mock_side_services):
-    """Défaut = le tier le plus restrictif : un outil jamais classé nulle part reste sensible."""
+    """Default = the most restrictive tier: a tool never classified anywhere stays sensitive."""
     import app.graph as g
 
     mock_side_services.post("http://fake-vllm/v1/chat/completions").mock(
@@ -203,9 +205,9 @@ async def test_unknown_tool_requires_approval(mock_side_services):
 @pytest.mark.asyncio
 async def test_mixed_auto_and_manual_tools_still_requires_approval(mock_side_services):
     """
-    Un tour qui mélange un outil auto-approuvé (mouse_click) et un outil
-    sensible (browser_navigate) doit rester intégralement soumis à
-    approbation — pas d'approbation partielle par outil.
+    A turn that mixes an auto-approved tool (mouse_click) and a sensitive
+    tool (browser_navigate) must remain entirely subject to approval — no
+    partial per-tool approval.
     """
     import app.graph as g
 
@@ -235,12 +237,12 @@ async def test_mixed_auto_and_manual_tools_still_requires_approval(mock_side_ser
 @pytest.mark.asyncio
 async def test_auto_approval_streak_limit_forces_human_checkin(mock_side_services, monkeypatch):
     """
-    Garde-fou contre le clavier virtuel : une suite de clics auto-approuvés
-    peut en théorie composer n'importe quelle saisie sans jamais qu'un humain
-    ne valide quoi que ce soit. Passé AUTO_APPROVAL_STREAK_LIMIT tours
-    auto-approuvés consécutifs, le tour suivant doit repasser par
-    require_approval même s'il ne contient QUE des outils normalement
-    auto-approuvés.
+    Guardrail against the virtual keyboard: a sequence of auto-approved
+    clicks could in theory compose any input with no human ever
+    validating anything. Past AUTO_APPROVAL_STREAK_LIMIT consecutive
+    auto-approved turns, the next turn must go back through
+    require_approval even if it contains ONLY normally auto-approved
+    tools.
     """
     import app.graph as g
 
@@ -259,42 +261,42 @@ async def test_auto_approval_streak_limit_forces_human_checkin(mock_side_service
     await g.agent_graph.ainvoke(state, CONFIG)
 
     snapshot = await g.agent_graph.aget_state(CONFIG)
-    # 2 tours auto-approuvés exécutés (mouse_click, iterations 1 et 2), le
-    # 3e est bloqué en pause malgré mouse_click étant dans AUTO_APPROVED_TOOLS
+    # 2 auto-approved turns executed (mouse_click, iterations 1 and 2),
+    # the 3rd is blocked in a pause despite mouse_click being in AUTO_APPROVED_TOOLS
     assert snapshot.next == ("require_approval",)
     assert snapshot.values["auto_approval_streak"] == 2
     assert mcp_route.call_count == 2
 
-    # Une fois l'humain repassé par require_approval, le compteur est réarmé
-    # à 0 : la pratique n'est pas bloquée définitivement, juste jalonnée d'un
-    # point de contrôle humain périodique.
+    # Once the human goes through require_approval, the counter is reset
+    # to 0: the practice isn't blocked for good, just checkpointed with a
+    # periodic human control point.
     await g.agent_graph.aupdate_state(CONFIG, {"approved": True})
     await g.agent_graph.ainvoke(None, CONFIG)
     snapshot = await g.agent_graph.aget_state(CONFIG)
     assert snapshot.next == ()
-    assert snapshot.values["auto_approval_streak"] == 1  # 0 réarmé, puis +1 pour ce tour exécuté
+    assert snapshot.values["auto_approval_streak"] == 1  # reset to 0, then +1 for this executed turn
     assert mcp_route.call_count == 3
 
 
 @pytest.mark.asyncio
 async def test_max_tool_iterations_ends_loop_with_pending_tool_calls(mock_side_services, monkeypatch):
     """
-    Non-régression : rencontré en usage réel avec la boucle GhostDesk
-    auto-approuvée (capture/clic en rafale) — has_tool_calls force la fin du
-    graphe dès que tool_iterations atteint MAX_TOOL_ITERATIONS, MÊME SI le
-    dernier message du modèle contient encore un tool_calls en attente. Sans
-    vérification côté appelant (voir app/main.py), ce tool_calls est
-    silencieusement perdu : l'agent semble juste "s'arrêter" en plein milieu
-    d'une tâche, sans erreur ni pause d'approbation pour l'expliquer.
+    Non-regression: encountered in real usage with the auto-approved
+    GhostDesk loop (rapid-fire capture/click) — has_tool_calls forces the
+    graph to end as soon as tool_iterations reaches MAX_TOOL_ITERATIONS,
+    EVEN IF the model's last message still has a pending tool_calls.
+    Without a check on the caller side (see app/main.py), this tool_calls
+    is silently lost: the agent just seems to "stop" mid-task, with no
+    error or approval pause explaining it.
     """
     import app.graph as g
 
     monkeypatch.setattr(g, "MAX_TOOL_ITERATIONS", 2)
 
     route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
-    # mouse_click est auto-approuvé (AUTO_APPROVED_TOOLS) : la boucle
-    # call_llm -> auto_call_tools ne repasse jamais par une pause tant que le
-    # modèle continue à en redemander.
+    # mouse_click is auto-approved (AUTO_APPROVED_TOOLS): the
+    # call_llm -> auto_call_tools loop never goes through a pause as long
+    # as the model keeps asking for more.
     route.side_effect = [
         _sse_response(tool_call_response("mouse_click", f"call_{i}", '{"x": 1, "y": 2}')) for i in range(3)
     ]
@@ -307,10 +309,10 @@ async def test_max_tool_iterations_ends_loop_with_pending_tool_calls(mock_side_s
     result = await g.agent_graph.ainvoke(state, {**CONFIG, "recursion_limit": 50})
 
     snapshot = await g.agent_graph.aget_state(CONFIG)
-    assert snapshot.next == ()  # le graphe s'est bien terminé, pas mis en pause
+    assert snapshot.next == ()  # the graph really did end, not paused
     assert snapshot.values["tool_iterations"] == 2
     last_message = result["messages"][-1]
-    # le 3e tool_call (mouse_click number 2) n'a jamais été exécuté ni approuvé
+    # the 3rd tool_call (mouse_click number 2) was never executed or approved
     assert last_message.tool_calls
     assert last_message.tool_calls[0]["name"] == "mouse_click"
 
@@ -392,11 +394,11 @@ async def test_tool_call_loop_resolves_and_does_not_duplicate_messages(mock_side
     await g.agent_graph.aupdate_state(CONFIG, {"approved": True})
     result = await g.agent_graph.ainvoke(None, CONFIG)
 
-    # human, AI(tool_call), tool, AI(final) : exactement 4, aucun doublon
+    # human, AI(tool_call), tool, AI(final): exactly 4, no duplicate
     assert len(result["messages"]) == 4
     assert result["messages"][-1].content == "Resultat: 42."
 
-    # le contenu du ToolMessage doit correspondre au résultat mocké de mcp-client
+    # the ToolMessage's content must match mcp-client's mocked result
     tool_message = result["messages"][2]
     payload = json.loads(tool_message.content)
     assert payload["content"][0]["text"] == "42"
@@ -405,13 +407,13 @@ async def test_tool_call_loop_resolves_and_does_not_duplicate_messages(mock_side
 @pytest.mark.asyncio
 async def test_tool_schema_from_mcp_client_is_bound_to_llm(mock_side_services):
     """
-    Non-régression : ChatOpenAI était instancié sans jamais appeler
-    bind_tools(), donc le LLM ignorait purement et simplement l'existence des
-    outils MCP (terminal/filesystem/git/browser/desktop-GhostDesk) — has_
-    tool_calls()/require_approval() restaient du code mort en usage réel,
-    quel que soit le modèle servi. Ce test échoue si le schéma récupéré
-    depuis mcp-client (GET /tools/schema) n'est plus transmis au LLM dans la
-    requête sortante.
+    Non-regression: ChatOpenAI used to be instantiated without ever
+    calling bind_tools(), so the LLM simply had no idea the MCP tools
+    (terminal/filesystem/git/browser/desktop-GhostDesk) existed — has_
+    tool_calls()/require_approval() stayed dead code in real usage,
+    whatever model was served. This test fails if the schema fetched from
+    mcp-client (GET /tools/schema) is no longer forwarded to the LLM in
+    the outgoing request.
     """
     import app.graph as g
 
@@ -437,23 +439,99 @@ async def test_tool_schema_from_mcp_client_is_bound_to_llm(mock_side_services):
     await g.agent_graph.ainvoke(state, CONFIG)
 
     sent_body = json.loads(llm_route.calls.last.request.content)
+    # VERIFICATION_ENABLED disabled by default (see _get_bound_llm,
+    # latency fix 1/2-ter): the schema is neither augmented with
+    # constat_precedent nor completed with report_and_act — unchanged
+    # behavior compared to before any latency fix.
     assert sent_body["tools"] == tool_schema
+
+
+def test_bulk_check_directive_mentions_browser_extract_urls():
+    """T1 investigation (see docs/history.md): the real blocker was an
+    insufficient iteration budget facing info visible only on detail
+    pages, never the listing — the instruction pushes toward
+    browser_extract's bulk mode (urls parameter, mcp-client, TIER_READ)
+    rather than page-by-page navigation or model-written browser_evaluate
+    code (old instruction, TIER_SENSITIVE)."""
+    import app.graph as g
+
+    assert "browser_extract" in g.BULK_CHECK_DIRECTIVE
+    assert "urls" in g.BULK_CHECK_DIRECTIVE
+    assert "un seul appel" in g.BULK_CHECK_DIRECTIVE.lower()
+
+
+@pytest.mark.asyncio
+async def test_call_llm_system_message_includes_bulk_check_directive(mock_side_services):
+    import app.graph as g
+
+    route = mock_side_services.post("http://fake-vllm/v1/chat/completions").mock(
+        return_value=_sse_response(text_response(["OK"]))
+    )
+    g.agent_graph = g.build_graph()
+
+    state = {"messages": [{"role": "user", "content": "Salut"}], "tool_iterations": 0, "approved": None}
+    await g.agent_graph.ainvoke(state, CONFIG)
+
+    sent_body = json.loads(route.calls.last.request.content)
+    system_content = sent_body["messages"][0]["content"]
+    assert g.BULK_CHECK_DIRECTIVE in system_content
+
+
+@pytest.mark.asyncio
+async def test_tool_schema_augmented_with_constat_when_verification_enabled(mock_side_services, monkeypatch):
+    """Latency fix 1/2-ter (see docs/history.md): when VERIFICATION_ENABLED
+    is active, every real MCP tool gets constat_precedent as a required
+    parameter (_inject_constat_param), and report_and_act is added as the
+    sole fallback tool (turn with no real action)."""
+    import app.graph as g
+
+    monkeypatch.setattr(g, "VERIFICATION_ENABLED", True)
+
+    tool_schema = [
+        {
+            "type": "function",
+            "function": {
+                "name": "run_command",
+                "description": "Exécute une commande shell.",
+                "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]},
+            },
+        }
+    ]
+    mock_side_services.get("http://fake-mcp-client/tools/schema").mock(
+        return_value=httpx.Response(200, json={"tools": tool_schema})
+    )
+    llm_route = mock_side_services.post("http://fake-vllm/v1/chat/completions").mock(
+        return_value=_sse_response(text_response(["OK"]))
+    )
+    g.agent_graph = g.build_graph()
+
+    state = {"messages": [{"role": "user", "content": "Salut"}], "tool_iterations": 0, "approved": None}
+    await g.agent_graph.ainvoke(state, CONFIG)
+
+    sent_body = json.loads(llm_route.calls.last.request.content)
+    sent_tools = sent_body["tools"]
+    assert len(sent_tools) == 2
+    run_command = next(t for t in sent_tools if t["function"]["name"] == "run_command")
+    assert "constat_precedent" in run_command["function"]["parameters"]["properties"]
+    assert "constat_precedent" in run_command["function"]["parameters"]["required"]
+    assert "command" in run_command["function"]["parameters"]["required"]
+    assert any(t["function"]["name"] == "report_and_act" for t in sent_tools)
 
 
 @pytest.mark.asyncio
 async def test_tool_image_result_becomes_multimodal_user_message(mock_side_services):
     """
-    Non-régression : le résultat brut d'un outil (ex. screen_shot de GhostDesk,
-    format MCP {"type": "image", "data": <base64>, "mimeType": ...}) était
-    json.dumps() intégralement dans un ToolMessage, un rôle qui ne supporte
-    que du texte au format OpenAI-compatible — le modèle recevait donc un
-    blob base64 illisible, pas une image, indépendamment de ses capacités
-    vision. call_tools doit désormais extraire les blocs image et les
-    réinjecter en message "user" multimodal (image_url), seul rôle qui les
-    supporte. Le WebP (format par défaut de screen_shot) doit en plus être
-    reconverti en PNG : le décodeur d'image d'Ollama (mtmd/llama.cpp) échoue
-    explicitement dessus ("Failed to load image or audio file", vérifié en
-    conditions réelles), PNG fonctionne.
+    Non-regression: a tool's raw result (e.g. GhostDesk's screen_shot,
+    MCP format {"type": "image", "data": <base64>, "mimeType": ...}) used
+    to be entirely json.dumps()'d into a ToolMessage, a role that only
+    supports OpenAI-compatible text — the model therefore received an
+    unreadable base64 blob, not an image, regardless of its vision
+    capabilities. call_tools must now extract the image blocks and
+    reinject them as a multimodal "user" message (image_url), the only
+    role that supports them. WebP (screen_shot's default format) must
+    additionally be re-converted to PNG: Ollama's image decoder
+    (mtmd/llama.cpp) explicitly fails on it ("Failed to load image or
+    audio file", verified under real conditions), PNG works.
     """
     import io
 
@@ -465,12 +543,11 @@ async def test_tool_image_result_becomes_multimodal_user_message(mock_side_servi
     Image.new("RGB", (2, 2), color="red").save(webp_buf, format="WEBP", lossless=True)
     webp_b64 = base64.b64encode(webp_buf.getvalue()).decode()
 
-    # screen_shot puis une réponse texte finale : un seul aller-retour d'outil,
-    # pour ne pas dépendre de MAX_TOOL_ITERATIONS pour terminer la boucle
-    # (screen_shot est auto-approuvé, voir AUTO_APPROVED_TOOLS — un
-    # return_value fixe bouclerait donc indéfiniment jusqu'à percuter le
-    # recursion_limit interne de LangGraph, sans rapport avec ce qui est
-    # testé ici).
+    # screen_shot then a final text answer: a single tool round trip, so
+    # as not to depend on MAX_TOOL_ITERATIONS to end the loop (screen_shot
+    # is auto-approved, see AUTO_APPROVED_TOOLS — a fixed return_value
+    # would therefore loop indefinitely until hitting LangGraph's internal
+    # recursion_limit, unrelated to what's being tested here).
     route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
     route.side_effect = [
         _sse_response(tool_call_response("screen_shot", "call_1", "{}")),
@@ -488,15 +565,15 @@ async def test_tool_image_result_becomes_multimodal_user_message(mock_side_servi
     result = await g.agent_graph.ainvoke(state, CONFIG)
 
     tool_message = next(m for m in result["messages"] if getattr(m, "type", None) == "tool")
-    assert webp_b64 not in tool_message.content  # le base64 ne doit plus polluer le ToolMessage
+    assert webp_b64 not in tool_message.content  # the base64 must no longer pollute the ToolMessage
 
     image_message = next(m for m in result["messages"] if getattr(m, "type", None) == "human" and isinstance(m.content, list))
     url = image_message.content[0]["image_url"]["url"]
     assert image_message.content[0]["type"] == "image_url"
     assert url.startswith("data:image/png;base64,")
 
-    # round-trip : le payload doit être un PNG 2x2 rouge valide, pas juste un
-    # préfixe correct
+    # round-trip: the payload must be a valid 2x2 red PNG, not just a
+    # correct prefix
     png_bytes = base64.b64decode(url.split(",", 1)[1])
     decoded = Image.open(io.BytesIO(png_bytes))
     assert decoded.format == "PNG"
@@ -507,12 +584,13 @@ async def test_tool_image_result_becomes_multimodal_user_message(mock_side_servi
 @pytest.mark.asyncio
 async def test_reasoning_field_is_folded_into_think_tags(mock_side_services):
     """
-    Ollama (Qwen3+) streame le raisonnement dans un champ "reasoning" séparé
-    de "content", hors format OpenAI standard : langchain-openai l'ignore
-    silencieusement par défaut (_convert_delta_to_message_chunk ne lit que
-    "content"/"tool_calls"/"function_call"). app/graph.py le replie dans
-    "content", entouré de <think>...</think>, pour qu'Open WebUI l'affiche en
-    bulle repliable. Ce test échoue si ce repli casse ou disparaît.
+    Ollama (Qwen3+) streams reasoning in a "reasoning" field separate
+    from "content", outside the standard OpenAI format: langchain-openai
+    silently ignores it by default (_convert_delta_to_message_chunk only
+    reads "content"/"tool_calls"/"function_call"). app/graph.py folds it
+    into "content", wrapped in <think>...</think>, so Open WebUI renders
+    it as a collapsible bubble. This test fails if this folding breaks or
+    disappears.
     """
     import app.graph as g
 
@@ -532,12 +610,12 @@ async def test_reasoning_field_is_folded_into_think_tags(mock_side_services):
 @pytest.mark.asyncio
 async def test_reasoning_content_field_is_folded_into_think_tags(mock_side_services):
     """
-    Non-régression : llama-server (fork turboquant-webp servant Qwen3.6)
-    streame le raisonnement dans un champ "reasoning_content", PAS
-    "reasoning" comme Ollama — convention DeepSeek-R1/OpenAI o1, confirmée
-    par un appel HTTP streamé réel contre le vrai binaire. Sans gérer ce
-    second nom de champ, le raisonnement de llama-server disparaissait
-    silencieusement (aucune erreur, juste absent du contenu streamé).
+    Non-regression: llama-server (turboquant-webp fork serving Qwen3.6)
+    streams reasoning in a "reasoning_content" field, NOT "reasoning"
+    like Ollama — DeepSeek-R1/OpenAI o1 convention, confirmed by a real
+    streamed HTTP call against the real binary. Without handling this
+    second field name, llama-server's reasoning silently disappeared (no
+    error, just absent from the streamed content).
     """
     import app.graph as g
 
@@ -557,18 +635,18 @@ async def test_reasoning_content_field_is_folded_into_think_tags(mock_side_servi
 @pytest.mark.asyncio
 async def test_reasoning_and_content_combined_in_same_chunk_still_yields_visible_answer(mock_side_services):
     """
-    Non-régression (bug réel observé avec TabbyAPI/ExLlamaV3 servant
-    Qwen3.6-27B EXL3, découvert en usage réel via Open WebUI/API après la
-    migration depuis llama-server) : contrairement à llama-server/Ollama,
-    qui séparent toujours le raisonnement et la réponse finale en chunks
-    SSE distincts, TabbyAPI peut regrouper la fin du raisonnement et le
-    début de la réponse dans le MÊME delta ({"reasoning_content": "...",
-    "content": "..."}). Le patch _convert_delta_with_reasoning écrasait
-    alors chunk.content avec le seul raisonnement, jetant silencieusement
-    la vraie réponse — le tour se terminait sans contenu visible, un
-    symptôme identique au bug "empty answer" déjà documenté pour
-    llama-server (tool_calls piégé en prose) mais sans rapport avec lui :
-    ici il n'y a même pas de tool_calls, juste une réponse texte perdue.
+    Non-regression (real bug observed with TabbyAPI/ExLlamaV3 serving
+    Qwen3.6-27B EXL3, discovered in real usage via Open WebUI/API after
+    the migration from llama-server): unlike llama-server/Ollama, which
+    always separate reasoning and the final answer into distinct SSE
+    chunks, TabbyAPI can group the end of the reasoning and the start of
+    the answer in the SAME delta ({"reasoning_content": "...", "content":
+    "..."}). The _convert_delta_with_reasoning patch used to overwrite
+    chunk.content with the reasoning alone, silently discarding the real
+    answer — the turn would end with no visible content, a symptom
+    identical to the "empty answer" bug already documented for
+    llama-server (tool_calls trapped in prose) but unrelated to it: here
+    there isn't even a tool_calls, just a lost text answer.
     """
     import app.graph as g
 
@@ -587,9 +665,9 @@ async def test_reasoning_and_content_combined_in_same_chunk_still_yields_visible
 
 @pytest.mark.asyncio
 async def test_reasoning_without_trailing_content_still_closes_think_tag(mock_side_services):
-    """Cas limite : le raisonnement va jusqu'au bout sans contenu final après (jamais
-    observé en pratique avec Qwen3, mais call_llm doit rester robuste : la balise
-    <think> ne doit jamais rester ouverte dans l'historique persisté)."""
+    """Edge case: reasoning runs to the end with no final content after
+    (never observed in practice with Qwen3, but call_llm must stay
+    robust: the <think> tag must never stay open in persisted history)."""
     import app.graph as g
 
     mock_side_services.post("http://fake-vllm/v1/chat/completions").mock(
@@ -606,8 +684,8 @@ async def test_reasoning_without_trailing_content_still_closes_think_tag(mock_si
 @pytest.mark.asyncio
 async def test_node_with_no_new_message_does_not_raise(mock_side_services):
     """
-    Non-régression : un nœud qui ne produit aucun nouveau message doit
-    retourner {"messages": []} explicitement, sinon LangGraph lève
+    Non-regression: a node that produces no new message must explicitly
+    return {"messages": []}, otherwise LangGraph raises
     InvalidUpdateError ("Must write to at least one of [...]").
     """
     import app.graph as g
@@ -622,7 +700,7 @@ async def test_node_with_no_new_message_does_not_raise(mock_side_services):
         "tool_iterations": 0,
         "approved": None,
     }
-    # ne doit lever aucune exception (context vide + skill=None -> retrieve_context
-    # et select_skill ne produisent aucun nouveau message)
+    # must raise no exception (empty context + skill=None -> retrieve_context
+    # and select_skill produce no new message)
     result = await g.agent_graph.ainvoke(state, CONFIG)
     assert result["messages"][-1].content == "OK"

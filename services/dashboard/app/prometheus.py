@@ -1,15 +1,15 @@
 """
-Parser Prometheus minimal maison pour GET /metrics de llama-server
-(--metrics, voir README). Pas de dépendance à la lib officielle
-prometheus_client (côté parsing, inutile ici) : seules ~6 métriques
-"llamacpp:*" nous intéressent, un parser ligne à ligne suffit largement.
+Minimal homegrown Prometheus parser for llama-server's GET /metrics
+(--metrics, see README). No dependency on the official prometheus_client
+lib (parsing-side, unneeded here): only ~6 "llamacpp:*" metrics matter to
+us, a line-by-line parser is largely enough.
 """
 
 from typing import Optional
 
-# Noms exposés par llama-server (convention "llamacpp:<nom>", voir
-# --metrics dans son README) mappés vers des clés stables côté dashboard,
-# indépendantes du nom Prometheus exact.
+# Names exposed by llama-server ("llamacpp:<name>" convention, see
+# --metrics in its README) mapped to stable dashboard-side keys,
+# independent of the exact Prometheus name.
 _METRIC_KEYS = {
     "decode_tokens_per_sec": "llamacpp:predicted_tokens_seconds",
     "prefill_tokens_per_sec": "llamacpp:prompt_tokens_seconds",
@@ -22,12 +22,12 @@ _METRIC_KEYS = {
 
 def parse_prometheus_text(text: str) -> dict[str, float]:
     """
-    Extrait `metric_name -> valeur` d'un corps au format d'exposition
-    Prometheus texte. Ignore les lignes `# HELP`/`# TYPE` et les labels
-    (`metric_name{label="x"} value` -> clé `metric_name`, labels jetés :
-    llama-server n'en met pas sur les métriques qui nous intéressent ici).
-    Une ligne illisible (valeur non numérique, format inattendu) est
-    ignorée plutôt que de faire échouer tout le parsing.
+    Extracts `metric_name -> value` from a text-format Prometheus
+    exposition body. Ignores `# HELP`/`# TYPE` lines and labels
+    (`metric_name{label="x"} value` -> key `metric_name`, labels
+    discarded: llama-server doesn't put any on the metrics we care about
+    here). An unreadable line (non-numeric value, unexpected format) is
+    skipped rather than failing the whole parse.
     """
     metrics: dict[str, float] = {}
     for line in text.splitlines():
@@ -46,16 +46,16 @@ def parse_prometheus_text(text: str) -> dict[str, float]:
 
 
 def extract_llama_metrics(text: str) -> dict[str, Optional[float]]:
-    """Sous-ensemble utile au dashboard, valeur `None` si la métrique est absente du payload."""
+    """Subset useful to the dashboard, `None` value if the metric is absent from the payload."""
     raw = parse_prometheus_text(text)
     return {key: raw.get(prom_name) for key, prom_name in _METRIC_KEYS.items()}
 
 
-# Clés retenues d'un slot /slots (voir README llama-server, --slots) : le
-# nom du champ contenant le nombre de tokens de contexte déjà occupés par ce
-# slot diffère selon la version (n_past historiquement, tokens_predicted /
-# n_tokens sur des builds plus récents) — on prend le premier présent plutôt
-# que de dépendre d'un seul nom exact.
+# Keys kept from a /slots slot (see llama-server README, --slots): the
+# name of the field holding the number of context tokens already used by
+# this slot differs by version (n_past historically, tokens_predicted /
+# n_tokens on more recent builds) — the first one present is taken
+# rather than depending on a single exact name.
 _SLOT_USED_TOKEN_KEYS = ("n_past", "tokens_predicted", "n_tokens")
 
 

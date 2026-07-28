@@ -1,5 +1,5 @@
 """
-Générateur du fixture "catalog" (Benchmark 0, T1 — voir BENCHMARK0.md à la
+Générateur du fixture "catalog" (Benchmark 0, T1 — voir docs/benchmark-v1.md à la
 racine de tests_integration/). Déterministe (seed fixe) : rejouer ce script
 produit TOUJOURS le même site, condition pour que le fixture reste "figé"
 (hash consigné, voir HASHES.txt généré à côté du site).
@@ -9,7 +9,7 @@ référence — l'un et l'autre ne sont visibles que sur la fiche produit
 individuelle, pour forcer une navigation ciblée plutôt qu'une lecture de la
 liste). Un seul produit porte la référence KX-4471, page 2 de la liste.
 
-Échelle réduite délibérément (voir HISTORY.md, recalibrage T1) : une version
+Échelle réduite délibérément (voir docs/history.md, recalibrage T1) : une version
 initiale à 120 produits/12 pages rendait la recherche exhaustive du pire cas
 (ouvrir chaque fiche jusqu'à trouver la référence) incompatible avec
 MAX_TOOL_ITERATIONS — mesurait une mauvaise calibration du fixture, pas la
@@ -142,7 +142,7 @@ def generate(out_dir: Path) -> None:
     (out_dir / "index.html").write_text(index_html, encoding="utf-8")
 
     # Hash de tout le site généré, pour détecter toute dérive du générateur
-    # (fixture "figée" par construction, voir BENCHMARK0.md).
+    # (fixture "figée" par construction, voir docs/benchmark-v1.md).
     sha = hashlib.sha256()
     for f in sorted(out_dir.glob("*.html")):
         sha.update(f.name.encode())

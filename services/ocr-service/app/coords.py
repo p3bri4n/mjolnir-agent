@@ -1,13 +1,13 @@
 """
-Conversion des coordonnées OCR (pixels réels de la capture) vers le repère
-normalisé 0-1000 attendu par mouse_click côté GhostDesk (voir
-GHOSTDESK_MODEL_SPACE dans mcp-client, même repère utilisé par les modèles
-Qwen) — source classique de clics décalés si oubliée : GhostDesk interprète
-par défaut les coordonnées reçues comme des pixels écran natifs, alors que le
-LLM raisonne (et cliquera donc) dans l'espace 0-1000.
+Converts OCR coordinates (real capture pixels) to the normalized 0-1000
+coordinate space expected by mouse_click on the GhostDesk side (see
+GHOSTDESK_MODEL_SPACE in mcp-client, the same space used by Qwen models)
+— a classic source of misplaced clicks if forgotten: GhostDesk by
+default interprets received coordinates as native screen pixels, while
+the LLM reasons (and will therefore click) in the 0-1000 space.
 
-OCR_COORD_SPACE=pixels désactive cette conversion (coordonnées OCR brutes),
-utile si le service appelant mouse_click travaille lui-même en pixels.
+OCR_COORD_SPACE=pixels disables this conversion (raw OCR coordinates),
+useful if the service calling mouse_click itself works in pixels.
 """
 
 COORD_SPACE_NORMALIZED = "1000"

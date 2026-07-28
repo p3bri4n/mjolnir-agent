@@ -1,15 +1,16 @@
 """
-Cockpit d'observabilité local : une page unique (GET /) qui poll GET
-/api/snapshot toutes les 2s. Ce endpoint agrège en parallèle, chaque source
-en best-effort (une source en panne renvoie sa section à null, jamais une
-500 globale — voir _fetch_* ci-dessous) :
+Local observability cockpit: a single page (GET /) that polls GET
+/api/snapshot every 2s. This endpoint aggregates in parallel, each source
+best-effort (a down source returns its section as null, never a global
+500 — see _fetch_* below):
 
-- llama-server : /metrics (Prometheus, voir app/prometheus.py) et /slots
-  (contexte occupé par slot).
-- langgraph-agent : /threads/recent (menu de sélection, Phase 3) puis
-  /context pour le thread résolu (composition détaillée du contexte).
-- VRAM des GPU via nvidia-smi (voir app/gpu.py), uniquement si
-  ENABLE_GPU_STATS=true (nécessite le runtime nvidia côté docker-compose).
+- llama-server: /metrics (Prometheus, see app/prometheus.py) and /slots
+  (context occupied per slot).
+- langgraph-agent: /threads/recent (selection menu, Phase 3) then
+  /context for the resolved thread (detailed context breakdown).
+- GPU VRAM via nvidia-smi (see app/gpu.py), only if
+  ENABLE_GPU_STATS=true (requires the nvidia runtime on the
+  docker-compose side).
 """
 
 import asyncio
@@ -30,9 +31,9 @@ app = FastAPI(title="Dashboard")
 LLAMA_SERVER_URL = os.environ.get("LLAMA_SERVER_URL", "http://llama-server:8000")
 LANGGRAPH_AGENT_URL = os.environ.get("LANGGRAPH_AGENT_URL", "http://langgraph-agent:8000")
 ENABLE_GPU_STATS = os.environ.get("ENABLE_GPU_STATS", "false").lower() == "true"
-# Court : /api/snapshot est pollé toutes les 2s par la page (voir static/
-# index.html) — une source lente ne doit jamais faire déborder ce budget,
-# quitte à renvoyer cette section à null pour CE snapshot.
+# Short: /api/snapshot is polled every 2s by the page (see static/
+# index.html) — a slow source must never blow this budget, even if it
+# means returning this section as null for THIS snapshot.
 HTTP_TIMEOUT_SECONDS = 2.0
 
 _STATIC_DIR = Path(__file__).parent / "static"
@@ -106,10 +107,11 @@ async def snapshot(thread_id: Optional[str] = None):
             _fetch_gpu_stats(),
         )
 
-        # Thread résolu : celui demandé explicitement (sélection utilisateur
-        # côté page, Phase 3), sinon le plus récent connu — jamais d'appel
-        # /context sans thread_id valable, ce endpoint dérive sinon un
-        # thread_id depuis un historique vide (voir langgraph-agent).
+        # Resolved thread: the one explicitly requested (user selection on
+        # the page side, Phase 3), otherwise the most recently known one —
+        # never call /context without a valid thread_id, otherwise that
+        # endpoint derives a thread_id from an empty history (see
+        # langgraph-agent).
         resolved_thread_id = thread_id or (threads[0]["thread_id"] if threads else None)
         context = await _fetch_context(client, resolved_thread_id) if resolved_thread_id else None
 

@@ -43,7 +43,7 @@ async def test_identical_tool_call_after_failure_is_blocked(monkeypatch):
             return_value=httpx.Response(200, json={"content": [{"type": "text", "text": "ne doit jamais être appelé"}]})
         )
         state = _state({"selector": "#a"}, {"selector": "#a"}, attempts=1)
-        result = await g._execute_tool_calls(state, CONFIG, audit=True)
+        result = await g._execute_tool_calls(state, CONFIG)
 
     assert mcp_route.call_count == 0
     tool_message = next(m for m in result["messages"] if m.get("role") == "tool")
@@ -60,7 +60,7 @@ async def test_different_args_after_failure_is_allowed(monkeypatch):
             return_value=httpx.Response(200, json={"content": [{"type": "text", "text": "ok"}]})
         )
         state = _state({"selector": "#a"}, {"selector": "#b"}, attempts=1)
-        result = await g._execute_tool_calls(state, CONFIG, audit=True)
+        result = await g._execute_tool_calls(state, CONFIG)
 
     assert mcp_route.call_count == 1
     tool_message = next(m for m in result["messages"] if m.get("role") == "tool")
@@ -78,7 +78,7 @@ async def test_identical_tool_call_without_prior_failure_is_allowed(monkeypatch)
             return_value=httpx.Response(200, json={"content": [{"type": "text", "text": "ok"}]})
         )
         state = _state({"selector": "#a"}, {"selector": "#a"}, attempts=0)
-        result = await g._execute_tool_calls(state, CONFIG, audit=True)
+        result = await g._execute_tool_calls(state, CONFIG)
 
     assert mcp_route.call_count == 1
     tool_message = next(m for m in result["messages"] if m.get("role") == "tool")
@@ -95,7 +95,7 @@ async def test_identical_tool_call_after_failure_allowed_when_verification_disab
             return_value=httpx.Response(200, json={"content": [{"type": "text", "text": "ok"}]})
         )
         state = _state({"selector": "#a"}, {"selector": "#a"}, attempts=1)
-        result = await g._execute_tool_calls(state, CONFIG, audit=True)
+        result = await g._execute_tool_calls(state, CONFIG)
 
     assert mcp_route.call_count == 1
     tool_message = next(m for m in result["messages"] if m.get("role") == "tool")

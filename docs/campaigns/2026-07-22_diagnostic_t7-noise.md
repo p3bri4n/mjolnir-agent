@@ -1,6 +1,6 @@
 # T7 — mesure de bruit (5 répétitions, configuration post-1d inchangée)
 
-Générée automatiquement le 2026-07-22T20:26:48.090746+00:00. Référence AVANT le correctif d'extraction (`browser_extract`) — voir HISTORY.md.
+Générée automatiquement le 2026-07-22T20:26:48.090746+00:00. Référence AVANT le correctif d'extraction (`browser_extract`) — voir docs/history.md.
 
 **Score : 1/5.**
 

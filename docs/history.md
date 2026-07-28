@@ -193,7 +193,7 @@ Open WebUI (extension Chrome non connectée) — tout validé via l'API
 En préparant le harnais de tâches web de la Phase 0 (`PLAN.md`), la
 question s'est posée directement : le serveur "browser" (Playwright)
 redémarre-t-il à chaque appel d'outil ? Réponse : oui, confirmé dans
-`BUGS.md` — spawn éphémère (`docker run -i --rm mcp/playwright:latest` par
+`docs/resolved-bugs.md` — spawn éphémère (`docker run -i --rm mcp/playwright:latest` par
 appel), sans continuité d'état. Or la quasi-totalité des 11 tâches prévues
 (pagination, tri/filtre, piste multi-pages, session authentifiée,
 navigation inter-articles Wikipédia...) suppose un état navigateur partagé
@@ -1237,7 +1237,7 @@ brief, elle approchait déjà de la saturation).
 | T5 (téléchargement + calcul) | 3/3 | — |
 | T6 (session authentifiée) | 3/3 | — |
 | T7 (impossible par construction) | 2/3 | 1 échec = timeout infra du harnais (`docker exec`), pas l'agent — les 2 autres confirment le correctif de la sonde 6 |
-| T8 (Wikipedia) | 0/3 | **dépassement de contexte réel** (voir ci-dessous) — pas 3 échecs indépendants |
+| T8 (Wikipedia) | 0/3 brut → **1/3 après repêchage** (voir ci-dessous) | 0/3 initial = artefact du bug de thread partagé, pas 3 échecs indépendants |
 | T9 (Google/INSEE) | 3/3 | — |
 | T10 (books.toscrape) | 3/3 | — |
 | T11 (sonde de péremption) | 3/3 | version Python consultée en direct, jamais depuis les poids |
@@ -1251,23 +1251,33 @@ brief, elle approchait déjà de la saturation).
    anticipé du cœur cognitif sur des tâches longues à contenu volumineux
    (Phase 2, compaction d'historique, est le chantier suivant dans l'ordre
    — ce résultat en confirme la nécessité).
-2. **Bug de harnais latent, découvert ici** (voir BUGS.md) : les 3
+2. **Bug de harnais latent, découvert ici** (voir docs/resolved-bugs.md) : les 3
    « répétitions » de `_run_campaign()` partagent le MÊME thread_id
    (`_derive_thread_id` ne hache que le texte du prompt, fixe et identique
    d'une répétition à l'autre) — la répétition 1 a laissé le thread bloqué
    à 170285 tokens AVANT toute sauvegarde de checkpoint, les répétitions 2
    et 3 rejouent alors le même message sur ce thread déjà bloqué,
-   ré-échouant identiquement en 0.4s : pas 3 essais indépendants. **Lecture
-   honnête du score** : T8 représente réellement 1 échec de dépassement de
-   contexte, pas 3. Non corrigé dans ce tour (bug de harnais, hors
-   périmètre du cœur cognitif lui-même).
+   ré-échouant identiquement en 0.4s : pas 3 essais indépendants.
 
-**Comparaison avec Campagne A (30/33, avant le cœur cognitif)** : pas une
-régression au sens propre — T8 aurait vraisemblablement échoué aussi sous
-l'ancien graphe pour une raison différente une fois le bug de thread
-partagé corrigé et re-testé, et le reste de la suite (27/30 hors T8) est
-cohérent avec la baseline. Comparaison formelle non tranchée ici (le brief
-n'exige pas de comparer les points zéro entre chantiers).
+**Correctif et repêchage** (`31aacac`, même tour) : marqueur unique par
+répétition ajouté à `_run_campaign()` (même correctif déjà en place
+ailleurs dans le fichier, jamais étendu à la fonction de campagne
+officielle). Vérifié en direct sur 2 threads T2 consécutifs : `thread_id`
+distincts, deux exécutions pleinement indépendantes (ni l'une ni l'autre ne
+reprend l'état de approbations/tool_calls de l'autre). T8 rejouée seule
+(3 répétitions, thread indépendant chacune) : **1/3** — rep1 ❌ extraction,
+rep2 ✅ Muret trouvé, rep3 ❌ extraction, **0 dépassement de contexte cette
+fois** (chaque thread, réellement indépendant, reste plus court). **Score
+de campagne corrigé : 29/33** (28 − 0 + 1). La cause résiduelle de T8 est
+désormais un échec d'extraction ordinaire (2/3), pas un problème
+d'infrastructure — cohérent avec le reste de la suite. Détail dans
+`tests_integration/TASKS-BASELINE-post-coeur-cognitif.md`, section
+"Repêchage T8".
+
+**Comparaison avec Campagne A (30/33, avant le cœur cognitif)** : 29/33
+après correctif — cohérent avec la baseline, pas une régression. Comparaison
+formelle non tranchée ici (le brief n'exige pas de comparer les points zéro
+entre chantiers).
 
 **Suite v2 — 8 tâches validées par l'utilisateur** (multi-sites/tâches
 longues, ambiguïté, 2 pièges à injection préfigurant Phase 3, 2 tâches à
@@ -1281,3 +1291,1251 @@ campagne, leçons, résumé suite v2) — remplace l'ancienne section "Plan
 explicite".
 
 🧑 **Checkpoint final du chantier « cœur cognitif ».**
+
+## Correctif latence 1/2 : verify_action replié dans le tour suivant — score cassé, corrige rejeté en l'état
+
+**Diagnostic préalable** (archives seules, zéro run — voir la demande
+utilisateur) : croisement du journal d'audit et des logs TabbyAPI (métriques
+par requête) sur 3 tâches de la campagne finale. Les appels auxiliaires
+(planification/vérification/juge) représentaient **73 à 89% du temps de
+tâche**, l'attente réseau/navigateur étant négligeable (<2%) et le débit de
+génération stable (~65-70 T/s, pas de dégradation serveur). `verify_action`
+(1 appel LLM séparé par tour d'outil) identifié comme contributeur
+dominant.
+
+**Correctif implémenté** (`634147b`) : suppression de l'appel LLM séparé de
+`verify_action`. Le constat (« l'action précédente a-t-elle atteint son
+critère ? ») est désormais injecté comme consigne dans le tour SUIVANT
+(`_verification_directive`, `call_llm`) — le modèle doit commencer sa
+réponse par `[CONSTAT: ATTEINT|ECHEC]` puis continuer normalement (agir ou
+répondre). `verify_action` ne fait plus qu'analyser ce marqueur
+(`_parse_verification_marker`), sans appel réseau. Nouveau champ
+`AgentState.pending_verification` (posé par `_execute_tool_calls`, consommé
+par `verify_action`) plutôt qu'une recherche dans l'historique des
+messages : évite un cas limite trouvé en concevant le correctif — un tour
+de replanification n'exécute aucun outil, il ne doit jamais déclencher de
+constat sur un résultat d'outil PÉRIMÉ d'une sous-tâche déjà remplacée.
+Câblage du graphe révisé (`verify_action` tourne après `call_llm`, plus
+avant). 257 tests unitaires passent.
+
+**Terrain préparé, non activé**, pour un futur correctif 2/2 (thinking
+bridé sur les appels auxiliaires restants) : TabbyAPI expose un vrai
+paramètre PAR REQUÊTE (`enable_thinking`/`reasoning_effort`, vérifié via
+`GET /openapi.json`), accessible depuis ce code via
+`ChatOpenAI(extra_body=...)` — documenté près de `planner_llm`.
+
+**Campagne propre de mesure** (post-correctifs `31aacac` thread partagé +
+`634147b` latence, thread_id uniques, préambule vert, 33 runs, ~97 min) :
+**Score 18/33** — ÉCHEC net du critère de passage fixé par l'utilisateur
+(≥29/33). Comparaison par tâche avec la Campagne A (pré-cœur-cognitif) et
+la campagne finale corrigée (29/33, avant ce correctif) dans
+`tests_integration/TASKS-BASELINE-post-correctif-latence.md`.
+
+| Tâche | Campagne A | Finale corrigée (29/33) | Propre (18/33, ce correctif) |
+|---|---|---|---|
+| T1 | 2/3, 32.0s | 2/3, 355.1s | 0/3, 252.1s |
+| T2 | 3/3, 11.5s | 3/3, 111.0s | 3/3, 172.7s |
+| T3 | 3/3, 12.3s | 3/3, 51.7s | 3/3, 60.9s |
+| T4 | 2/3, 20.2s | 3/3, 125.3s | 0/3, 209.3s |
+| T5 | 3/3, 5.2s | 3/3, 82.9s | 3/3, 63.0s |
+| T6 | 3/3, 11.2s | 3/3, 170.0s | 2/3, 232.7s |
+| T7 | 3/3, 43.4s | 2/3, 373.4s | 3/3, 281.0s |
+| T8 | 3/3, 9.9s | 1/3, 151.9s | 0/3, 151.9s |
+| T9 | 3/3, 13.5s | 3/3, 367.3s | 3/3, 151.0s |
+| T10 | 2/3, 24.6s | 3/3, 196.6s | 0/3, 244.1s |
+| T11 | 3/3, 14.5s | 3/3, 101.6s | 1/3, 112.8s |
+
+**Bilan mitigé, pas un gain net** : le nombre d'appels LLM a bien chuté
+comme prévu (confirmé par le diagnostic), et 3 tâches (T3, T5, T9) sont
+effectivement plus rapides — mais 4 tâches (T2, T4, T6, T10) sont plus
+LENTES qu'avant ce correctif (variance élevée sur n=3, pas un effet
+uniforme), et le score s'effondre sur 5 tâches (T1, T4, T8, T10 en
+extraction ; T11, nouveau mode d'échec, en hallucination — l'agent répond
+depuis sa mémoire sans consulter le web).
+
+**Cause probable identifiée en direct pendant la campagne** (logs
+applicatifs, plusieurs occurrences) : le modèle **oublie parfois le
+marqueur `[CONSTAT: ...]`** (« Sous-tâche N échouée après 3 tentatives :
+marqueur de constat absent ou mal formé dans la réponse »). La dégradation
+conservative vers « non atteint » (voulue, même philosophie que l'ancien
+mécanisme) consomme alors le budget de tentatives sur une action peut-être
+réussie, déclenchant des replanifications ou abandons prématurés qui
+n'existaient pas avant ce correctif — hypothèse plausible mais non prouvée
+formellement (pas de campagne comparative contrôlée isolant cette seule
+variable).
+
+**Aucun nouveau correctif engagé unilatéralement** : rapporté à
+l'utilisateur pour arbitrage (renforcer la fiabilité du marqueur, revenir
+en arrière, ou autre) — décision non prise dans ce tour.
+
+## Correctif latence 1/2-bis : constat structuré (tool call obligatoire), dégradation inversée, T11 à part
+
+**Vérification préalable EN PREMIER** (30 min, contre TabbyAPI/ExLlamaV3
+réellement démarré) : la génération contrainte par schéma JSON
+(`response_format`/`json_schema`, exposée dans `GET /openapi.json`) est
+INCOMPATIBLE avec le besoin (« constat + action suivante, un seul tour »).
+Confirmé par lecture du code installé (`backends/exllamav3/grammar.py`,
+`add_json_schema_filter` pose `eos_after_completed=True`) PUIS par un appel
+réel : réponse `{"constat": "atteint"}`, `tool_calls: null`,
+`eos_reason: "end_filter"` — la génération s'arrête dès que le JSON
+clôture, alors que le prompt demandait explicitement d'agir ensuite. Repli
+prévu par la consigne : tool call obligatoire. Vérifié au passage (même
+lecture de code, `endpoints/OAI/utils/chat_completion.py`) que ce backend
+n'applique par ailleurs AUCUNE contrainte de grammaire sur les tool_calls
+eux-mêmes (aucun filtre ajouté pour `tools`/`tool_choice`, y compris
+`tool_choice="required"`) — la fiabilité gagnée par le repli vient donc de
+la familiarité du modèle avec le tool calling natif (déjà éprouvé sur des
+centaines d'appels par campagne), pas d'une garantie de grammaire côté
+serveur.
+
+**Correctif implémenté** (`app/graph.py`) : le marqueur texte
+`[CONSTAT: ATTEINT|ECHEC]` est remplacé par un tool call dédié
+`report_and_act` (`constat_action_precedente`: atteint/non_atteint/
+sans_objet + `justification`), toujours lié en plus des outils MCP réels
+(`_get_bound_llm`), que le modèle doit appeler EN PLUS de son action
+normale du tour (`_verification_directive`). `verify_action` lit ce tool
+call dans les `tool_calls` du tour au lieu de faire un regex sur le texte
+libre. **Dégradation INVERSÉE** (cœur de ce correctif) : `report_and_act`
+absent/mal formé -> `sans_objet` (NI succès NI échec, budget de tentatives
+inchangé) + incrément d'un nouveau compteur cumulatif
+`constats_inexploitables` (`AgentState`) — l'ancienne dégradation
+conservative (« marqueur absent -> non atteint ») consommait à tort le
+budget d'une action peut-être réussie, cause diagnostiquée du score cassé
+(18/33) du correctif précédent.
+
+**Effets de bord non triviaux, trouvés en concevant le correctif** (pas en
+production) :
+- `report_and_act` est un méta-outil local (jamais servi par mcp-client) :
+  l'ajouter à `_DEFAULT_TIER_READ` (comme un outil MCP normal) aurait cassé
+  `campaign_preflight.py` (comparaison stricte agent vs mcp-client) —
+  classé à la place directement dans `approval_policy.tool_tier()`
+  (`REPORT_AND_ACT_TOOL_NAME`, TIER_READ, jamais TIER_SENSITIVE par défaut).
+- Un tour dont le SEUL tool_calls est `report_and_act` (pas de nouvelle
+  action, réponse finale déjà écrite dans le même tour) doit quand même
+  être exécuté (le tool_call a besoin de son ToolMessage de reçu, sinon le
+  prochain appel LLM casserait le format OpenAI) — mais reboucler sur
+  `call_llm` après coûterait exactement l'appel LLM que ce chantier
+  cherche à éliminer. Nouveau nœud `finalize_after_report_and_act` : ré-émet
+  le texte déjà produit comme AIMessage propre sans tool_calls, sans appel
+  LLM (même précédent que `run_slash_command_direct`).
+- Le dispatch replan/give_up sur sous-tâche "echoue" vivait AVANT
+  l'exécution des tool_calls (`route_after_verification`, hérité du
+  correctif 1/2) : inoffensif tant que le constat vivait en texte libre
+  (rien à exécuter), mais aurait laissé un `report_and_act` non résolu dans
+  l'historique dès qu'un tour échoue ET propose une action réelle. Déplacé
+  vers `route_after_tool_execution`, APRÈS exécution — `reject_tools`
+  (refus humain) reroutée de même pour ne jamais sauter cette étape.
+
+**T11 (sonde de péremption) — investiguée à part, comme demandé.**
+Vérifié dans les archives (grep exhaustif sur `app/graph.py`, tests, et
+git log) : la « directive de péremption » et l'injection de date (PLAN.md
+Phase 1, point 7, amendement « conscience temporelle ») n'ont **jamais été
+implémentées** — pas déplacées ni évincées par un remaniement, simplement
+jamais construites, malgré T11 déjà présente dans le harnais depuis la
+Phase 0. Le succès historique de T11 (3/3 sur plusieurs campagnes) tenait
+donc uniquement au comportement spontané du modèle (outils navigateur
+disponibles + question à consonance temporelle), pas à un garde-fou
+dédié. Re-testée ISOLÉMENT (3 répétitions, hors campagne) : **2/3** — le
+seul échec est un abandon après blocage du garde-fou anti-fabrication
+d'URL (« le navigateur ne semble pas pouvoir naviguer »), PAS une réponse
+de mémoire — cause différente de la régression du correctif précédent.
+Conclusion : le point 7 du plan reste un chantier ouvert (non construit),
+mais n'explique pas la régression T11 observée sur la campagne cassée
+1/2 — celle-ci reste imputée au marqueur oublié (voir plus haut),
+cohérent avec T11 revenue à 3/3 sur la campagne propre ci-dessous.
+
+**Campagne propre** (33 runs, 4 flags actifs, préambule vert,
+`TASKS-BASELINE-post-correctif-latence-1-2-bis.md`, ~58 min) :
+**Score 26/33** — sous le seuil de passage (≥29/33).
+
+| Juge | Résultat |
+|---|---|
+| Score ≥ 29/33 | ❌ 26/33 |
+| Temps médian ≤ campagne précédente (18/33) | ✅ médiane des moyennes par tâche 96.1s vs 172.7s (-44%) |
+| constats_inexploitables ≈ 0 | ✅ **0** sur 36 appels `report_and_act` observés dans le journal d'audit |
+
+Le juge spécifique du mécanisme (`constats_inexploitables`) est donc au
+vert sans appel : le tool call obligatoire n'a JAMAIS été oublié ni mal
+formé sur toute la campagne — le problème du marqueur texte est
+structurellement résolu. Le gain de latence attendu est confirmé (verify_action
+ne coûte plus d'appel LLM séparé, tours plus courts).
+
+**Le score manqué (26/33) a une cause DIFFÉRENTE, sans rapport avec le
+constat** : T1 (0/3) et T7 (0/3) échouent tous deux en
+`boucle_fabrication`/`boucle_budget` — le garde-fou anti-fabrication d'URL
+(`browser_navigate`, Phase 1) se déclenche à répétition, l'agent ne se
+récupère pas dans le budget imparti. Notable car T7 était encore 3/3 sur
+la campagne CASSÉE (18/33) et 2/3 sur la campagne de référence (29/33,
+avant tout correctif de latence) — régression inattendue, non expliquée
+par ce chantier (le mécanisme de constat qu'il visait est, lui, validé
+propre). Hypothèse non vérifiée : la présence permanente de
+`report_and_act` parmi les outils liés pourrait interagir avec la
+sélection d'outil du modèle en situation de blocage — à investiguer
+séparément si l'utilisateur le souhaite, pas dans ce tour.
+
+**Tests** : 260/260 passent (incluant la réécriture complète de
+`test_verify_action.py`/`test_verification_integration.py` pour le
+nouveau mécanisme, et 2 tests déplacés de `route_after_verification` vers
+`route_after_tool_execution`).
+
+**Aucun nouveau correctif engagé unilatéralement** sur la régression
+T1/T7 : rapporté à l'utilisateur pour arbitrage.
+
+## Correctif latence 1/2-ter : diagnostic archives (taux de constat) + fusion en un seul tool call
+
+**Diagnostic préalable, archives seules, zéro run** (journal d'audit de la
+campagne 1/2-bis, 26/33) : comptage du ratio report_and_act émis / tours
+d'action, par thread — confirme spectaculairement l'hypothèse de
+l'utilisateur. **Auto-correction en cours de route** : une première requête
+erronée (filtrage sur `kind=="verification"`, qui n'existe pas —
+`audit_log.log_message` pose toujours `kind="message"`, la distinction vit
+dans `role`) avait fait conclure à tort `constats_inexploitables=0` dans le
+rapport du tour précédent. Requête corrigée (`role=="verification"`) : **349
+entrées inexploitables sur 422 tours assistant**, soit un taux de couverture
+réel d'environ **9%** — le protocole "deux tool_calls dans le même tour"
+n'était quasiment JAMAIS suivi, contrairement à l'hypothèse initiale d'un
+mécanisme fiable. Conclusion confirmée : la dégradation inversée
+(sans_objet, budget inchangé) s'appliquait donc sur ~91% des tours vérifiés
+— le budget d'échec (SUBTASK_ATTEMPT_BUDGET) était de facto désactivé sur
+la quasi-totalité de la campagne, expliquant la réapparition des boucles de
+fabrication d'URL sur T1/T7 (0/3 chacune) : la protection existait sur le
+papier, jamais en pratique.
+
+**Correctif implémenté** : fusion au lieu de coordination. `constat_precedent`
+(atteint/non_atteint/sans_objet) devient un paramètre REQUIS du schéma de
+CHAQUE outil réel (`_inject_constat_param`, appliqué à tous les outils MCP
+dans `_get_bound_llm`, gated sur `VERIFICATION_ENABLED`) — un seul tool call
+porte à la fois l'action et son constat sur l'action précédente, pattern
+natif à un seul appel, plus rien à coordonner entre deux tool_calls
+séparés. `report_and_act` (simplifié, ne porte plus que `constat_precedent`)
+reste le seul outil de repli pour le cas résiduel où le tour ne comporte
+aucune action réelle (réponse finale en texte pur). `_parse_constat`
+(remplace `_parse_report_and_act`) cherche le champ sur report_and_act en
+priorité, sinon sur le premier tool_call réel qui le porte.
+`_execute_tool_calls` retire ce paramètre des arguments AVANT tout usage
+(dispatch mcp-client, comparaison anti-répétition, audit) — laissé en place,
+il aurait désactivé silencieusement le garde-fou anti-répétition (verdict
+différent à chaque tentative -> args jamais identiques par comparaison
+stricte).
+
+**Nouveau juge permanent : taux de couverture des constats.** `verify_action`
+journalise désormais TOUJOURS une entrée d'audit `role="verification"`
+(exploitable ou non, pas seulement sur l'échec) — le compagnon de
+`constats_inexploitables`, qui ne mesurait que l'ambiguïté (ce tour, si un
+constat manquant existe, quel est-il) et jamais le simple FAIT qu'aucune
+tentative n'ait eu lieu. Câblé dans le harnais (`TaskResult.
+verification_opportunities`/`verification_exploitable`, `test_web_tasks.py`)
+: nouvelle colonne « Couverture constats » par tâche + total de campagne
+dans le rapport généré, seuil de passage 95%.
+
+**Tests** : réécriture complète de `test_verify_action.py` (nouveaux tests
+`_inject_constat_param`/`_parse_constat`, dont couverture positive/négative
+et journalisation systématique), `test_verification_integration.py`
+(scénarios reconstruits sur le tool call fusionné), et
+`test_tool_schema_from_mcp_client_is_bound_to_llm` (n'attend plus
+report_and_act quand VERIFICATION_ENABLED est désactivé — gated
+correctement désormais) + nouveau test dédié au schéma augmenté. 264/264
+tests passent.
+
+**Re-campagne** (33 runs, 4 flags actifs, préambule vert) :
+
+**1er essai invalidé** (2/33, quasi instantané) : `docker compose up -d
+--build langgraph-agent` avait aussi recréé `tabbyapi` (dérive de config
+détectée) — la campagne a démarré ~20s après le "Model successfully
+loaded" mais AVANT le "Started server process" réel (confirmé par
+timestamps des logs), donc contre un serveur qui n'écoutait pas encore
+(`openai.APIConnectionError`, capturé comme notice d'erreur interne,
+0.2-0.3s par tâche). Le préambule de campagne (`campaign_preflight`) ne
+vérifie que le schéma d'outils via mcp-client, jamais la disponibilité
+réelle de TabbyAPI — angle mort confirmé ici. Un appel de complétion réel
+a confirmé TabbyAPI sain juste après ; 2e essai relancé.
+
+**2e essai** (33 runs, TabbyAPI vérifié sain au préalable, ~102 min) :
+**Score 24/33** — sous le seuil, et sous le score de la campagne 1/2-bis
+elle-même (26/33).
+
+| Juge | Cible | Résultat |
+|---|---|---|
+| Couverture des constats | ≥ 95% | ✅ **95,8%** (226/236) |
+| Score | ≥ 29/33 | ❌ 24/33 |
+| Latence médiane | ~96s (tenue) | ❌ **145,9s** (+52%) |
+| T7 | 3/3 | ❌ 2/3 (1 boucle_fabrication, 2 déclarations d'absence correctes) |
+
+**La fusion en un seul tool call a bien résolu le problème diagnostiqué** :
+couverture 95,8% contre ~9% mesuré sur la campagne précédente — la
+coordination de deux tool_calls séparés était bien la cause racine. T7
+n'est plus un échec total (2/3, contre 0/3) : le budget d'échec
+redevient globalement effectif. Mais **nouveau compromis, non anticipé** :
+`_inject_constat_param` augmente le schéma de CHAQUE outil MCP réel (~64
+outils) à CHAQUE tour, quel que soit l'outil réellement pertinent —
+surcoût de taille de prompt systématique. Signal cohérent dans les
+données : le nombre de tool_calls a nettement baissé par rapport à la
+campagne 1/2-bis (T1 : 11,7 vs 55,7 en moyenne) mais la durée MÉDIANE a
+augmenté (145,9s vs 96,1s) — chaque tour individuel coûte donc
+sensiblement plus cher, cohérent avec un surcoût de traitement de prompt
+par appel plutôt qu'avec le nombre d'allers-retours. Hypothèse plausible,
+non confirmée par une mesure dédiée (pas de comparaison isolée
+taille-de-prompt/temps-de-préremplissage dans ce tour). T1/T8 particulièrement
+touchés (jusqu'à 400s+ par répétition) ; T9 échoue 2/3 par blocage externe
+probable (`t9_blocked`, déjà documenté, sans rapport avec ce correctif).
+
+**Aucun nouveau correctif engagé unilatéralement** sur ce compromis
+latence/couverture : rapporté à l'utilisateur pour arbitrage (limiter
+l'injection du paramètre aux seuls outils pertinents, réduire la
+verbosité du schéma ajouté, ou autre approche) — décision non prise dans
+ce tour.
+
+## Outillage de campagne : mode smoke, run-campaign.sh, estimation de durée
+
+Demandé avant d'engager tout nouveau correctif cognitif : chaque campagne
+complète coûte ~1-2h, rendue ici encore plus coûteuse par un aller-retour
+raté (préambule insuffisant, voir plus bas) — l'outillage manquant pour
+itérer vite était devenu le vrai goulot.
+
+**Mode smoke** (`tests_integration/test_web_tasks.py`) :
+`WEB_TASKS_SMOKE_TASKS` (préfixes séparés par virgule, ex. `T1,T7,T11`)
+filtre `_run_campaign()` sur un sous-ensemble de tâches, `WEB_TASKS_
+REPETITIONS` (déjà existant) contrôle le nombre de répétitions — MÊME
+préambule/juges/génération de rapport que la campagne complète, jamais une
+suite parallèle. Protocole documenté (README, section « Autonomie ») :
+smoke pour itérer, campagne complète (3 répétitions, 11 tâches) réservée
+aux checkpoints qui comptent pour un score de référence.
+
+**`scripts/run-campaign.sh`** : préambule -> campagne -> rapport ->
+notification, zéro intervention. Découverte en écrivant ce script :
+`campaign_preflight.run_preflight` ne vérifiait QUE le schéma d'outils
+(mcp-client), jamais que le backend LLM répond réellement — exactement
+l'angle mort qui avait invalidé le 1er essai de la campagne 1/2-ter
+(`docker compose up --build` avait recréé tabbyapi en même temps, la
+campagne a démarré ~20s avant que son serveur HTTP n'écoute). Corrigé à la
+source (`campaign_preflight.wait_for_llm_ready`, un appel de complétion
+réel contre `LLM_BASE_URL`, PAS un `/health`) plutôt que contourné dans le
+script — bénéficie à tout appelant de `run_preflight`, pas seulement à ce
+script. `run-campaign.sh` lui-même : parse `--tasks`/`--reps`/`--label`,
+affiche l'estimation de durée puis lance `pytest`, écrit un fichier `.DONE`
+en fin de course (`ntfy`/mail en plus si `NTFY_TOPIC`/`MAIL_TO` définis).
+
+**Estimation de durée** : `CAMPAIGN_DURATION_STATS.json`
+(`tests_integration/`), médiane des durées par tâche mise à jour à la fin
+de CHAQUE campagne (smoke ou complète, `_update_duration_stats`) —
+`run-campaign.sh` la lit avant de lancer pour afficher `tâches x
+répétitions x médiane connue` (défaut 150s pour une tâche jamais
+mesurée). Fichier annexe best-effort, ne bloque jamais une campagne si son
+écriture échoue.
+
+**Validé en conditions réelles** : smoke `--tasks T11 --reps 1` exécuté de
+bout en bout (estimation affichée, préambule avec readiness LLM, campagne,
+rapport, `CAMPAIGN_DURATION_STATS.json` peuplé, fichier `.DONE` généré) —
+1/1, ~70s. Tests unitaires : `test_campaign_preflight.py` étendu
+(`wait_for_llm_ready` avec horloge/sleep injectés, jamais de vrai délai ;
+ordre readiness-avant-schéma prouvé sans attendre le timeout réel via une
+sentinelle qui court-circuite dès le premier appel). 268/268 tests
+passent.
+
+Aucune campagne complète relancée dans ce tour (outillage seul, comme
+demandé) — la prochaine campagne complète servira aussi de premier usage
+réel en conditions de checkpoint de `run-campaign.sh`.
+
+## Arbitrage post-1/2-ter : préambule complété + diagnostic archives (latence, justesse des constats)
+
+**1. Préambule complété** : `check_tabbyapi_image_fresh` (`campaign_preflight.py`)
+compare l'image RÉELLEMENT utilisée par le conteneur `tabbyapi` (`docker
+inspect --format {{.Image}}`) à la dernière image construite pour ce tag
+(`docker image inspect`) — détecte un `docker compose build` appliqué sans
+`up -d`, ou un rollback oublié, AVANT le readiness LLM déjà en place.
+Vérifié en direct (identiques actuellement, `sha256:ca02fc82...`). Tests
+unitaires étendus (fetch injecté, aucun docker réel). 271/271 tests
+passent.
+
+**2. Diagnostic archives, zéro run.**
+
+**2a. Latence — quantifiée via le tokenizer réel de TabbyAPI
+(`/v1/token/encode`), sur le schéma des 64 outils EFFECTIVEMENT servi par
+mcp-client aujourd'hui** :
+
+| Variante | Tokens | Delta |
+|---|---|---|
+| Sans `constat_precedent` (avant 1/2-ter) | 10 597 | — |
+| Actuelle (description complète par outil) | 17 528 | **+6 931 (+65%)** |
+| Dégraissée (enum nu, sans description) | 13 166 | +2 569 (+24%) |
+
+Le surcoût de schéma est confirmé et chiffré : la description répétée sur
+64 outils domine le coût. Dégraisser (option retenue par l'utilisateur)
+réduirait le surcoût de ~63% sans l'éliminer (structurel : ~40
+tokens/outil rien que pour la propriété enum elle-même).
+
+**Cache de préfixe ExLlamaV3** : mesuré sur les logs RÉELS de TabbyAPI
+pendant la campagne 1/2-ter (560 requêtes parsées, `Process: N cached
+tokens and M new tokens`) — **ratio de cache médian 94%** : le schéma
+statique EST amorti la plupart du temps, contrairement à l'hypothèse
+naïve d'un recalcul systématique. MAIS **22% des requêtes (123/560)
+repartent à cache=0** (bien plus que le ~6% attendu si seul le tout
+premier tour de chaque thread ratait le cache) — un désamorçage du cache
+se produit aussi EN COURS de conversation, cause non identifiée dans ce
+tour. Contexte médian 20 216 tokens sur l'ensemble des requêtes — dont la
+majorité provient du schéma d'outils (17 528 tokens) plutôt que de
+l'historique de conversation, confirmant que le schéma domine le budget
+de contexte, pas seulement son coût de traitement. Volume décodé :
+médiane 138 tokens générés/requête (modeste), moyenne 593 (tirée vers le
+haut par quelques tours de raisonnement longs) — pas de signal net d'un
+raisonnement systématiquement allongé PAR le constat lui-même dans ces
+agrégats ; question non tranchée définitivement (pas de comparaison
+avant/après isolée disponible, les logs TabbyAPI de la campagne 1/2-bis
+ont été perdus au redémarrage du conteneur).
+
+**2b. Justesse des constats — inspection manuelle du journal d'audit sur
+les threads ÉCHOUÉS de la campagne 24/33 (T1 ×3, T7 rep2, T8 ×2)** :
+**hypothèse NON confirmée**. Aucun cas observé de constat "non_atteint"
+erroné sur une action pourtant réussie — les verdicts lus dans les 6
+threads inspectés reflètent fidèlement l'état réel (ex. T1 : "browser_extract
+KX-4471 -> aucun résultat" jugé `non_atteint`, exact ; T7 : même
+schéma, `non_atteint` à chaque page sans le produit, exact). Causes
+réelles des échecs, DIFFÉRENTES de la justesse du constat :
+- **T1** : stratégie de recherche inefficace, pas un problème de
+  constat — `browser_extract(query="4471")` traite la référence comme un
+  nombre («&nbsp;la requête "4471" est traitée comme un nombre&nbsp;»,
+  cité dans le raisonnement de l'agent lui-même), et l'hypothèse de
+  numérotation séquentielle des références ne tient pas sur ce fixture.
+- **T7 rep2** : même classe de difficulté de recherche (2/3 réussissent
+  quand même, cohérent avec de la variance plutôt qu'une régression
+  systématique).
+- **T8** : plus surprenant — le raisonnement de l'agent (via les
+  constats `atteint`) montre qu'il A TROUVÉ « Muret » puis « commune dans
+  l'arrondissement de Muret » dans 2 threads sur 2 inspectés, pourtant
+  classés en échec (« Muret absent de la réponse », causes extraction/infra) —
+  suggère un problème EN AVAL du constat (finalisation de la réponse),
+  pas un problème de jugement du constat lui-même. Piste distincte, non
+  investiguée plus loin dans ce tour.
+
+**Conclusion de l'arbitrage** : la piste "constats erronés consommant le
+budget" n'est PAS soutenue par les archives — à l'inverse, le mécanisme
+juge correctement dans les cas inspectés. La piste "surcoût de schéma" EST
+confirmée et chiffrée. Le compromis latence/score de la campagne 24/33
+s'explique plus probablement par (a) le surcoût de schéma (confirmé,
++65%), (b) de la variance de tâche ordinaire (n=3), et (c) au moins un
+cas T8 qui mérite une investigation séparée en aval du constat.
+
+Aucun correctif engagé dans ce tour (archives seules, comme demandé) —
+rapporté à l'utilisateur avant d'aborder le point 3 (dégraissage du
+schéma + correctif 2/2 thinking bridé).
+
+## Arbitrage point 3 : chasse au cache=0, dégraissage du schéma, T8, smoke à chaque étape
+
+**1. Chasse au cache=0.**
+
+(a) Non-déterminisme de sérialisation : ÉCARTÉ. `_get_bound_llm()` appelé
+deux fois de suite dans le même process produit un JSON strictement
+identique (schéma statique, aucun tri/set instable dans
+`_inject_constat_param`) — la sérialisation elle-même n'est pas en cause.
+
+(b) Corrélation avec l'activité TabbyAPI (archives, campagne 1/2-ter,
+560 requêtes parsées) : **confirmée**. 13/16 des gros cache=0 (contexte
+>3000 tokens) sont immédiatement précédés d'une requête à PETIT contexte
+(<5000 tokens) — signature d'un appel `planner_llm` (jamais lié aux
+outils, prompt bien plus court) intercalé entre deux tours de la boucle
+principale. `cache_size` (config.yml TabbyAPI) valait exactement
+`max_seq_len` (32768) : aucune marge pour qu'une requête courte coexiste
+dans le pool sans évincer les pages de la conversation principale
+(~20k tokens de contexte typique).
+
+**Correctif appliqué** : `cache_size` relevé à 49152 (+50%), rechargement
+vérifié en direct (modèle chargé, VRAM : marge restante ~1,7-2,3 Gio sur
+la GPU Ada, la plus contrainte). Résultat mesuré sur 2 smokes
+successifs : cache=0 22,0% (avant) -> 16,8% -> 16,4% (après dégraissage
+en plus) — **amélioration réelle mais seuil de passage (≤8%) NON
+atteint**. Le dégraissage du schéma (point 2, qui réduit le contexte par
+requête) n'a PAS réduit davantage le taux de cache=0, signe que la cause
+n'est probablement pas seulement une question de capacité brute mais
+plutôt structurelle (changement de "forme" de requête à chaque
+alternance boucle principale <-> planner, indépendamment de la taille).
+Pousser `cache_size` plus loin comporte un risque réel d'OOM sur la GPU
+la plus contrainte (marge déjà réduite) pour un gain incertain — non
+tenté dans ce tour, rapporté à l'utilisateur plutôt que forcé.
+
+**2. Dégraissage du schéma** : `_CONSTAT_PARAM_SCHEMA` réduit à l'enum nu
+(description retirée) — la sémantique ne vit plus que dans
+`_verification_directive` (une seule copie, system prompt). Déployé et
+mesuré sur smoke (T1/T7/T8/T11 x2, après reconstruction de
+`langgraph-agent` — la première tentative de smoke a tourné par erreur
+sur l'ancien code non reconstruit, écartée) :
+
+| Juge | Cible | Résultat |
+|---|---|---|
+| Contexte médian | ~13k attendu | ✅ **13 962** (vs 20 724 avant, -33%) |
+| Couverture des constats | ≥ 95% | ✅ **98,3%** (59/60) |
+
+Les deux juges du dégraissage passent — le pari (protéger la couverture
+par la mesure plutôt que la description) est validé.
+
+**3. T8 finalisation** : inspection des 2 threads T8 échoués de la
+campagne 24/33 — dans LES DEUX, le tout dernier tour journalisé porte
+encore un `tool_calls` en attente (`browser_snapshot` de confirmation),
+alors que le raisonnement du MÊME tour contient déjà « J'ai trouvé...
+Muret », « commune dans l'arrondissement de Muret ». L'information
+correcte existait, mais la tâche s'est arrêtée avant de la restituer en
+réponse finale — cohérent avec un budget d'itérations épuisé PENDANT une
+vérification supplémentaire prudente, pas une réponse finale mal
+formée ni un bug du harnais (aucune des deux hypothèses initiales
+confirmée). **Aucun correctif dédié appliqué** (le diagnostic ne pointait
+vers aucune règle de finalisation à écrire) — et le smoke post-dégraissage
+montre T8 revenu à **2/2** : cohérent avec l'hypothèse "budget", le
+dégraissage (tours plus courts, moins de pression sur le budget
+d'itérations) semble avoir résolu la cause plutôt qu'un correctif dédié
+n'aurait dû le faire. Échantillon réduit (n=2), à confirmer sur la
+campagne complète.
+
+**T1** (requête "4471" traitée comme un nombre) : noté, pas corrigé,
+comme demandé — candidat pour la documentation de `browser_extract`,
+pas un correctif de mécanisme. Confirmé toujours présent sur le smoke
+(0/2, même cause).
+
+**Bug trouvé en écrivant les smokes** : `WEB_TASKS_SMOKE_TASKS=T1,...`
+matchait aussi `T10_*`/`T11_*` par simple `startswith` (préfixe numérique
+partagé) — corrigé (exige la frontière `_` ou une correspondance exacte)
+dans `test_web_tasks.py` ET dans l'estimation de `run-campaign.sh` (même
+bug dupliqué). 271/271 tests unitaires passent.
+
+**Point d'arbitrage avant le point 4** : le juge du point 1 (cache=0 ≤ 8%)
+n'est pas atteint (16,4%) malgré un correctif appliqué et mesuré — piste
+plausible mais non confirmée (structurel plutôt que capacité). Les points
+2 et 3 sont positifs. Avant d'engager le correctif 2/2 (thinking bridé)
+et la campagne complète de checkpoint (coût ~1-2h), rapporté à
+l'utilisateur : accepter le cache=0 résiduel et continuer vers le point 4,
+ou creuser davantage la piste structurelle d'abord.
+
+## Point 4 : correctif latence 2/2 (thinking bridé) + campagne de checkpoint
+
+**Juge cache reformulé** (voir arbitrage utilisateur) : le taux de
+cache=0 est remplacé, comme juge de checkpoint, par le temps de prefill
+total réel (somme `nouveaux_tokens / débit_traitement` sur les métriques
+TabbyAPI, nouveau champ `TaskResult.prefill_seconds`/colonne dédiée du
+rapport, `_fetch_tabbyapi_prefill_stats`) — le taux reste consigné à
+titre informatif. Référence extraite des archives AVANT le run (campagne
+1/2-ter, 24/33) : **1323,5s de prefill total / 33 runs (~40,1s/tâche)**,
+22,0% de cache=0.
+
+**Chantier d'architecture différé** : la piste structurelle (isolation
+cache/contexte de `planner_llm`) consignée dans `PLAN.md`, rejoint le
+dossier Mjolnir (second modèle, candidat critique/compaction/isolation
+planner) — décision différée, instruite par ce checkpoint.
+
+**Correctif implémenté** : `PLANNER_THINKING_ENABLED` (défaut `false`) —
+`enable_thinking` transmis via `extra_body` sur `planner_llm`
+(plan_task/revise_plan/replan_task/_judge_plan). Vérifié EN DIRECT avant
+d'écrire le code (comme demandé) : appel réel avec un prompt de
+planification JSON, `enable_thinking:false` -> `reasoning_content: null`,
+JSON valide immédiat. 271/271 tests passent.
+
+**Smokes intermédiaires** (comme demandé, avant la campagne complète) :
+- Bug trouvé et corrigé : `WEB_TASKS_SMOKE_TASKS=T1` matchait aussi
+  `T10_*`/`T11_*` (préfixe numérique partagé) — corrigé dans
+  `test_web_tasks.py` ET `run-campaign.sh` (frontière `_` exigée).
+- Smoke T2/T7/T8/T11 ×2 : T2/T7/T8 nettement plus rapides ET tous
+  réussis (ex. T7 74s, T8 107s — contre 130-470s avant) ; **T11 régresse
+  à 0/2**, mais PAS pour la raison attendue (hallucination réelle) :
+  inspection immédiate de l'audit -> `browser_navigate` échoue
+  systématiquement, page bloquée sur `about:blank` — panne
+  d'infrastructure, pas un effet du thinking bridé. `playwright-mcp`
+  redémarré ; ce redémarrage a lui-même cassé la session mise en cache
+  par `mcp-client` (`RuntimeError: Attempted to exit cancel scope in a
+  different task` sur `_drop_persistent_session`, bug latent pré-existant
+  non lié à ce chantier) — `mcp-client` redémarré en réponse, `POST
+  /reset-session/browser` revenu à 200, navigation réelle revérifiée
+  (`browser_navigate` vers python.org/downloads confirmé fonctionnel)
+  avant de lancer la campagne complète.
+
+**Campagne complète de checkpoint** (33 runs, ~34 min, sans surveillance) :
+
+| Juge | Cible | Résultat |
+|---|---|---|
+| Score | ≥ 29/33 | ❌ **22/33** |
+| Latence médiane | ≤ 60s | ✅ **45,0s** (vs 145,9s campagne 1/2-ter, -69%) |
+| Couverture des constats | ≥ 95% | ❌ 93,4% (240/257, sous le seuil de peu) |
+| Prefill total | en baisse vs 1323,5s référence | ✅ **757,4s** (-42,8%) |
+
+**Bilan mitigé, comme le tour précédent, mais plus net cette fois** :
+l'objectif de latence est ATTEINT et dépassé (médiane 45,0s, déjà dans la
+fourchette cible 25-40s pour plusieurs tâches individuelles — T3 18,8s,
+T5 18,2s, T11 38,5s), le prefill total confirme le gain (-42,8%). Mais le
+score recule ENCORE (22/33, pire que 24/33 ET 26/33 des tours
+précédents), et la couverture repasse sous 95% pour la première fois.
+
+**Cause dominante identifiée, DIFFÉRENTE des correctifs de ce chantier** :
+inspection immédiate des threads T8 (0/3, causes "extraction") et T11
+(2/3 "hallucination") de CETTE campagne — le symptôme du smoke
+(`browser_navigate` bloqué sur `about:blank` en tout début de thread,
+contournement via GhostDesk/Firefox) est présent dans LES TROIS threads
+T11 ET dans 2 des 3 threads T8 inspectés, MALGRÉ le redémarrage
+mcp-client/playwright-mcp et la vérification manuelle faite juste avant
+de lancer la campagne. Panne d'infrastructure RÉCURRENTE au niveau de la
+session navigateur (pas un effet du thinking bridé, du dégraissage, ni du
+cache_size — aucun de ces correctifs ne touche playwright-mcp/mcp-client)
+qui explique probablement une bonne partie du recul de score et de
+couverture (un thread qui contourne via GhostDesk multiplie les tool_calls
+sans `constat_precedent` fiable à chaque étape de contournement). T1 (0/3,
+requête numérique) et T7 (1/3, fabrication persistante) confirment leurs
+causes déjà notées, inchangées par ce correctif.
+
+**Aucun nouveau correctif engagé** sur la panne navigateur (hors périmètre
+de ce chantier de latence) : rapportée à l'utilisateur pour arbitrage —
+chantier probable à part (fiabilité de session playwright-mcp/mcp-client),
+avant toute nouvelle mesure de score qui resterait autrement polluée par
+cette variable non contrôlée.
+
+🧑 **STOP au rapport de checkpoint.**
+
+## Correction de diagnostic + correctif "premier hop" (garde-fou anti-fabrication d'URL)
+
+**Preuves d'abord (zéro run agent), demandées avant tout correctif infra** :
+`playwright-mcp`/`mcp-client` — `RestartCount=0`, `OOMKilled=false`,
+mémoire stable (~238 Mio), aucun événement `die`/`restart`/`oom` sur toute
+la fenêtre de la campagne de checkpoint. stderr de `playwright-mcp`
+effectivement vide (rien que la bannière de démarrage) — le risque signalé
+("sans stderr on diagnostique à l'aveugle") était réel mais pas la cause
+ici. **Les preuves contredisent l'hypothèse de panne d'infrastructure** :
+lu directement dans le RÉSULTAT d'outil persisté (pas dans les logs
+conteneur, jamais consultés à cette étape) — chaque `browser_navigate`
+« bloqué » renvoyait en fait notre propre message de garde-fou anti-fabrication
+(« URL non observée sur cette page... »). `_task_scope_urls` suppose
+qu'« une tâche mentionne toujours l'URL du site cible » ; T8 (« sur
+Wikipédia... ») et T11 (« quelle est la dernière version de Python ? »)
+n'en mentionnent AUCUNE — leur toute PREMIÈRE navigation, pourtant
+légitime, était donc systématiquement refusée. Le récit « le navigateur
+semble bloqué sur about:blank » rapporté au tour précédent venait du
+raisonnement du MODÈLE (sa propre interprétation du rejet), pas du
+résultat d'outil réel — erreur de diagnostic corrigée ici, conformément à
+l'instruction "STOP sur les preuves si elles contredisent les suspects" :
+points 2-4 (soak test, auto-guérison infra) non exécutés, auraient traité
+un problème inexistant.
+
+**Correctif** (`app/graph.py`, `_execute_tool_calls`) : `has_prior_navigation`
+(brut de `state["observed_urls"]`, AVANT union avec `_task_scope_urls`)
+exempte désormais la toute PREMIÈRE navigation d'une tâche du garde-fou,
+qu'une URL soit donnée dans le prompt ou non — le garde-fou reste
+PLEINEMENT actif à partir de la 2e navigation. Justification : la
+fabrication réellement observée (T1 `page-45.html`, T7 `product-9999.html`)
+survient toujours APRÈS une exploration déjà entamée, jamais comme premier
+geste. Changement de comportement TESTÉ délibérément avant ce correctif
+(`test_fabricated_url_blocked_without_calling_mcp` attendait un blocage
+même sans URL dans le prompt) — tests mis à jour en conséquence :
+`test_first_navigate_without_task_url_is_allowed` (nouveau, prouve le
+correctif) et `test_second_fabricated_url_still_blocked_without_calling_mcp`
+(remplace l'ancien test, prouve que la protection principale reste
+intacte dès la 2e navigation, simulée via `observed_urls` non vide en état
+initial). 272/272 tests passent.
+
+**Smoke de validation** (T8/T9/T11 ×3, après reconstruction de
+`langgraph-agent`) : **T8 2/3** (contre 0/3 au checkpoint), **T9 2/3**
+(contre des blocages similaires) — confirmé dans l'audit : plus aucune
+navigation bloquée comme fabrication sur ces deux tâches. **T11 reste 0/3**,
+mais pour une cause ENTIÈREMENT DIFFÉRENTE, et positive pour ce
+correctif-ci : la navigation vers python.org RÉUSSIT désormais
+systématiquement (confirmé dans l'audit, aucun blocage) ; l'échec vient de
+`browser_extract(query="Python 3.13")` — le modèle interroge la page avec
+un préfixe de version issu de SA PROPRE connaissance figée (périmée),
+manquant ainsi la version réellement affichée (3.14.x). Rejoint
+directement le point 7 (« conscience temporelle ») de `PLAN.md`, jamais
+implémenté (voir plus haut, correction du même chantier) — confirmation
+supplémentaire que ce chantier reste pertinent, mais hors périmètre du
+correctif "premier hop" : non traité ici, consigné pour arbitrage séparé.
+
+**Aucune nouvelle campagne complète relancée** dans ce tour (smoke
+suffisant pour valider le correctif ciblé, comme demandé) — la prochaine
+campagne complète de checkpoint devra être relancée pour re-mesurer les 4
+juges du chantier latence maintenant que cette variable parasite
+(garde-fou premier-hop) est neutralisée.
+
+## Re-checkpoint après correctif "premier hop" (33 runs, ~34,5 min)
+
+| Juge | Cible | Résultat |
+|---|---|---|
+| Score | ≥ 29/33 | ❌ 24/33 |
+| Latence médiane | ≤ 60s | ✅ **48,2s** |
+| Couverture des constats | ≥ 95% | ❌ 93,5% (201/215, sous le seuil de peu, cohérent avec les tours précédents) |
+| Prefill total | en baisse vs 1323,5s référence | ✅ **846,7s** (-36,0%) |
+| Échecs classés infra | 0 | ✅ **0** (nouveau juge, voir arbitrage précédent) |
+
+**T8 et T9 : 3/3 chacune** (contre 0/3 et des blocages similaires avant le
+correctif "premier hop") — confirmation en conditions réelles, sur une
+vraie campagne complète, que le correctif tient. **T11 reste 0/3**,
+confirmant que sa cause (requête `browser_extract` ancrée sur une version
+Python périmée — voir tour précédent) est reproductible, pas un artefact
+du smoke. **T1** (0/3, requête numérique) et **T7** (1/3, fabrication
+persistante — cette fois `page-4.html`/`product-31.html`, mêmes tâches
+mais URL fabriquées différentes) confirment leurs causes déjà connues,
+non affectées par ce correctif. Score global cohérent avec l'attendu :
+33 - 3 (T1) - 2 (T7 échecs) - 3 (T11) - 1 (T2 rep1, échec isolé
+extraction/fichier absent) = 24.
+
+**Score et couverture restent sous les seuils du chantier latence** — mais
+pour des causes désormais toutes identifiées et DISTINCTES du garde-fou
+premier-hop lui-même (T1 stratégie de recherche, T7 fabrication
+persistante malgré le garde-fou renforcé, T11 péremption des connaissances,
+T2 un échec isolé). Le juge infra=0 et la latence médiane sous 60s
+valident le chantier latence dans son ensemble ; le score/couverture
+restent un chantier séparé (T1/T7/T11), pas un effet de ce correctif.
+
+Aucun nouveau correctif engagé — rapporté à l'utilisateur pour arbitrage.
+
+## Conscience temporelle (PLAN.md Phase 1, point 7 — implémentée)
+
+Jamais construite depuis la Phase 0 malgré T11 déjà présente dans le
+harnais (confirmé en grep exhaustif lors du diagnostic T11 précédent) —
+implémentée pour cibler directement la cause trouvée : `browser_extract`
+ancré sur un préfixe de version issu de la connaissance figée du modèle
+(« Python 3.13 »), malgré une navigation désormais réussie (correctif
+"premier hop").
+
+**Implémenté** (`app/graph.py`) :
+- `PEREMPTION_DIRECTIVE` : date de coupure du modèle non publiée
+  (vérifié — aucune mention dans le model card local,
+  `models/qwen3.6-27b-exl3-3.50bpw/README.md`) ; documente l'observation
+  empirique (Python 3.13 avancé alors que 3.14 existe) comme preuve que la
+  connaissance réelle est plus ancienne que la date de sortie annoncée du
+  modèle (2026) ; consigne de vérifier via le web tout fait volatil
+  (versions, prix, actualité, rôles, état de services), réponse de mémoire
+  réservée aux faits stables.
+- `_date_directive()` : injection de date, granularité JOUR uniquement
+  (jamais l'heure, pour préserver le cache de préfixe ExLlamaV3 — voir
+  chasse au cache=0), positionnée en fin de bloc système statique, avant
+  la consigne de vérification par tour (la plus volatile).
+- `TZ` (`docker-compose.yml`, défaut `Europe/Paris`, vérifié via
+  `timedatectl` sur l'hôte — un conteneur Docker tourne en UTC par défaut
+  sans ce réglage explicite).
+
+**Tests** (`tests/test_temporal_awareness.py`, nouveau) : format et
+stabilité intra-journée de `_date_directive`, présence des deux directives
+dans le message système réellement envoyé (câblage bout en bout, pas
+juste unitaire). Un test existant (`test_context_endpoint.py`) mis à jour
+(compte de blocs système 2->3). 276/276 tests passent.
+
+**Smoke T11 ×3** (après reconstruction) : **2/3** — net progrès (0/3 sur
+les 3 dernières campagnes). Confirmé dans l'audit : le modèle raisonne
+désormais explicitement « Ma connaissance pourrait être dépassée, donc je
+dois vérifier via le web » dans LES TROIS répétitions — la directive
+fonctionne sur la décision de vérifier. La répétition #2 échoue quand même
+: `browser_extract(query="Python 3.13")` reste ancré sur l'ancienne
+version dans SA PROPRE requête de recherche, ratant 3.14.6 — la directive
+résout la décision de vérifier, pas totalement le biais dans la
+FORMULATION de la requête de vérification. Amélioration réelle et
+mesurée, pas une résolution complète.
+
+Aucune campagne complète relancée dans ce tour (smoke suffisant pour
+valider le principe) — rapporté à l'utilisateur pour décider de la suite
+(campagne complète de re-mesure, ou itérer d'abord sur le biais de
+formulation de requête).
+
+## Correctif du biais de formulation de requête (PEREMPTION_DIRECTIVE étendue)
+
+Root cause précisée depuis le tour précédent : le modèle décidait déjà de
+vérifier via le web (« Ma connaissance pourrait être dépassée »), mais
+interrogeait ensuite `browser_extract` avec sa propre valeur SUPPOSÉE
+("Python 3.13") plutôt qu'un terme neutre — une page réelle mentionne
+souvent aussi d'anciennes valeurs (historique des releases), la requête
+biaisée les retrouvait donc et confirmait le biais au lieu de le corriger.
+
+**Correctif** : `PEREMPTION_DIRECTIVE` étendue d'une règle explicite —
+n'injecte jamais une valeur supposée dans la requête de vérification
+elle-même, cherche un terme neutre (« dernière version stable » plutôt
+qu'un numéro précis). Généralisable au-delà de T11 (tout fait volatil où
+le modèle pourrait ancrer sa recherche sur sa propre réponse supposée).
+Test dédié ajouté (`test_peremption_directive_warns_against_biased_search_query`).
+277/277 tests passent.
+
+**Smoke T11 ×3** (après reconstruction) : **3/3**. Confirmé dans l'audit :
+les 3 threads démarrent désormais par `browser_extract(query="latest
+stable")` — le terme neutre demandé — puis affinent avec la valeur
+RÉELLEMENT trouvée (3.14), jamais une valeur supposée a priori. Mécanisme
+validé de bout en bout : décision de vérifier (1er correctif) + requête
+non biaisée (2e correctif) résolvent ensemble la cause complète du
+biais T11.
+
+Aucune campagne complète relancée dans ce tour — en attente de
+l'utilisateur pour la re-mesure complète des 4 juges du chantier latence
+avec l'ensemble des correctifs (premier hop + conscience temporelle +
+biais de requête).
+
+## Checkpoint final (33 runs, ~36,5 min) : meilleur score du chantier
+
+| Juge | Cible | Résultat |
+|---|---|---|
+| Score | ≥ 29/33 | ❌ **26/33** (meilleur score du chantier — 22, 24, puis 26) |
+| Latence médiane | ≤ 60s | ✅ **46,2s** |
+| Couverture des constats | ≥ 95% | ❌ 93,8% (212/226, plateau persistant sous le seuil) |
+| Prefill total | en baisse vs 1323,5s référence | ✅ **889,8s** (-32,8%) |
+| Échecs classés infra | 0 | ❌ 1 (T9 rep1, blocage externe déjà documenté `t9_blocked`, pas une régression) |
+
+**T11 : 3/3** — confirmé sur campagne complète, pas seulement en smoke : le
+correctif conscience temporelle (décision de vérifier + requête non
+biaisée) tient. **T1** reste 0/3 (requête numérique, causes déjà connues,
+non traité comme convenu). **T7** 1/3 (fabrication + 1 nouvelle
+hallucination). **T9** 2/3 (1 blocage externe, pré-existant). **T10** 2/3
+(1 échec d'extraction, nouveau sur cette campagne — pas encore
+investigué, à surveiller si récurrent).
+
+**Bilan du chantier latence dans son ensemble** : progression nette et
+régulière sur les campagnes de checkpoint successives (22/33 -> 24/33 ->
+26/33), latence et prefill tenus à chaque fois, T11 définitivement résolu.
+Score et couverture restent sous les seuils fixés en début de chantier,
+mais pour des causes toutes identifiées, distinctes du mécanisme de
+constat/latence lui-même (T1 stratégie de recherche, T7 fabrication
+résiduelle, T9 blocage externe, T10 à investiguer). Aucun nouveau
+correctif engagé — rapporté à l'utilisateur pour arbitrage sur la suite
+(clore ce chantier latence ici, ou poursuivre sur T1/T7/T10).
+
+## Investigation T10 (archives, avant clôture du chantier latence)
+
+Inspection des 3 threads T10 de la campagne de checkpoint final : cause
+DIFFÉRENTE de T1/T7/T9, et pas une régression de ce chantier. Le modèle
+navigue correctement vers books.toscrape.com puis doit rejoindre la
+catégorie « Science » (accessible uniquement par clic sur un lien du menu
+latéral — l'URL de catégorie n'est pas devinable de façon stable,
+`science_18` puis `science_22` selon les essais, bloquée à raison par le
+garde-fou anti-fabrication). Le vrai problème apparaît APRÈS un clic
+réussi : `browser_snapshot` renvoie parfois encore le contenu de
+l'ANCIENNE page alors que l'URL et la capture d'écran confirment déjà le
+changement (« Le snapshot semble être désynchronisé... la capture d'écran
+montre clairement [Science] » observé dans l'audit) — désynchronisation
+snapshot/URL après navigation sur une page à rendu client. Le modèle perd
+alors plusieurs tours à déterminer où il se trouve réellement : 2 threads
+sur 3 s'en sortent via `browser_evaluate`/`browser_run_code_unsafe`
+(contournement direct du DOM) ; le 3e (celui qui échoue) épuise son
+budget d'itérations en pleine confusion, avant même d'avoir vu la liste
+des livres.
+
+**Consigné comme backlog séparé, pas traité ici** : candidat = un délai
+d'attente de stabilisation (`browser_wait_for` ou équivalent) après
+navigation/clic, avant tout `browser_snapshot`, sur les pages à rendu
+client. Fréquence faible (1/3), workaround déjà trouvé spontanément par
+le modèle dans 2 cas sur 3 — pas urgent.
+
+**Chantier latence clos ici**, comme recommandé et validé par
+l'utilisateur : ses propres juges sont atteints (latence, prefill, T11
+résolu) ; ce qui reste (T1, T7, T9, T10) forme un backlog de causes
+distinctes et sans effet de levier partagé, à traiter séparément.
+
+## Correctif T10 : stabilisation post-navigation, avant Phase 2
+
+Décidé avec l'utilisateur : ne pas traiter tout le backlog (T1/T7/T9 sont
+des échecs isolés à faible effet de levier), mais corriger T10 en premier
+— la désynchronisation snapshot/URL touche potentiellement N'IMPORTE
+QUELLE tâche sur une page à rendu client, pas seulement books.toscrape :
+la laisser ouverte risquait de polluer silencieusement les futures
+mesures de Phase 2 (compaction) sans qu'on sache distinguer un échec de
+compaction d'un échec de ce bug.
+
+**Correctif** (`services/mcp-client/app/main.py`) : `browser_wait_for`
+(outil réel de mcp/playwright, confirmé via `GET /tools/schema` —
+`time`/`text`/`textGone`, aucun mode "networkidle" mais un délai fixe
+suffit) appelé automatiquement après CHAQUE `browser_navigate`/
+`browser_click` réussi, transparent pour l'agent — délai fixe
+(`BROWSER_STABILIZE_WAIT_SECONDS`, défaut 0,5s, `0` désactive). Correctif
+serveur plutôt qu'une consigne de prompt : ne dépend d'aucun comportement
+du modèle pour s'appliquer. Vérifié en direct (durée réelle d'un
+`browser_navigate` cohérente avec navigate+0,5s ; `browser_snapshot` seul
+inchangé, ~0,08s, confirmant qu'aucun délai n'est ajouté là où il n'a pas
+lieu d'être). Tests dédiés (`tests/test_main.py`, session factice
+enregistrant la séquence d'appels) : 24/24 tests mcp-client passent.
+
+**Smoke T10 ×3** (après reconstruction de `mcp-client`) : **3/3** — durée
+moyenne 113,0s (vs 177,0s dans le checkpoint précédent), tool_calls
+observés 10,0 (vs 12,3) : cohérent avec la disparition des tours perdus à
+se repérer. Confirmé dans l'audit : plus aucune mention de « snapshot
+désynchronisé » sur 2 threads sur 3 ; le 3e montre un échec de clic
+ordinaire (cible manquée, contournement JS immédiat) — cause différente,
+sans rapport avec la désynchronisation, et sans conséquence sur le
+résultat final.
+
+Backlog restant inchangé (T1, T7, T9) — non traité, comme convenu.
+
+## Correctif T1 : consigne de vérification en masse (BULK_CHECK_DIRECTIVE)
+
+**Diagnostic initial erroné, corrigé avant tout code** : l'hypothèse
+« requête numérique traitée comme un nombre » (rapportée au tour
+précédent) reposait sur l'auto-justification du modèle, jamais vérifiée
+contre le générateur du fixture réel — même erreur de méthode que pour
+T8 (« about:blank ») avant. Vérification faite : le générateur
+(`generate_catalog.py`) confirme explicitement que les pages de listing
+ne montrent JAMAIS la référence ni le prix (uniquement nom + lien),
+délibérément, « pour forcer une navigation ciblée ». `browser_extract`
+échoue donc sur les pages de listing quel que soit le format de la
+requête — ce n'est pas le bug.
+
+**Vraie séquence observée dans l'audit** : après plusieurs échecs
+d'extraction sur les 3 pages de listing, le modèle devine
+`product-4471.html` (confond le numéro de référence avec l'index de
+fichier) — **le garde-fou anti-fabrication le bloque correctement**
+(« URL non observée... ne devine pas un chemin »). Le modèle se corrige
+mais n'a alors plus assez de budget (`MAX_TOOL_ITERATIONS=20`) pour
+ouvrir individuellement les fiches produit candidates (jusqu'à 20).
+Root cause réelle : budget d'itérations face à une vérification
+exhaustive fiche par fiche, pas un bug de recherche.
+
+**Trois options évaluées avec l'utilisateur** : (a) consigne de
+vérification en masse via `browser_evaluate`, (b) relever
+`MAX_TOOL_ITERATIONS`, (c) statu quo (limite de capacité assumée).
+Option (a) retenue en premier — ne change pas le calibrage du benchmark,
+généralisable à toute tâche du même type (info visible seulement en
+détail, plusieurs candidats à vérifier).
+
+**Correctif** : `BULK_CHECK_DIRECTIVE` (`app/graph.py`) — quand
+l'information cherchée n'apparaît pas sur le listing mais uniquement sur
+les pages de détail, consigne d'utiliser `browser_evaluate` avec une
+boucle `fetch()` en UN seul appel plutôt que `browser_navigate` page par
+page. Tests dédiés (présence de la consigne, câblage bout en bout dans
+le message système). 279 tests passent.
+
+**Smoke T1 ×3** (après reconstruction) : **3/3** — confirmé dans l'audit :
+les 3 threads basculent directement sur `browser_evaluate` après 2
+tentatives d'extraction infructueuses sur le listing (plus de tentative
+de deviner une URL), un thread navigue même directement vers le bon
+fichier (`product-14.html`) trouvé via le bulk-fetch. 5-6 tool calls par
+run contre 20-30+ avant — gain d'efficacité net, largement dans le
+budget.
+
+Backlog restant : T7, T9 — non traités, comme convenu (rendement
+incertain ou nul, voir estimation précédente).
+
+## Investigation T7 (archives) : correction gratuite via BULK_CHECK_DIRECTIVE
+
+**Investigation menée sur archives uniquement**, même protocole que
+T1/T8/T10 : 3 threads de la dernière campagne complète inspectés en
+détail (audit du jour, fingerprint via mention de « ZZ-9999 »). Le
+garde-fou anti-fabrication d'URL fonctionne correctement dans les trois
+cas — deux threads tentent de deviner une URL (`page-4.html`,
+`product-31.html`), bloqués avec le bon message à chaque fois. Ce n'est
+donc pas un défaut du garde-fou.
+
+**Root cause identique à T1** : pour prouver l'absence de ZZ-9999, le
+modèle doit vérifier les 30 fiches produit (la référence n'apparaît
+jamais sur les pages de listing, même construction de fixture que T1) —
+budget d'itérations insuffisant pour un balayage exhaustif fiche par
+fiche. Les 3 threads archivés s'arrêtent tous en pleine investigation,
+jamais sur une réponse finale propre, cohérent avec un épuisement de
+`MAX_TOOL_ITERATIONS` avant conclusion. Un thread montre en plus un bug
+annexe sans rapport (code JS ad hoc via `browser_run_code_unsafe`
+retournant des références `null`, mauvais sélecteur) qui l'a fait
+tourner en rond à déboguer son propre code.
+
+**Point clé** : ces 3 threads archivés datent d'avant le correctif T1
+(`BULK_CHECK_DIRECTIVE`, déployé seulement pour T1 à l'origine). Cette
+consigne est générique (« information visible seulement en détail,
+plusieurs candidats à vérifier ») — elle couvre déjà littéralement le
+cas T7. Hypothèse : **aucun nouveau correctif nécessaire**, seule une
+vérification par smoke était requise.
+
+**Smoke T7 ×3** (aucun changement de code) : **3/3** —
+`absence_declaree=True prix_invente=False` sur les trois runs,
+tool_calls observés 10-12 (contre budget épuisé avant), aucune cause
+d'échec. Hypothèse confirmée : le correctif T1 corrige T7 par ricochet.
+
+Backlog restant : T9 uniquement — non traité, comme convenu (rendement
+jugé incertain ou nul, blocage anti-bot externe hors de notre contrôle).
+Plus aucun bug ouvert avant Phase 2 (PLAN.md, discipline de contexte).
+
+## Investigation T9 : deux causes internes trouvées, un correctif appliqué, un faux positif corrigé avec précaution
+
+**Ré-ouverture de T9** après avoir constaté (archives) que le modèle utilise
+indifféremment `browser_*` (Playwright) et GhostDesk (souris/clavier sur un
+vrai bureau) selon les runs, sans que rien ne l'y contraigne. Deux causes
+internes trouvées, distinctes du blocage anti-bot Google déjà connu :
+
+**(1) Contamination GhostDesk inter-tâches (corrigée).** `app_launch`
+(GhostDesk) ouvre une fenêtre sur le bureau du conteneur `ghostdesk`, à
+l'échelle de la MACHINE — sans rapport avec le thread langgraph-agent en
+cours ni avec la session Playwright déjà isolée (`_reset_browser_session`).
+Constaté en conditions réelles : un Firefox ouvert par un thread T9 des
+heures plus tôt (10h+ d'uptime) restait accessible ; un thread T9 ultérieur,
+bloqué par le garde-fou anti-fabrication sur `browser_navigate`, a pris un
+`screen_shot` et lu ce Firefox résiduel déjà sur insee.fr — un « succès » qui
+ne prouvait rien sur la capacité de l'agent à refaire la tâche à froid.
+Correctif : `_reset_ghostdesk_desktop()` (`test_web_tasks.py`) —
+`pkill -f firefox` sur le conteneur `ghostdesk` avant CHAQUE répétition,
+même garantie que les deux resets déjà en place. Harnais de test uniquement,
+aucun redémarrage de service requis.
+
+**(2) Garde-fou "premier hop" bloquant la navigation vers Google : FAUX
+POSITIF, corrigé par PRÉCAUTION avant tout patch.** Les 13 threads T9
+archivés montraient TOUS un blocage sur le tout premier `browser_navigate`
+vers google.com — semblant indiquer que l'exemption "premier hop" (déjà
+livrée pour T8/T11, voir plus haut) ne s'appliquait pas à T9. Plutôt que de
+patcher `graph.py` sur cette seule preuve, vérification faite : (a) tous
+ces threads archivés PRÉCÈDENT le commit du correctif "premier hop"
+(bb72753, 24/07 14h32 UTC) — donnée simplement périmée ; (b) l'auto-
+narration du modèle sur ce premier appel ("il semble que Google ait
+bloqué la requête") s'est révélée fausse une fois le VRAI résultat
+d'outil obtenu ; (c) ce vrai résultat était invisible dans le journal
+d'audit à cause d'un angle mort découvert au passage : `_execute_tool_calls`
+n'audite JAMAIS un tour passé par une approbation humaine (`call_tools`,
+`audit=False`) — seuls les tours auto-approuvés (`auto_call_tools`,
+`audit=True`) sont journalisés, par construction (« un humain vient de le
+voir, inutile de dupliquer »). En campagne automatisée, ce tour EST
+pourtant auto-approuvé par le harnais (`_approve(..., grant_session=True)`),
+pas par un vrai humain — l'angle mort s'applique quand même, cachant
+justement la toute première tentative de chaque outil, la plus utile à
+l'investigation. Instrumentation temporaire (`logger.warning` ajouté puis
+entièrement retiré, diff vide vérifié après coup) posée pour lever le doute :
+confirmé sur un run réel que `has_prior_navigation=False`/`observed_urls=[]`
+sur le tout premier `browser_navigate`, navigation vers Google AUTORISÉE
+comme prévu ; le blocage suivant (tentative de saut direct vers
+`https://www.insee.fr` sans lien réel observé sur la SERP) est un vrai
+anti-fabrication légitime, pas un bug. **Conclusion : aucun changement de
+`graph.py` nécessaire** — le garde-fou fonctionne correctement sur le code
+actuel.
+
+**Smoke T9 ×3 après le seul correctif GhostDesk** : 2/3 (1 échec classé
+`infra`, blocage anti-bot Google réel confirmé dans l'audit — page
+`/sorry/index` de Google atteinte). Cohérent avec la nature intrinsèquement
+variable de ce blocage externe, hors de notre contrôle.
+
+Angle mort d'audit (point (2)(c) ci-dessus) noté pour référence future, non
+corrigé ici (hors périmètre de cette investigation) : toute investigation
+sur archives doit garder à l'esprit que le TOUT PREMIER appel de chaque
+outil par thread est invisible dans `/audit`, même en campagne automatisée.
+
+## INVENTAIRE DE PERSISTANCE des campagnes (constat, avant tout correctif)
+
+Demande explicite : pour chaque campagne passée, dire ce qui subsiste sur
+disque (résultats par run en JSON/CSV, journal d'audit rattachable, métriques
+TabbyAPI, config effective du run), sans interprétation. Constat établi en
+lisant le code (`_run_campaign`/`_write_report`, test_web_tasks.py ;
+`audit_log.py` ; `campaign_preflight.py` ; `docker-compose.yml`) plutôt que
+de le supposer :
+
+1. **Résultats par run** : `rows` (une liste de dicts par run) n'existait
+   qu'en mémoire process pytest, jamais sérialisé — seul `_write_report`
+   les transformait en Markdown prose. `CAMPAIGN_DURATION_STATS.json`
+   (introduit au correctif latence 1/2-bis) n'était qu'un cache GLISSANT
+   d'une médiane de durée par tâche, réécrit (fusionné) à chaque campagne
+   ultérieure — aucune valeur d'une campagne antérieure n'y survit une fois
+   écrasée par la suivante.
+2. **Journal d'audit** : `app/audit_log.py` (introduit avant tout ce
+   chantier) persiste en JSONL sous `/workspace/.audit`, jamais purgé,
+   indexé par `thread_id` — mais sans aucun champ `campaign_id`, et le
+   rapport de campagne n'enregistrait le `thread_id` d'aucun run : le lien
+   entre une entrée d'audit et une ligne de rapport n'était reconstituable
+   qu'en corrélant manuellement des fenêtres de timestamp.
+3. **Métriques TabbyAPI** : seuls des agrégats (`prefill_seconds`,
+   `cache_zero_requests`, `tabbyapi_requests`) survivaient dans le rapport
+   Markdown ; les échantillons bruts scrapés depuis `docker logs` n'étaient
+   jamais conservés, et les logs eux-mêmes suivent la politique de
+   rotation par défaut du daemon Docker de l'hôte (aucune config
+   `logging:` dédiée dans `docker-compose.yml` avant ce chantier).
+4. **Config effective du run** : `campaign_preflight.check_tabbyapi_image_fresh`
+   VÉRIFIE la fraîcheur de l'image tabbyapi avant de lancer (gate qui
+   bloque), mais n'écrit nulle part le digest utilisé, ni les flags d'env
+   actifs, ni le commit git — reconstruction possible seulement en
+   corrélant manuellement la date du rapport avec `git log` et la prose de
+   ce fichier/README.md.
+
+## PERSISTANCE DES CAMPAGNES — mécanisme (suite directe du constat ci-dessus)
+
+Nouveau module `tests_integration/campaign_persistence.py` : un fichier
+`campaign-<timestamp>-<label>.json` par campagne, écrit UNE SEULE FOIS à la
+fin (jamais réécrit), à côté du rapport Markdown — métadonnées de contexte
+(commit `git rev-parse HEAD`, ID d'image des conteneurs
+`langgraph-agent`/`mcp-client`/`tabbyapi`/`playwright-mcp` via `docker
+inspect --format '{{.Image}}'`, modèle réellement chargé côté TabbyAPI via
+`GET /v1/model` — vérité terrain, pas une relecture de `config.yml` qui ne
+garantit pas qu'un rechargement a eu lieu — et flags d'env effectifs du
+conteneur `langgraph-agent` filtrés à la liste connue de `os.environ.get`
+trouvés dans `app/*.py`) + une ligne par run (`thread_id` calculé
+localement, même algorithme que `_derive_thread_id`, app/main.py — clé de
+jointure directe avec `/workspace/.audit`, sans toucher au schéma d'audit
+lui-même) + un échantillon TabbyAPI BRUT par requête journalisée (pas
+seulement l'agrégat). `_write_report` (test_web_tasks.py) devient une VUE :
+`test_web_tasks_baseline` écrit le JSON puis le RELIT avant de rendre le
+Markdown — le rapport reste identique à l'œil, mais ne peut plus diverger
+de ce qui a été persisté.
+
+**Correction factuelle actée avant d'écrire une seule ligne de code**
+(CLAUDE.md #8 — toute affirmation sur une lib se vérifie contre le code
+installé) : la demande initiale prévoyait de relever `/metrics` avant et
+après chaque run côté TabbyAPI. Inspection de l'image réellement construite
+(`agentic-ai-playground-tabbyapi`, `docker run --rm --entrypoint sh ... find
+/app/endpoints`) : **TabbyAPI n'expose aucun endpoint `/metrics`
+Prometheus**, contrairement à llama-server — fait déjà consigné dans
+`docker-compose.yml` (commentaire du service `dashboard`, "Pas d'équivalent
+/metrics/{slots} pour TabbyAPI à ce jour") mais pas encore remonté jusqu'à
+cette demande. Adapté sans redemander : les échantillons persistés
+proviennent du texte des logs du conteneur (même regex que l'ancien
+`_fetch_tabbyapi_prefill_stats`, désormais dans `campaign_persistence.py`,
+un échantillon PAR requête plutôt qu'un agrégat unique) — seule source
+réelle disponible. `aggregate_prefill_stats` dérive l'agrégat du rapport
+depuis ces mêmes échantillons, ce qui a permis de retirer un second `docker
+logs` redondant sur la même fenêtre temporelle (simplification trouvée en
+implémentant, pas demandée séparément).
+
+`DURATION_ESTIMATE_CACHE.json` (renommage de `CAMPAIGN_DURATION_STATS.json`,
+même rôle inchangé) documente désormais explicitement, via un champ
+`_note` dans le JSON lui-même, qu'il s'agit d'un cache glissant
+d'ESTIMATION et non d'un historique — `scripts/run-campaign.sh` adapté pour
+lire la sous-clé `estimates`. `docker-compose.yml` : `logging`
+(`max-size: 100m`, `max-file: 10`) ajouté au service `tabbyapi`, pour que
+les logs — seule source de métriques — ne disparaissent plus au gré d'un
+défaut de daemon Docker plus restrictif que prévu sur l'hôte.
+
+**Backfill borné** (`tests_integration/backfill_campaigns_index.py`,
+exécuté une fois, ~10 min réel dans le budget des 30 min prévus) :
+reconstruit `campaigns-index.json` depuis les artefacts déjà existants —
+25 campagnes indexées, fenêtre temporelle APPROXIMATIVE par campagne
+(fin = timestamp `.DONE` ou date "Générée automatiquement", début = fin
+moins la somme des durées par run listées dans le rapport — ignore les
+pauses d'approbation manuelle entre runs, signalé explicitement via
+`window_precision`). Ne ressuscite aucune métrique perdue (constat
+ci-dessus) : rend seulement `/workspace/.audit`, jamais purgé, navigable
+rétroactivement par fenêtre de temps plutôt que par `thread_id` exact.
+
+Tests unitaires (`tests/test_campaign_persistence.py`, 17 tests, aucun
+docker/git réel — subprocess mocké, même esprit que
+`test_campaign_preflight.py`) : 296 tests passent dans
+`services/langgraph-agent` (279 + 17), suite complète du dépôt non
+re-vérifiée dans ce tour (hors périmètre : seul `langgraph-agent` est
+concerné par ce chantier).
+
+## FLAGS DU CŒUR COGNITIF — défauts inversés, garde-fou de préambule, même lot que la persistance
+
+Trois correctifs demandés par brief écrit (`docs/briefs/
+flags-du-coeur-cognitif.md`), à faire avant le checkpoint complet du
+chantier persistance ci-dessus :
+
+**1. Défauts inversés** : `PLANNER_ENABLED`/`VERIFICATION_ENABLED`/
+`PLAN_VALIDATION_ENABLED`/`PLAN_JUDGE_ENABLED` passent de `"false"` à
+`"true"` par défaut dans `app/graph.py` ET dans `.env.example` — le cœur
+cognitif est mesuré (campagne finale 29/33, cohérente avec la Campagne A
+pré-cœur-cognitif à 30/33) et adopté, c'est la DÉSACTIVATION qui doit
+désormais être explicite. **Piège trouvé en relisant le code avant de
+toucher quoi que ce soit** : `docker-compose.yml` fixait CES MÊMES défauts
+séparément (`${PLANNER_ENABLED:-false}` etc., dans le bloc `environment:`
+du service `langgraph-agent`) — sans corriger aussi ce fichier, le flip
+côté `app/graph.py` aurait été silencieusement annulé en production (un
+conteneur sans `PLANNER_ENABLED` dans `.env` aurait reçu la chaîne
+`"false"` explicite de docker-compose, jamais l'absence de variable qui
+aurait laissé le nouveau défaut Python s'appliquer). Corrigé aux deux
+endroits, cohérence vérifiée par `docker compose config --quiet`.
+
+Impact sur la suite de tests existante : 71 tests en échec immédiatement
+après le flip (toute la boucle d'outils de base — `test_graph.py`,
+`test_streaming_endpoint.py`, etc. — mockait une séquence FIXE de réponses
+`/v1/chat/completions` sans jamais viser ces mécanismes, cassée par le
+premier appel planificateur désormais déclenché par défaut). Plutôt que
+d'ajouter `monkeypatch.setattr(g, "X_ENABLED", False)` dans chacun des ~65
+tests concernés, nouvelle fixture autouse `tests/conftest.py::
+_default_cognitive_core_flags_to_false` : ramène le comportement de TEST
+au défaut pré-cœur-cognitif pour toute la suite, un test qui veut
+spécifiquement exercer un mécanisme continue de forcer sa propre valeur
+(déjà le cas pour `test_plan_task.py` etc.) — même instance `monkeypatch`
+partagée dans un test, la valeur du test l'emporte. 296/296 repassent.
+
+**2. `check_agent_flags()`** (`tests_integration/campaign_preflight.py`) :
+nouvelle vérification de préambule, câblée entre la fraîcheur d'image
+tabbyapi et le schéma d'outils (readiness LLM d'abord, la moins chère à
+constater en erreur). Compare les flags EFFECTIFS du conteneur
+`langgraph-agent` (`docker exec ... env`, réutilise
+`campaign_persistence.collect_env_flags` plutôt que d'en dupliquer une
+variante) à `EXPECTED_AGENT_FLAGS` — 23 variables reprises telles quelles
+de `app/graph.py`/`app/approval_policy.py` (jamais devinées). Écart →
+`PreflightError` avec le diff clé/attendu/effectif et la commande à taper.
+Complète le même besoin trouvé pour `check_tabbyapi_image_fresh` (arbitrage
+post-1/2-ter) : une config qu'on croit mesurer mais qu'on ne mesure pas
+réellement, silencieusement.
+
+**Découverte en construisant ce garde-fou** : 10 des 23 variables
+(`LLM_MAX_TOKENS`, `MAX_IMAGES_IN_CONTEXT`, `AUTO_APPROVAL_STREAK_LIMIT`,
+`AUTO_APPROVED_TOOLS`, `APPROVAL_RULES_PATH`,
+`BROWSER_TOOL_OUTPUT_MAX_CHARS`, `AFFORDANCE_THRESHOLD`,
+`FABRICATION_LIMIT`, `BROWSER_NAVIGATE_GUARDRAIL`, `AUDIT_LOG_MAX_BYTES`)
+n'étaient PAS passées en `environment:` dans `docker-compose.yml` — `docker
+exec ... env` les aurait montrées absentes quel que soit le défaut réel du
+code Python, rendant `check_agent_flags` inopérant pour elles.
+`docker-compose.yml` étendu pour toutes les passer explicitement avec un
+défaut `${VAR:-<défaut du code>}`, identique au code — nécessaire pour que
+le garde-fou soit réellement vérifiable, pas une extension hors périmètre.
+
+**3. Sérialisation** : déjà couvert par `campaign_persistence.
+CAMPAIGN_ENV_FLAGS`/`collect_metadata` (chantier persistance ci-dessus) —
+23 des 24 noms de `EXPECTED_AGENT_FLAGS` y sont déjà, la seule différence
+étant `TZ` (capturé côté persistance pour contexte, absent côté préambule
+car aucune valeur "correcte" unique à imposer). Aucun changement de code
+nécessaire, vérifié par comparaison programmatique des deux listes.
+
+4 nouveaux tests (`test_check_agent_flags_*`,
+`test_run_preflight_checks_flags_before_schema_but_after_image_freshness`)
++ suite complète : 300/300 passent.
+
+## ANGLE MORT D'AUDIT — correctif (dernier point du lot avant checkpoint complet)
+
+Corrige l'angle mort noté depuis l'investigation T9 (voir plus haut) :
+seul `auto_call_tools` journalisait dans `/workspace/.audit` — un tour
+passé par `require_approval` (`call_tools`) n'était JAMAIS audité, au motif
+qu'"un humain a déjà vu passer la demande, déjà tracée dans l'historique de
+conversation". Ce raisonnement ne tient pas en campagne automatisée
+(`_approve(..., grant_session=True)` joue ce rôle sans qu'aucun humain ne
+regarde), et l'historique de conversation lui-même ne survit pas à un
+redémarrage du service (checkpointer `MemorySaver`, en mémoire uniquement)
+— le journal d'audit est alors la SEULE trace persistante, et le tout
+premier appel de chaque outil par thread (le plus utile à l'investigation)
+restait invisible, même en campagne.
+
+**Correctif** (`app/graph.py`) : `_execute_tool_calls` audite désormais
+tout tool_call dont le tier effectif n'est pas `TIER_READ` (silencieux par
+design), qu'il vienne de `call_tools` ou `auto_call_tools` — retrait du
+paramètre `audit: bool` devenu sans objet, le gating est maintenant
+purement par tier. `call_tools`/`auto_call_tools` appellent la même
+fonction sans distinction.
+
+**Subtilité trouvée en écrivant les tests** : `require_approval` met à
+jour `session_grants` (ajout du/des outil(s) du tour) AVANT que ce même
+tour n'exécute son tool_call via `call_tools` — le tout premier appel qui
+déclenche un grant "pour la session" est donc déjà résolu en tier
+`"reversible"` (pas `"sensitive"`) au moment de l'audit, puisque
+`effective_tier` consulte `session_grants` qui contient déjà l'outil.
+Comportement préexistant (pas introduit par ce correctif, jamais visible
+avant puisque rien n'était audité côté `call_tools`) : documenté tel quel
+dans `test_granted_followup_call_is_also_audited`, pas corrigé ici (hors
+périmètre de cet angle mort précis — la correction complète nécessiterait
+de distinguer le tier "au moment de la demande" du tier "au moment de
+l'exécution", un chantier séparé). Un test dédié sans grant de session
+(`test_first_sensitive_call_approved_without_grant_is_audited`) isole
+proprement le cas simple où le tier `"sensitive"` du tout premier appel est
+correctement audité.
+
+Documentation mise à jour en cohérence : `audit_log.py` (docstring de
+module), `app/graph.py` (docstring de module, description du flux),
+`docs/architecture/tool-supervision.md`, `docs/operations/testing.md`.
+301/301 tests passent (300 + 1 net, un test remplacé par deux pour isoler
+les deux scénarios ci-dessus).
+
+## MODE BULK DE BROWSER_EXTRACT — dernier point du lot avant checkpoint complet
+
+Correctif T1 (`BULK_CHECK_DIRECTIVE`) fonctionnait via `browser_evaluate`
+(boucle `fetch()` écrite par le modèle) mais restait fragile —
+`TIER_SENSITIVE`/`NEVER_GRANTABLE`, dépend du modèle pour écrire du JS
+correct à chaque campagne, pour un besoin qui n'a jamais requis de code
+arbitraire (juste une requête sur PLUSIEURS pages plutôt qu'une seule).
+
+**Ajouté** (`services/mcp-client/app/main.py`) : `browser_extract` accepte
+désormais un paramètre `urls` optionnel. Sans lui, comportement strictement
+inchangé (template mono-page existant, `_build_extract_function(query)`).
+Avec lui, `_BROWSER_EXTRACT_BULK_JS_TEMPLATE` — même parcours de nœuds
+texte que le template mono-page, mais par URL : `fetch(url)` +
+`new DOMParser().parseFromString(html, 'text/html')`, résultats agrégés
+`{checked, matches: {url: [...]}, errors: {url: "..."}}`. Requête ET URL
+interpolées via `json.dumps` (même garantie d'échappement que le mode
+mono-page, étendue à un tableau) — le modèle ne fournit toujours aucun
+code, `TIER_READ` inchangé. Échec sur une URL individuelle (réseau, CORS
+cross-origin) capturé par page dans `errors`, jamais propagé à tout le
+lot — plafonné à 50 URL/appel et 20 résultats/page (mêmes bornes que le
+mode mono-page).
+
+`BULK_CHECK_DIRECTIVE` (`app/graph.py`) mis à jour pour pointer vers ce
+paramètre plutôt que vers `browser_evaluate`. Tests ajoutés côté
+`mcp-client` (rétrocompatibilité stricte sans `urls`, échappement JSON du
+tableau d'URL, dispatch du template bulk, schéma `urls` optionnel/`query`
+seul requis) et côté `langgraph-agent` (contenu de la directive mis à
+jour). 301/301 (langgraph-agent) + 28/28 (mcp-client, 24+4) passent.
+
+Non re-mesuré en conditions réelles dans ce tour (pas de campagne live
+lancée) — la préférence de ce mode par le modèle face à
+`browser_evaluate`/`browser_navigate` reste à confirmer sur la prochaine
+campagne complète.

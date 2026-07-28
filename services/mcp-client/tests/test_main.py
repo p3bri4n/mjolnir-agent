@@ -302,7 +302,7 @@ def _patch_open_session(main_mod, monkeypatch):
 def test_persistent_session_reused_across_calls(monkeypatch):
     """
     Le serveur "browser" (Playwright) scope son état navigateur à la SESSION
-    MCP, pas au process serveur (voir BUGS.md) : mcp-client doit donc réutiliser
+    MCP, pas au process serveur (voir docs/resolved-bugs.md) : mcp-client doit donc réutiliser
     la même session entre deux appels d'outils plutôt que d'en rouvrir une à
     chaque fois, sans quoi l'état (page visitée...) serait perdu entre deux
     appels malgré un serveur HTTP persistant.
@@ -385,7 +385,7 @@ def test_persistent_session_dropped_and_reopened_after_error(monkeypatch):
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# browser_extract (Phase 1d-révisée, voir HISTORY.md "correctif extraction") :
+# browser_extract (Phase 1d-révisée, voir docs/history.md "correctif extraction") :
 # outil synthétique dispatché en interne vers browser_evaluate avec un
 # template JS FIXE — le modèle ne fournit jamais de code, seulement un texte
 # à chercher.
@@ -445,7 +445,59 @@ def test_browser_extract_dispatches_to_browser_evaluate_with_fixed_template(brow
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# POST /reset-session/{server_name} (Phase 1d-révisée, voir HISTORY.md
+# Mode bulk de browser_extract (trouvé en investiguant T1, voir
+# BULK_CHECK_DIRECTIVE app/graph.py) : `urls` optionnel vérifie PLUSIEURS
+# pages en un seul appel via fetch()+DOMParser (TIER_READ, aucun code fourni
+# par le modèle) plutôt que la boucle browser_evaluate écrite par le modèle.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_build_extract_function_without_urls_returns_single_page_template():
+    """Rétrocompatibilité stricte : sans `urls`, le template est
+    inchangé — aucune régression du mode mono-page existant."""
+    import app.main as main_mod
+
+    assert main_mod._build_extract_function("KX-4471", None) == main_mod._build_extract_function("KX-4471")
+    assert main_mod._build_extract_function("KX-4471", []) == main_mod._build_extract_function("KX-4471")
+
+
+def test_build_extract_function_with_urls_embeds_query_and_urls_as_escaped_json():
+    """Requête ET URL interpolées via json.dumps — même garantie
+    d'échappement que le mode mono-page, étendue à un tableau."""
+    import app.main as main_mod
+
+    urls = ["http://catalog/product-1.html", '") ; alert(1); ("']
+    js = main_mod._build_extract_function("KX-4471", urls)
+    assert json.dumps("KX-4471") in js
+    assert json.dumps(urls) in js
+    assert "fetch(url)" in js
+    assert "DOMParser" in js
+    assert "async () =>" in js  # fetch() nécessite une fonction async, contrairement au mode mono-page
+
+
+def test_browser_extract_dispatches_bulk_template_when_urls_provided(browser_evaluate_echo_server):
+    import app.main as main_mod
+
+    urls = ["http://catalog/product-1.html", "http://catalog/product-2.html"]
+    resp = _client().post(
+        "/call", json={"tool": "browser_extract", "arguments": {"query": "KX-4471", "urls": urls}}
+    )
+    assert resp.status_code == 200
+    text = resp.json()["content"][0]["text"]
+    assert text == main_mod._build_extract_function("KX-4471", urls)
+    assert json.dumps(urls) in text
+
+
+def test_browser_extract_schema_declares_optional_urls_array(browser_evaluate_echo_server):
+    resp = _client().get("/tools/schema")
+    tool = next(t for t in resp.json()["tools"] if t["function"]["name"] == "browser_extract")
+    props = tool["function"]["parameters"]["properties"]
+    assert props["urls"]["type"] == "array"
+    assert tool["function"]["parameters"]["required"] == ["query"]  # urls reste optionnel
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# POST /reset-session/{server_name} (Phase 1d-révisée, voir docs/history.md
 # "isolation entre tâches") : purge une session persistante (état
 # navigateur/onglets pour "browser") entre deux tâches du harnais.
 # ─────────────────────────────────────────────────────────────────────────
@@ -491,3 +543,111 @@ def test_reset_session_non_persistent_server_is_404():
     une faute de frappe côté appelant."""
     resp = _client().post("/reset-session/echo")
     assert resp.status_code == 404
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Stabilisation post-navigation (voir docs/history.md, investigation T10 :
+# "désynchronisation snapshot/URL") : browser_wait_for appelé automatiquement
+# après CHAQUE browser_navigate/browser_click réussi, transparent pour
+# l'agent, avant que le prochain outil (browser_snapshot ou autre) ne voie
+# le résultat.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+class _RecordingSession:
+    """Session factice : enregistre chaque appel (nom, arguments) et renvoie
+    un résultat minimal, sans dépendre d'un vrai serveur MCP/navigateur."""
+
+    def __init__(self, calls):
+        self.calls = calls
+
+    async def call_tool(self, name, arguments):
+        from mcp.types import TextContent
+
+        self.calls.append((name, arguments))
+
+        class _Result:
+            content = [TextContent(type="text", text=f"ok:{name}")]
+
+        return _Result()
+
+
+def _patch_run_on_server_recording(main_mod, monkeypatch):
+    """Court-circuite _run_on_server (déjà testé séparément, voir plus haut)
+    pour isoler la logique ajoutée dans call_tool() elle-même : une seule
+    session factice enregistrant tous les appels, quel que soit le serveur
+    visé."""
+    calls = []
+    session = _RecordingSession(calls)
+
+    async def fake_run_on_server(server_name, action):
+        return await action(session)
+
+    monkeypatch.setattr(main_mod, "_run_on_server", fake_run_on_server)
+    return calls
+
+
+def _register_fake_browser_tool(main_mod, name, required=None):
+    main_mod._tool_registry[name] = {
+        "server": "browser",
+        "description": "",
+        "inputSchema": {"type": "object", "properties": {}, "required": required or []},
+    }
+
+
+def test_browser_navigate_triggers_stabilization_wait(monkeypatch):
+    import app.main as main_mod
+
+    main_mod._tool_registry.clear()
+    _register_fake_browser_tool(main_mod, "browser_navigate", ["url"])
+    calls = _patch_run_on_server_recording(main_mod, monkeypatch)
+
+    resp = _client().post("/call", json={"tool": "browser_navigate", "arguments": {"url": "https://exemple.com"}})
+
+    assert resp.status_code == 200
+    assert calls == [
+        ("browser_navigate", {"url": "https://exemple.com"}),
+        ("browser_wait_for", {"time": main_mod.BROWSER_STABILIZE_WAIT_SECONDS}),
+    ]
+
+
+def test_browser_click_triggers_stabilization_wait(monkeypatch):
+    import app.main as main_mod
+
+    main_mod._tool_registry.clear()
+    _register_fake_browser_tool(main_mod, "browser_click", ["target"])
+    calls = _patch_run_on_server_recording(main_mod, monkeypatch)
+
+    resp = _client().post("/call", json={"tool": "browser_click", "arguments": {"target": "e1"}})
+
+    assert resp.status_code == 200
+    assert calls[-1] == ("browser_wait_for", {"time": main_mod.BROWSER_STABILIZE_WAIT_SECONDS})
+
+
+def test_browser_snapshot_does_not_trigger_stabilization_wait(monkeypatch):
+    """Seuls navigate/click déclenchent le délai — un simple snapshot ne
+    change pas la page, rien à stabiliser derrière lui."""
+    import app.main as main_mod
+
+    main_mod._tool_registry.clear()
+    _register_fake_browser_tool(main_mod, "browser_snapshot")
+    calls = _patch_run_on_server_recording(main_mod, monkeypatch)
+
+    resp = _client().post("/call", json={"tool": "browser_snapshot", "arguments": {}})
+
+    assert resp.status_code == 200
+    assert calls == [("browser_snapshot", {})]
+
+
+def test_stabilization_wait_disabled_via_zero_seconds(monkeypatch):
+    import app.main as main_mod
+
+    main_mod._tool_registry.clear()
+    _register_fake_browser_tool(main_mod, "browser_navigate", ["url"])
+    monkeypatch.setattr(main_mod, "BROWSER_STABILIZE_WAIT_SECONDS", 0.0)
+    calls = _patch_run_on_server_recording(main_mod, monkeypatch)
+
+    resp = _client().post("/call", json={"tool": "browser_navigate", "arguments": {"url": "https://exemple.com"}})
+
+    assert resp.status_code == 200
+    assert calls == [("browser_navigate", {"url": "https://exemple.com"})]

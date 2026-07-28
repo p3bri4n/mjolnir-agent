@@ -1,0 +1,255 @@
+{
+  "_note": "Index BEST-EFFORT reconstruit après coup (backfill_campaigns_index.py) pour les campagnes antérieures à campaign_persistence.py — ne contient PAS les métriques perdues (voir docs/history.md, constat), seulement une fenêtre temporelle approximative pour naviguer /workspace/.audit rétroactivement. Les campagnes postérieures à ce chantier ont leur propre campaign-<timestamp>-<label>.json, précis, à préférer à cet index.",
+  "campaigns": {
+    "2026-07-22_baseline_campagne-a": {
+      "ended_at": "2026-07-22T14:00:05.857814+00:00",
+      "has_done_marker": false,
+      "report": "2026-07-22_baseline_campagne-a.md",
+      "score": "Score de campagne : 16/33 passages réussis.",
+      "started_at": "2026-07-22T13:49:32.057814+00:00",
+      "total_duration_seconds": 633.8,
+      "window_precision": "approximate",
+      "window_precision_note": "started_at = ended_at - somme des durées par run : ignore les pauses d'approbation manuelle et les purges/reset entre runs, donc antérieur au vrai début réel — jamais postérieur (best-effort, pas exact)"
+    },
+    "2026-07-22_campaign_post-phase1": {
+      "ended_at": "2026-07-22T15:16:59.444002+00:00",
+      "has_done_marker": false,
+      "report": "2026-07-22_campaign_post-phase1.md",
+      "score": "Score de campagne : 24/33 passages réussis.",
+      "started_at": "2026-07-22T15:00:34.944002+00:00",
+      "total_duration_seconds": 984.5,
+      "window_precision": "approximate",
+      "window_precision_note": "started_at = ended_at - somme des durées par run : ignore les pauses d'approbation manuelle et les purges/reset entre runs, donc antérieur au vrai début réel — jamais postérieur (best-effort, pas exact)"
+    },
+    "2026-07-22_campaign_post-phase1b": {
+      "ended_at": "2026-07-22T15:55:58.192819+00:00",
+      "has_done_marker": false,
+      "report": "2026-07-22_campaign_post-phase1b.md",
+      "score": "Score de campagne : 20/33 passages réussis.",
+      "started_at": "2026-07-22T15:40:47.592819+00:00",
+      "total_duration_seconds": 910.6,
+      "window_precision": "approximate",
+      "window_precision_note": "started_at = ended_at - somme des durées par run : ignore les pauses d'approbation manuelle et les purges/reset entre runs, donc antérieur au vrai début réel — jamais postérieur (best-effort, pas exact)"
+    },
+    "2026-07-22_campaign_post-phase1c": {
+      "ended_at": "2026-07-22T16:19:30.627296+00:00",
+      "has_done_marker": false,
+      "report": "2026-07-22_campaign_post-phase1c.md",
+      "score": "Score de campagne : 24/33 passages réussis.",
+      "started_at": "2026-07-22T16:03:32.127296+00:00",
+      "total_duration_seconds": 958.5,
+      "window_precision": "approximate",
+      "window_precision_note": "started_at = ended_at - somme des durées par run : ignore les pauses d'approbation manuelle et les purges/reset entre runs, donc antérieur au vrai début réel — jamais postérieur (best-effort, pas exact)"
+    },
+    "2026-07-22_campaign_post-phase1d": {
+      "ended_at": "2026-07-22T18:21:29.724767+00:00",
+      "has_done_marker": false,
+      "report": "2026-07-22_campaign_post-phase1d.md",
+      "score": "Score de campagne : 24/33 passages réussis",
+      "started_at": null,
+      "total_duration_seconds": null,
+      "window_precision": "unknown",
+      "window_precision_note": "started_at = ended_at - somme des durées par run : ignore les pauses d'approbation manuelle et les purges/reset entre runs, donc antérieur au vrai début réel — jamais postérieur (best-effort, pas exact)"
+    },
+    "2026-07-22_campaign_post-phase1d-extract": {
+      "ended_at": "2026-07-22T20:52:29.215796+00:00",
+      "has_done_marker": false,
+      "report": "2026-07-22_campaign_post-phase1d-extract.md",
+      "score": "Score de campagne : 30/33 passages réussis",
+      "started_at": "2026-07-22T20:50:40.215796+00:00",
+      "total_duration_seconds": 109.0,
+      "window_precision": "approximate",
+      "window_precision_note": "started_at = ended_at - somme des durées par run : ignore les pauses d'approbation manuelle et les purges/reset entre runs, donc antérieur au vrai début réel — jamais postérieur (best-effort, pas exact)"
+    },
+    "2026-07-22_diagnostic_budget60": {
+      "ended_at": "2026-07-22T14:10:45.710429+00:00",
+      "has_done_marker": false,
+      "report": "2026-07-22_diagnostic_budget60.md",
+      "score": "Score de campagne : 25/33 passages réussis brut, 27/33 corrigé",
+      "started_at": "2026-07-22T14:02:09.910429+00:00",
+      "total_duration_seconds": 515.8,
+      "window_precision": "approximate",
+      "window_precision_note": "started_at = ended_at - somme des durées par run : ignore les pauses d'approbation manuelle et les purges/reset entre runs, donc antérieur au vrai début réel — jamais postérieur (best-effort, pas exact)"
+    },
+    "2026-07-22_diagnostic_t7-noise": {
+      "ended_at": "2026-07-22T20:26:48.090746+00:00.",
+      "has_done_marker": false,
+      "report": "2026-07-22_diagnostic_t7-noise.md",
+      "score": "Score : 1/5.",
+      "started_at": null,
+      "total_duration_seconds": null,
+      "window_precision": "unknown",
+      "window_precision_note": "started_at = ended_at - somme des durées par run : ignore les pauses d'approbation manuelle et les purges/reset entre runs, donc antérieur au vrai début réel — jamais postérieur (best-effort, pas exact)"
+    },
+    "2026-07-23_campaign_coeur-cognitif": {
+      "ended_at": "2026-07-23T15:10:11.849770+00:00",
+      "has_done_marker": false,
+      "report": "2026-07-23_campaign_coeur-cognitif.md",
+      "score": "Score de campagne (brut, avant correctif du bug de thread partagé — voir ci-dessous) : 28/33 passages réussis.",
+      "started_at": "2026-07-23T13:26:15.549770+00:00",
+      "total_duration_seconds": 6236.3,
+      "window_precision": "approximate",
+      "window_precision_note": "started_at = ended_at - somme des durées par run : ignore les pauses d'approbation manuelle et les purges/reset entre runs, donc antérieur au vrai début réel — jamais postérieur (best-effort, pas exact)"
+    },
+    "2026-07-23_campaign_correctif-latence": {
+      "ended_at": "2026-07-23T18:42:38.960338+00:00",
+      "has_done_marker": false,
+      "report": "2026-07-23_campaign_correctif-latence.md",
+      "score": "Score de campagne : 18/33 passages réussis.",
+      "started_at": "2026-07-23T17:06:04.660338+00:00",
+      "total_duration_seconds": 5794.3,
+      "window_precision": "approximate",
+      "window_precision_note": "started_at = ended_at - somme des durées par run : ignore les pauses d'approbation manuelle et les purges/reset entre runs, donc antérieur au vrai début réel — jamais postérieur (best-effort, pas exact)"
+    },
+    "2026-07-24_campaign_checkpoint-conscience-temporelle": {
+      "ended_at": "2026-07-24T15:38:47Z",
+      "has_done_marker": true,
+      "report": "2026-07-24_campaign_checkpoint-conscience-temporelle.md",
+      "score": "Score de campagne : 26/33 passages réussis.",
+      "started_at": "2026-07-24T15:02:25.400000+00:00",
+      "total_duration_seconds": 2181.6,
+      "window_precision": "approximate",
+      "window_precision_note": "started_at = ended_at - somme des durées par run : ignore les pauses d'approbation manuelle et les purges/reset entre runs, donc antérieur au vrai début réel — jamais postérieur (best-effort, pas exact)"
+    },
+    "2026-07-24_campaign_checkpoint-correctif-2-2-thinking-bride": {
+      "ended_at": "2026-07-24T13:01:54Z",
+      "has_done_marker": true,
+      "report": "2026-07-24_campaign_checkpoint-correctif-2-2-thinking-bride.md",
+      "score": "Score de campagne : 22/33 passages réussis.",
+      "started_at": "2026-07-24T12:27:38.700000+00:00",
+      "total_duration_seconds": 2055.3,
+      "window_precision": "approximate",
+      "window_precision_note": "started_at = ended_at - somme des durées par run : ignore les pauses d'approbation manuelle et les purges/reset entre runs, donc antérieur au vrai début réel — jamais postérieur (best-effort, pas exact)"
+    },
+    "2026-07-24_campaign_checkpoint-correctif-premier-hop": {
+      "ended_at": "2026-07-24T14:24:01Z",
+      "has_done_marker": true,
+      "report": "2026-07-24_campaign_checkpoint-correctif-premier-hop.md",
+      "score": "Score de campagne : 24/33 passages réussis.",
+      "started_at": "2026-07-24T13:49:41.600000+00:00",
+      "total_duration_seconds": 2059.4,
+      "window_precision": "approximate",
+      "window_precision_note": "started_at = ended_at - somme des durées par run : ignore les pauses d'approbation manuelle et les purges/reset entre runs, donc antérieur au vrai début réel — jamais postérieur (best-effort, pas exact)"
+    },
+    "2026-07-24_campaign_correctif-latence-1-2-bis": {
+      "ended_at": "2026-07-24T08:01:19.643943+00:00",
+      "has_done_marker": false,
+      "report": "2026-07-24_campaign_correctif-latence-1-2-bis.md",
+      "score": "Score de campagne : 26/33 passages réussis.",
+      "started_at": "2026-07-24T07:03:44.243943+00:00",
+      "total_duration_seconds": 3455.4,
+      "window_precision": "approximate",
+      "window_precision_note": "started_at = ended_at - somme des durées par run : ignore les pauses d'approbation manuelle et les purges/reset entre runs, donc antérieur au vrai début réel — jamais postérieur (best-effort, pas exact)"
+    },
+    "2026-07-24_campaign_correctif-latence-1-2-ter": {
+      "ended_at": "2026-07-24T10:12:39.133123+00:00",
+      "has_done_marker": false,
+      "report": "2026-07-24_campaign_correctif-latence-1-2-ter.md",
+      "score": "Score de campagne : 24/33 passages réussis.",
+      "started_at": "2026-07-24T08:30:44.433123+00:00",
+      "total_duration_seconds": 6114.7,
+      "window_precision": "approximate",
+      "window_precision_note": "started_at = ended_at - somme des durées par run : ignore les pauses d'approbation manuelle et les purges/reset entre runs, donc antérieur au vrai début réel — jamais postérieur (best-effort, pas exact)"
+    },
+    "2026-07-24_smoke_1-2-ter-cache-degraisse": {
+      "ended_at": "2026-07-24T11:26:19Z",
+      "has_done_marker": true,
+      "report": "2026-07-24_smoke_1-2-ter-cache-degraisse.md",
+      "score": "Score de campagne : 6/10 passages réussis.",
+      "started_at": "2026-07-24T10:53:03.300000+00:00",
+      "total_duration_seconds": 1995.7,
+      "window_precision": "approximate",
+      "window_precision_note": "started_at = ended_at - somme des durées par run : ignore les pauses d'approbation manuelle et les purges/reset entre runs, donc antérieur au vrai début réel — jamais postérieur (best-effort, pas exact)"
+    },
+    "2026-07-24_smoke_adhoc-184900": {
+      "ended_at": "2026-07-24T16:54:54Z",
+      "has_done_marker": true,
+      "report": "2026-07-24_smoke_adhoc-184900.md",
+      "score": "Score de campagne : 3/3 passages réussis.",
+      "started_at": "2026-07-24T16:49:04.500000+00:00",
+      "total_duration_seconds": 349.5,
+      "window_precision": "approximate",
+      "window_precision_note": "started_at = ended_at - somme des durées par run : ignore les pauses d'approbation manuelle et les purges/reset entre runs, donc antérieur au vrai début réel — jamais postérieur (best-effort, pas exact)"
+    },
+    "2026-07-24_smoke_adhoc-193826": {
+      "ended_at": "2026-07-24T17:43:28Z",
+      "has_done_marker": true,
+      "report": "2026-07-24_smoke_adhoc-193826.md",
+      "score": "Score de campagne : 2/3 passages réussis.",
+      "started_at": "2026-07-24T17:38:29.600000+00:00",
+      "total_duration_seconds": 298.4,
+      "window_precision": "approximate",
+      "window_precision_note": "started_at = ended_at - somme des durées par run : ignore les pauses d'approbation manuelle et les purges/reset entre runs, donc antérieur au vrai début réel — jamais postérieur (best-effort, pas exact)"
+    },
+    "2026-07-24_smoke_conscience-temporelle": {
+      "ended_at": "2026-07-24T14:46:22Z",
+      "has_done_marker": true,
+      "report": "2026-07-24_smoke_conscience-temporelle.md",
+      "score": "Score de campagne : 2/3 passages réussis.",
+      "started_at": "2026-07-24T14:44:48.900000+00:00",
+      "total_duration_seconds": 93.1,
+      "window_precision": "approximate",
+      "window_precision_note": "started_at = ended_at - somme des durées par run : ignore les pauses d'approbation manuelle et les purges/reset entre runs, donc antérieur au vrai début réel — jamais postérieur (best-effort, pas exact)"
+    },
+    "2026-07-24_smoke_degraisse-v2": {
+      "ended_at": "2026-07-24T11:55:37Z",
+      "has_done_marker": true,
+      "report": "2026-07-24_smoke_degraisse-v2.md",
+      "score": "Score de campagne : 4/8 passages réussis.",
+      "started_at": "2026-07-24T11:29:02.400000+00:00",
+      "total_duration_seconds": 1594.6,
+      "window_precision": "approximate",
+      "window_precision_note": "started_at = ended_at - somme des durées par run : ignore les pauses d'approbation manuelle et les purges/reset entre runs, donc antérieur au vrai début réel — jamais postérieur (best-effort, pas exact)"
+    },
+    "2026-07-24_smoke_fix-biais-requete": {
+      "ended_at": "2026-07-24T15:00:34Z",
+      "has_done_marker": true,
+      "report": "2026-07-24_smoke_fix-biais-requete.md",
+      "score": "Score de campagne : 3/3 passages réussis.",
+      "started_at": "2026-07-24T14:58:38+00:00",
+      "total_duration_seconds": 116.0,
+      "window_precision": "approximate",
+      "window_precision_note": "started_at = ended_at - somme des durées par run : ignore les pauses d'approbation manuelle et les purges/reset entre runs, donc antérieur au vrai début réel — jamais postérieur (best-effort, pas exact)"
+    },
+    "2026-07-24_smoke_fix-premier-hop": {
+      "ended_at": "2026-07-24T13:37:15Z",
+      "has_done_marker": true,
+      "report": "2026-07-24_smoke_fix-premier-hop.md",
+      "score": "Score de campagne : 4/9 passages réussis.",
+      "started_at": "2026-07-24T13:27:20.500000+00:00",
+      "total_duration_seconds": 594.5,
+      "window_precision": "approximate",
+      "window_precision_note": "started_at = ended_at - somme des durées par run : ignore les pauses d'approbation manuelle et les purges/reset entre runs, donc antérieur au vrai début réel — jamais postérieur (best-effort, pas exact)"
+    },
+    "2026-07-24_smoke_fix-snapshot-desync": {
+      "ended_at": "2026-07-24T16:12:09Z",
+      "has_done_marker": true,
+      "report": "2026-07-24_smoke_fix-snapshot-desync.md",
+      "score": "Score de campagne : 3/3 passages réussis.",
+      "started_at": "2026-07-24T16:06:30+00:00",
+      "total_duration_seconds": 339.0,
+      "window_precision": "approximate",
+      "window_precision_note": "started_at = ended_at - somme des durées par run : ignore les pauses d'approbation manuelle et les purges/reset entre runs, donc antérieur au vrai début réel — jamais postérieur (best-effort, pas exact)"
+    },
+    "2026-07-24_smoke_fix-t1-bulk-check": {
+      "ended_at": "2026-07-24T16:34:00Z",
+      "has_done_marker": true,
+      "report": "2026-07-24_smoke_fix-t1-bulk-check.md",
+      "score": "Score de campagne : 3/3 passages réussis.",
+      "started_at": "2026-07-24T16:30:27.400000+00:00",
+      "total_duration_seconds": 212.6,
+      "window_precision": "approximate",
+      "window_precision_note": "started_at = ended_at - somme des durées par run : ignore les pauses d'approbation manuelle et les purges/reset entre runs, donc antérieur au vrai début réel — jamais postérieur (best-effort, pas exact)"
+    },
+    "2026-07-24_smoke_thinking-bride": {
+      "ended_at": "2026-07-24T12:25:29Z",
+      "has_done_marker": true,
+      "report": "2026-07-24_smoke_thinking-bride.md",
+      "score": "Score de campagne : 6/8 passages réussis.",
+      "started_at": "2026-07-24T12:16:00+00:00",
+      "total_duration_seconds": 569.0,
+      "window_precision": "approximate",
+      "window_precision_note": "started_at = ended_at - somme des durées par run : ignore les pauses d'approbation manuelle et les purges/reset entre runs, donc antérieur au vrai début réel — jamais postérieur (best-effort, pas exact)"
+    }
+  }
+}

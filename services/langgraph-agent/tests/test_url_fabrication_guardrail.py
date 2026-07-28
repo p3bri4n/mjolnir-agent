@@ -1,16 +1,26 @@
 """
-Garde-fou fabrication d'URL (Phase 1, voir PLAN.md/HISTORY.md) : cible n°1
-du point zéro Phase 0 (tests_integration/test_web_tasks.py, T1/T7) — l'agent
-invente régulièrement des URL plausibles jamais observées (page-4.html sur
-un catalogue à 3 pages, un chemin de recherche inexistant...) plutôt que de
-suivre un lien réel du DOM.
+URL-fabrication guardrail (Phase 1, see PLAN.md/docs/history.md): finding
+#1 of the Phase 0 point-zero (tests_integration/test_web_tasks.py, T1/T7)
+— the agent regularly invents plausible URLs never observed (page-4.html
+on a 3-page catalog, a nonexistent search path...) rather than following
+a real DOM link.
 
-`browser_navigate` vérifie désormais l'URL demandée contre l'ensemble des
-URL observées (racines du périmètre de la tâche + navigations déjà
-exécutées + liens vus dans un résultat d'outil browser_* précédent) avant
-d'appeler mcp-client — une URL jamais observée est refusée SANS exécution,
-avec un feedback d'outil explicite, et comptée dans
-`fabricated_navigation_attempts`.
+`browser_navigate` now checks the requested URL against the set of
+observed URLs (task-scope roots + navigations already executed + links
+seen in a previous browser_* tool result) before calling mcp-client — a
+never-observed URL is rejected WITHOUT execution, with explicit tool
+feedback, and counted in `fabricated_navigation_attempts`.
+
+"First hop" fix (browser-session reliability effort, see
+docs/history.md): a task's very FIRST navigation (no URL observed yet,
+`has_prior_navigation` false in `app/graph.py`) is now ALWAYS allowed,
+even with no URL in the prompt — root cause found on real tasks with no
+given URL (T8 "on Wikipedia...", T11 "what's the latest Python
+version?") whose first navigation, though legitimate, was blocked as
+fabrication. The fabrication actually observed (T1/T7) always occurs
+AFTER exploration has already started, never as a first move: the
+guardrail stays fully active from the SECOND navigation onward, whether
+a URL was given or not.
 """
 
 import httpx
@@ -43,9 +53,45 @@ def mock_side_services():
 
 
 @pytest.mark.asyncio
-async def test_fabricated_url_blocked_without_calling_mcp(mock_side_services):
-    """Aucune URL mentionnée dans la tâche : browser_navigate vers une URL
-    jamais observée doit être refusé, même après approbation humaine."""
+async def test_first_navigate_without_task_url_is_allowed(mock_side_services):
+    """"First hop" fix (see docs/history.md): a real task with no URL in
+    the prompt (e.g. T8/T11) must no longer have its FIRST navigation
+    blocked as fabrication — nothing has been observed yet, no
+    fabrication is possible on a very first starting choice."""
+    import app.graph as g
+
+    route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
+    route.side_effect = [
+        _sse_response(tool_call_response("browser_navigate", "call_1", '{"url": "https://www.python.org/downloads/"}')),
+        _sse_response(text_response(["Réponse", " finale."])),
+    ]
+    mcp_route = mock_side_services.post("http://fake-mcp-client/call").mock(
+        return_value=httpx.Response(
+            200, json={"content": [{"type": "text", "text": "Page URL: https://www.python.org/downloads/"}]}
+        )
+    )
+    g.agent_graph = g.build_graph()
+
+    state = {
+        "messages": [{"role": "user", "content": "Quelle est la dernière version stable de Python ?"}],
+        "tool_iterations": 0,
+        "approved": None,
+    }
+    await g.agent_graph.ainvoke(state, CONFIG)
+    await g.agent_graph.aupdate_state(CONFIG, {"approved": True})
+    result = await g.agent_graph.ainvoke(None, CONFIG)
+
+    assert mcp_route.call_count == 1
+    assert result["fabricated_navigation_attempts"] == 0
+
+
+@pytest.mark.asyncio
+async def test_second_fabricated_url_still_blocked_without_calling_mcp(mock_side_services):
+    """Once AT LEAST one navigation has already happened (observed_urls
+    non-empty at the start, simulated here), a subsequent never-observed
+    URL stays rejected WITHOUT execution — the main protection
+    (fabrication during ongoing exploration, T1/T7) stays fully intact
+    after the "first hop" fix."""
     import app.graph as g
 
     route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
@@ -58,7 +104,12 @@ async def test_fabricated_url_blocked_without_calling_mcp(mock_side_services):
     )
     g.agent_graph = g.build_graph()
 
-    state = {"messages": [{"role": "user", "content": "Fais une recherche."}], "tool_iterations": 0, "approved": None}
+    state = {
+        "messages": [{"role": "user", "content": "Fais une recherche."}],
+        "tool_iterations": 0,
+        "approved": None,
+        "observed_urls": ["http://exemple.com/deja-observee.html"],
+    }
     await g.agent_graph.ainvoke(state, CONFIG)
     await g.agent_graph.aupdate_state(CONFIG, {"approved": True})
     result = await g.agent_graph.ainvoke(None, CONFIG)
@@ -71,8 +122,8 @@ async def test_fabricated_url_blocked_without_calling_mcp(mock_side_services):
 
 @pytest.mark.asyncio
 async def test_navigate_to_task_scope_url_is_allowed(mock_side_services):
-    """L'URL mentionnée dans le 1er message humain (périmètre de la tâche)
-    est autorisée d'emblée, sans avoir été "observée" au préalable."""
+    """The URL mentioned in the 1st human message (task scope) is
+    allowed right away, without having been "observed" beforehand."""
     import app.graph as g
 
     route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
@@ -100,8 +151,8 @@ async def test_navigate_to_task_scope_url_is_allowed(mock_side_services):
 
 
 def test_extract_urls_from_snapshot_resolves_relative_links():
-    """Les liens relatifs ("- /url: ...", format snapshot Playwright) sont
-    résolus en absolu via la page courante avant comparaison."""
+    """Relative links ("- /url: ...", Playwright snapshot format) are
+    resolved to absolute via the current page before comparison."""
     import app.graph as g
 
     text = (
@@ -139,12 +190,12 @@ def test_truncate_browser_result_leaves_small_text_untouched():
 
 
 def _synthetic_long_catalog_page(n_products: int) -> str:
-    """Simule un snapshot Playwright réel (voir HISTORY.md, "le tronquage
-    affame la navigation") : beaucoup de contenu descriptif AVANT la liste
-    de liens, comme la barre latérale de catégories de books.toscrape.com
-    qui, en conditions réelles, occupe justement les premiers milliers de
-    caractères et repousse la liste de produits après le seuil de
-    troncature."""
+    """Simulates a real Playwright snapshot (see docs/history.md,
+    "truncation starves navigation"): lots of descriptive content BEFORE
+    the link list, like books.toscrape.com's category sidebar which,
+    under real conditions, occupies exactly the first few thousand
+    characters and pushes the product list past the truncation
+    threshold."""
     filler = "\n".join(f"  - generic [ref=e{i}]: Description remplissage {i}" for i in range(400))
     links = "\n".join(
         f'    - link "Produit #{i}" [ref=p{i}] [cursor=pointer]:\n      - /url: /catalog/product-{i}.html'
@@ -154,17 +205,17 @@ def _synthetic_long_catalog_page(n_products: int) -> str:
 
 
 def test_structured_truncation_preserves_all_links_below_affordance_threshold():
-    """Critère explicite (voir HISTORY.md) : page catalogue longue mais SOUS
-    AFFORDANCE_THRESHOLD -> le snapshot tronqué contient 100% des liens,
-    malgré un plafond de taille largement dépassé par le texte brut."""
+    """Explicit criterion (see docs/history.md): long catalog page but
+    BELOW AFFORDANCE_THRESHOLD -> the truncated snapshot contains 100% of
+    the links, despite a size cap largely exceeded by the raw text."""
     import app.graph as g
 
     n_products = min(40, g.AFFORDANCE_THRESHOLD - 1)
     text = _synthetic_long_catalog_page(n_products=n_products)
-    assert len(text) > 8000  # confirme que ce cas dépasserait bien le plafond par défaut
+    assert len(text) > 8000  # confirms this case would indeed exceed the default cap
 
     all_links = g._extract_urls(text, "http://fixture-catalog/catalog/page-1.html")
-    assert len(all_links) == n_products + 1  # + l'URL de la page elle-même (ligne "Page URL: ...")
+    assert len(all_links) == n_products + 1  # + the page's own URL ("Page URL: ..." line)
 
     result = {"content": [{"type": "text", "text": text}]}
     truncated = g._truncate_browser_result(result, max_chars=2000)
@@ -172,15 +223,15 @@ def test_structured_truncation_preserves_all_links_below_affordance_threshold():
 
     assert len(truncated_text) < len(text)
     survived_links = g._extract_urls(truncated_text, "http://fixture-catalog/catalog/page-1.html")
-    assert survived_links == all_links  # 100% des liens, aucune perte malgré la troncature
+    assert survived_links == all_links  # 100% of links, no loss despite truncation
 
 
 def test_hierarchical_inventory_keeps_pagination_and_relevant_content_on_huge_page():
-    """Critère explicite (Phase 1d, point 2) : page à 500 liens -> le
-    snapshot tronqué contient la pagination ET le contenu pertinent pour
-    l'objectif de la tâche — voir HISTORY.md, vérification d'archive T8
-    (593 affordances sur une vraie page Wikipédia affamaient tout le
-    contenu, y compris le lien sémantique "Naissance" -> "Muret")."""
+    """Explicit criterion (Phase 1d, point 2): a 500-link page -> the
+    truncated snapshot contains the pagination AND the content relevant
+    to the task's objective — see docs/history.md, T8 archive check (593
+    affordances on a real Wikipedia page starved all content, including
+    the semantic link "Naissance" -> "Muret")."""
     import app.graph as g
 
     filler = "\n".join(f"  - generic [ref=e{i}]: Bruit {i}" for i in range(50))
@@ -207,10 +258,10 @@ def test_hierarchical_inventory_keeps_pagination_and_relevant_content_on_huge_pa
     truncated = g._truncate_browser_result(result, max_chars=4000, objective="trouve l'article KX-4471")
     truncated_text = truncated["content"][0]["text"]
 
-    assert "/catalog/page-2.html" in truncated_text  # pagination "Suivant" toujours intégrale
-    assert "/catalog/page-0.html" in truncated_text  # pagination "Précédent" toujours intégrale
-    assert "/catalog/product-target.html" in truncated_text  # contenu pertinent pour l'objectif, priorisé
-    assert "liens de contenu supplémentaires" in truncated_text  # le reste est compté, pas listé
+    assert "/catalog/page-2.html" in truncated_text  # "Next" pagination always kept whole
+    assert "/catalog/page-0.html" in truncated_text  # "Previous" pagination always kept whole
+    assert "/catalog/product-target.html" in truncated_text  # content relevant to the objective, prioritized
+    assert "liens de contenu supplémentaires" in truncated_text  # the rest is counted, not listed
 
 
 def test_extract_affordances_pairs_labels_with_urls_and_lists_buttons_without():
@@ -226,10 +277,10 @@ def test_extract_affordances_pairs_labels_with_urls_and_lists_buttons_without():
 
 
 def test_fabrication_feedback_tier1_is_minimal_without_link_list():
-    """Rejets 1-2 (voir HISTORY.md, Phase 1c) : message minimal, AUCUNE
-    liste — le snapshot structuré contient déjà l'inventaire complet des
-    liens (voir _extract_affordances), le re-fournir à chaque rejet était
-    la vraie cause du recul en 1b."""
+    """Rejections 1-2 (see docs/history.md, Phase 1c): minimal message, NO
+    list — the structured snapshot already contains the full link
+    inventory (see _extract_affordances), re-supplying it on every
+    rejection was the real cause of the 1b regression."""
     import app.graph as g
 
     for attempt in (1, 2):
@@ -240,8 +291,8 @@ def test_fabrication_feedback_tier1_is_minimal_without_link_list():
 
 
 def test_fabrication_feedback_tier2_includes_closest_links():
-    """Rejet 3 (et jusqu'à FABRICATION_LIMIT-1) : quelques liens les plus
-    proches de l'URL fabriquée, pas un annuaire complet."""
+    """Rejection 3 (and up to FABRICATION_LIMIT-1): a few links closest to
+    the fabricated URL, not a full directory."""
     import app.graph as g
 
     available = [
@@ -251,18 +302,18 @@ def test_fabrication_feedback_tier2_includes_closest_links():
     ]
     feedback = g._fabrication_feedback("http://fixture-catalog/catalog/product-4471.html", 3, available)
     assert "tentative n°3" in feedback
-    assert "http://fixture-catalog/catalog/product-4471-x.html" in feedback  # le plus proche du match fabriqué
+    assert "http://fixture-catalog/catalog/product-4471-x.html" in feedback  # closest to the fabricated match
 
 
 def test_fabrication_feedback_at_limit_always_concludes_absence():
-    """Au plafond (FABRICATION_LIMIT, défaut 5) : message inconditionnel
-    (Phase 1c) — pousse vers une conclusion honnête d'absence plutôt que
-    vers une énième supposition (pont vers T7). Une redirection
-    conditionnelle vers des "candidats forts" a été tentée en Phase 1d puis
-    SUSPENDUE (voir HISTORY.md, vérification d'archive T5/T8) : l'hypothèse
-    motivant ce branchement n'était pas soutenue par les séquences
-    observées — le vrai correctif T5 vit côté infra (volume de
-    téléchargement dédié), pas dans ce feedback."""
+    """At the cap (FABRICATION_LIMIT, default 5): unconditional message
+    (Phase 1c) — pushes toward an honest absence conclusion rather than
+    yet another guess (bridge to T7). A conditional redirect toward
+    "strong candidates" was attempted in Phase 1d then SUSPENDED (see
+    docs/history.md, T5/T8 archive check): the hypothesis motivating this
+    branch wasn't supported by the observed sequences — the real T5 fix
+    lives on the infra side (dedicated download volume), not in this
+    feedback."""
     import app.graph as g
 
     available = ["http://exemple.com/reel.html"]
@@ -274,9 +325,13 @@ def test_fabrication_feedback_at_limit_always_concludes_absence():
 
 @pytest.mark.asyncio
 async def test_fabrication_attempt_number_wired_from_state_counter(mock_side_services):
-    """Vérifie le câblage bout en bout (pas juste _fabrication_feedback en
-    isolation) : le 1er rejet de la tâche doit recevoir le message tier 1
-    (minimal), cohérent avec fabricated_navigation_attempts=0 au départ."""
+    """Verifies the end-to-end wiring (not just _fabrication_feedback in
+    isolation): the task's 1st REJECTION must receive the tier 1
+    (minimal) message, consistent with fabricated_navigation_attempts=0
+    at the start. Simulates an already-performed navigation
+    (observed_urls non-empty, see "first hop" fix) so that THIS
+    navigation is indeed the first to be evaluated by the guardrail, not
+    the task's very first one (now always allowed)."""
     import app.graph as g
 
     route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
@@ -289,11 +344,16 @@ async def test_fabrication_attempt_number_wired_from_state_counter(mock_side_ser
     )
     g.agent_graph = g.build_graph()
 
-    state = {"messages": [{"role": "user", "content": "Trouve un prix."}], "tool_iterations": 0, "approved": None}
+    state = {
+        "messages": [{"role": "user", "content": "Trouve un prix."}],
+        "tool_iterations": 0,
+        "approved": None,
+        "observed_urls": ["http://exemple.com/deja-observee.html"],
+    }
     await g.agent_graph.ainvoke(state, CONFIG)
     await g.agent_graph.aupdate_state(CONFIG, {"approved": True})
     result = await g.agent_graph.ainvoke(None, CONFIG)
 
     tool_message = next(m for m in result["messages"] if getattr(m, "type", None) == "tool")
-    assert "tentative n°" not in tool_message.content  # tier 1 : pas de numéro affiché, message minimal
+    assert "tentative n°" not in tool_message.content  # tier 1: no number displayed, minimal message
     assert result["fabricated_navigation_attempts"] == 1

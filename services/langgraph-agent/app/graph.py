@@ -1,44 +1,42 @@
 """
-Graphe d'orchestration LangGraph.
+LangGraph orchestration graph.
 
-Flux :
-  1. retrieve_context   -> interroge Context Manager (RAG / mémoire)
-  2. select_skill        -> interroge Skill Manager pour injecter un prompt de skill pertinent
-  3. plan_task            -> si PLANNER_ENABLED (Itération 1, Phase 1 « cœur
-     cognitif », voir docs/briefs/phase-1-coeur-cognitif.md), décompose
-     l'objectif en sous-tâches JSON une seule fois par tâche ; no-op sinon
-     ou si déjà planifié (voir AgentState.plan)
-  4. call_llm             -> appelle le backend d'inférence (TabbyAPI par
-     défaut, API OpenAI-compatible) avec function calling
-  6. has_tool_calls       -> route vers require_approval, ou directement vers
-     auto_call_tools si TOUS les tool_calls du tour sont auto-approuvés selon
-     la politique par tiers (app/approval_policy.py, voir plus bas)
-  7. require_approval (option) -> si le LLM demande un outil non auto-approuvé,
-     met le graphe en pause (NodeInterrupt) tant qu'un humain n'a pas
-     approuvé/refusé via l'état "approved"
-  8. call_tools | auto_call_tools | reject_tools -> exécute l'outil via MCP
-     Client (même logique partagée, voir _execute_tool_calls), ou synthétise
-     un refus si l'humain a refusé. Seul auto_call_tools journalise dans le
-     journal d'audit (Phase 2, voir app/audit_log.py) : call_tools est
-     TOUJOURS atteint après un passage humain par require_approval CE
-     tour-ci, déjà tracé dans la conversation.
-  9. verify_action        -> si VERIFICATION_ENABLED (Itération 2, Phase 1
-     « cœur cognitif »), compare le résultat du tour au success_criterion de
-     la sous-tâche active du plan ; no-op sinon (reboucle direct sur
-     call_llm, comme avant cette itération) — voir route_after_verification.
-  10. replan_task | report_failure -> si une sous-tâche est marquée
-     "echoue" : replanifie (budget REPLAN_BUDGET) ou rapporte un échec
-     honnête à l'utilisateur (END) une fois ce budget épuisé.
-  11. END                  -> réponse finale
+Flow:
+  1. retrieve_context   -> queries the Context Manager (RAG / memory)
+  2. select_skill        -> queries the Skill Manager to inject a relevant skill prompt
+  3. plan_task            -> if PLANNER_ENABLED (Iteration 1, Phase 1 "cognitive
+     core", see docs/briefs/phase-1-coeur-cognitif.md), decomposes the
+     objective into JSON subtasks once per task; no-op otherwise or if
+     already planned (see AgentState.plan)
+  4. call_llm             -> calls the inference backend (TabbyAPI by
+     default, OpenAI-compatible API) with function calling
+  6. has_tool_calls       -> routes to require_approval, or directly to
+     auto_call_tools if ALL the turn's tool_calls are auto-approved per
+     the per-tier policy (app/approval_policy.py, see below)
+  7. require_approval (optional) -> if the LLM requests a non-auto-approved
+     tool, pauses the graph (NodeInterrupt) until a human has
+     approved/refused via the "approved" state
+  8. call_tools | auto_call_tools | reject_tools -> runs the tool via the
+     MCP Client (same shared logic, see _execute_tool_calls), or
+     synthesizes a refusal if the human refused. Both log to the audit
+     log (Phase 2, see app/audit_log.py) any tier other than TIER_READ.
+  9. verify_action        -> if VERIFICATION_ENABLED (Iteration 2, Phase 1
+     "cognitive core"), compares the turn's result to the active
+     subtask's success_criterion; no-op otherwise (loops straight back to
+     call_llm, as before this iteration) — see route_after_verification.
+  10. replan_task | report_failure -> if a subtask is marked
+     "echoue": replans (REPLAN_BUDGET budget) or reports an honest
+     failure to the user (END) once that budget is exhausted.
+  11. END                  -> final answer
 
-Supervision humaine : par défaut, tout appel d'outil est soumis à
-approbation (voir require_approval/reject_tools ci-dessous), à l'exception
-des outils classés tier "read" ou "reversible" par app/approval_policy.py
-(souris/capture d'écran GhostDesk, lecture filesystem/git, par défaut — voir
-ce module pour le détail des tiers). Le graphe est donc compilé avec un
-checkpointer (MemorySaver, en mémoire) pour pouvoir suspendre puis reprendre
-l'exécution — au prix de perdre les approbations en attente si le service
-redémarre (acceptable pour un usage local, voir README).
+Human supervision: by default, every tool call is subject to approval
+(see require_approval/reject_tools below), except for tools classified as
+"read" or "reversible" tier by app/approval_policy.py (GhostDesk
+mouse/screenshot, filesystem/git reads, by default — see that module for
+the tier detail). The graph is therefore compiled with a checkpointer
+(MemorySaver, in-memory) so it can suspend then resume execution — at the
+cost of losing pending approvals if the service restarts (acceptable for
+local use, see README).
 """
 
 import base64
@@ -52,6 +50,8 @@ import json
 import re
 import shlex
 import uuid
+import zoneinfo
+from datetime import datetime
 from typing import Annotated, Optional, TypedDict
 from urllib.parse import urljoin
 
@@ -69,31 +69,31 @@ from app import approval_policy, audit_log, plan_validation
 
 logger = logging.getLogger(__name__)
 
-# Le raisonnement d'un modèle "thinking" arrive dans un champ dédié des
-# deltas SSE, en plus de "content" — hors du format OpenAI standard, que
-# langchain-openai ignore silencieusement (_convert_delta_to_message_chunk ne
-# lit que "content"/"tool_calls"/"function_call"). Le NOM de ce champ diffère
-# selon le backend : "reasoning" avec Ollama (modèles Qwen3+), "reasoning_
-# content" avec llama-server (confirmé en conditions réelles avec le fork
-# turboquant-webp servant Qwen3.6 — llama-server suit ici la convention
-# DeepSeek-R1/OpenAI o1, pas celle d'Ollama). Sans gérer les deux noms, le
-# raisonnement streamé par llama-server disparaîtrait silencieusement (aucune
-# erreur, juste absent du flux) — vérifié par un vrai appel streamé avant ce
-# correctif : les deltas ne contenaient que "reasoning_content", jamais
-# "reasoning". On réinjecte le contenu trouvé (quel que soit le nom du champ)
-# en le repliant dans "content", entouré de <think>...</think> (convention
-# reconnue par Open WebUI pour afficher une bulle de pensée repliable), ce
-# qui le fait apparaître dans le flux de streaming existant sans toucher à
-# app/main.py.
+# A "thinking" model's reasoning arrives in a dedicated field of the SSE
+# deltas, alongside "content" — outside the standard OpenAI format, which
+# langchain-openai silently ignores (_convert_delta_to_message_chunk only
+# reads "content"/"tool_calls"/"function_call"). The NAME of this field
+# differs by backend: "reasoning" with Ollama (Qwen3+ models),
+# "reasoning_content" with llama-server (confirmed under real conditions
+# with the turboquant-webp fork serving Qwen3.6 — llama-server follows the
+# DeepSeek-R1/OpenAI o1 convention here, not Ollama's). Without handling
+# both names, reasoning streamed by llama-server would silently disappear
+# (no error, just absent from the stream) — verified via a real streamed
+# call before this fix: the deltas only ever contained "reasoning_content",
+# never "reasoning". We reinject whatever content is found (regardless of
+# the field name) by folding it into "content", wrapped in
+# <think>...</think> (a convention recognized by Open WebUI to display a
+# collapsible thinking bubble), which makes it show up in the existing
+# streaming flow without touching app/main.py.
 #
-# TabbyAPI (backend par défaut depuis la migration ExLlamaV3, voir README
-# section Backend d'inférence) a son propre toggle `reasoning: true` côté
-# config.yml, mais le NOM du champ SSE qu'il émet sur le fil n'a pas encore
-# été vérifié empiriquement (voir tests_integration/CUDA-DIAGNOSTIC.md /
-# plan d'implémentation tabbyapi, risque ouvert #3) — si ni "reasoning" ni
-# "reasoning_content" ne matchent en conditions réelles, ajouter un troisième
-# `or _dict.get(...)` ci-dessous une fois le nom réel confirmé par un appel
-# streamé réel, pas deviné.
+# TabbyAPI (the default backend since the ExLlamaV3 migration, see README
+# section Inference backend) has its own `reasoning: true` toggle on the
+# config.yml side, but the NAME of the SSE field it emits on the wire
+# hasn't been empirically verified yet (see
+# tests_integration/CUDA-DIAGNOSTIC.md / tabbyapi implementation plan, open
+# risk #3) — if neither "reasoning" nor "reasoning_content" match under
+# real conditions, add a third `or _dict.get(...)` below once the real
+# name is confirmed by a real streamed call, not guessed.
 _think_state: contextvars.ContextVar[Optional[dict]] = contextvars.ContextVar(
     "_think_state", default=None
 )
@@ -112,14 +112,15 @@ def _convert_delta_with_reasoning(_dict, default_class):
         state["opened"] = True
         pieces = [prefix, reasoning]
         if real_content:
-            # Ce delta contient à la fois la fin du raisonnement ET le début
-            # de la réponse finale dans le MÊME chunk (observé avec
-            # TabbyAPI/ExLlamaV3 — llama-server/Ollama séparaient toujours
-            # les deux en chunks distincts, d'où ce bug invisible avant
-            # cette migration). Sans ce cas, chunk.content écrasé par le
-            # seul raisonnement juste en dessous jetait silencieusement la
-            # vraie réponse — le tour se terminait alors sans contenu
-            # visible, déclenchant à tort le filet de secours empty-answer.
+            # This delta contains both the end of the reasoning AND the
+            # start of the final answer in the SAME chunk (observed with
+            # TabbyAPI/ExLlamaV3 — llama-server/Ollama always kept the two
+            # in separate chunks, hence this bug being invisible before
+            # this migration). Without this case, chunk.content being
+            # overwritten by the reasoning alone right below would
+            # silently drop the real answer — the turn would then end
+            # with no visible content, wrongly triggering the
+            # empty-answer safety net.
             state["closed"] = True
             pieces.append("</think>\n\n")
             pieces.append(real_content)
@@ -137,37 +138,38 @@ CONTEXT_MANAGER_URL = os.environ.get("CONTEXT_MANAGER_URL", "http://context-mana
 SKILL_MANAGER_URL = os.environ.get("SKILL_MANAGER_URL", "http://skill-manager:8001")
 MCP_CLIENT_URL = os.environ.get("MCP_CLIENT_URL", "http://mcp-client:8003")
 
-# Garde-fou fabrication d'URL (Phase 1, voir PLAN.md/HISTORY.md — cible n°1
-# du point zéro Phase 0 : l'agent invente régulièrement des URL plausibles
-# jamais observées — page-4.html sur un catalogue à 3 pages, un chemin de
-# recherche inexistant... — plutôt que de suivre un lien réel du DOM).
+# URL-fabrication guardrail (Phase 1, see PLAN.md/docs/history.md — target
+# #1 of the Phase 0 point zero: the agent regularly invents plausible URLs
+# it never observed — page-4.html on a 3-page catalog, a nonexistent
+# search path... — rather than following a real link from the DOM).
 BROWSER_NAVIGATE_GUARDRAIL = os.environ.get("BROWSER_NAVIGATE_GUARDRAIL", "true").lower() == "true"
 
-# Feedback gradué (Phase 1c, voir HISTORY.md) : la 1b (liste complète des
-# liens à CHAQUE rejet) a fait reculer T4/T7/T8 par rapport à la 1a — la
-# liste complète était redondante (déjà dans le snapshot structuré) et
-# alourdissait chaque rejet. Trois paliers par NOMBRE DE TENTATIVES
-# fabriquées pour cette tâche (pas par sous-tâche — la Phase 1 complète,
-# pas encore faite, introduira ce découpage plus fin) :
-#   1-2  : message minimal, aucune liste (le snapshot l'a déjà).
-#   3..LIMIT-1 : + les quelques liens les plus proches de l'URL fabriquée
-#                (aide ciblée, pas un annuaire).
-#   >=LIMIT : le feedback change de nature — pousse vers une conclusion
-#             honnête d'absence plutôt que vers une énième supposition
-#             (pont vers T7 : l'obstination devient un aveu d'échec légitime).
+# Graduated feedback (Phase 1c, see docs/history.md): 1b (the full link
+# list on EVERY rejection) made T4/T7/T8 regress compared to 1a — the
+# full list was redundant (already in the structured snapshot) and
+# weighed down every rejection. Three tiers by NUMBER OF FABRICATED
+# ATTEMPTS for this task (not per subtask — the full Phase 1, not yet
+# done, will introduce this finer breakdown):
+#   1-2: minimal message, no list (the snapshot already has it).
+#   3..LIMIT-1: + a few links closest to the fabricated URL
+#                (targeted help, not a directory).
+#   >=LIMIT: the feedback changes nature — pushes toward an honest
+#             conclusion of absence rather than yet another guess
+#             (bridge to T7: persistence becomes a legitimate admission
+#             of failure).
 FABRICATION_LIMIT = int(os.environ.get("FABRICATION_LIMIT", "5"))
 
 def _fabrication_feedback(fabricated_url: str, attempt_number: int, page_links: list) -> str:
     if attempt_number >= FABRICATION_LIMIT:
-        # Plafond (Phase 1c) : redirection conditionnelle vers des "candidats
-        # forts" tentée en Phase 1d puis SUSPENDUE (voir HISTORY.md) —
-        # l'hypothèse motivant ce branchement (0a, vérification d'archive
-        # T5/T8) n'a pas été confirmée par les séquences réellement
-        # observées. Revient au message inconditionnel de 1c : au plafond,
-        # conclure à l'absence est une réponse valide, point final. Le vrai
-        # correctif T5 vit maintenant côté infra (volume de téléchargement
-        # dédié, voir HISTORY.md "Phase 1d-révisée") plutôt que dans une
-        # heuristique de similarité sur ce feedback.
+        # Cap (Phase 1c): conditional redirection to "strong candidates"
+        # tried in Phase 1d then SUSPENDED (see docs/history.md) — the
+        # hypothesis behind this branch (0a, T5/T8 archive check) wasn't
+        # confirmed by the sequences actually observed. Reverts to 1c's
+        # unconditional message: at the cap, concluding absence is a valid
+        # answer, full stop. The real T5 fix now lives on the infra side
+        # (dedicated download volume, see docs/history.md
+        # "Phase 1d-revised") rather than in a similarity heuristic on
+        # this feedback.
         return (
             f"URL non observée (tentative n°{attempt_number}). Plusieurs tentatives vers des URL "
             "inexistantes. Si la cible ne figure dans aucune page observée, conclure qu'elle "
@@ -205,26 +207,26 @@ _URL_RE = re.compile(r"https?://[^\s'\")\]]+")
 _SNAPSHOT_URL_LINE_RE = re.compile(r"/url:\s*(\S+)")
 _PAGE_URL_LINE_RE = re.compile(r"Page URL:\s*(\S+)")
 
-# Borne de sortie d'outil (Phase 1) : un résultat d'outil browser_* trop
-# volumineux (page réelle dense, voir T8/T11 — dépassement de contexte LLM
-# découvert en conditions réelles, voir HISTORY.md) est tronqué à la SOURCE,
-# avant d'entrer dans l'historique de conversation. Distinct de la rétention
-# d'images (Phase 2, MAX_IMAGES_IN_CONTEXT) : ceci borne la taille d'UN SEUL
-# résultat d'outil, pas l'historique complet.
+# Tool-output bound (Phase 1): an oversized browser_* tool result (a dense
+# real page, see T8/T11 — LLM context overflow discovered under real
+# conditions, see docs/history.md) is truncated at the SOURCE, before
+# entering the conversation history. Distinct from image retention (Phase
+# 2, MAX_IMAGES_IN_CONTEXT): this bounds the size of a SINGLE tool result,
+# not the whole history.
 BROWSER_TOOL_OUTPUT_MAX_CHARS = int(os.environ.get("BROWSER_TOOL_OUTPUT_MAX_CHARS", "8000"))
 
 
 def _clean_url(url: str) -> str:
-    """Retire la ponctuation de fin de phrase accolée par erreur au match
-    (ex. "http://exemple.com/page.html," dans une phrase française) — une
-    URL réelle ne se termine normalement jamais par ces caractères."""
+    """Strips trailing sentence punctuation mistakenly glued to the match
+    (e.g. "http://example.com/page.html," in a French sentence) — a real
+    URL normally never ends with these characters."""
     return url.rstrip(",.;:")
 
 
 def _extract_urls(text: str, base_url: Optional[str]) -> set:
-    """URL absolues et relatives (résolues via base_url) trouvées dans un
-    texte de résultat d'outil browser_* (snapshot Playwright au format YAML,
-    "- /url: ...", ou texte libre contenant des URL absolues)."""
+    """Absolute and relative URLs (resolved via base_url) found in a
+    browser_* tool result's text (Playwright snapshot in YAML format,
+    "- /url: ...", or free text containing absolute URLs)."""
     found = {_clean_url(m) for m in _URL_RE.findall(text)}
     for match in _SNAPSHOT_URL_LINE_RE.findall(text):
         match = _clean_url(match)
@@ -238,9 +240,9 @@ def _extract_page_url(text: str) -> Optional[str]:
 
 
 def _task_scope_urls(messages: list) -> set:
-    """Racines du périmètre de la tâche : URL mentionnées dans le premier
-    message humain (voir tests_integration/test_web_tasks.py, convention de
-    prompt — une tâche mentionne toujours l'URL du site cible)."""
+    """Roots of the task's scope: URLs mentioned in the first human
+    message (see tests_integration/test_web_tasks.py, prompt convention —
+    a task always mentions the target site's URL)."""
     first_human = next((m for m in messages if getattr(m, "type", None) == "human"), None)
     if first_human is None or not isinstance(first_human.content, str):
         return set()
@@ -249,12 +251,13 @@ def _task_scope_urls(messages: list) -> set:
 
 _AFFORDANCE_LINE_RE = re.compile(r'-\s*\'?(link|button|textbox|combobox|checkbox|option)\s+"([^"]*)"')
 
-# Inventaire hiérarchisé (Phase 1d, point 2) : au-delà de ce nombre
-# d'affordances, préserver la liste COMPLÈTE devient contre-productif — sur
-# une vraie page Wikipédia (593 affordances, ~47000 caractères d'inventaire
-# à elle seule), l'inventaire dépassait déjà largement le plafond de sortie
-# et affamait TOUT le contenu descriptif, y compris le lien sémantique entre
-# "Naissance" et "Muret" (voir HISTORY.md, vérification d'archive T8).
+# Tiered inventory (Phase 1d, point 2): beyond this number of
+# affordances, preserving the FULL list becomes counterproductive — on a
+# real Wikipedia page (593 affordances, ~47000 characters for the
+# inventory alone), the inventory already far exceeded the output cap and
+# starved out ALL the descriptive content, including the semantic link
+# between "Naissance" and "Muret" (see docs/history.md, T8 archive
+# check).
 AFFORDANCE_THRESHOLD = int(os.environ.get("AFFORDANCE_THRESHOLD", "60"))
 _NAV_KEYWORDS = {
     "suivant", "précédent", "precedent", "next", "previous", "prev", "page",
@@ -269,11 +272,11 @@ def _is_nav_label(label: str) -> bool:
 
 def _extract_affordances_structured(text: str) -> list[dict]:
     """
-    Inventaire structuré des éléments INTERACTIFS d'un snapshot (liens avec
-    href, boutons, champs de formulaire). Une ligne "link/button/..." est
-    suivie (dans les 2 lignes suivantes, format Playwright) d'une ligne
-    "- /url: ..." si l'élément a une cible ; sinon (bouton, champ) elle est
-    listée sans URL.
+    Structured inventory of a snapshot's INTERACTIVE elements (links with
+    href, buttons, form fields). A "link/button/..." line is followed (in
+    the next 2 lines, Playwright format) by a "- /url: ..." line if the
+    element has a target; otherwise (button, field) it's listed without a
+    URL.
     """
     lines = text.splitlines()
     items = []
@@ -293,29 +296,29 @@ def _extract_affordances_structured(text: str) -> list[dict]:
 
 
 def _format_affordance(item: dict) -> str:
-    # Garde le motif littéral "/url: <cible>" (pas "-> url") : ce bloc
-    # repasse ensuite par _extract_urls (voir _execute_tool_calls), qui
-    # reconnaît spécifiquement ce motif pour les liens relatifs — un autre
-    # format y serait invisible et casserait le suivi observed_urls sur
-    # tout résultat tronqué.
+    # Keeps the literal "/url: <target>" pattern (not "-> url"): this
+    # block later goes back through _extract_urls (see
+    # _execute_tool_calls), which specifically recognizes this pattern
+    # for relative links — any other format would be invisible to it and
+    # would break observed_urls tracking on any truncated result.
     return f'- {item["kind"]} "{item["label"]}"' + (f' /url: {item["url"]}' if item["url"] else "")
 
 
 def _extract_affordances(text: str) -> list[str]:
-    """Voir _truncate_browser_result : cet inventaire est TOUJOURS conservé
-    intégralement en dessous d'AFFORDANCE_THRESHOLD éléments — au-delà,
-    _prioritize_affordances hiérarchise plutôt que de tout garder (voir
-    ce module, HISTORY.md, "le tronquage affame la navigation")."""
+    """See _truncate_browser_result: this inventory is ALWAYS kept in full
+    below AFFORDANCE_THRESHOLD elements — beyond that, _prioritize_affordances
+    tiers it instead of keeping everything (see this module, docs/history.md,
+    "truncation starves navigation")."""
     return [_format_affordance(i) for i in _extract_affordances_structured(text)]
 
 
 def _prioritize_affordances(items: list[dict], objective: str) -> tuple[list[str], int]:
     """
-    Au-delà d'AFFORDANCE_THRESHOLD : la pagination/navigation reste
-    TOUJOURS intégrale (jamais le goulot), les liens de zone de contenu
-    sont triés par proximité avec l'objectif de la tâche courante (le
-    prompt initial, faute de sous-tâches explicites — Phase 1 complète pas
-    encore faite) et plafonnés ; le reste est compté, pas listé.
+    Beyond AFFORDANCE_THRESHOLD: pagination/navigation ALWAYS stays in
+    full (never the bottleneck), content-area links are sorted by
+    proximity to the current task's objective (the initial prompt, for
+    lack of explicit subtasks — full Phase 1 not done yet) and capped;
+    the rest is counted, not listed.
     """
     nav = [i for i in items if _is_nav_label(i["label"])]
     content = [i for i in items if not _is_nav_label(i["label"])]
@@ -332,13 +335,14 @@ def _prioritize_affordances(items: list[dict], objective: str) -> tuple[list[str
 
 def _truncate_browser_result(result: dict, max_chars: int, objective: str = "") -> dict:
     """
-    Tronque un résultat d'outil browser_* trop volumineux SANS jamais perdre
-    l'inventaire des affordances PERTINENTES (voir _extract_affordances /
-    _prioritize_affordances) : celui-ci est placé en tête, avant le contenu
-    (potentiellement tronqué). Le budget max_chars s'applique au CONTENU,
-    pas à l'inventaire — si l'inventaire (déjà hiérarchisé si besoin) dépasse
-    quand même max_chars, il reste entier : préserver la navigation prime
-    sur le respect strict du plafond dans ce cas rare.
+    Truncates an oversized browser_* tool result WITHOUT ever losing the
+    RELEVANT affordances inventory (see _extract_affordances /
+    _prioritize_affordances): it's placed at the top, before the content
+    (potentially truncated). The max_chars budget applies to the
+    CONTENT, not the inventory — if the inventory (already tiered if
+    needed) still exceeds max_chars, it stays whole: preserving
+    navigation takes priority over strictly respecting the cap in this
+    rare case.
     """
     content = result.get("content")
     if not isinstance(content, list):
@@ -384,127 +388,136 @@ def _truncate_browser_result(result: dict, max_chars: int, objective: str = "") 
         new_content.append(block)
     return {**result, "content": new_content}
 
-# Format transmis au LLM pour les résultats image d'outil (screen_shot
-# GhostDesk, format WebP natif) : vide (le défaut) reconvertit
-# systématiquement en PNG — le backend par défaut (TabbyAPI/ExLlamaV3,
-# voir README section Backend d'inférence) n'est pas connu pour décoder le
-# WebP nativement (à vérifier empiriquement, voir plan d'implémentation
-# tabbyapi, risque ouvert #2 ; nécessaire de toute façon avec Ollama, dont
-# le décodeur mtmd échoue explicitement sur le WebP). "webp" ne s'active
-# qu'avec le backend alternatif llama-server, dont le fork llama.cpp décode
-# le WebP nativement (voir _to_png_data_uri plus bas et le tableau des bugs
-# du README).
+# Format sent to the LLM for tool image results (GhostDesk screen_shot,
+# native WebP format): empty (the default) always re-encodes to PNG — the
+# default backend (TabbyAPI/ExLlamaV3, see README section Inference
+# backend) is not known to decode WebP natively (to be verified
+# empirically, see the tabbyapi implementation plan, open risk #2;
+# necessary anyway with Ollama, whose mtmd decoder explicitly fails on
+# WebP). "webp" only activates with the alternative llama-server backend,
+# whose llama.cpp fork decodes WebP natively (see _to_png_data_uri below
+# and the README's bug table).
 IMAGE_FORMAT_PASSTHROUGH = os.environ.get("IMAGE_FORMAT_PASSTHROUGH", "").lower() == "webp"
 
-# Budget cumulé d'appels d'outils pour une même tâche : partagé sur toute la
-# chaîne d'approbations d'un thread, PAS remis à zéro entre deux tours
-# "approuver" (tool_iterations ne repart de 0 que sur un tout nouveau message
-# utilisateur, voir _resolve_run dans app/main.py) — un ancien défaut de 5
-# s'épuisait après 2-3 aller-retours d'approbation à peine, avant même
-# d'atteindre la boucle GhostDesk auto-approuvée (capture/clic) qui consomme
-# elle seule 2 itérations par geste. Dépassement signalé explicitement à
-# l'utilisateur plutôt que silencieux (voir _current_answer, app/main.py).
+# Cumulative tool-call budget for a single task: shared across a
+# thread's whole approval chain, NOT reset to zero between two
+# "approve" turns (tool_iterations only starts back at 0 on a brand-new
+# user message, see _resolve_run in app/main.py) — an old default of 5
+# used to run out after barely 2-3 approval round-trips, before even
+# reaching the auto-approved GhostDesk loop (capture/click) which alone
+# consumes 2 iterations per gesture. Overflow reported explicitly to the
+# user rather than silently (see _current_answer, app/main.py).
 MAX_TOOL_ITERATIONS = int(os.environ.get("MAX_TOOL_ITERATIONS", "20"))
 
-# Politique d'approbation par tiers de réversibilité (voir
-# app/approval_policy.py) : un tour est auto-approuvé si TOUS ses tool_calls
-# sont en tier "read" ou "reversible" ; un tour mixte (même un seul outil en
-# tier "sensitive") reste entièrement soumis à approbation, par sécurité —
-# pas d'approbation partielle par outil. AUTO_APPROVED_TOOLS (ancienne
-# variable d'env) continue de fonctionner comme override rétrocompatible,
-# géré dans approval_policy.tool_tier().
+# Approval policy by reversibility tier (see app/approval_policy.py): a
+# turn is auto-approved if ALL its tool_calls are "read" or "reversible"
+# tier; a mixed turn (even a single "sensitive"-tier tool) stays fully
+# subject to approval, for safety — no partial per-tool approval.
+# AUTO_APPROVED_TOOLS (old env var) keeps working as a backward-compatible
+# override, handled in approval_policy.tool_tier().
 
-# Nombre de tours auto-approuvés consécutifs tolérés avant de forcer malgré
-# tout un passage par require_approval, même si tous les tool_calls du tour
-# restent auto-approuvés (tier "read"/"reversible") — le garde-fou contre le
-# clavier virtuel : un clic seul est anodin, mais une SUITE de clics peut
-# composer une saisie complète via un clavier virtuel à l'écran, contournant
-# de fait l'exclusion de key_type/key_press (tier "sensitive"). Sans plafond,
-# une longue suite de clics pourrait au final saisir n'importe quel texte
-# sans jamais qu'un humain ne valide quoi que ce soit. Remis à 0 à chaque
-# passage réel par require_approval (voir cette fonction plus bas), pas
-# seulement au début d'une nouvelle tâche — contrairement à tool_iterations,
-# qui lui mesure un budget total et non un nombre de tours consécutifs SANS
-# supervision humaine.
+# Number of consecutive auto-approved turns tolerated before forcing a
+# pass through require_approval anyway, even if all the turn's tool_calls
+# remain auto-approved ("read"/"reversible" tier) — the guardrail against
+# a virtual keyboard: a single click is harmless, but a SEQUENCE of clicks
+# could compose full text input via an on-screen virtual keyboard,
+# effectively bypassing the key_type/key_press ("sensitive" tier)
+# exclusion. Without a cap, a long click sequence could ultimately type
+# any text without a human ever validating anything. Reset to 0 on every
+# real pass through require_approval (see this function below), not just
+# at the start of a new task — unlike tool_iterations, which measures a
+# total budget rather than a number of consecutive turns WITHOUT human
+# supervision.
 AUTO_APPROVAL_STREAK_LIMIT = int(os.environ.get("AUTO_APPROVAL_STREAK_LIMIT", "6"))
 
-# Rétention d'images dans l'historique soumis au LLM : chaque screenshot
-# GhostDesk (screen_shot) ajoute un message multimodal coûteux en tokens
-# visuels (voir _split_image_blocks) ; sur une boucle capture/clic répétée,
-# les conserver TOUTES finit par saturer le contexte pour un intérêt
-# quasi nul (seule la capture la plus récente reflète l'état actuel de
-# l'écran). Ne garde que les MAX_IMAGES_IN_CONTEXT dernières images dans ce
-# qui est envoyé au LLM ; les précédentes sont remplacées par un texte
-# indicatif — uniquement pour CET appel (voir _apply_image_retention),
-# jamais persisté dans l'état du graphe/checkpointer : l'historique complet
-# (avec toutes les images d'origine) reste inchangé et consultable/rejoué.
+# Image retention in the history submitted to the LLM: every GhostDesk
+# screenshot (screen_shot) adds a multimodal message costly in visual
+# tokens (see _split_image_blocks); on a repeated capture/click loop,
+# keeping ALL of them ends up saturating the context for near-zero value
+# (only the most recent capture reflects the screen's current state).
+# Keeps only the last MAX_IMAGES_IN_CONTEXT images in what's sent to the
+# LLM; earlier ones are replaced by a placeholder text — only for THIS
+# call (see _apply_image_retention), never persisted in the graph's
+# state/checkpointer: the full history (with all original images) stays
+# unchanged and replayable/inspectable.
 MAX_IMAGES_IN_CONTEXT = int(os.environ.get("MAX_IMAGES_IN_CONTEXT", "1"))
 IMAGE_RETENTION_PLACEHOLDER = "[screenshot antérieure supprimée]"
 
-# Nœud planificateur (Itération 1, Phase 1 « cœur cognitif » — voir
-# docs/briefs/phase-1-coeur-cognitif.md). Défaut désactivé : un appel LLM
-# supplémentaire en tête de CHAQUE tâche casserait la quasi-totalité des
-# tests existants qui mockent une séquence FIXE de réponses sur
-# /v1/chat/completions (voir plan_task plus bas) — même convention que
-# ADAPTIVE_THINKING/IMAGE_FORMAT_PASSTHROUGH : off par défaut, à activer
-# explicitement pour mesurer le mécanisme en conditions réelles.
-PLANNER_ENABLED = os.environ.get("PLANNER_ENABLED", "false").lower() == "true"
+# Planner node (Iteration 1, Phase 1 "cognitive core" — see
+# docs/briefs/phase-1-coeur-cognitif.md). DEFAULT FLIPPED (docs/briefs/
+# flags-du-coeur-cognitif.md): the "false" default dated back to
+# iteration-by-iteration validation, where an extra LLM call at the start
+# of EVERY task would have broken almost all existing tests, which
+# mocked a FIXED sequence of replies. The cognitive core is now measured
+# (final campaign 29/33, consistent with pre-cognitive-core Campaign A at
+# 30/33 — see docs/history.md/README) and adopted: the NOMINAL behavior
+# must be the default, it's DISABLING it that must be explicit. Tests
+# that depend on pre-cognitive-core behavior now explicitly force
+# "false", they no longer rely on the default.
+PLANNER_ENABLED = os.environ.get("PLANNER_ENABLED", "true").lower() == "true"
 
-# Vérification post-action + budget d'échec (Itération 2, Phase 1 « cœur
-# cognitif » — voir docs/briefs/phase-1-coeur-cognitif.md). N'A D'EFFET QUE
-# SI PLANNER_ENABLED EST AUSSI ACTIVÉ : la vérification compare le résultat
-# d'un tour d'outils au success_criterion de la sous-tâche ACTIVE du plan
-# (voir verify_action plus bas) — sans plan, rien à vérifier. Défaut
-# désactivé pour la même raison que PLANNER_ENABLED : un appel LLM juge
-# supplémentaire par tour d'outils casserait les tests existants qui
-# mockent une séquence fixe de réponses.
-VERIFICATION_ENABLED = os.environ.get("VERIFICATION_ENABLED", "false").lower() == "true"
-# Tentatives par sous-tâche avant de la marquer "echoue" (voir verify_action).
+# Post-action verification + failure budget (Iteration 2, Phase 1
+# "cognitive core" — see docs/briefs/phase-1-coeur-cognitif.md). ONLY HAS
+# AN EFFECT IF PLANNER_ENABLED IS ALSO ON: verification compares a
+# tool-call turn's result to the ACTIVE subtask's success_criterion (see
+# verify_action below) — nothing to verify without a plan. DEFAULT
+# FLIPPED, same justification as PLANNER_ENABLED above (measured and
+# adopted, see docs/briefs/flags-du-coeur-cognitif.md).
+VERIFICATION_ENABLED = os.environ.get("VERIFICATION_ENABLED", "true").lower() == "true"
+# Attempts per subtask before marking it "echoue" (see verify_action).
 SUBTASK_ATTEMPT_BUDGET = int(os.environ.get("SUBTASK_ATTEMPT_BUDGET", "3"))
-# Replanifications tolérées pour une même tâche avant d'abandonner
-# honnêtement (voir replan_task/report_failure) plutôt que de boucler à
-# l'infini ou de prétendre un faux succès.
+# Replans tolerated for a single task before honestly giving up (see
+# replan_task/report_failure) rather than looping forever or claiming a
+# false success.
 REPLAN_BUDGET = int(os.environ.get("REPLAN_BUDGET", "2"))
 
-# Pipeline de validation du plan (Itération 3, Phase 1 « cœur cognitif » —
-# voir docs/briefs/phase-1-coeur-cognitif.md et app/plan_validation.py).
-# N'A D'EFFET QUE SI PLANNER_ENABLED EST AUSSI ACTIVÉ. Défaut désactivé,
-# même raison que PLANNER_ENABLED/VERIFICATION_ENABLED : casserait les
-# tests existants qui mockent une séquence fixe de réponses.
-PLAN_VALIDATION_ENABLED = os.environ.get("PLAN_VALIDATION_ENABLED", "false").lower() == "true"
-# Juge LLM du plan (heuristiques déjà passées, coûteux — un appel LLM par
-# validation). CLAUSE DE RETRAIT (brief) : si une campagne live montre que
-# ce juge n'attrape rien que les heuristiques ne voyaient pas, désactivé
-# par défaut et consigné — voir HISTORY.md, Itération 3, pour le résultat
-# de cette mesure et la valeur par défaut retenue en conséquence.
-PLAN_JUDGE_ENABLED = os.environ.get("PLAN_JUDGE_ENABLED", "false").lower() == "true"
-# "Rejet motivé → retour planificateur, max 2 cycles puis escalade
-# humaine" (brief) : nombre de rejets (heuristiques OU juge) tolérés avant
-# qu'un humain ne tranche (require_plan_approval, avec les motifs de rejet
-# affichés) plutôt que de laisser le planificateur boucler indéfiniment.
+# Plan validation pipeline (Iteration 3, Phase 1 "cognitive core" — see
+# docs/briefs/phase-1-coeur-cognitif.md and app/plan_validation.py). ONLY
+# HAS AN EFFECT IF PLANNER_ENABLED IS ALSO ON. DEFAULT FLIPPED, same
+# justification as PLANNER_ENABLED/VERIFICATION_ENABLED above (see
+# docs/briefs/flags-du-coeur-cognitif.md).
+PLAN_VALIDATION_ENABLED = os.environ.get("PLAN_VALIDATION_ENABLED", "true").lower() == "true"
+# LLM judge of the plan (heuristics already passed, costly — one LLM call
+# per validation). WITHDRAWAL CLAUSE (Iteration 3 brief) measured under
+# real conditions (see docs/history.md, Iteration 3): it did really veto a
+# plan the heuristics let through, for semantic reasons beyond their
+# reach (proof of real usefulness, not a "theater" validator), at the
+# cost of noticeable latency. DEFAULT FLIPPED (docs/briefs/
+# flags-du-coeur-cognitif.md): explicit decision to enable it by default
+# along with the 3 flags above, the final campaign at 29/33 having
+# measured all 4 flags active together.
+PLAN_JUDGE_ENABLED = os.environ.get("PLAN_JUDGE_ENABLED", "true").lower() == "true"
+# "Justified rejection → back to the planner, max 2 cycles then human
+# escalation" (brief): number of rejections (heuristics OR judge)
+# tolerated before a human decides (require_plan_approval, with the
+# rejection reasons displayed) rather than letting the planner loop
+# indefinitely.
 PLAN_VALIDATION_CYCLES_MAX = 2
 
-# Qwen3.6 raisonne par défaut sur chaque tour (balises de pensée étendue) —
-# utile pour une décision initiale, coûteux en latence/tokens pour une
-# boucle perception-action rapide (capture -> clic -> capture...) où chaque
-# tour n'a qu'à décider "où cliquer ensuite" sans reconsidérer toute la
-# tâche. Si ADAPTIVE_THINKING est activé, /no_think est injecté (system
-# prompt transitoire, non persisté — voir _apply_adaptive_thinking) quand
-# TOUS les tool_calls du tour précédent étaient auto-approuvés (même
-# politique par tiers que has_tool_calls, voir approval_policy.py) ; le
-# thinking normal reste actif pour le premier tour d'une tâche ou dès qu'un
-# outil sensible est en jeu, où le raisonnement a le plus de valeur.
+# Qwen3.6 reasons by default on every turn (extended thinking tags) —
+# useful for an initial decision, costly in latency/tokens for a fast
+# perception-action loop (capture -> click -> capture...) where each
+# turn only has to decide "where to click next" without reconsidering
+# the whole task. If ADAPTIVE_THINKING is enabled, /no_think is injected
+# (transient system prompt, not persisted — see
+# _apply_adaptive_thinking) when ALL of the previous turn's tool_calls
+# were auto-approved (same per-tier policy as has_tool_calls, see
+# approval_policy.py); normal thinking stays active for a task's first
+# turn or as soon as a sensitive tool is involved, where reasoning has
+# the most value.
 ADAPTIVE_THINKING = os.environ.get("ADAPTIVE_THINKING", "false").lower() == "true"
 NO_THINK_DIRECTIVE = "/no_think"
 
-# Le VLM servi (Qwen3.6 MoE) raisonne bien mais localise mal : son grounding
-# visuel (viser le bon pixel d'un élément à l'écran) reste imprécis, sans
-# OCR/détection d'éléments UI dédiée (voir README, Limites connues assumées).
-# find_text/read_screen (services/ocr-service, tier lecture — voir
-# approval_policy.py) compensent avec des coordonnées OCR exactes. Consigne
-# transitoire (jamais persistée dans l'état du graphe, même principe que
-# NO_THINK_DIRECTIVE ci-dessus) plutôt qu'une modification du prompt système
-# par tour : reste valable identiquement sur toute la conversation.
+# The served VLM (Qwen3.6 MoE) reasons well but localizes poorly: its
+# visual grounding (aiming at the right on-screen pixel for an element)
+# remains imprecise, with no dedicated OCR/UI-element detection (see
+# README, Known, accepted limitations). find_text/read_screen
+# (services/ocr-service, read tier — see approval_policy.py) compensate
+# with exact OCR coordinates. Transient instruction (never persisted in
+# the graph's state, same principle as NO_THINK_DIRECTIVE above) rather
+# than a per-turn system prompt change: stays identically valid across
+# the whole conversation. Kept in French: sent to the model, behavior not
+# documentation (CLAUDE.md rule #11).
 GROUNDING_DIRECTIVE = (
     "Pour cliquer sur un élément contenant du texte, appelle d'abord "
     "find_text pour obtenir ses coordonnées exactes plutôt que d'estimer "
@@ -512,16 +525,17 @@ GROUNDING_DIRECTIVE = (
     "éléments sans texte (icônes)."
 )
 
-# Chemin de consommation de fichier DOCUMENTÉ (Phase 1d-révisée, voir
-# HISTORY.md, T5) : un téléchargement déclenché dans le navigateur atterrit
-# dans un volume désormais partagé en lecture seule avec le serveur MCP
-# filesystem (voir docker-compose.yml, --output-dir/agent-downloads), sous
-# /downloads — jamais dans le filesystem du conteneur playwright-mcp
-# lui-même (fetch()/browser_evaluate comme canal de transfert de fichier a
-# été explicitement écarté, voir HISTORY.md : ce n'est pas la primitive
-# d'un outil de lecture). Donner le chemin réel plutôt que de laisser le
-# modèle en deviner un (observé : /app/.playwright-mcp/, /.playwright-mcp/
-# — tous deux faux) est l'anti-fabrication directe pour ce cas.
+# DOCUMENTED file-consumption path (Phase 1d-revised, see docs/history.md,
+# T5): a download triggered in the browser lands in a volume now shared
+# read-only with the filesystem MCP server (see docker-compose.yml,
+# --output-dir/agent-downloads), under /downloads — never in the
+# playwright-mcp container's own filesystem (fetch()/browser_evaluate as
+# a file-transfer channel was explicitly ruled out, see docs/history.md:
+# that's not a read tool's primitive). Giving the real path rather than
+# letting the model guess one (observed: /app/.playwright-mcp/,
+# /.playwright-mcp/ — both wrong) is direct anti-fabrication for this
+# case. Directive text kept in French (sent to the model, behavior not
+# documentation — CLAUDE.md rule #11).
 DOWNLOAD_DIRECTIVE = (
     "Pour un fichier à télécharger (lien/bouton de téléchargement) : "
     "déclenche le téléchargement dans le navigateur, puis lis son contenu "
@@ -530,72 +544,168 @@ DOWNLOAD_DIRECTIVE = (
     "navigateur, que tu ne peux pas connaître à l'avance."
 )
 
-# Filet de sécurité (bug réel observé en usage réel avec llama-server —
-# fork turboquant-webp — sur la tâche "va sur wikipedia.org et cherche
-# l'article sur la ville de toulouse", voir README, tableau des bugs) : un
-# modèle peut terminer un tour SANS tool_calls structuré ET sans texte de
-# réponse visible.
+# Bulk verification (found while investigating T1, see docs/history.md):
+# the real blocker was neither a request format nor an outage, but an
+# insufficient iteration budget facing information visible ONLY on
+# detail pages (never the listing), potentially forcing as many
+# navigations as candidate items — the model would end up guessing a URL
+# (rightly blocked by the anti-fabrication guardrail), proof it had
+# identified the right problem without the right solution. First fixed
+# via browser_evaluate (JS code written by the model,
+# TIER_SENSITIVE/NEVER_GRANTABLE); browser_extract now accepts a `urls`
+# parameter (bulk mode, mcp-client) that does the same thing in
+# TIER_READ, without depending on the model to write correct JS every
+# time — instruction updated accordingly. Directive text kept in French
+# (behavior, CLAUDE.md rule #11).
+BULK_CHECK_DIRECTIVE = (
+    "Si l'information cherchée (référence, prix...) n'apparaît PAS sur la "
+    "page de listing/index mais seulement sur la page de détail de chaque "
+    "élément, et qu'il faudrait en vérifier PLUSIEURS pour la trouver : "
+    "n'ouvre pas ces pages une par une avec browser_navigate (budget "
+    "d'itérations limité) — utilise browser_extract avec le paramètre "
+    "urls (liste des URL candidates) pour vérifier TOUTES les pages en UN "
+    "seul appel."
+)
+
+# Temporal awareness (PLAN.md Phase 1, point 7 — a dedicated amendment,
+# never implemented until this fix despite T11 already being present in
+# the harness since Phase 0, see docs/history.md: confirmed via an
+# exhaustive grep during the T11 diagnosis). Triggered by the T11 probe
+# itself: `browser_extract(query="Python 3.13")` — the model does
+# navigate to python.org (the "first hop" fix) but queries the page with
+# a version prefix drawn from ITS OWN frozen knowledge, missing the
+# version actually displayed (3.14.x).
 #
-# Cause racine confirmée en lisant le parseur du fork
-# (common/chat-auto-parser-generator.cpp) : le raisonnement (<think>...)
-# est capturé comme texte LIBRE, NON contraint par la grammaire, jusqu'à
-# rencontrer la balise fermante </think> — la grammaire stricte du
-# tool-calling n'est appliquée qu'APRÈS cette balise. Si le modèle "tente"
-# un appel d'outil en prose (ex. syntaxe <tool_call><function=...> qu'il a
-# vue rendue par le template pour ses propres tours précédents) SANS avoir
-# fermé </think> au préalable — typiquement après un raisonnement anormalement
-# long/répétitif, à rapprocher de la dérive sémantique déjà documentée pour
-# Ollama — cette tentative reste piégée dans la zone non contrainte et
-# n'est jamais reconnue comme un vrai tool_calls OpenAI. Confirmé
-# NON-déterministe par ailleurs (rejouer le MÊME prompt donne tantôt un
-# tool_calls correct, tantôt cet échec) et confirmé résolu par
-# ADAPTIVE_THINKING/no_think (qui évite entièrement ce chemin de code
-# vulnérable, voir plus haut) — mais /no_think ne s'injecte qu'à partir du
-# tour SUIVANT un tour auto-approuvé, pas sur le tout premier tour d'une
-# tâche, là où le bug a justement été observé.
+# Cutoff date: NO official date published in the local model card
+# (models/qwen3.6-27b-exl3-3.50bpw/README.md, checked — no "knowledge
+# cutoff" mention). The model card places Qwen3.6's release after "the
+# February release of the Qwen3.5 series" and cites AIME 2026 issues in
+# its benchmarks — but the empirical observation above (Python 3.13
+# claimed as the latest version when 3.14 already exists) shows the
+# model's actual knowledge is older than its announced release date (a
+# common case: training data freezes months before release).
+# CONSERVATIVE bound chosen: don't trust volatile versions/facts without
+# checking, whatever the assumed date.
+# Query-wording bias (found AFTER the first version of this directive,
+# see docs/history.md — T11 probe: the model does decide to check, "My
+# knowledge might be outdated", BUT then queries browser_extract with
+# "Python 3.13" — its own assumed value injected into the search query
+# itself — instead of a neutral term, and so retrieves the old version
+# still present elsewhere on the page (release history). Checking via
+# the web is pointless if the verification query is already biased by
+# the assumed answer.
+PEREMPTION_DIRECTIVE = (
+    "\nTes connaissances ont une date de coupure antérieure à aujourd'hui "
+    "— probablement plus ancienne que tu ne le penses (déjà observé : tu "
+    "as annoncé Python 3.13 comme dernière version alors que 3.14 existe "
+    "déjà). Avant d'affirmer un fait volatil (version d'un logiciel, prix, "
+    "actualité, titulaire d'un rôle/poste, état d'un service en ligne), "
+    "VÉRIFIE-le via le web plutôt que de répondre depuis ta mémoire — "
+    "réserve la réponse de mémoire aux faits stables (histoire, "
+    "mathématiques, définitions, documentation figée). En vérifiant, "
+    "n'injecte JAMAIS dans ta requête de recherche/extraction une valeur "
+    "précise que tu supposes déjà (ex. un numéro de version) — une page "
+    "réelle mentionne souvent aussi d'anciennes valeurs (historique des "
+    "versions), ta requête biaisée les retrouverait et te confirmerait à "
+    "tort ton biais. Cherche plutôt un terme neutre décrivant ce que tu "
+    "cherches (« dernière version stable », « version actuelle »)."
+)
+
+# Agent timezone (PLAN.md Phase 1, point 7a): from the host env (TZ, see
+# docker-compose.yml), default Europe/Paris (this deployment's timezone,
+# verified via `timedatectl` on the host — Docker containers do NOT
+# automatically inherit the host's timezone, they run in UTC by default
+# without this explicit setting).
+_AGENT_TIMEZONE = os.environ.get("TZ", "Europe/Paris")
+_WEEKDAYS_FR = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
+_MONTHS_FR = [
+    "janvier", "février", "mars", "avril", "mai", "juin",
+    "juillet", "août", "septembre", "octobre", "novembre", "décembre",
+]
+
+
+def _date_directive() -> str:
+    """
+    Date injection (PLAN.md Phase 1, point 7a): DAY granularity ONLY,
+    never the time — preserves the ExLlamaV3 prefix cache (see
+    docs/history.md, "chasing cache=0"): a value that only changes once a
+    day, not on every turn or every second. Placed last in the static
+    system block (after GROUNDING_DIRECTIVE/DOWNLOAD_DIRECTIVE/
+    PEREMPTION_DIRECTIVE, before _verification_directive's per-turn
+    verification instruction, which is even more volatile) — maximizes
+    the length of the prefix that's actually stable from one turn to the
+    next within the same day.
+    """
+    now = datetime.now(zoneinfo.ZoneInfo(_AGENT_TIMEZONE))
+    return f"\nDate actuelle : {_WEEKDAYS_FR[now.weekday()]} {now.day} {_MONTHS_FR[now.month - 1]} {now.year} ({_AGENT_TIMEZONE})."
+
+
+# Safety net (a real bug observed in real usage with llama-server — the
+# turboquant-webp fork — on the task "go to wikipedia.org and search for
+# the article about the city of Toulouse", see README, bug table): a
+# model can end a turn WITH NO structured tool_calls AND no visible
+# answer text.
 #
-# Deux mitigations complémentaires, aucune ne corrigeant la cause côté
-# modèle/serveur (hors de portée ici) :
-#   1. has_tool_calls reboucle automatiquement sur call_llm jusqu'à
-#      MAX_EMPTY_ANSWER_RETRIES fois avant d'abandonner (voir cette
-#      fonction plus bas) — budget cumulé pour toute la tâche, comme
-#      tool_iterations, pas remis à zéro à chaque tentative.
-#   2. _extract_fallback_tool_call (voir plus bas) : avant même de compter
-#      ce tour comme un échec, tente d'extraire un appel <tool_call> piégé
-#      dans le texte et de le reconstruire en tool_calls structuré — quand
-#      ça réussit, le tour continue normalement (approbation, exécution...)
-#      sans jamais consommer de retry ni afficher la notice de repli.
-# Au-delà des deux, app/main.py affiche une notice explicite
-# (_format_empty_answer_notice) plutôt que de laisser la conversation
-# silencieuse.
+# Root cause confirmed by reading the fork's parser
+# (common/chat-auto-parser-generator.cpp): reasoning (<think>...) is
+# captured as FREE text, NOT constrained by the grammar, until the
+# closing </think> tag is encountered — the strict tool-calling grammar
+# is only applied AFTER that tag. If the model "attempts" a tool call in
+# prose (e.g. the <tool_call><function=...> syntax it has seen rendered
+# by the template for its own previous turns) WITHOUT having closed
+# </think> beforehand — typically after abnormally long/repetitive
+# reasoning, akin to the semantic drift already documented for Ollama —
+# this attempt stays trapped in the unconstrained zone and is never
+# recognized as a real OpenAI tool_calls. Also confirmed NON-deterministic
+# (replaying the SAME prompt sometimes gives a correct tool_calls,
+# sometimes this failure) and confirmed fixed by ADAPTIVE_THINKING/no_think
+# (which entirely avoids this vulnerable code path, see above) — but
+# /no_think only gets injected starting from the turn FOLLOWING an
+# auto-approved turn, not on a task's very first turn, which is exactly
+# where the bug was observed.
+#
+# Two complementary mitigations, neither fixing the cause on the
+# model/server side (out of scope here):
+#   1. has_tool_calls automatically loops back to call_llm up to
+#      MAX_EMPTY_ANSWER_RETRIES times before giving up (see this function
+#      below) — cumulative budget for the whole task, like
+#      tool_iterations, not reset to zero on every attempt.
+#   2. _extract_fallback_tool_call (see below): before even counting this
+#      turn as a failure, attempts to extract a <tool_call> trapped in
+#      the text and reconstruct it into structured tool_calls — when
+#      that succeeds, the turn continues normally (approval,
+#      execution...) without ever consuming a retry or displaying the
+#      fallback notice.
+# Beyond both, app/main.py displays an explicit notice
+# (_format_empty_answer_notice) rather than leaving the conversation
+# silent.
 MAX_EMPTY_ANSWER_RETRIES = int(os.environ.get("MAX_EMPTY_ANSWER_RETRIES", "1"))
 
-# Forfait de tokens par image dans l'estimation de composition du contexte
-# (voir describe_context/POST /context, services/dashboard) : un compte exact
-# dépendrait du tokenizer visuel du modèle servi (hors de portée ici, voir
-# README, Hors périmètre) — une constante suffit pour un ordre de grandeur
-# affiché sur le dashboard d'observabilité.
+# Fixed per-image token allowance in the context-composition estimate
+# (see describe_context/POST /context, services/dashboard): an exact
+# count would depend on the served model's visual tokenizer (out of
+# scope here, see README, Out of scope) — a constant is enough for an
+# order of magnitude shown on the observability dashboard.
 IMAGE_TOKEN_ESTIMATE = int(os.environ.get("IMAGE_TOKEN_ESTIMATE", "1500"))
 
 
 def estimate_tokens(text: str) -> int:
     """
-    Estimation grossière (~3.5 caractères/token, ordre de grandeur pour
-    l'anglais/français mélangés), pas un tokenizer exact — utilisée
-    uniquement par POST /context pour le dashboard d'observabilité
-    (services/dashboard), qui affiche des tendances plutôt que des comptes
-    exacts (voir README, Hors périmètre : tokenizer exact explicitement
-    écarté).
+    Rough estimate (~3.5 characters/token, order of magnitude for mixed
+    English/French), not an exact tokenizer — used only by POST /context
+    for the observability dashboard (services/dashboard), which shows
+    trends rather than exact counts (see README, Out of scope: an exact
+    tokenizer is explicitly ruled out).
     """
     if not text:
         return 0
     return math.ceil(len(text) / 3.5)
 
-# Reconnaît un appel d'outil écrit en prose au format XML-ish de Qwen
-# (<tool_call><function=NOM><parameter=CLE>VALEUR</parameter>...</function>
-# </tool_call>), tel qu'observé piégé dans reasoning_content en usage réel.
-# DOTALL pour capturer des valeurs de paramètre multi-lignes (ex. texte à
-# taper contenant un saut de ligne).
+# Recognizes a tool call written in prose using Qwen's XML-ish format
+# (<tool_call><function=NAME><parameter=KEY>VALUE</parameter>...</function>
+# </tool_call>), as observed trapped in reasoning_content in real usage.
+# DOTALL to capture multi-line parameter values (e.g. text to type
+# containing a line break).
 _FALLBACK_TOOL_CALL_RE = re.compile(
     r"<tool_call>\s*<function=([a-zA-Z0-9_]+)>(.*?)</function>\s*</tool_call>", re.DOTALL
 )
@@ -606,15 +716,14 @@ _FALLBACK_PARAMETER_RE = re.compile(
 
 def _extract_fallback_tool_call(content: str) -> Optional[dict]:
     """
-    Tente d'extraire un tool_call valide depuis du texte (reasoning ou
-    content) quand le modèle en a écrit un en prose au lieu de le faire
-    reconnaître par la grammaire du serveur (voir le commentaire de
-    MAX_EMPTY_ANSWER_RETRIES ci-dessus pour la cause racine). Best-effort :
-    un seul appel reconnu par tour (le premier trouvé), aucune validation
-    contre le schéma JSON de l'outil — call_tools/mcp-client échoueront
-    proprement si les arguments extraits sont incorrects, comme pour un
-    tool_call normalement structuré. Retourne None si rien de reconnaissable
-    n'est trouvé.
+    Attempts to extract a valid tool_call from text (reasoning or
+    content) when the model wrote one in prose instead of having it
+    recognized by the server's grammar (see the MAX_EMPTY_ANSWER_RETRIES
+    comment above for the root cause). Best-effort: a single call
+    recognized per turn (the first one found), no validation against the
+    tool's JSON schema — call_tools/mcp-client will fail cleanly if the
+    extracted arguments are wrong, same as for a normally structured
+    tool_call. Returns None if nothing recognizable is found.
     """
     match = _FALLBACK_TOOL_CALL_RE.search(content or "")
     if not match:
@@ -626,24 +735,134 @@ def _extract_fallback_tool_call(content: str) -> Optional[dict]:
     }
     return {"name": tool_name, "args": arguments, "id": f"fallback_{uuid.uuid4().hex[:12]}"}
 
-# Le "?" final rend la balise fermante optionnelle : couvre aussi bien le
-# contenu déjà persisté par call_llm (toujours refermé avant retour) que du
-# texte encore en cours de streaming côté app/main.py (potentiellement pas
-# encore refermé au moment du test).
+# The trailing "?" makes the closing tag optional: covers both content
+# already persisted by call_llm (always closed before returning) and
+# text still being streamed on the app/main.py side (potentially not
+# closed yet at test time).
 _THINK_BLOCK_RE = re.compile(r"<think>.*?(</think>|\Z)", re.DOTALL)
 
 
 def has_visible_answer(content: str) -> bool:
-    """Reste-t-il du texte hors balise <think> ? Utilisé par has_tool_calls
-    (retry automatique) et app/main.py (notice de réponse vide)."""
+    """Is there any text left outside a <think> tag? Used by
+    has_tool_calls (automatic retry) and app/main.py (empty-answer
+    notice)."""
     return bool(_THINK_BLOCK_RE.sub("", content or "").strip())
 
 
-# Nœud planificateur (Itération 1, voir plan_task plus bas) : reconnaît un
-# éventuel enrobage ```json ... ``` / ``` ... ``` autour de la réponse — le
-# modèle peut envelopper le JSON malgré la consigne de sortie brute, comme
-# déjà observé pour d'autres formats de sortie dans ce fichier (voir
-# _extract_fallback_tool_call ci-dessus).
+# Post-action verification merged into the tool turn itself rather than
+# a separate LLM call (history of the 3 successive versions — text
+# marker, dedicated tool call, current merge — in docs/history.md,
+# "latency fix"). constat_precedent becomes a REQUIRED parameter of the
+# schema of EVERY real tool (_inject_constat_param, _get_bound_llm): a
+# single call carries both the action and its observation of the
+# previous action. report_and_act remains the fallback for the sole case
+# with no real action (plain-text reply, nothing to hang
+# constat_precedent on).
+#
+# Two verified server constraints motivate this choice: JSON-schema
+# constrained generation (response_format) runs with
+# eos_after_completed=True (backends/exllamav3/grammar.py of the
+# installed image) — it stops generation as soon as the JSON closes,
+# ruling out any extra tool_calls/text in the SAME turn, confirmed by a
+# real call (`tool_calls: null`). And this backend otherwise applies no
+# grammar constraint on the tool_calls themselves (no filter for
+# `tools`/`tool_choice`, including `tool_choice="required"`, read in
+# endpoints/OAI/utils/chat_completion.py) — "required" in the JSON schema
+# is therefore not grammatically enforced; reliability comes from
+# merging into a single call, not from a grammar guarantee. Hence the
+# permanent coverage judge (see verify_action): to be measured, not
+# assumed.
+_CONSTAT_PARAM_NAME = "constat_precedent"
+_CONSTAT_VERDICTS = ("atteint", "non_atteint", "sans_objet")
+# Trimmed down (the "post-1/2-ter arbitration" fix, see docs/history.md):
+# a bare enum, no description — measured at +6,931 tokens/turn (+65%)
+# with the description repeated across the 64 real tools vs. +2,569
+# tokens (+24%) without it (TabbyAPI's real tokenizer, /v1/token/encode).
+# The semantics only need explaining ONCE: it lives in
+# _verification_directive (injected into the system prompt on every
+# turn, a single copy), not in the schema of EVERY tool. Protected by the
+# coverage judge (verify_action/constats_inexploitables): if this
+# trimming drops real coverage below 95%, the description comes back.
+_CONSTAT_PARAM_SCHEMA = {
+    "type": "string",
+    "enum": list(_CONSTAT_VERDICTS),
+}
+
+
+def _inject_constat_param(tool: dict) -> dict:
+    """
+    Augments a real MCP tool's OpenAI function-calling schema with the
+    required constat_precedent parameter (see above) — a copy, never
+    mutates the original schema (shared via _tools_schema_cache). Removed
+    from the arguments BEFORE any real dispatch (see
+    _execute_tool_calls): the MCP servers themselves don't know about it.
+    """
+    fn = tool.get("function", {})
+    params = dict(fn.get("parameters") or {"type": "object", "properties": {}})
+    properties = dict(params.get("properties") or {})
+    properties[_CONSTAT_PARAM_NAME] = _CONSTAT_PARAM_SCHEMA
+    required = list(params.get("required") or [])
+    if _CONSTAT_PARAM_NAME not in required:
+        required.append(_CONSTAT_PARAM_NAME)
+    return {**tool, "function": {**fn, "parameters": {**params, "properties": properties, "required": required}}}
+
+
+# Name shared with approval_policy.REPORT_AND_ACT_TOOL_NAME (source of
+# truth for tiering, see tool_tier()) — duplicated here as a local
+# constant rather than re-imported on every use, purely for the
+# readability of the many references below; MUST stay identical.
+_REPORT_AND_ACT_TOOL_NAME = approval_policy.REPORT_AND_ACT_TOOL_NAME
+_REPORT_AND_ACT_TOOL = {
+    "type": "function",
+    "function": {
+        "name": _REPORT_AND_ACT_TOOL_NAME,
+        "description": (
+            "Outil de repli, à appeler UNIQUEMENT quand tu réponds en texte "
+            "pur ce tour-ci, sans appeler aucun autre outil (ex. réponse "
+            "finale) : constate si l'action PRÉCÉDENTE a atteint son "
+            "critère. Si tu appelles un AUTRE outil ce tour-ci, mets plutôt "
+            "constat_precedent directement dans SES arguments — n'appelle "
+            "jamais les deux à la fois."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {_CONSTAT_PARAM_NAME: _CONSTAT_PARAM_SCHEMA},
+            "required": [_CONSTAT_PARAM_NAME],
+        },
+    },
+}
+
+
+def _parse_constat(tool_calls: Optional[list]) -> tuple[Optional[str], bool]:
+    """
+    Looks for constat_precedent among the turn's tool_calls — either on
+    report_and_act (priority, "plain text, no action" case), or on the
+    first real tool_call carrying it (normal, merged case). Returns
+    (verdict, exploitable):
+    - (None, False) if absent from all tool_calls, or found but outside
+      the enum (malformed);
+    - (verdict, True) otherwise, verdict ∈ _CONSTAT_VERDICTS.
+    "exploitable=False" drives the constats_inexploitables counter and
+    the coverage judge (verify_action) — distinct from a "sans_objet"
+    legitimately declared by the model (exploitable=True in that case).
+    """
+    report_call = next((tc for tc in tool_calls or [] if tc.get("name") == _REPORT_AND_ACT_TOOL_NAME), None)
+    if report_call is not None:
+        verdict = (report_call.get("args") or {}).get(_CONSTAT_PARAM_NAME)
+        return (verdict, True) if verdict in _CONSTAT_VERDICTS else (None, False)
+    for tc in tool_calls or []:
+        args = tc.get("args") or {}
+        if _CONSTAT_PARAM_NAME in args:
+            verdict = args.get(_CONSTAT_PARAM_NAME)
+            return (verdict, True) if verdict in _CONSTAT_VERDICTS else (None, False)
+    return None, False
+
+
+# Planner node (Iteration 1, see plan_task below): recognizes a possible
+# ```json ... ``` / ``` ... ``` wrapper around the reply — the model may
+# wrap the JSON despite the raw-output instruction, as already observed
+# for other output formats in this file (see _extract_fallback_tool_call
+# above).
 _CODE_FENCE_RE = re.compile(r"^```[a-zA-Z]*\n?(.*?)\n?```$", re.DOTALL)
 
 
@@ -653,7 +872,7 @@ def _strip_code_fence(text: str) -> str:
 
 
 class PlanValidationError(ValueError):
-    """Levée par _validate_plan_json : réponse du planificateur inexploitable."""
+    """Raised by _validate_plan_json: the planner's reply is unusable."""
 
 
 _PLAN_SUBTASKS_MIN = 1
@@ -662,45 +881,46 @@ _PLAN_SUBTASKS_MAX = 8
 
 def _validate_plan_json(raw: str) -> list[dict]:
     """
-    Schéma validé PROGRAMMATIQUEMENT (Itération 1) : retire <think>...</think>
-    puis un éventuel enrobage de fences, exige {"sous_taches": [{"description":...,
-    "critere_succes":..., "outils": [...]}, ...]}, 1 à 8 éléments,
-    description/critère non vides. `outils` optionnelle côté LLM (repli sur
-    liste vide) — sert de base concrète au pipeline de validation
-    (Itération 3, app/plan_validation.py : existence/tier des outils
-    déclarés), sans quoi une sous-tâche purement rédactionnelle (ex.
-    "formuler la réponse finale") n'aurait pas de représentation valide.
-    Lève PlanValidationError avec un motif explicite sinon — jamais un plan
-    partiellement construit à partir d'une réponse invalide.
+    Schema validated PROGRAMMATICALLY (Iteration 1): strips
+    <think>...</think> then a possible fence wrapper, requires
+    {"sous_taches": [{"description":..., "critere_succes":..., "outils":
+    [...]}, ...]}, 1 to 8 items, non-empty description/criterion. `outils`
+    optional on the LLM side (falls back to an empty list) — provides a
+    concrete basis for the validation pipeline (Iteration 3,
+    app/plan_validation.py: existence/tier of the declared tools),
+    without which a purely editorial subtask (e.g. "write up the final
+    answer") would have no valid representation. Raises
+    PlanValidationError with an explicit reason otherwise — never a
+    partially built plan from an invalid reply.
     """
     text = _strip_code_fence(_THINK_BLOCK_RE.sub("", raw or ""))
     try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise PlanValidationError(f"JSON invalide : {exc}") from exc
+        raise PlanValidationError(f"invalid JSON: {exc}") from exc
     subtasks = data.get("sous_taches") if isinstance(data, dict) else None
     if not isinstance(subtasks, list):
-        raise PlanValidationError("clé 'sous_taches' (liste) absente ou invalide")
+        raise PlanValidationError("'sous_taches' key (list) missing or invalid")
     if not (_PLAN_SUBTASKS_MIN <= len(subtasks) <= _PLAN_SUBTASKS_MAX):
         raise PlanValidationError(
-            f"nombre de sous-tâches hors bornes ({len(subtasks)}, attendu "
+            f"number of subtasks out of bounds ({len(subtasks)}, expected "
             f"{_PLAN_SUBTASKS_MIN}-{_PLAN_SUBTASKS_MAX})"
         )
     validated = []
     for i, item in enumerate(subtasks):
         if not isinstance(item, dict):
-            raise PlanValidationError(f"sous-tâche {i} n'est pas un objet JSON")
+            raise PlanValidationError(f"subtask {i} is not a JSON object")
         description = item.get("description")
         critere = item.get("critere_succes")
         if not isinstance(description, str) or not description.strip():
-            raise PlanValidationError(f"sous-tâche {i} : description manquante ou vide")
+            raise PlanValidationError(f"subtask {i}: description missing or empty")
         if not isinstance(critere, str) or not critere.strip():
-            raise PlanValidationError(f"sous-tâche {i} : critere_succes manquant ou vide")
+            raise PlanValidationError(f"subtask {i}: critere_succes missing or empty")
         outils = item.get("outils")
         if outils is None:
             outils = []
         if not isinstance(outils, list) or not all(isinstance(t, str) for t in outils):
-            raise PlanValidationError(f"sous-tâche {i} : outils doit être une liste de strings")
+            raise PlanValidationError(f"subtask {i}: outils must be a list of strings")
         validated.append(
             {
                 "description": description.strip(),
@@ -725,24 +945,24 @@ PLANNER_SYSTEM_PROMPT = (
 
 
 class PlanJudgeValidationError(ValueError):
-    """Levée par _validate_judge_json : verdict du juge de plan inexploitable."""
+    """Raised by _validate_judge_json: the plan judge's verdict is unusable."""
 
 
 def _validate_judge_json(raw: str) -> dict:
     """
-    Schéma validé PROGRAMMATIQUEMENT (Itération 3, même pipeline que
-    _validate_plan_json/_validate_verification_json) : exige
-    {"faisable": bool}, "risques"/"etapes_manquantes" optionnelles (repli
-    sur liste vide si absentes/mal formées — accessoires pour la
-    visibilité, pas pour la décision).
+    Schema validated PROGRAMMATICALLY (Iteration 3, same pipeline as
+    _validate_plan_json): requires {"faisable": bool},
+    "risques"/"etapes_manquantes" optional (falls back to an empty list
+    if absent/malformed — accessories for visibility, not for the
+    decision).
     """
     text = _strip_code_fence(_THINK_BLOCK_RE.sub("", raw or ""))
     try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise PlanJudgeValidationError(f"JSON invalide : {exc}") from exc
+        raise PlanJudgeValidationError(f"invalid JSON: {exc}") from exc
     if not isinstance(data, dict) or not isinstance(data.get("faisable"), bool):
-        raise PlanJudgeValidationError("clé 'faisable' (bool) absente ou invalide")
+        raise PlanJudgeValidationError("'faisable' key (bool) missing or invalid")
     risques = data.get("risques")
     etapes = data.get("etapes_manquantes")
     return {
@@ -773,12 +993,12 @@ PLAN_JUDGE_SYSTEM_PROMPT = (
 
 async def _judge_plan(plan: list, objective: str, page_snapshot: Optional[str] = None) -> list:
     """
-    Verdict du juge LLM (Itération 3, page_snapshot ajouté à l'Itération 4 —
-    correctif d'ancrage, voir HISTORY.md) : liste des motifs de rejet (vide
-    = faisable). Dégrade en FAIL-OPEN sur erreur LLM/JSON invalide (aucun
-    motif renvoyé, pas de veto par défaut) — cohérent avec "jamais de
-    boucle infinie" du brief : un juge indisponible ne doit jamais bloquer
-    indéfiniment une tâche par ailleurs valide selon les heuristiques.
+    LLM judge verdict (Iteration 3, page_snapshot added in Iteration 4 —
+    grounding fix, see docs/history.md): list of rejection reasons (empty
+    = feasible). Degrades to FAIL-OPEN on LLM error/invalid JSON (no
+    reason returned, no veto by default) — consistent with the brief's
+    "never an infinite loop": an unavailable judge must never
+    indefinitely block a task that's otherwise valid per the heuristics.
     """
     payload = json.dumps(
         {
@@ -809,62 +1029,19 @@ async def _judge_plan(plan: list, objective: str, page_snapshot: Optional[str] =
     return reasons
 
 
-class VerificationValidationError(ValueError):
-    """Levée par _validate_verification_json : verdict du vérificateur inexploitable."""
-
-
-def _validate_verification_json(raw: str) -> dict:
-    """
-    Schéma validé PROGRAMMATIQUEMENT (Itération 2, même pipeline que
-    _validate_plan_json) : retire <think>/fences, exige
-    {"atteint": bool, "raison": str}. `raison` absente/non-str -> chaîne
-    vide plutôt qu'une erreur (accessoire pour la visibilité, pas pour la
-    décision elle-même) ; `atteint` doit être un booléen JSON réel (pas une
-    chaîne "true"/"false") sans quoi le verdict est jugé inexploitable.
-    """
-    text = _strip_code_fence(_THINK_BLOCK_RE.sub("", raw or ""))
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise VerificationValidationError(f"JSON invalide : {exc}") from exc
-    if not isinstance(data, dict) or not isinstance(data.get("atteint"), bool):
-        raise VerificationValidationError("clé 'atteint' (bool) absente ou invalide")
-    raison = data.get("raison")
-    return {"atteint": data["atteint"], "raison": raison.strip() if isinstance(raison, str) else ""}
-
-
-VERIFIER_SYSTEM_PROMPT = (
-    "Tu es le vérificateur d'un agent. On te donne l'objectif global de la "
-    "tâche (objectif_global), la description d'une sous-tâche, son critère "
-    "de succès énoncé PAR AVANCE par le planificateur (critere_succes), le "
-    "résultat brut de la dernière action (resultat), et si disponible "
-    "l'état ACTUEL de la page (etat_actuel_de_la_page). Le critère de "
-    "succès peut décrire une approche qui n'existe pas réellement sur "
-    "cette page (ex. une barre de recherche supposée alors que le site "
-    "n'a que de la pagination) — dans ce cas, juge la PROGRESSION RÉELLE "
-    "vers l'objectif global et ce que montre effectivement la page "
-    "actuelle, PAS une lecture littérale du critère si l'approche qu'il "
-    "suppose n'existe pas. Réponds UNIQUEMENT par un JSON de la forme "
-    '{"atteint": true|false, "raison": "..."}, rien d\'autre : pas de '
-    "texte avant/après, pas de balise <think>, pas de bloc de code."
-)
-
-
 async def _fetch_verification_snapshot(objective: str) -> str:
     """
-    Capture un browser_snapshot FRAIS au moment de la vérification —
-    correctif d'ancrage trouvé pendant la sonde live de l'Itération 4 (voir
-    HISTORY.md) : le résultat brut du dernier tool_call (ex. la
-    confirmation d'un browser_click) est souvent TERSE, sans le contenu de
-    la page qui en résulte. verify_action jugeait alors une sous-tâche
-    "échouée" en se fiant uniquement à success_criterion — parfois lui-même
-    mal ancré (ex. "utilise la barre de recherche" sur un site qui n'en a
-    pas) — sans jamais voir que la page réelle montrait déjà une
-    progression valide (ex. pagination). Best-effort : erreur mcp-client ->
-    chaîne vide, le vérificateur juge alors avec les seules infos déjà
-    disponibles (comportement identique à avant ce correctif) — jamais un
-    blocage pour un souci de capture annexe, même philosophie que le reste
-    de ce fichier.
+    Capture a FRESH browser_snapshot at verification time — grounding fix
+    found during the Iteration 4 live probe (see docs/history.md): the raw
+    result of the last tool_call (e.g. a browser_click confirmation) is
+    often TERSE, without the resulting page content. verify_action would
+    then judge a subtask "failed" relying solely on success_criterion —
+    sometimes itself poorly grounded (e.g. "use the search bar" on a site
+    that has none) — without ever seeing that the actual page already
+    showed valid progress (e.g. pagination). Best-effort: mcp-client error
+    -> empty string, the verifier then judges with only the info already
+    available (identical behavior to before this fix) — never a blocker
+    for a side capture issue, same philosophy as the rest of this file.
     """
     try:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -874,23 +1051,23 @@ async def _fetch_verification_snapshot(objective: str) -> str:
         texts = [b["text"] for b in blocks if isinstance(b, dict) and b.get("type") == "text"]
         return "\n".join(texts)
     except Exception:
-        logger.warning("Capture de vérification (browser_snapshot) indisponible, jugement sans elle.", exc_info=True)
+        logger.warning("Verification capture (browser_snapshot) unavailable, judging without it.", exc_info=True)
         return ""
 
 
 async def _grounding_snapshot(state: dict, objective: str) -> Optional[str]:
     """
-    Snapshot de la page courante pour ancrer une (re)planification/
-    validation sur ce qui existe RÉELLEMENT (Itération 4, suite du
-    correctif verify_action — voir HISTORY.md). `None` si aucune navigation
-    n'a encore eu lieu pour cette tâche (state["current_page_url"], Phase
-    1) : le TOUT PREMIER plan (plan_task) reste donc structurellement non
-    ancré — aucune page n'existe encore à capturer à ce stade, et forcer
-    une navigation exploratoire avant la planification soulèverait ses
-    propres questions de tier/approbation (browser_navigate est
-    TIER_SENSITIVE), hors périmètre ici. Les REPLANIFICATIONS
-    (revise_plan/replan_task), elles, sont toujours déclenchées APRÈS
-    qu'une navigation a eu lieu — c'est là que ce correctif s'applique.
+    Snapshot of the current page to ground a (re)planning/validation step
+    in what ACTUALLY exists (Iteration 4, continuation of the
+    verify_action fix — see docs/history.md). `None` if no navigation has
+    happened yet for this task (state["current_page_url"], Phase 1): the
+    VERY FIRST plan (plan_task) therefore stays structurally ungrounded —
+    no page exists yet to capture at that point, and forcing an
+    exploratory navigation before planning would raise its own tier/
+    approval questions (browser_navigate is TIER_SENSITIVE), out of scope
+    here. REPLANNING (revise_plan/replan_task), on the other hand, is
+    always triggered AFTER a navigation has happened — that's where this
+    fix applies.
     """
     if not state.get("current_page_url"):
         return None
@@ -901,179 +1078,206 @@ class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
     tool_iterations: int
     approved: Optional[bool]
-    # Tours auto-approuvés consécutifs depuis le dernier passage par
-    # require_approval (voir AUTO_APPROVAL_STREAK_LIMIT plus haut).
+    # Consecutive auto-approved turns since the last pass through
+    # require_approval (see AUTO_APPROVAL_STREAK_LIMIT above).
     auto_approval_streak: int
-    # Nombre de messages Open WebUI (rôles user/assistant) déjà intégrés à ce
-    # thread — permet à app/main.py de ne soumettre que les nouveaux messages
-    # à chaque tour plutôt que tout l'historique renvoyé par Open WebUI (qui
-    # est déjà persisté ici via le checkpointer), et donc d'éviter de le
-    # dupliquer dans "messages" à chaque tour.
+    # Number of Open WebUI messages (user/assistant roles) already merged
+    # into this thread — lets app/main.py submit only the NEW messages on
+    # each turn instead of the full history Open WebUI resends (already
+    # persisted here via the checkpointer), avoiding duplicating it in
+    # "messages" on every turn.
     owui_message_count: int
-    # État de la balise <think> (voir _think_state plus haut), reporté d'un
-    # appel de call_llm à l'autre au sein d'un même tour utilisateur — requis
-    # depuis AUTO_APPROVED_TOOLS, qui permet à call_llm de s'exécuter plusieurs
-    # fois de suite sans pause d'approbation entre deux. Sans ce report, chaque
-    # itération rouvrait sa propre balise <think>, et Open WebUI n'affiche en
-    # bulle repliable que celle en tout début de message : les suivantes
-    # apparaissaient en texte brut visible. Remis à False à chaque nouveau tour
-    # (voir _resolve_run, app/main.py), comme tool_iterations.
+    # State of the <think> tag (see _think_state above), carried over from
+    # one call_llm invocation to the next within the same user turn —
+    # needed since AUTO_APPROVED_TOOLS, which lets call_llm run several
+    # times in a row with no approval pause in between. Without this
+    # carry-over, each iteration would reopen its own <think> tag, and
+    # Open WebUI only renders the very first one as a collapsible bubble:
+    # later ones showed up as raw visible text. Reset to False on each new
+    # turn (see _resolve_run, app/main.py), like tool_iterations.
     think_opened: bool
     think_closed: bool
-    # Grants de session (Phase 3) : noms d'outils qu'un humain a approuvés
-    # "pour la session" via require_approval (voir ce nœud plus bas) plutôt
-    # qu'une fois seulement. Un outil dans cette liste est plafonné à
-    # TIER_REVERSIBLE (auto + audit) pour le reste du thread, même s'il
-    # serait normalement TIER_SENSITIVE (voir approval_policy.effective_tier).
-    # Vit dans l'état du graphe, donc dans le checkpointer MemorySaver (en
-    # mémoire uniquement) : un redémarrage du service perd les grants en même
-    # temps que le reste du thread — comportement voulu, pas un bug (voir
-    # README, section Supervision humaine).
+    # Session grants (Phase 3): tool names a human has approved "for the
+    # session" via require_approval (see that node below) rather than just
+    # once. A tool in this list is capped at TIER_REVERSIBLE (auto +
+    # audit) for the rest of the thread, even if it would normally be
+    # TIER_SENSITIVE (see approval_policy.effective_tier). Lives in graph
+    # state, hence in the MemorySaver checkpointer (in-memory only): a
+    # service restart loses the grants along with the rest of the thread —
+    # intended behavior, not a bug (see README, Human supervision section).
     session_grants: list
-    # Décision transitoire couplée à "approved" (voir require_approval) :
-    # True si l'humain a répondu "approuver pour la session" plutôt que
-    # "approuver" seul. Consommée puis remise à False dès que require_approval
-    # a appliqué le grant, pour ne pas re-déclencher un grant à chaque reprise
-    # ultérieure du thread.
+    # Transient decision paired with "approved" (see require_approval):
+    # True if the human answered "approve for the session" rather than
+    # just "approve". Consumed then reset to False as soon as
+    # require_approval has applied the grant, so as not to re-trigger a
+    # grant on every later resumption of the thread.
     grant_session: bool
-    # Compteur de retries pour le filet de sécurité "réponse vide" (voir
-    # MAX_EMPTY_ANSWER_RETRIES plus haut) — budget cumulé pour toute la
-    # tâche, comme tool_iterations, jamais remis à zéro entre deux retries.
+    # Retry counter for the "empty answer" safety net (see
+    # MAX_EMPTY_ANSWER_RETRIES above) — cumulative budget for the whole
+    # task, like tool_iterations, never reset between retries.
     empty_answer_retries: int
-    # Signal explicite (pas déduit de la forme des messages, trop fragile —
-    # un tour LLM normal qui a analysé une image via vision produit aussi un
-    # AIMessage juste après un message image) : True uniquement quand le
-    # dernier message vient de run_slash_command_direct ET portait une
-    # image, pour que main.py sache reconstruire l'affichage de l'image pour
-    # CE tour (_render_visible_answer) sans la persister en base64 dans le
-    # message assistant lui-même. call_llm le remet à False à chaque appel :
-    # c'est le seul autre nœud qui termine un tour sur un AIMessage visible,
-    # donc la seule remise à zéro nécessaire pour que ce signal reste correct
-    # quelle que soit la façon dont ce tour se termine.
+    # Explicit signal (not inferred from message shape, too fragile — a
+    # normal LLM turn that analyzed an image via vision also produces an
+    # AIMessage right after an image message): True only when the last
+    # message came from run_slash_command_direct AND carried an image, so
+    # that main.py knows to reconstruct the image display for THIS turn
+    # (_render_visible_answer) without persisting it as base64 in the
+    # assistant message itself. call_llm resets it to False on every
+    # call: it's the only other node that ends a turn on a visible
+    # AIMessage, hence the only reset needed for this signal to stay
+    # correct regardless of how this turn ends.
     slash_command_image_shown: bool
-    # Garde-fou fabrication d'URL (Phase 1, voir _check_navigate_url) :
-    # ensemble des URL "vues" pour cette tâche — cible de départ (racines du
-    # périmètre, extraites du 1er message humain), navigations déjà
-    # exécutées, et liens observés dans le contenu renvoyé par un outil
-    # browser_* (snapshot/DOM). Remis à zéro à chaque nouveau tour utilisateur
-    # (voir run_input, app/main.py), comme tool_iterations — le périmètre est
-    # celui de LA TÂCHE en cours, pas de toute la conversation.
+    # URL-fabrication guardrail (Phase 1, see _check_navigate_url): set of
+    # URLs "seen" for this task — starting target (scope roots, extracted
+    # from the 1st human message), navigations already executed, and
+    # links observed in the content returned by a browser_* tool
+    # (snapshot/DOM). Reset on every new user turn (see run_input,
+    # app/main.py), like tool_iterations — the scope is THIS TASK's, not
+    # the whole conversation.
     observed_urls: list
-    # URL de la page actuellement chargée dans le navigateur (dernière valeur
-    # "Page URL: ..." vue dans un résultat d'outil browser_*), nécessaire pour
-    # résoudre les liens RELATIFS (ex. "/catalog/product-14.html") en URL
-    # absolues avant de les ajouter à observed_urls.
+    # URL of the page currently loaded in the browser (last "Page URL: ..."
+    # value seen in a browser_* tool result), needed to resolve RELATIVE
+    # links (e.g. "/catalog/product-14.html") to absolute URLs before
+    # adding them to observed_urls.
     current_page_url: Optional[str]
-    # Liens de la DERNIÈRE page vue (remplacés, pas accumulés, contrairement
-    # à observed_urls) : utilisés pour orienter le modèle vers de vrais
-    # liens quand une navigation fabriquée est refusée (voir
-    # _execute_tool_calls) — "voici où tu es réellement", pas tout
-    # l'historique de navigation qui serait moins actionnable.
+    # Links of the LAST page seen (replaced, not accumulated, unlike
+    # observed_urls): used to steer the model toward real links when a
+    # fabricated navigation is rejected (see _execute_tool_calls) — "here's
+    # where you actually are", not the whole navigation history which
+    # would be less actionable.
     current_page_links: list
-    # Compteur de tentatives de navigation vers une URL non observée,
-    # bloquées AVANT exécution (voir _check_navigate_url) — métrique Phase 1,
-    # pas juste un frein silencieux.
+    # Counter of navigation attempts to an unobserved URL, blocked BEFORE
+    # execution (see _check_navigate_url) — Phase 1 metric, not just a
+    # silent brake.
     fabricated_navigation_attempts: int
-    # Plan explicite de la tâche (Itération 1, Phase 1 « cœur cognitif » —
-    # voir docs/briefs/phase-1-coeur-cognitif.md et plan_task plus bas) :
-    # liste de {description, success_criterion, status, attempts, result}.
-    # status ∈ {"a_faire", "en_cours", "fait", "echoue"} (string libre, pas
-    # d'enum dédié — cohérent avec failure_cause dans le harnais de tests).
-    # Calculé UNE FOIS par plan_task au tout début d'une tâche (liste vide ->
-    # le planificateur tourne ; non vide -> passthrough, jamais reconstruit
-    # au sein d'une même tâche). Remis à [] à chaque NOUVEAU message
-    # utilisateur top-level (voir run_input, app/main.py), comme
-    # observed_urls. Aucune validation/tier/vérification post-action
-    # branchée dessus pour l'instant (Itérations 2/3 à venir) : structure et
-    # visibilité seules à l'Itération 1 ; vérification post-action/budget
-    # d'échec branchés dessus depuis l'Itération 2 (voir verify_action,
-    # replan_task, report_failure plus bas). No-op tant que PLANNER_ENABLED
-    # est désactivé (défaut) : reste alors toujours [].
+    # Explicit task plan (Iteration 1, Phase 1 "cognitive core" — see
+    # docs/briefs/phase-1-coeur-cognitif.md and plan_task below): list of
+    # {description, success_criterion, status, attempts, result}.
+    # status ∈ {"a_faire", "en_cours", "fait", "echoue"} (free string, no
+    # dedicated enum — consistent with failure_cause in the test harness).
+    # Computed ONCE by plan_task at the very start of a task (empty list ->
+    # the planner runs; non-empty -> passthrough, never rebuilt within the
+    # same task). Reset to [] on every NEW top-level user message (see
+    # run_input, app/main.py), like observed_urls. No validation/tier/
+    # post-action verification wired to it yet (Iterations 2/3 to come):
+    # structure and visibility only in Iteration 1; post-action
+    # verification/failure budget wired to it since Iteration 2 (see
+    # verify_action, replan_task, report_failure below). No-op while
+    # PLANNER_ENABLED is disabled (default): stays [] then.
     plan: list
-    # Nombre de replanifications déjà effectuées pour CETTE tâche (Itération
-    # 2, voir replan_task/route_after_verification) — budget cumulé, comme
-    # tool_iterations, plafonné par REPLAN_BUDGET. Remis à 0 à chaque
-    # nouveau message utilisateur top-level (voir run_input, app/main.py).
+    # Number of replans already performed for THIS task (Iteration 2, see
+    # replan_task/route_after_verification) — cumulative budget, like
+    # tool_iterations, capped by REPLAN_BUDGET. Reset to 0 on every new
+    # top-level user message (see run_input, app/main.py).
     replan_count: int
-    # Pipeline de validation du plan (Itération 3, voir validate_plan/
-    # revise_plan/require_plan_approval plus bas). plan_validation_reasons :
-    # motifs du DERNIER rejet (heuristiques et/ou juge), [] si le plan
-    # courant est valide (ou pas encore évalué). plan_validation_cycles :
-    # nombre de rejets subis pour CETTE tâche (pas par plan proposé — un
-    # budget partagé entre planification initiale et replanifications,
-    # voir PLAN_VALIDATION_CYCLES_MAX), au-delà escalade humaine plutôt que
-    # de reboucler indéfiniment sur le planificateur. Les deux remis à
-    # zéro/vide à chaque nouveau message utilisateur top-level (voir
-    # run_input, app/main.py).
+    # Plan validation pipeline (Iteration 3, see validate_plan/
+    # revise_plan/require_plan_approval below). plan_validation_reasons:
+    # reasons for the LAST rejection (heuristics and/or judge), [] if the
+    # current plan is valid (or not yet evaluated). plan_validation_cycles:
+    # number of rejections suffered for THIS task (not per proposed plan —
+    # a budget shared between initial planning and replans, see
+    # PLAN_VALIDATION_CYCLES_MAX), beyond which human escalation kicks in
+    # rather than looping indefinitely on the planner. Both reset to
+    # zero/empty on every new top-level user message (see run_input,
+    # app/main.py).
     plan_validation_reasons: list
     plan_validation_cycles: int
-    # Approbation du plan (Itération 3) : miroir de approved/grant_session
-    # (require_approval) mais pour le PLAN entier plutôt qu'un tool_call —
-    # voir require_plan_approval. plan_grant : persisté (contrairement à
-    # plan_grant_session, transitoire) — un plan-level grant accordé une
-    # fois évite la pause sur une replanification ultérieure DANS LA MÊME
-    # TÂCHE tant que le nouveau tier reste TIER_REVERSIBLE ou moins, jamais
-    # pour TIER_SENSITIVE (même philosophie que NEVER_GRANTABLE_TOOLS,
+    # Plan approval (Iteration 3): mirrors approved/grant_session
+    # (require_approval) but for the WHOLE plan rather than one tool_call —
+    # see require_plan_approval. plan_grant: persisted (unlike
+    # plan_grant_session, transient) — a plan-level grant, once given,
+    # avoids the pause on a later replan WITHIN THE SAME TASK as long as
+    # the new tier stays TIER_REVERSIBLE or below, never for
+    # TIER_SENSITIVE (same philosophy as NEVER_GRANTABLE_TOOLS,
     # approval_policy.py).
     plan_approved: Optional[bool]
     plan_grant_session: bool
     plan_grant: bool
+    # True as soon as an action has just been executed
+    # (_execute_tool_calls), consumed by verify_action on the next turn —
+    # more robust than searching the history for the last tool_call:
+    # without this explicit marker, a replan turn (which executes NO tool)
+    # could be mistaken for an action still awaiting verification if the
+    # previous turn had no tool_calls.
+    pending_verification: bool
+    # Cumulative counter (reset to 0 on every new top-level user message,
+    # run_input/app/main.py), incremented when pending_verification was
+    # true but no usable observation could be extracted from the turn.
+    # DELIBERATELY separate degradation path: this case is MEASURED (a
+    # dedicated metric) rather than BILLED as a subtask failure (see
+    # verify_action and docs/history.md, "latency fix", for the score broken
+    # by the old mechanism that counted it as a failure).
+    constats_inexploitables: int
 
 
-# Plafond de tokens par TOUR (un seul appel LLM), pas pour la conversation
-# entière : sans lui, une dérive en boucle de répétition (observée en usage
-# réel avec un modèle très quantisé — voir README) génère jusqu'à saturer
-# tout le contexte avant de s'arrêter (des dizaines de secondes, des milliers
-# de tokens), sans jamais produire de tool_calls ni déclencher nos propres
-# garde-fous (MAX_TOOL_ITERATIONS/AUTO_APPROVAL_STREAK_LIMIT), qui ne comptent
-# que des itérations d'outils, pas la longueur d'une génération.
+# Token cap per TURN (a single LLM call), not for the whole conversation:
+# without it, a repetition-loop drift (observed in real usage with a
+# heavily quantized model — see README) generates until it saturates the
+# whole context before stopping (tens of seconds, thousands of tokens),
+# without ever producing tool_calls or tripping our own guardrails
+# (MAX_TOOL_ITERATIONS/AUTO_APPROVAL_STREAK_LIMIT), which only count tool
+# iterations, not generation length.
 LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "2048"))
 
 llm = ChatOpenAI(
     base_url=LLM_BASE_URL,
-    api_key="not-needed",       # tabbyapi (disable_auth: true)/llama-server/Ollama ne vérifient pas la clé par défaut
-    model="agent-llm",          # doit matcher model_name dans services/tabbyapi/config.yml
+    api_key="not-needed",       # tabbyapi (disable_auth: true)/llama-server/Ollama don't check the key by default
+    model="agent-llm",          # must match model_name in services/tabbyapi/config.yml
     temperature=0.2,
     max_tokens=LLM_MAX_TOKENS,
 )
 
-# Bug découvert en conditions réelles en vérifiant la campagne live de
-# l'Itération 3 (voir HISTORY.md) : les appels LLM auxiliaires (plan_task/
-# revise_plan/verify_action/_judge_plan) utilisaient `llm` ci-dessus, plafonné
-# à LLM_MAX_TOKENS (2048, pensé pour le tour conversationnel principal).
-# Qwen3.6/TabbyAPI raisonne dans un champ reasoning_content SÉPARÉ de
-# content avant de répondre (confirmé par un appel direct à TabbyAPI hors
-# streaming) ; ce raisonnement, souvent long, consommait à lui seul tout le
-# budget, tronquant `content` à vide ou au milieu du JSON
-# (finish_reason="length") — chaque validateur retombait alors
-# systématiquement sur son repli d'erreur, jamais sur une vraie évaluation.
-# `/no_think` en préfixe de prompt (mécanisme ADAPTIVE_THINKING existant)
-# ne supprime PAS le raisonnement sur ce backend (vérifié par le même appel
-# direct) — solution retenue : un budget de tokens plus généreux, dédié à
-# ces appels structurés, séparé du budget de la boucle principale (dont la
-# petite valeur reste un filet de sécurité voulu contre les dérives de
-# répétition, voir LLM_MAX_TOKENS).
+# Bug discovered under real conditions while verifying the Iteration 3
+# live campaign (see docs/history.md): auxiliary LLM calls (plan_task/
+# revise_plan/verify_action/_judge_plan) used `llm` above, capped at
+# LLM_MAX_TOKENS (2048, sized for the main conversational turn).
+# Qwen3.6/TabbyAPI reasons in a reasoning_content field SEPARATE from
+# content before answering (confirmed via a direct non-streaming call to
+# TabbyAPI); this reasoning, often long, consumed the whole budget on its
+# own, truncating `content` to empty or mid-JSON (finish_reason="length")
+# — every validator then systematically fell back to its error path,
+# never a real evaluation. `/no_think` as a prompt prefix (the existing
+# ADAPTIVE_THINKING mechanism) does NOT suppress reasoning on this backend
+# (verified by the same direct call) — solution adopted: a more generous
+# token budget, dedicated to these structured calls, separate from the
+# main loop's budget (whose small value remains an intentional safety net
+# against repetition drift, see LLM_MAX_TOKENS).
 PLANNER_MAX_TOKENS = int(os.environ.get("PLANNER_MAX_TOKENS", "8192"))
+# Thinking curbed on auxiliary calls (plan_task/revise_plan/
+# replan_task/_judge_plan, all via planner_llm) — unlike `/no_think` as a
+# prompt prefix (ADAPTIVE_THINKING, confirmed to have no effect on this
+# backend, see comment above), TabbyAPI exposes a real PER-REQUEST
+# server-side parameter (`GET /openapi.json`, ChatCompletionRequest
+# schema: `enable_thinking: bool`), verified LIVE before writing this fix
+# (real call with a JSON planning prompt, see docs/history.md):
+# `reasoning_content: null`, immediate valid JSON, no reasoning.
+# `extra_body` is a native langchain-openai parameter (verified:
+# `"extra_body" in inspect.signature(ChatOpenAI).parameters`).
+# PLANNER_THINKING_ENABLED (default false = thinking curbed) rather than a
+# hardcoded disable: allows a rollback with no code redeploy if plan/
+# judge quality were to degrade in practice.
+PLANNER_THINKING_ENABLED = os.environ.get("PLANNER_THINKING_ENABLED", "false").lower() == "true"
 planner_llm = ChatOpenAI(
     base_url=LLM_BASE_URL,
     api_key="not-needed",
     model="agent-llm",
     temperature=0.2,
     max_tokens=PLANNER_MAX_TOKENS,
+    extra_body={"enable_thinking": PLANNER_THINKING_ENABLED},
 )
 
-# Schéma des outils MCP (terminal/filesystem/git/browser/desktop-GhostDesk),
-# récupéré depuis mcp-client et mis en cache pour la durée du process. Sans
-# ce bind_tools, le LLM n'a aucune connaissance de l'existence de ces outils
-# et ne peut donc jamais produire de tool_calls, quel que soit le modèle
-# servi — has_tool_calls()/require_approval() restent alors du code mort.
+# Schema of the MCP tools (terminal/filesystem/git/browser/desktop-GhostDesk),
+# fetched from mcp-client and cached for the process's lifetime. Without
+# this bind_tools, the LLM has no knowledge that these tools exist and can
+# therefore never produce tool_calls, whatever model is served —
+# has_tool_calls()/require_approval() then stay dead code.
 _tools_schema_cache: Optional[list] = None
 
 
 async def _get_tools_schema() -> list:
-    """Remplit/retourne _tools_schema_cache — factorisé hors de _get_bound_llm
-    pour être aussi utilisable par _route_entry (validation du nom d'outil
-    d'une commande slash) sans requête HTTP supplémentaire une fois en cache."""
+    """Fills/returns _tools_schema_cache — factored out of _get_bound_llm
+    so it's also usable by _route_entry (validating a slash command's tool
+    name) without an extra HTTP request once cached."""
     global _tools_schema_cache
     if _tools_schema_cache is None:
         try:
@@ -1082,15 +1286,25 @@ async def _get_tools_schema() -> list:
                 resp.raise_for_status()
                 _tools_schema_cache = resp.json().get("tools", [])
         except (httpx.HTTPError, ValueError):
-            # mcp-client injoignable ou réponse invalide : dégrade sans outils
-            # plutôt que de faire échouer toute la conversation.
+            # mcp-client unreachable or invalid response: degrade with no
+            # tools rather than failing the whole conversation.
             _tools_schema_cache = []
     return _tools_schema_cache
 
 
 async def _get_bound_llm() -> ChatOpenAI:
     schema = await _get_tools_schema()
-    return llm.bind_tools(schema) if schema else llm
+    if not schema:
+        return llm
+    if not VERIFICATION_ENABLED:
+        return llm.bind_tools(schema)
+    # constat_precedent injected as a required parameter of EVERY real MCP
+    # tool, plus report_and_act as the sole fallback (pure-text turn, no
+    # action) — see above. Gated on VERIFICATION_ENABLED: without it, this
+    # field has no reader (_verification_directive doesn't instruct it)
+    # and would only add noise to the schema sent to the model.
+    wrapped = [_inject_constat_param(t) for t in schema]
+    return llm.bind_tools(wrapped + [_REPORT_AND_ACT_TOOL])
 
 
 async def retrieve_context(state: AgentState) -> dict:
@@ -1136,15 +1350,14 @@ async def select_skill(state: AgentState) -> dict:
 
 async def _available_tools_hint() -> str:
     """
-    Liste réelle des outils MCP disponibles (découvert en conditions
-    réelles pendant la campagne live de l'Itération 3, voir HISTORY.md) :
-    sans elle, le planificateur invente des noms d'outils plausibles mais
-    inexistants (ex. "web_browser", "search") — systématiquement rejetés
-    par les heuristiques (outils référencés existants,
-    app/plan_validation.py), aucun plan ne passerait jamais la validation.
-    Ajoutée au message UTILISATEUR (pas au system prompt, figé lui) pour
-    rester à jour si le schéma d'outils change entre deux tâches. Utilisée
-    par plan_task/revise_plan/replan_task.
+    Real list of available MCP tools (discovered under real conditions
+    during the Iteration 3 live campaign, see docs/history.md): without it,
+    the planner invents plausible but nonexistent tool names (e.g.
+    "web_browser", "search") — systematically rejected by the heuristics
+    (existing referenced tools, app/plan_validation.py), no plan would
+    ever pass validation. Added to the USER message (not the system
+    prompt, which is frozen) to stay up to date if the tool schema changes
+    between tasks. Used by plan_task/revise_plan/replan_task.
     """
     schema = await _get_tools_schema()
     names = sorted({t.get("function", {}).get("name") for t in schema} - {None})
@@ -1158,22 +1371,21 @@ async def _available_tools_hint() -> str:
 
 async def plan_task(state: AgentState) -> dict:
     """
-    Nœud planificateur (Itération 1, Phase 1 « cœur cognitif »). No-op
-    (`{"messages": []}`) si PLANNER_ENABLED est désactivé (défaut), si un
-    plan existe déjà pour cette tâche (calculé une seule fois, jamais
-    reconstruit au sein d'une même tâche — voir AgentState.plan) ou s'il n'y
-    a aucun message humain à planifier.
+    Planner node (Iteration 1, Phase 1 "cognitive core"). No-op
+    (`{"messages": []}`) if PLANNER_ENABLED is disabled (default), if a
+    plan already exists for this task (computed once, never rebuilt
+    within the same task — see AgentState.plan), or if there's no human
+    message to plan from.
 
-    Appel LLM séparé de call_llm : `llm` brut (jamais `bound_llm`), le
-    planificateur ne doit jamais émettre de tool_calls, seulement du JSON.
+    LLM call kept separate from call_llm: raw `llm` (never `bound_llm`),
+    the planner must never emit tool_calls, only JSON.
 
-    Dégrade TOUJOURS sur un plan à sous-tâche unique plutôt que de bloquer
-    la tâche pour un souci de planification annexe (transport HTTP, réponse
-    invalide) — capture large volontaire (PlanValidationError ou n'importe
-    quelle erreur du client OpenAI/httpx), même esprit que la dégradation
-    httpx.HTTPError de retrieve_context/select_skill ci-dessus, élargie ici
-    car l'échec peut aussi venir de la validation JSON, pas seulement du
-    transport.
+    ALWAYS degrades to a single-subtask plan rather than blocking the task
+    over a side planning issue (HTTP transport, invalid response) —
+    deliberately broad catch (PlanValidationError or any OpenAI client/
+    httpx error), same spirit as the httpx.HTTPError degradation in
+    retrieve_context/select_skill above, widened here since the failure
+    can also come from JSON validation, not just transport.
     """
     if not PLANNER_ENABLED or state.get("plan"):
         return {"messages": []}
@@ -1189,23 +1401,23 @@ async def plan_task(state: AgentState) -> dict:
         )
         subtasks = _validate_plan_json(response.content)
     except Exception:
-        logger.warning("Planification échouée, repli sur un plan à sous-tâche unique.", exc_info=True)
+        logger.warning("Planning failed, falling back to a single-subtask plan.", exc_info=True)
         subtasks = [{"description": objective, "success_criterion": "objectif de la tâche atteint", "tools": []}]
 
     plan = [{**st, "status": "a_faire", "attempts": 0, "result": None} for st in subtasks]
     if plan:
         plan[0]["status"] = "en_cours"
-    logger.info("Plan initial (%d sous-tâche(s)) : %s", len(plan), plan)
+    logger.info("Initial plan (%d subtask(s)): %s", len(plan), plan)
     return {"plan": plan}
 
 
 def _plan_tier(plan: list) -> str:
     """
-    Tier du plan = pire tier parmi TOUS les outils déclarés par ses
-    sous-tâches (Itération 3) — approval_policy.tool_tier(), qui retombe
-    déjà sur TIER_SENSITIVE pour un outil inconnu (défaut existant "outil
-    inconnu = toujours sensible", cohérent ici). Aucun outil déclaré nulle
-    part -> TIER_READ (rien à approuver en amont).
+    Plan tier = worst tier among ALL tools declared by its subtasks
+    (Iteration 3) — approval_policy.tool_tier(), which already falls back
+    to TIER_SENSITIVE for an unknown tool (existing default "unknown tool
+    = always sensitive", consistent here). No tool declared anywhere ->
+    TIER_READ (nothing to approve upfront).
     """
     tiers = {approval_policy.tool_tier(tool) for subtask in plan for tool in subtask.get("tools", [])}
     if approval_policy.TIER_SENSITIVE in tiers:
@@ -1217,14 +1429,14 @@ def _plan_tier(plan: list) -> str:
 
 async def validate_plan(state: AgentState) -> dict:
     """
-    Pipeline de validation du plan (Itération 3, Phase 1 « cœur cognitif »).
-    No-op (`{"messages": []}`) si PLAN_VALIDATION_ENABLED désactivé
-    (défaut) ou si `state["plan"]` est vide — comportement identique à
-    avant cette itération. Sinon : heuristiques programmatiques
-    (app/plan_validation.py, gratuites) puis, UNIQUEMENT si elles passent
-    ET que PLAN_JUDGE_ENABLED, juge LLM (coûteux — clause de retrait, voir
-    HISTORY.md). Rejet (heuristiques OU juge) -> plan_validation_cycles
-    incrémenté, motifs renvoyés pour route_after_validation.
+    Plan validation pipeline (Iteration 3, Phase 1 "cognitive core").
+    No-op (`{"messages": []}`) if PLAN_VALIDATION_ENABLED is disabled
+    (default) or if `state["plan"]` is empty — same behavior as before
+    this iteration. Otherwise: programmatic heuristics
+    (app/plan_validation.py, free) then, ONLY if they pass AND
+    PLAN_JUDGE_ENABLED, LLM judge (costly — withdrawal clause, see
+    docs/history.md). Rejection (heuristics OR judge) -> plan_validation_cycles
+    incremented, reasons returned for route_after_validation.
     """
     if not PLAN_VALIDATION_ENABLED:
         return {"messages": []}
@@ -1246,26 +1458,27 @@ async def validate_plan(state: AgentState) -> dict:
 
     if reasons:
         cycles = state.get("plan_validation_cycles", 0) + 1
-        logger.warning("Plan rejeté par la validation (cycle %d) : %s", cycles, reasons)
-        # plan_approved réarmé à None ICI (pas dans require_plan_approval,
-        # voir son commentaire) : que ce rejet mène à une révision ou à une
-        # escalade humaine, toute décision précédente sur un plan ANTÉRIEUR
-        # ne doit jamais être réutilisée pour celui-ci.
+        logger.warning("Plan rejected by validation (cycle %d): %s", cycles, reasons)
+        # plan_approved reset to None HERE (not in require_plan_approval,
+        # see its comment): whether this rejection leads to a revision or
+        # a human escalation, any previous decision on an EARLIER plan
+        # must never be reused for this one.
         return {"plan_validation_reasons": reasons, "plan_validation_cycles": cycles, "plan_approved": None}
 
-    logger.info("Plan validé (%d sous-tâche(s)).", len(plan))
+    logger.info("Plan validated (%d subtask(s)).", len(plan))
     return {"plan_validation_reasons": [], "plan_approved": None}
 
 
 def route_after_validation(state: AgentState) -> str:
     """
-    Routage après validate_plan. PLAN_VALIDATION_ENABLED désactivé ->
-    "call_llm" (flux identique à avant cette itération). Rejeté ->
-    "revise_plan" tant que PLAN_VALIDATION_CYCLES_MAX n'est pas dépassé,
-    sinon "require_plan_approval" (escalade humaine, motifs affichés).
-    Accepté -> "call_llm" si TIER_READ ou si TIER_REVERSIBLE et un grant de
-    plan est déjà accordé pour cette tâche (plan_grant, jamais pour
-    TIER_SENSITIVE), sinon "require_plan_approval" (approbation normale).
+    Routing after validate_plan. PLAN_VALIDATION_ENABLED disabled ->
+    "call_llm" (same flow as before this iteration). Rejected ->
+    "revise_plan" as long as PLAN_VALIDATION_CYCLES_MAX isn't exceeded,
+    otherwise "require_plan_approval" (human escalation, reasons
+    displayed). Accepted -> "call_llm" if TIER_READ, or if TIER_REVERSIBLE
+    and a plan grant is already given for this task (plan_grant, never
+    for TIER_SENSITIVE), otherwise "require_plan_approval" (normal
+    approval).
     """
     if not PLAN_VALIDATION_ENABLED:
         return "call_llm"
@@ -1283,13 +1496,13 @@ def route_after_validation(state: AgentState) -> str:
 
 async def revise_plan(state: AgentState) -> dict:
     """
-    Révision du plan suite à un rejet du pipeline de validation (Itération
-    3). Distinct de replan_task (Itération 2, déclenché par un ÉCHEC
-    D'EXÉCUTION d'une sous-tâche) : ici, rien n'a encore été exécuté — le
-    plan lui-même est jugé structurellement/sémantiquement insuffisant
-    AVANT le premier tour. Régénère le plan ENTIER (aucune sous-tâche
-    "fait" à préserver) avec les motifs de rejet en contexte. Même repli
-    que plan_task sur échec de génération (plan à sous-tâche unique).
+    Plan revision following a rejection by the validation pipeline
+    (Iteration 3). Distinct from replan_task (Iteration 2, triggered by a
+    subtask EXECUTION FAILURE): here, nothing has been executed yet — the
+    plan itself is judged structurally/semantically insufficient BEFORE
+    the first turn. Regenerates the WHOLE plan (no "done" subtask to
+    preserve) with the rejection reasons as context. Same fallback as
+    plan_task on generation failure (single-subtask plan).
     """
     reasons = state.get("plan_validation_reasons") or []
     first_human = next((m for m in state["messages"] if getattr(m, "type", None) == "human"), None)
@@ -1320,34 +1533,35 @@ async def revise_plan(state: AgentState) -> dict:
         )
         subtasks = _validate_plan_json(response.content)
     except Exception:
-        logger.warning("Révision du plan échouée, repli sur un plan à sous-tâche unique.", exc_info=True)
+        logger.warning("Plan revision failed, falling back to a single-subtask plan.", exc_info=True)
         subtasks = [{"description": objective, "success_criterion": "objectif de la tâche atteint", "tools": []}]
 
     plan = [{**st, "status": "a_faire", "attempts": 0, "result": None} for st in subtasks]
     if plan:
         plan[0]["status"] = "en_cours"
-    logger.info("Plan révisé (%d sous-tâche(s), cycle de validation) : %s", len(plan), plan)
+    logger.info("Revised plan (%d subtask(s), validation cycle): %s", len(plan), plan)
     return {"plan": plan}
 
 
 async def require_plan_approval(state: AgentState) -> dict:
     """
-    Approbation humaine du PLAN (Itération 3) : miroir de require_approval
-    mais pour le plan entier plutôt qu'un tool_call — pause (NodeInterrupt)
-    tant que plan_approved est None. Reste NON FUSIONNABLE avec
-    l'approbation individuelle d'un outil TIER_SENSITIVE à l'exécution :
-    ce nœud est un gate ADDITIONNEL en amont, require_approval/
-    _execute_tool_calls restent inchangés et s'appliquent quand même.
+    Human approval of the PLAN (Iteration 3): mirrors require_approval but
+    for the whole plan rather than a single tool_call — pauses
+    (NodeInterrupt) while plan_approved is None. Stays NOT MERGEABLE with
+    the individual approval of a TIER_SENSITIVE tool at execution time:
+    this node is an ADDITIONAL gate upstream, require_approval/
+    _execute_tool_calls stay unchanged and still apply regardless.
     """
     if state.get("plan_approved") is None:
         raise NodeInterrupt("Approbation humaine du plan requise avant exécution.")
-    # NE PAS remettre plan_approved à None ici : route_after_plan_approval
-    # (juste après) doit encore pouvoir lire la décision (True/False) telle
-    # que ce nœud vient de la recevoir — même piège déjà évité par
-    # require_approval, qui laisse "approved" intact pour route_after_approval
-    # et ne le réarme qu'ailleurs (_execute_tool_calls, pour le tour
-    # suivant). Ici, c'est validate_plan qui réarme plan_approved à None à
-    # chaque nouveau plan proposé (voir ce nœud).
+    # DO NOT reset plan_approved to None here: route_after_plan_approval
+    # (right after) still needs to read the decision (True/False) exactly
+    # as this node just received it — same pitfall already avoided by
+    # require_approval, which leaves "approved" intact for
+    # route_after_approval and only resets it elsewhere
+    # (_execute_tool_calls, for the next turn). Here, it's validate_plan
+    # that resets plan_approved to None on every newly proposed plan (see
+    # that node).
     updates = {"plan_grant_session": False}
     if state.get("plan_grant_session"):
         updates["plan_grant"] = True
@@ -1359,7 +1573,7 @@ def route_after_plan_approval(state: AgentState) -> str:
 
 
 async def reject_plan(state: AgentState) -> dict:
-    """Miroir de reject_tools, côté plan : l'humain a refusé le plan proposé, la tâche s'arrête ici."""
+    """Mirrors reject_tools, plan-side: the human rejected the proposed plan, the task stops here."""
     return {"messages": [{"role": "assistant", "content": "Plan refusé par l'utilisateur — tâche non exécutée."}]}
 
 
@@ -1382,17 +1596,17 @@ _CONTEXT_BLOCK_SKELETON = (
 
 def describe_context(messages: list, pending_text: Optional[str] = None) -> list[dict]:
     """
-    Décomposition approximative (voir estimate_tokens) du contexte tel qu'il
-    serait construit pour un appel LLM (voir call_llm), à l'usage de POST
-    /context (app/main.py) et donc du dashboard d'observabilité
-    (services/dashboard) — jamais un vrai appel au LLM, et le schéma d'outils
-    est lu tel quel depuis _tools_schema_cache (jamais recalculé via
-    _get_bound_llm, qui ferait un appel HTTP à mcp-client : /context doit
-    rester strictement lecture seule, sans effet de bord, comme /pending).
+    Approximate breakdown (see estimate_tokens) of the context as it would
+    be built for an LLM call (see call_llm), for use by POST /context
+    (app/main.py) and hence the observability dashboard
+    (services/dashboard) — never a real LLM call, and the tool schema is
+    read as-is from _tools_schema_cache (never recomputed via
+    _get_bound_llm, which would make an HTTP call to mcp-client: /context
+    must stay strictly read-only, with no side effect, like /pending).
 
-    `messages` vide (thread inconnu du checkpointer) -> tous les blocs à
-    zéro plutôt que d'inclure quand même le system prompt transitoire
-    (GROUNDING_DIRECTIVE) : rien n'a encore été composé pour ce thread.
+    Empty `messages` (thread unknown to the checkpointer) -> all blocks at
+    zero rather than still including the transient system prompt
+    (GROUNDING_DIRECTIVE): nothing has been composed yet for this thread.
     """
     if not messages:
         return [
@@ -1400,7 +1614,7 @@ def describe_context(messages: list, pending_text: Optional[str] = None) -> list
             for label, kind in _CONTEXT_BLOCK_SKELETON
         ]
 
-    system_parts = [GROUNDING_DIRECTIVE, DOWNLOAD_DIRECTIVE]
+    system_parts = [GROUNDING_DIRECTIVE, DOWNLOAD_DIRECTIVE, BULK_CHECK_DIRECTIVE, PEREMPTION_DIRECTIVE]
     skills_parts = []
     history_parts = []
     image_count = 0
@@ -1471,13 +1685,12 @@ def describe_context(messages: list, pending_text: Optional[str] = None) -> list
 
 def _apply_image_retention(messages: list) -> list:
     """
-    Ne garde que les MAX_IMAGES_IN_CONTEXT derniers messages image (voir
-    _is_image_message) dans la liste envoyée au LLM ; les précédents sont
-    remplacés par un message texte indicatif. Retourne une NOUVELLE liste
-    (jamais de mutation en place des messages d'origine, qui sont les mêmes
-    objets Python que ceux persistés par le checkpointer) — c'est ce qui
-    garantit que ce filtrage reste local à cet appel, sans jamais toucher à
-    l'état du graphe.
+    Keeps only the last MAX_IMAGES_IN_CONTEXT image messages (see
+    _is_image_message) in the list sent to the LLM; earlier ones are
+    replaced by an indicative text message. Returns a NEW list (never an
+    in-place mutation of the original messages, which are the same Python
+    objects persisted by the checkpointer) — this is what guarantees this
+    filtering stays local to this call, never touching graph state.
     """
     image_indices = [i for i, m in enumerate(messages) if _is_image_message(m)]
     cutoff = len(image_indices) - max(MAX_IMAGES_IN_CONTEXT, 0)
@@ -1491,49 +1704,23 @@ def _apply_image_retention(messages: list) -> list:
 
 
 def _previous_turn_tool_calls(messages: list) -> Optional[list]:
-    """Dernier message AI avec tool_calls dans l'historique — le tour qui a mené à cet appel de call_llm."""
+    """Last AI message with tool_calls in the history — the turn that led to this call_llm invocation."""
     for message in reversed(messages):
         if getattr(message, "type", None) == "ai" and getattr(message, "tool_calls", None):
             return message.tool_calls
     return None
 
 
-def _previous_turn_tool_results(messages: list) -> list[str]:
-    """
-    Contenus des ToolMessage produits par le dernier tour de tool_calls
-    (Itération 2, voir verify_action plus bas) : repère la limite via le
-    dernier AIMessage avec tool_calls (même idiome que
-    _previous_turn_tool_calls), puis ne garde QUE les messages "tool" après
-    cette limite — ignore les messages image "user" que _split_image_blocks
-    peut intercaler (_execute_tool_calls) : le vérificateur ne raisonne que
-    sur du texte.
-    """
-    boundary = None
-    for i in range(len(messages) - 1, -1, -1):
-        if getattr(messages[i], "type", None) == "ai" and getattr(messages[i], "tool_calls", None):
-            boundary = i
-            break
-    if boundary is None:
-        return []
-    results = []
-    for message in messages[boundary + 1 :]:
-        if getattr(message, "type", None) == "tool":
-            content = message.content
-            results.append(content if isinstance(content, str) else json.dumps(content, ensure_ascii=False))
-    return results
-
-
 def _apply_adaptive_thinking(messages: list, session_grants) -> list:
     """
-    Ajoute un system prompt transitoire "/no_think" (jamais persisté dans
-    l'état du graphe, voir _apply_image_retention pour le même principe)
-    quand ADAPTIVE_THINKING est activé ET que le tour précédent était
-    entièrement auto-approuvé (même politique par tiers que has_tool_calls) —
-    typiquement une boucle perception-action GhostDesk (capture -> clic ->
-    capture) où le raisonnement étendu de Qwen3.6 coûte plus qu'il n'apporte.
-    Pas d'injection sur le tout premier tour d'une tâche (aucun tool_calls
-    précédent) ni dès qu'un outil sensible était en jeu : le raisonnement y
-    a le plus de valeur.
+    Adds a transient "/no_think" system prompt (never persisted in graph
+    state, see _apply_image_retention for the same principle) when
+    ADAPTIVE_THINKING is enabled AND the previous turn was fully
+    auto-approved (same tier policy as has_tool_calls) — typically a
+    GhostDesk perception-action loop (capture -> click -> capture) where
+    Qwen3.6's extended reasoning costs more than it's worth. No injection
+    on a task's very first turn (no previous tool_calls) nor as soon as a
+    sensitive tool was involved: reasoning has the most value there.
     """
     if not ADAPTIVE_THINKING:
         return messages
@@ -1546,14 +1733,14 @@ def _apply_adaptive_thinking(messages: list, session_grants) -> list:
     )
     if not all_auto_approved:
         return messages
-    # Fusionné dans le message système de tête s'il y en a un (cas réel :
-    # GROUNDING_DIRECTIVE, ajouté par call_llm juste avant cet appel), sinon
-    # ajouté en position 0 — jamais en fin de liste : certains backends
-    # (TabbyAPI/ExLlamaV3, template Jinja strict de Qwen3.6) rejettent
-    # explicitement un second message système ou un message système non en
-    # tête ("TemplateError: System message must be at the beginning") —
-    # llama-server/Ollama tolèrent les deux formes, donc ce bug restait
-    # invisible avant la migration vers TabbyAPI.
+    # Merged into the leading system message if there is one (real case:
+    # GROUNDING_DIRECTIVE, added by call_llm right before this call),
+    # otherwise inserted at position 0 — never at the end of the list:
+    # some backends (TabbyAPI/ExLlamaV3, Qwen3.6's strict Jinja template)
+    # explicitly reject a second system message or one not at the head
+    # ("TemplateError: System message must be at the beginning") —
+    # llama-server/Ollama tolerate both forms, so this bug stayed
+    # invisible before the migration to TabbyAPI.
     if messages and isinstance(messages[0], SystemMessage):
         head, *rest = messages
         merged_head = SystemMessage(content=f"{head.content}\n{NO_THINK_DIRECTIVE}")
@@ -1561,17 +1748,60 @@ def _apply_adaptive_thinking(messages: list, session_grants) -> list:
     return [SystemMessage(content=NO_THINK_DIRECTIVE)] + messages
 
 
+def _verification_directive(state: AgentState) -> str:
+    """
+    Injects the observation on the previous action into the current
+    turn's reasoning rather than a separate LLM call (history in
+    docs/history.md, "latency fix") — near-zero marginal cost. The base
+    reminder (constat_precedent required on EVERY tool_call,
+    _inject_constat_param in _get_bound_llm) is ALWAYS injected as soon as
+    VERIFICATION_ENABLED is active, from the task's very first tool call
+    onward (nothing to observe yet -> "sans_objet"). The SPECIFIC hint
+    (active subtask's criterion) stays conditioned on
+    `pending_verification` + subtask "en_cours" (MUST stay in sync with
+    verify_action): nothing new to observe otherwise (e.g. a replan turn,
+    which executes no tool).
+    """
+    if not VERIFICATION_ENABLED:
+        return ""
+    base = (
+        "\nchaque appel d'outil doit inclure constat_precedent (atteint / "
+        "non_atteint / sans_objet) sur l'action PRÉCÉDENTE — sans_objet "
+        "s'il n'y a rien à constater (ex. toute première action de la "
+        "tâche). Si tu réponds en texte pur ce tour-ci sans appeler "
+        "d'autre outil, appelle report_and_act à la place, jamais les deux."
+    )
+    if not state.get("pending_verification"):
+        return base
+    plan = state.get("plan") or []
+    active_index = _active_subtask_index(plan)
+    if active_index is None:
+        return base
+    critere = plan[active_index]["success_criterion"]
+    return base + (
+        f' Ce tour-ci : l\'action précédente a-t-elle atteint son critère "{critere}" '
+        "? Juge sur le résultat d'outil ci-dessus (pas sur le critère seul "
+        "— s'il suppose une approche qui n'existe pas réellement sur cette "
+        "page, juge la progression réelle)."
+    )
+
+
 async def call_llm(state: AgentState, config: dict) -> dict:
     bound_llm = await _get_bound_llm()
     messages_for_llm = [
-        SystemMessage(content=f"{GROUNDING_DIRECTIVE}\n{DOWNLOAD_DIRECTIVE}")
+        SystemMessage(
+            content=(
+                f"{GROUNDING_DIRECTIVE}\n{DOWNLOAD_DIRECTIVE}{BULK_CHECK_DIRECTIVE}{PEREMPTION_DIRECTIVE}"
+                f"{_date_directive()}{_verification_directive(state)}"
+            )
+        )
     ] + state["messages"]
     messages_for_llm = _apply_image_retention(messages_for_llm)
     messages_for_llm = _apply_adaptive_thinking(messages_for_llm, state.get("session_grants") or [])
-    # Repris tel quel depuis l'appel précédent au sein de ce tour (voir
-    # AgentState.think_opened/think_closed) plutôt que remis à False, pour ne
-    # produire qu'une seule balise <think> continue même si call_llm boucle
-    # plusieurs fois via AUTO_APPROVED_TOOLS.
+    # Carried over as-is from the previous call within this turn (see
+    # AgentState.think_opened/think_closed) rather than reset to False, so
+    # as to produce only one continuous <think> tag even if call_llm loops
+    # several times via AUTO_APPROVED_TOOLS.
     token = _think_state.set(
         {"opened": state.get("think_opened", False), "closed": state.get("think_closed", False)}
     )
@@ -1583,39 +1813,40 @@ async def call_llm(state: AgentState, config: dict) -> dict:
         think = _think_state.get()
         _think_state.reset(token)
 
-    # Ne force la fermeture ici que si ce tour n'ira pas relancer call_llm
-    # (pas de tool_calls) : sinon on couperait prématurément un <think>
-    # censé continuer sur la prochaine itération de la boucle d'outils
-    # auto-approuvés. Le cas "tool_calls + pause d'approbation humaine" est
-    # géré séparément côté flux streamé (voir needs_closing_tag, app/main.py).
+    # Only forces the closing tag here if this turn won't re-trigger
+    # call_llm (no tool_calls): otherwise we'd prematurely cut a <think>
+    # meant to continue on the next iteration of the auto-approved tool
+    # loop. The "tool_calls + human approval pause" case is handled
+    # separately on the streamed-response side (see needs_closing_tag,
+    # app/main.py).
     if think["opened"] and not think["closed"] and not getattr(merged, "tool_calls", None):
         merged.content += "</think>"
         think["closed"] = True
 
-    # Filet de sécurité (voir MAX_EMPTY_ANSWER_RETRIES plus haut pour la
-    # cause racine) : le modèle a parfois écrit son appel d'outil en prose
-    # au lieu de le faire reconnaître par la grammaire du serveur. Avant de
-    # compter ce tour comme un échec (voir has_tool_calls), on tente de
-    # récupérer l'intention plutôt que de perdre le tour.
+    # Safety net (see MAX_EMPTY_ANSWER_RETRIES above for the root cause):
+    # the model sometimes wrote its tool call in prose instead of letting
+    # the server's grammar recognize it. Before counting this turn as a
+    # failure (see has_tool_calls), an attempt is made to recover the
+    # intent rather than lose the turn.
     if not getattr(merged, "tool_calls", None):
         fallback = _extract_fallback_tool_call(merged.content)
         if fallback:
             logger.warning(
-                "Tool call de secours extrait d'une réponse non structurée "
-                "(outil=%s, args=%s) : le modèle a écrit son appel en prose "
-                "au lieu d'émettre un tool_calls OpenAI reconnu par le serveur.",
+                "Fallback tool call extracted from an unstructured response "
+                "(tool=%s, args=%s): the model wrote its call in prose "
+                "instead of emitting an OpenAI tool_calls the server recognizes.",
                 fallback["name"],
                 fallback["args"],
             )
             merged.tool_calls = [fallback]
 
-    # Observabilité (Phase 1d-révisée, voir HISTORY.md "correctif
-    # extraction" -> "OBSERVABILITÉ") : persiste CE tour du modèle
-    # (raisonnement <think> + texte + tool_calls éventuels), qu'il soit
-    # ensuite auto-approuvé, soumis à approbation ou refusé — contrairement
-    # au journal des tool_calls (log_tool_call), volontairement partiel par
-    # tier, cette trace-ci n'a pas besoin d'être sélective : c'est le
-    # raisonnement de l'agent, jamais un effet de bord à filtrer.
+    # Observability (revised Phase 1d, see docs/history.md "extraction fix"
+    # -> "OBSERVABILITY"): persists THIS model turn (<think> reasoning +
+    # text + any tool_calls), whether it's then auto-approved, submitted
+    # for approval, or rejected — unlike the tool_calls log
+    # (log_tool_call), deliberately partial by tier, this trace doesn't
+    # need to be selective: it's the agent's reasoning, never a side
+    # effect to filter.
     thread_id = config.get("configurable", {}).get("thread_id", "")
     audit_log.log_message(
         thread_id,
@@ -1627,13 +1858,13 @@ async def call_llm(state: AgentState, config: dict) -> dict:
         "messages": [merged],
         "think_opened": think["opened"],
         "think_closed": think["closed"],
-        # Remis à False à chaque appel : c'est le seul autre nœud qui
-        # termine un tour sur un AIMessage visible (voir
-        # AgentState.slash_command_image_shown) — sans cette remise à zéro,
-        # un tour LLM normal qui suit une image (ex. vision sur screen_shot
-        # décidé par le modèle) réutiliserait à tort la reconstruction
-        # d'image de main.py, dupliquant l'image dans sa propre réponse déjà
-        # correcte.
+        # Reset to False on every call: it's the only other node that ends
+        # a turn on a visible AIMessage (see
+        # AgentState.slash_command_image_shown) — without this reset, a
+        # normal LLM turn that follows an image (e.g. vision on a
+        # model-decided screen_shot) would wrongly reuse main.py's image
+        # reconstruction, duplicating the image in its own already-correct
+        # response.
         "slash_command_image_shown": False,
     }
 
@@ -1642,11 +1873,11 @@ def has_tool_calls(state: AgentState) -> str:
     last = state["messages"][-1]
     tool_calls = getattr(last, "tool_calls", None)
     if not tool_calls:
-        # Filet de sécurité "réponse vide" (voir MAX_EMPTY_ANSWER_RETRIES) :
-        # aucun tool_calls (même après tentative d'extraction de secours
-        # dans call_llm) ET rien de visible hors <think> -> reboucle sur
-        # call_llm plutôt que d'abandonner immédiatement, tant que le budget
-        # de retries n'est pas épuisé.
+        # "Empty answer" safety net (see MAX_EMPTY_ANSWER_RETRIES): no
+        # tool_calls (even after call_llm's fallback extraction attempt)
+        # AND nothing visible outside <think> -> loop back to call_llm
+        # rather than giving up immediately, as long as the retry budget
+        # isn't exhausted.
         if not has_visible_answer(last.content) and state.get("empty_answer_retries", 0) < MAX_EMPTY_ANSWER_RETRIES:
             return "retry_empty_answer"
         return "end"
@@ -1656,9 +1887,9 @@ def has_tool_calls(state: AgentState) -> str:
     all_auto_approved = all(
         approval_policy.is_auto_approved(tc["name"], tc.get("args"), grants) for tc in tool_calls
     )
-    # Le garde-fou clavier virtuel (voir AUTO_APPROVAL_STREAK_LIMIT) : même un
-    # tour entièrement auto-approuvé repasse par require_approval une fois le
-    # plafond de tours consécutifs sans supervision humaine atteint.
+    # The "virtual keyboard" guardrail (see AUTO_APPROVAL_STREAK_LIMIT):
+    # even a fully auto-approved turn goes back through require_approval
+    # once the cap on consecutive unsupervised turns is reached.
     if all_auto_approved and state.get("auto_approval_streak", 0) < AUTO_APPROVAL_STREAK_LIMIT:
         return "auto_call_tools"
     return "call_tools"
@@ -1681,18 +1912,18 @@ async def retry_empty_answer(state: AgentState) -> dict:
 
 
 async def require_approval(state: AgentState) -> dict:
-    """Point de pause : bloque tant qu'un humain n'a pas approuvé/refusé (voir app/main.py)."""
+    """Pause point: blocks until a human has approved/rejected (see app/main.py)."""
     if state.get("approved") is None:
         raise NodeInterrupt("Approbation humaine requise avant exécution d'outil.")
-    # Passage réel par un humain : réarme le budget de tours auto-approuvés
-    # consécutifs (voir AUTO_APPROVAL_STREAK_LIMIT).
+    # A human actually went through: resets the consecutive auto-approved
+    # turns budget (see AUTO_APPROVAL_STREAK_LIMIT).
     updates = {"messages": [], "auto_approval_streak": 0, "grant_session": False}
-    # "approuver pour la session" (Phase 3) : les outils du tour en attente
-    # rejoignent session_grants, plafonnés à TIER_REVERSIBLE (auto + audit)
-    # pour le reste du thread — voir approval_policy.effective_tier() et
-    # AgentState.session_grants. Le tour lui-même reste soumis à CETTE
-    # approbation (un grant ne s'applique qu'à partir du PROCHAIN appel du
-    # même outil, pas rétroactivement à celui qui l'a demandé).
+    # "approve for the session" (Phase 3): the pending turn's tools join
+    # session_grants, capped at TIER_REVERSIBLE (auto + audit) for the
+    # rest of the thread — see approval_policy.effective_tier() and
+    # AgentState.session_grants. The turn itself stays subject to THIS
+    # approval (a grant only applies starting from the NEXT call of the
+    # same tool, not retroactively to the one that requested it).
     if state.get("grant_session"):
         last = state["messages"][-1]
         granted_names = {tc["name"] for tc in last.tool_calls}
@@ -1706,13 +1937,13 @@ def route_after_approval(state: AgentState) -> str:
 
 def _to_png_data_uri(data_b64: str, mime_type: str) -> str:
     """
-    Réencode systématiquement en PNG avant de transmettre au LLM. Le décodeur
-    d'image d'Ollama (mtmd, côté llama.cpp) échoue explicitement sur le WebP
-    ("Failed to load image or audio file") — or c'est le format par défaut de
-    l'outil screen_shot de GhostDesk. Convertir ici plutôt que de compter sur
-    le modèle pour systématiquement demander format="png" à chaque appel.
-    Chemin par défaut (IMAGE_FORMAT_PASSTHROUGH non activé) — voir
-    _to_image_data_uri pour le chemin WebP direct.
+    Always re-encodes to PNG before passing to the LLM. Ollama's image
+    decoder (mtmd, llama.cpp side) explicitly fails on WebP ("Failed to
+    load image or audio file") — which happens to be GhostDesk's
+    screen_shot tool's default format. Converting here rather than
+    relying on the model to systematically request format="png" on every
+    call. Default path (IMAGE_FORMAT_PASSTHROUGH not enabled) — see
+    _to_image_data_uri for the direct WebP path.
     """
     if mime_type == "image/png":
         return f"data:image/png;base64,{data_b64}"
@@ -1725,13 +1956,13 @@ def _to_png_data_uri(data_b64: str, mime_type: str) -> str:
 
 def _to_image_data_uri(data_b64: str, mime_type: str) -> str:
     """
-    IMAGE_FORMAT_PASSTHROUGH=webp : transmet le WebP brut de screen_shot tel
-    quel (data URI directe, aucun décodage/réencodage Pillow), en s'appuyant
-    sur le décodage WebP natif du fork llama.cpp servi par le backend
-    alternatif llama-server (voir README, section Backend d'inférence) —
-    évite le coût CPU de la reconversion PNG à chaque capture. Défaut
-    (variable absente/différente de "webp", cas de TabbyAPI comme
-    d'Ollama) : conversion PNG systématique via _to_png_data_uri.
+    IMAGE_FORMAT_PASSTHROUGH=webp: passes screen_shot's raw WebP through
+    as-is (direct data URI, no Pillow decode/re-encode), relying on the
+    native WebP decoding of the llama.cpp fork served by the alternative
+    llama-server backend (see README, Inference backend section) — avoids
+    the CPU cost of PNG reconversion on every capture. Default (variable
+    absent/different from "webp", the case for both TabbyAPI and Ollama):
+    systematic PNG conversion via _to_png_data_uri.
     """
     if IMAGE_FORMAT_PASSTHROUGH:
         return f"data:{mime_type};base64,{data_b64}"
@@ -1740,13 +1971,14 @@ def _to_image_data_uri(data_b64: str, mime_type: str) -> str:
 
 def _split_image_blocks(result: dict) -> tuple[dict, list[dict]]:
     """
-    Sépare les blocs image (format MCP : {"type": "image", "data": <base64>,
-    "mimeType": ...}) du reste du résultat d'outil. Un ToolMessage (role
-    "tool") ne peut contenir que du texte au format OpenAI-compatible — y
-    mettre le base64 brut (via json.dumps sur tout le résultat, comme avant)
-    produit un blob texte illisible pour le modèle, image ou pas, multimodal
-    ou pas. Les images sont réinjectées séparément en message "user"
-    multimodal (voir call_tools), le seul rôle qui supporte un bloc image_url.
+    Splits image blocks (MCP format: {"type": "image", "data": <base64>,
+    "mimeType": ...}) out of the rest of the tool result. A ToolMessage
+    (role "tool") can only hold OpenAI-compatible text — putting the raw
+    base64 in there (via json.dumps on the whole result, as before)
+    produces an unreadable text blob for the model, whether it's
+    multimodal or not. Images are reinjected separately as a multimodal
+    "user" message (see call_tools), the only role that supports an
+    image_url block.
     """
     content = result.get("content")
     if not isinstance(content, list):
@@ -1760,10 +1992,10 @@ def _split_image_blocks(result: dict) -> tuple[dict, list[dict]]:
 
 async def _call_mcp_tool(client: httpx.AsyncClient, tool_name: str, args: dict) -> tuple[dict, list]:
     """
-    Appel HTTP unique à mcp-client:/call, factorisé entre _execute_tool_calls
-    (tool_calls décidés par le LLM) et run_slash_command_direct (commande
-    tapée directement par l'utilisateur) — même gestion d'erreur/découpage des
-    blocs image dans les deux cas.
+    Single HTTP call to mcp-client:/call, factored out between
+    _execute_tool_calls (tool_calls decided by the LLM) and
+    run_slash_command_direct (command typed directly by the user) — same
+    error handling/image-block splitting in both cases.
     """
     try:
         resp = await client.post(
@@ -1777,64 +2009,119 @@ async def _call_mcp_tool(client: httpx.AsyncClient, tool_name: str, args: dict) 
     return _split_image_blocks(result)
 
 
-async def _execute_tool_calls(state: AgentState, config: dict, *, audit: bool) -> dict:
+async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
     """
-    Logique partagée entre call_tools (atteint après require_approval, donc
-    un humain vient d'examiner ce tour) et auto_call_tools (atteint
-    directement depuis has_tool_calls, jamais vu par un humain CE tour-ci).
-    `audit` distingue les deux : seul auto_call_tools journalise (Phase 2,
-    app/audit_log.py) — un tour passé par require_approval a déjà sa trace
-    dans l'historique de conversation ("⚠️ Approbation requise" + la réponse
-    de l'utilisateur), inutile de le dupliquer dans le journal d'audit, qui
-    sert justement à tracer ce qui n'a PAS été vu par un humain.
+    Logic shared between call_tools (reached after require_approval) and
+    auto_call_tools (reached directly from has_tool_calls, never seen by
+    a human THIS turn). Logs (app/audit_log.py) any tool_call whose
+    effective tier isn't TIER_READ (silent by design, nothing new to
+    trace) — including those coming from call_tools, whatever their tier.
+
+    Blind spot fixed (see docs/history.md, T9 investigation): this node
+    used to audit-log ONLY auto_call_tools's tool_calls, on the grounds
+    that a turn that went through require_approval already has its trace
+    in the conversation history ("⚠️ Approbation requise" + the answer).
+    That reasoning assumes an actual human saw the request go by — in an
+    automated campaign, `_approve(..., grant_session=True)` (the harness)
+    plays that role with no human ever looking, and the conversation
+    history itself doesn't survive a service restart (MemorySaver
+    checkpointer, in-memory only): the audit log then remains the ONLY
+    persistent trace, including for the very first call of each tool per
+    thread — invisible until now in both cases.
     """
     last = state["messages"][-1]
     new_messages = []
     grants = state.get("session_grants") or []
     thread_id = config.get("configurable", {}).get("thread_id", "")
 
-    # Garde-fou fabrication d'URL (Phase 1) : périmètre = URL déjà observées
-    # CE tour-ci/tours précédents de la tâche + racines du périmètre (1er
-    # message humain). Recalculé/étendu au fil des tool_calls DE CE TOUR
-    # (plusieurs browser_* peuvent apparaître dans le même tour_calls).
+    # URL-fabrication guardrail (Phase 1): scope = URLs already observed
+    # THIS turn/previous turns of the task + scope roots (1st human
+    # message). Recomputed/extended as THIS turn's tool_calls are
+    # processed (several browser_* calls can appear in the same
+    # tool_calls list).
+    #
+    # "First hop" fix (see docs/history.md, browser-session reliability
+    # effort): `has_prior_navigation` distinguishes the persisted raw set
+    # (navigations ACTUALLY already performed) from the union with
+    # `_task_scope_urls` below — used to exempt the task's very FIRST
+    # navigation from the guardrail (see below), not just those to a URL
+    # already mentioned in the prompt. Root cause: real tasks with no URL
+    # in the prompt (T8 "on Wikipedia...", T11 "what's the latest Python
+    # version?") had THEIR VERY FIRST navigation, though legitimate,
+    # blocked as fabrication — mistaken during diagnosis for a
+    # playwright-mcp infra failure before tracing it back to the actual
+    # tool result (the guardrail's own rejection message).
+    has_prior_navigation = bool(state.get("observed_urls"))
     observed_urls = set(state.get("observed_urls") or []) | _task_scope_urls(state["messages"])
     current_page_url = state.get("current_page_url")
     current_page_links = state.get("current_page_links") or []
     fabricated_attempts = 0
-    # Objectif de la tâche (voir _prioritize_affordances) : le 1er message
-    # humain, faute de sous-tâches explicites (Phase 1 complète pas encore
-    # faite — ce découpage plus fin viendra avec le nœud planificateur).
+    # Task objective (see _prioritize_affordances): the 1st human message,
+    # for lack of explicit subtasks (full Phase 1 not done yet — this
+    # finer breakdown will come with the planner node).
     first_human = next((m for m in state["messages"] if getattr(m, "type", None) == "human"), None)
     objective = first_human.content if first_human and isinstance(first_human.content, str) else ""
 
-    # Garde-fou "stratégie différente" (Itération 2, voir
-    # _repeated_strategy_feedback) : ne s'applique QUE si un échec de
-    # vérification a déjà été constaté sur la sous-tâche active (attempts >
-    # 0) — un tout premier essai n'a rien à répéter. Comparaison par
-    # égalité stricte nom+args (pas de tolérance ε générique sur des
-    # schémas d'arguments arbitraires — simplification assumée).
+    # "Different strategy" guardrail (Iteration 2, see
+    # _repeated_strategy_feedback): applies ONLY if a verification failure
+    # has already been observed on the active subtask (attempts > 0) — a
+    # very first attempt has nothing to repeat. Comparison by strict
+    # name+args equality (no generic ε tolerance on arbitrary argument
+    # schemas — an accepted simplification).
     plan = state.get("plan") or []
     active_index = _active_subtask_index(plan)
     active_attempts = plan[active_index].get("attempts", 0) if active_index is not None else 0
-    # state["messages"][-1] EST `last`, le tour COURANT dont les tool_calls
-    # sont en train d'être exécutés — exclu de la recherche (messages[:-1])
-    # pour que "previous_tool_calls" désigne vraiment le tour PRÉCÉDENT, pas
-    # celui-ci (sans quoi tout tool_call se comparerait à lui-même).
+    # state["messages"][-1] IS `last`, the CURRENT turn whose tool_calls
+    # are being executed — excluded from the search (messages[:-1]) so
+    # that "previous_tool_calls" truly refers to the PREVIOUS turn, not
+    # this one (otherwise any tool_call would compare against itself).
     previous_tool_calls = (
         (_previous_turn_tool_calls(state["messages"][:-1]) or []) if VERIFICATION_ENABLED else []
     )
 
     async with httpx.AsyncClient(timeout=60) as client:
         for tool_call in last.tool_calls:
-            audit_tier = None
-            if audit:
-                tier = approval_policy.effective_tier(tool_call["name"], tool_call.get("args"), grants)
-                if tier == approval_policy.TIER_REVERSIBLE:
-                    audit_tier = tier
+            if tool_call["name"] == _REPORT_AND_ACT_TOOL_NAME:
+                # Fallback meta-tool (latency fix 1/2-ter, see
+                # _parse_constat): already consumed by verify_action (runs
+                # BEFORE this node, on the same AIMessage) to mutate the
+                # plan — never dispatched to mcp-client (it's not a real
+                # MCP tool), never audited (TIER_READ, see
+                # approval_policy._DEFAULT_TIER_READ). An acknowledgment
+                # ToolMessage is still mandatory: every tool_call from the
+                # previous AIMessage must have its response, otherwise the
+                # next LLM call would break the OpenAI format.
+                new_messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call["id"],
+                        "content": json.dumps({"ok": True}, ensure_ascii=False),
+                    }
+                )
+                continue
+
+            # constat_precedent travels in the real tool's own arguments
+            # (augmented schema, see _inject_constat_param) — stripped
+            # HERE, before any use of tool_call["args"] below (mcp-client
+            # dispatch, anti-fabrication guardrail, anti-repetition
+            # comparison, audit). Without this stripping, the
+            # anti-repetition guardrail's strict name+args comparison
+            # (below) would NEVER again match two otherwise identical
+            # attempts (a different constat each time) — silently
+            # disabling that guardrail.
+            if _CONSTAT_PARAM_NAME in (tool_call.get("args") or {}):
+                tool_call = {
+                    **tool_call,
+                    "args": {k: v for k, v in tool_call["args"].items() if k != _CONSTAT_PARAM_NAME},
+                }
+
+            tier = approval_policy.effective_tier(tool_call["name"], tool_call.get("args"), grants)
+            audit_tier = tier if tier != approval_policy.TIER_READ else None
 
             blocked = False
             if (
                 BROWSER_NAVIGATE_GUARDRAIL
+                and has_prior_navigation
                 and tool_call["name"] == "browser_navigate"
                 and tool_call.get("args", {}).get("url")
                 and tool_call["args"]["url"] not in observed_urls
@@ -1878,10 +2165,10 @@ async def _execute_tool_calls(state: AgentState, config: dict, *, audit: bool) -
                         current_page_url = tool_call["args"]["url"]
 
             if audit_tier is not None:
-                # Journalisé APRÈS exécution (voir plus haut) pour porter le
-                # résultat tel que vu par le modèle (déjà tronqué/hiérarchisé
-                # ci-dessus si browser_*) — voir app/audit_log.py, "Phase
-                # 1d-révisée".
+                # Logged AFTER execution (see above) to carry the result
+                # as seen by the model (already truncated/prioritized
+                # above if browser_*) — see app/audit_log.py, "revised
+                # Phase 1d".
                 audit_log.log_tool_call(thread_id, tool_call["name"], tool_call["args"], audit_tier, result)
 
             new_messages.append(
@@ -1909,31 +2196,34 @@ async def _execute_tool_calls(state: AgentState, config: dict, *, audit: bool) -
     return {
         "messages": new_messages,
         "tool_iterations": state["tool_iterations"] + 1,
-        "approved": None,  # réarme la pause pour le prochain tour d'outils
-        # Incrémenté systématiquement (tour auto-approuvé ou juste validé par
-        # un humain) : require_approval l'a déjà remis à 0 dans ce second cas,
-        # donc cette exécution repart correctement à 1 (voir
-        # AUTO_APPROVAL_STREAK_LIMIT).
+        "approved": None,  # rearms the pause for the next tool turn
+        # Incremented unconditionally (auto-approved turn or one just
+        # approved by a human): require_approval already reset it to 0 in
+        # that second case, so this execution correctly restarts at 1
+        # (see AUTO_APPROVAL_STREAK_LIMIT).
         "auto_approval_streak": state.get("auto_approval_streak", 0) + 1,
         "observed_urls": sorted(observed_urls),
         "current_page_url": current_page_url,
         "current_page_links": current_page_links,
         "fabricated_navigation_attempts": state.get("fabricated_navigation_attempts", 0) + fabricated_attempts,
+        # An action was just executed, verify_action has something to
+        # observe on the next turn (see AgentState.pending_verification).
+        "pending_verification": True,
     }
 
 
 async def call_tools(state: AgentState, config: dict) -> dict:
-    """Atteint après require_approval (humain déjà passé) : jamais audité, voir _execute_tool_calls."""
-    return await _execute_tool_calls(state, config, audit=False)
+    """Reached after require_approval (a human or the campaign harness just approved) — see _execute_tool_calls."""
+    return await _execute_tool_calls(state, config)
 
 
 async def auto_call_tools(state: AgentState, config: dict) -> dict:
-    """Atteint directement depuis has_tool_calls (aucun humain CE tour) : audité, voir _execute_tool_calls."""
-    return await _execute_tool_calls(state, config, audit=True)
+    """Reached directly from has_tool_calls (no approval this turn) — see _execute_tool_calls."""
+    return await _execute_tool_calls(state, config)
 
 
 async def reject_tools(state: AgentState) -> dict:
-    """Miroir de call_tools quand l'humain a refusé : synthétise un refus, n'appelle jamais mcp-client."""
+    """Mirrors call_tools when the human rejected: synthesizes a rejection, never calls mcp-client."""
     last = state["messages"][-1]
     new_messages = [
         {
@@ -1954,115 +2244,117 @@ _PLAN_STATUS_LABELS_GRAPH = {"a_faire": "à faire", "en_cours": "en cours", "fai
 
 
 def _active_subtask_index(plan: list) -> Optional[int]:
-    """Index de la sous-tâche "en_cours" du plan, ou None (aucune/plan vide) —
-    invariant du plan (Itération 1/2) : au plus une sous-tâche "en_cours" à la fois."""
+    """Index of the plan's "en_cours" subtask, or None (none/empty plan) —
+    plan invariant (Iteration 1/2): at most one "en_cours" subtask at a time."""
     return next((i for i, st in enumerate(plan) if st.get("status") == "en_cours"), None)
 
 
-async def verify_action(state: AgentState) -> dict:
+async def verify_action(state: AgentState, config: dict) -> dict:
     """
-    Vérification post-action (Itération 2, Phase 1 « cœur cognitif »).
-    No-op (`{"messages": []}`) si VERIFICATION_ENABLED est désactivé
-    (défaut), s'il n'y a pas de sous-tâche "en_cours" (pas de plan, ou plan
-    terminé/PLANNER_ENABLED désactivé) ou si le tour qui vient de s'exécuter
-    n'a produit aucun résultat d'outil texte.
+    Analysis of the post-action verification observation (history of
+    successive revisions in docs/history.md, "latency fix" — see also
+    _verification_directive above). NO LONGER MAKES AN LLM CALL: the
+    verdict is parsed from the tool_calls call_llm just produced (THAT
+    SAME call also observed the previous action's result AND decided the
+    next step — see _verification_directive). This node only reads that
+    tool call (report_and_act) and updates the plan accordingly.
 
-    Critère vérifié = success_criterion de la sous-tâche ACTIVE du plan
-    (Itération 1), pas un critère reformulé à la volée dans le raisonnement
-    du tour — voir docs/briefs/phase-1-coeur-cognitif.md, clarification
-    obtenue avant cette itération : aucun raisonnement structuré n'existe
-    dans ce graphe pour en extraire un fiablement. Depuis l'Itération 4
-    (correctif d'ancrage, voir HISTORY.md), le juge reçoit aussi l'objectif
-    global de la tâche et, si le tour précédent a utilisé un outil
-    browser_*, un browser_snapshot FRAIS de la page — sans quoi il jugeait
-    littéralement contre un critère parfois mal ancré (ex. "utilise la
-    barre de recherche" sur un site qui n'en a pas), sans jamais voir la
-    progression réelle montrée par la page.
+    No-op (`{"messages": []}`) if VERIFICATION_ENABLED is disabled
+    (default), if there's no "en_cours" subtask, or if
+    `pending_verification` (AgentState) is false — same conditions as
+    _verification_directive, to keep in sync: if the instruction wasn't
+    injected, there's nothing to parse here either. Always consumes the
+    flag (`pending_verification: False` on return): once observed, an
+    action must not be re-observed on the next turn if no NEW action has
+    been executed in between (e.g. a replan turn, which executes no tool).
 
-    Comme plan_task, dégrade TOUJOURS (verdict "non atteint") plutôt que de
-    bloquer la tâche pour un souci de vérification annexe.
+    Criterion verified = success_criterion of the plan's ACTIVE subtask.
+    DELIBERATELY REVERSED degradation (see docs/history.md, "latency fix",
+    for the score broken — 18/33 — by the previous version which treated
+    a missing observation as a failure): missing/malformed observation ->
+    "sans_objet" (NEITHER success NOR failure, attempt budget unchanged),
+    counted in constats_inexploitables rather than billed to the
+    subtask. A "sans_objet" legitimately declared BY THE MODEL has the
+    same effect on the plan (no mutation) but does NOT increment this
+    counter — only ambiguity (missing/malformed observation) is measured.
+
+    Every evaluation here (usable or not) logs an audit entry with
+    `role="verification"` and its usability verdict — a permanent
+    COVERAGE judge (usable observations / opportunities), companion to
+    constats_inexploitables which only measured half the contract
+    (ambiguity, not the plain absence of an attempt). Without this
+    systematic counting, a campaign can show constats_inexploitables ≈ 0
+    while the real coverage rate is catastrophic (~9% measured on the
+    campaign that motivated this judge): verify_action only counts as
+    "unusable" attempts recognized as such, never an observation that
+    wasn't even attempted.
     """
     if not VERIFICATION_ENABLED:
+        return {"messages": []}
+    if not state.get("pending_verification"):
         return {"messages": []}
     plan = state.get("plan") or []
     active_index = _active_subtask_index(plan)
     if active_index is None:
-        return {"messages": []}
-    tool_results = _previous_turn_tool_results(state["messages"])
-    if not tool_results:
-        return {"messages": []}
+        return {"messages": [], "pending_verification": False}
 
-    subtask = plan[active_index]
-    first_human = next((m for m in state["messages"] if getattr(m, "type", None) == "human"), None)
-    objective = first_human.content if first_human and isinstance(first_human.content, str) else ""
+    last = state["messages"][-1]
+    verdict, exploitable = _parse_constat(getattr(last, "tool_calls", None))
+    thread_id = config.get("configurable", {}).get("thread_id", "")
+    audit_log.log_message(thread_id, "verification", {"exploitable": exploitable, "verdict": verdict})
 
-    page_snapshot = None
-    previous_tool_calls = _previous_turn_tool_calls(state["messages"]) or []
-    if any(tc.get("name", "").startswith("browser_") for tc in previous_tool_calls):
-        snapshot_text = await _fetch_verification_snapshot(objective)
-        page_snapshot = snapshot_text[:4000] if snapshot_text else None
-
-    try:
-        response = await planner_llm.ainvoke(
-            [
-                SystemMessage(content=VERIFIER_SYSTEM_PROMPT),
-                HumanMessage(
-                    content=json.dumps(
-                        {
-                            "objectif_global": objective,
-                            "sous_tache": subtask["description"],
-                            "critere_succes": subtask["success_criterion"],
-                            "resultat": "\n".join(tool_results)[:4000],
-                            "etat_actuel_de_la_page": page_snapshot,
-                        },
-                        ensure_ascii=False,
-                    )
-                ),
-            ]
+    if not exploitable:
+        logger.warning(
+            "Subtask %d: constat_precedent missing or malformed, unusable observation "
+            "(sans_objet, attempt budget unchanged)",
+            active_index,
         )
-        verdict = _validate_verification_json(response.content)
-    except Exception:
-        logger.warning("Vérification post-action échouée, tour considéré comme non concluant.", exc_info=True)
-        verdict = {"atteint": False, "raison": "vérification indisponible"}
+        return {
+            "pending_verification": False,
+            "constats_inexploitables": state.get("constats_inexploitables", 0) + 1,
+        }
+
+    if verdict == "sans_objet":
+        logger.info("Subtask %d: sans_objet observation (nothing to update)", active_index)
+        return {"pending_verification": False}
 
     new_plan = [dict(st) for st in plan]
-    if verdict["atteint"]:
+    if verdict == "atteint":
         new_plan[active_index]["status"] = "fait"
-        new_plan[active_index]["result"] = verdict["raison"]
+        new_plan[active_index]["result"] = "critère atteint (constat intégré au tour)"
         if active_index + 1 < len(new_plan):
             new_plan[active_index + 1]["status"] = "en_cours"
-        logger.info("Sous-tâche %d atteinte : %s", active_index, verdict["raison"])
-        return {"plan": new_plan}
+        logger.info("Subtask %d reached", active_index)
+        return {"plan": new_plan, "pending_verification": False}
 
+    # verdict == "non_atteint"
     attempts = new_plan[active_index]["attempts"] + 1
     new_plan[active_index]["attempts"] = attempts
     if attempts < SUBTASK_ATTEMPT_BUDGET:
         logger.info(
-            "Sous-tâche %d non atteinte (tentative %d/%d) : %s",
-            active_index, attempts, SUBTASK_ATTEMPT_BUDGET, verdict["raison"],
+            "Subtask %d not reached (attempt %d/%d)",
+            active_index, attempts, SUBTASK_ATTEMPT_BUDGET,
         )
-        return {"plan": new_plan}
+        return {"plan": new_plan, "pending_verification": False}
 
     new_plan[active_index]["status"] = "echoue"
-    new_plan[active_index]["result"] = verdict["raison"]
-    logger.warning(
-        "Sous-tâche %d échouée après %d tentatives : %s", active_index, attempts, verdict["raison"]
-    )
-    return {"plan": new_plan}
+    new_plan[active_index]["result"] = "critère non atteint (constat intégré au tour)"
+    logger.warning("Subtask %d failed after %d attempts", active_index, attempts)
+    return {"plan": new_plan, "pending_verification": False}
 
 
 async def replan_task(state: AgentState) -> dict:
     """
-    Replanification (Itération 2) : atteinte quand verify_action a marqué
-    une sous-tâche "echoue". Réutilise PLANNER_SYSTEM_PROMPT/
-    _validate_plan_json (même schéma que plan_task) avec un prompt de
-    contexte (objectif, sous-tâches déjà "fait", raison de l'échec).
-    Sous-tâches "fait" préservées telles quelles ; la sous-tâche échouée et
-    tout ce qui suivait sont remplacées par la nouvelle décomposition.
-    Échec de replanification (LLM/JSON invalide) : repli SANS lever — remet
-    juste la sous-tâche échouée à "en_cours"/attempts=0 (nouvelle chance sur
-    LE MÊME plan plutôt que de planter). replan_count incrémenté dans tous
-    les cas (budget consommé même si la replanification elle-même échoue).
+    Replanning (Iteration 2): reached when verify_action has marked a
+    subtask "echoue". Reuses PLANNER_SYSTEM_PROMPT/_validate_plan_json
+    (same schema as plan_task) with a context prompt (objective, subtasks
+    already "fait", failure reason). "fait" subtasks preserved as-is; the
+    failed subtask and everything after it are replaced by the new
+    breakdown. Replanning failure (LLM/invalid JSON): falls back WITHOUT
+    raising — just resets the failed subtask to "en_cours"/attempts=0 (a
+    new chance on the SAME plan rather than crashing). replan_count
+    incremented in all cases (budget consumed even if the replanning
+    itself fails).
     """
     plan = state.get("plan") or []
     failed_index = next((i for i, st in enumerate(plan) if st.get("status") == "echoue"), None)
@@ -2100,7 +2392,7 @@ async def replan_task(state: AgentState) -> dict:
         )
         new_subtasks = _validate_plan_json(response.content)
     except Exception:
-        logger.warning("Replanification échouée, nouvelle tentative sur la même sous-tâche.", exc_info=True)
+        logger.warning("Replanning failed, retrying on the same subtask.", exc_info=True)
         new_plan = [dict(st) for st in plan]
         new_plan[failed_index]["status"] = "en_cours"
         new_plan[failed_index]["attempts"] = 0
@@ -2110,7 +2402,7 @@ async def replan_task(state: AgentState) -> dict:
     for i, st in enumerate(new_subtasks):
         rebuilt.append({**st, "status": "en_cours" if i == 0 else "a_faire", "attempts": 0, "result": None})
     logger.info(
-        "Replanification #%d après échec de la sous-tâche %d : %d nouvelle(s) sous-tâche(s)",
+        "Replan #%d after subtask %d failure: %d new subtask(s)",
         replan_count, failed_index, len(new_subtasks),
     )
     return {"plan": rebuilt, "replan_count": replan_count}
@@ -2118,9 +2410,9 @@ async def replan_task(state: AgentState) -> dict:
 
 async def report_failure(state: AgentState) -> dict:
     """
-    Terminal (Itération 2) : atteint quand une sous-tâche est "echoue" ET le
-    budget de replanification (REPLAN_BUDGET) est épuisé. Rapport HONNÊTE de
-    l'état atteint — jamais un faux succès, jamais une boucle infinie.
+    Terminal (Iteration 2): reached when a subtask is "echoue" AND the
+    replanning budget (REPLAN_BUDGET) is exhausted. HONEST report of the
+    state reached — never a false success, never an infinite loop.
     """
     plan = state.get("plan") or []
     lines = ["Je n'ai pas pu terminer la tâche avec le budget de tentatives/replanifications disponible."]
@@ -2134,22 +2426,29 @@ async def report_failure(state: AgentState) -> dict:
 
 def route_after_verification(state: AgentState) -> str:
     """
-    Routage après verify_action (Itération 2). VERIFICATION_ENABLED
-    désactivé ou aucune sous-tâche "echoue" -> "continue" (flux normal,
-    identique à avant cette itération). Sous-tâche "echoue" -> "replan" tant
-    que le budget REPLAN_BUDGET n'est pas épuisé, sinon "give_up" (rapport
-    d'échec honnête plutôt qu'une boucle infinie de replanifications).
+    Routing after verify_action (Iteration 2, wiring revised in Iteration
+    4 — latency fix 1/2, then 1/2-bis, see docs/history.md). verify_action
+    now runs AFTER call_llm (no longer BEFORE, see build_graph): this
+    routing delegates directly to has_tool_calls (same 4 outcomes:
+    auto_call_tools/call_tools/retry_empty_answer/end), state["messages"][-1]
+    staying the same AIMessage throughout (verify_action never touches
+    "messages").
+
+    Fix 1/2-bis: the "subtask echoue -> replan/give_up" dispatch was MOVED
+    to route_after_tool_execution (after the tool_calls execute, no
+    longer here beforehand). Reason: the observation now lives in a
+    mandatory tool call (report_and_act), which ALWAYS needs an
+    acknowledgment ToolMessage to stay valid in the OpenAI format —
+    jumping straight to replan_task/report_failure without executing this
+    tool_calls (as before, when the observation lived in free text with
+    no tool_calls to ever resolve) would leave an unresolved tool_call in
+    the history, breaking the next LLM call that replays that history.
     """
-    plan = state.get("plan") or []
-    if any(st.get("status") == "echoue" for st in plan):
-        if state.get("replan_count", 0) < REPLAN_BUDGET:
-            return "replan"
-        return "give_up"
-    return "continue"
+    return has_tool_calls(state)
 
 
 def _coerce_slash_arg_value(raw: str):
-    """int > float > bool ("true"/"false") > string, dans cet ordre."""
+    """int > float > bool ("true"/"false") > string, in that order."""
     try:
         return int(raw)
     except ValueError:
@@ -2166,11 +2465,10 @@ def _coerce_slash_arg_value(raw: str):
 def _parse_slash_command(content: str) -> Optional[tuple]:
     """
     "/toolname a=1 b=texte" -> ("toolname", {"a": 1, "b": "texte"}).
-    None si le contenu ne commence pas par "/" ou est vide après le "/".
-    shlex.split gère les valeurs entre guillemets contenant des espaces. Un
-    token sans "=" (argument malformé) est simplement ignoré (log warning)
-    plutôt que de faire échouer tout le parsing d'une commande par ailleurs
-    valide.
+    None if the content doesn't start with "/" or is empty after the "/".
+    shlex.split handles quoted values containing spaces. A token with no
+    "=" (malformed argument) is simply ignored (warning logged) rather
+    than failing the whole parse of an otherwise valid command.
     """
     if not content or not content.startswith("/"):
         return None
@@ -2184,7 +2482,7 @@ def _parse_slash_command(content: str) -> Optional[tuple]:
     args = {}
     for tok in tokens[1:]:
         if "=" not in tok:
-            logger.warning("Argument de commande slash ignoré (pas de '=') : %r", tok)
+            logger.warning("Slash command argument ignored (no '='): %r", tok)
             continue
         key, _, raw_value = tok.partition("=")
         args[key] = _coerce_slash_arg_value(raw_value)
@@ -2192,15 +2490,17 @@ def _parse_slash_command(content: str) -> Optional[tuple]:
 
 
 def _format_tool_result_as_text(result: dict) -> str:
-    """Extrait le texte des blocs {"type": "text", ...} du résultat d'outil ;
-    à défaut (résultat vide, erreur, forme inattendue), JSON indenté brut."""
+    """Extracts the text from {"type": "text", ...} blocks of the tool
+    result; failing that (empty result, error, unexpected shape), raw
+    indented JSON."""
     blocks = result.get("content", []) if isinstance(result, dict) else []
     if isinstance(blocks, str):
-        # _split_image_blocks retombe sur ce placeholder textuel quand TOUS
-        # les blocs du résultat étaient des images (ex. screen_shot seul) —
-        # ce n'est déjà pas une liste de blocs, le renvoyer tel quel plutôt
-        # que d'itérer sur ses caractères (aucun n'est un dict "text", donc
-        # ça retombait silencieusement sur un dump JSON de tout le dict).
+        # _split_image_blocks falls back to this text placeholder when
+        # ALL of the result's blocks were images (e.g. screen_shot alone)
+        # — this is already not a list of blocks, return it as-is rather
+        # than iterating over its characters (none of which is a "text"
+        # dict, so it would silently fall back to a JSON dump of the
+        # whole dict).
         return blocks
     texts = [b.get("text", "") for b in blocks if isinstance(b, dict) and b.get("type") == "text"]
     if texts:
@@ -2210,10 +2510,11 @@ def _format_tool_result_as_text(result: dict) -> str:
 
 async def prepare_slash_command(state: AgentState, config: dict) -> dict:
     """
-    Parse la commande slash et synthétise le tool_calls correspondant, sans
-    encore l'exécuter — le routage par tier (_route_slash_command_tier)
-    décide ensuite si ça part en direct (run_slash_command_direct) ou par la
-    vraie pause d'approbation (require_approval), selon le tier de l'outil.
+    Parses the slash command and synthesizes the corresponding tool_calls,
+    without executing it yet — tier-based routing
+    (_route_slash_command_tier) then decides whether it goes direct
+    (run_slash_command_direct) or through the real approval pause
+    (require_approval), depending on the tool's tier.
     """
     tool_name, args = _parse_slash_command(state["messages"][-1].content)
     call_id = f"slash_{uuid.uuid4().hex[:12]}"
@@ -2226,15 +2527,15 @@ async def prepare_slash_command(state: AgentState, config: dict) -> dict:
 
 def _route_slash_command_tier(state: AgentState) -> str:
     """
-    GARDE-FOU : une commande slash sur un outil TIER_SENSITIVE (ex. key_type
-    avec texte long, clipboard_get) ne s'exécute PAS directement — elle part
-    par require_approval, exactement comme un tool_calls décidé par le LLM.
-    Le fait de taper explicitement la commande ne vaut approbation que pour
-    TIER_READ/TIER_REVERSIBLE : le tier sensible existe précisément pour
-    imposer une confirmation séparée avant une action potentiellement
-    dangereuse (texte libre tapé dans un terminal, exfiltration du
-    presse-papier...) — un bypass total aurait annulé cette garantie pour
-    n'importe quel outil, y compris ceux jamais voulus auto-approuvés.
+    GUARDRAIL: a slash command on a TIER_SENSITIVE tool (e.g. key_type
+    with long text, clipboard_get) does NOT execute directly — it goes
+    through require_approval, exactly like a tool_calls decided by the
+    LLM. Explicitly typing the command only counts as approval for
+    TIER_READ/TIER_REVERSIBLE: the sensitive tier exists precisely to
+    impose a separate confirmation before a potentially dangerous action
+    (free text typed into a terminal, clipboard exfiltration...) — a
+    total bypass would have voided this guarantee for any tool, including
+    ones never meant to be auto-approved.
     """
     last = state["messages"][-1]
     tool_call = last.tool_calls[0]
@@ -2245,22 +2546,22 @@ def _route_slash_command_tier(state: AgentState) -> str:
 
 async def run_slash_command_direct(state: AgentState, config: dict) -> dict:
     """
-    Exécute directement le tool_calls synthétisé par prepare_slash_command
-    (tier lecture/réversible uniquement, voir _route_slash_command_tier) —
-    ni LLM ni pause d'approbation. Termine sur un AIMessage de forme
-    standard (pas juste le ToolMessage brut) pour rester compatible sans
-    aucune modification avec main.py, qui suppose que le dernier message
-    d'un tour terminé est un AIMessage avec du contenu visible (voir
-    _stream_response/_current_answer, qui basculeraient sinon sur la notice
-    "réponse non exploitable").
+    Directly executes the tool_calls synthesized by prepare_slash_command
+    (read/reversible tier only, see _route_slash_command_tier) — no LLM,
+    no approval pause. Ends on a standard-shaped AIMessage (not just the
+    raw ToolMessage) to stay compatible with no changes needed to
+    main.py, which assumes the last message of a finished turn is an
+    AIMessage with visible content (see _stream_response/_current_answer,
+    which would otherwise fall back to the "réponse non exploitable"
+    notice).
     """
     last = state["messages"][-1]
     tool_call = last.tool_calls[0]
     tool_name, args, call_id = tool_call["name"], tool_call["args"], tool_call["id"]
 
-    # Traçabilité uniquement (parité avec auto_call_tools) : n'influence
-    # jamais l'exécution — le tier sensible a déjà été écarté par
-    # _route_slash_command_tier avant d'arriver ici.
+    # Traceability only (parity with auto_call_tools): never influences
+    # execution — the sensitive tier has already been ruled out by
+    # _route_slash_command_tier before reaching here.
     grants = state.get("session_grants") or []
     tier = approval_policy.effective_tier(tool_name, args, grants)
     thread_id = config.get("configurable", {}).get("thread_id", "")
@@ -2288,21 +2589,21 @@ async def run_slash_command_direct(state: AgentState, config: dict) -> dict:
                 ],
             }
         )
-    # Le message "user" ci-dessus (bloc image_url standard) est ce que voit
-    # un futur tour LLM sur ce thread — format efficace pour un modèle
-    # multimodal (coût fixe par image côté API), PAS de base64 embarqué en
-    # texte brut dans le message assistant final : un essai précédent
-    # embarquait l'image en markdown directement ici, ce qui la faisait
-    # certes apparaître dans CETTE réponse, mais la persistait aussi dans
-    # l'historique sous forme de texte — tokenisée comme du texte ordinaire
-    # (des dizaines de milliers de tokens pour une seule capture) au lieu du
-    # coût fixe d'un vrai bloc image_url, faisant exploser le contexte
-    # (32768 tokens dépassés) dès le tour LLM suivant sur ce thread, même
-    # avec une seule image (MAX_IMAGES_IN_CONTEXT=1 ne trimme jamais LA
-    # dernière image, donc aucune protection possible sous cette forme).
-    # L'affichage de l'image POUR CE TOUR est reconstruit côté main.py
-    # (_render_visible_answer) à partir de ce message "user" séparé, jamais
-    # en la persistant une seconde fois ici.
+    # The "user" message above (standard image_url block) is what a
+    # future LLM turn on this thread sees — an efficient format for a
+    # multimodal model (fixed per-image API cost), NO base64 embedded as
+    # raw text in the final assistant message: an earlier attempt
+    # embedded the image as markdown directly here, which did make it
+    # appear in THIS response, but also persisted it in the history as
+    # text — tokenized as ordinary text (tens of thousands of tokens for
+    # a single capture) instead of a real image_url block's fixed cost,
+    # blowing up the context (32768 tokens exceeded) as early as the next
+    # LLM turn on this thread, even with a single image
+    # (MAX_IMAGES_IN_CONTEXT=1 never trims THE last image, so no
+    # protection is possible in this form). The image display FOR THIS
+    # TURN is reconstructed on main.py's side (_render_visible_answer)
+    # from this separate "user" message, never by persisting it here a
+    # second time.
     new_messages.append({"role": "assistant", "content": _format_tool_result_as_text(result)})
 
     return {
@@ -2314,13 +2615,13 @@ async def run_slash_command_direct(state: AgentState, config: dict) -> dict:
 
 async def _route_entry(state: AgentState) -> str:
     """
-    Point d'entrée conditionnel du graphe : bascule sur prepare_slash_command
-    si le dernier message est une commande slash dont le nom d'outil est
-    CONNU (_tools_schema_cache, format OpenAI function-calling imbriqué
-    {"function": {"name": ...}}, voir mcp-client:/tools/schema) — un message
-    qui commence juste par "/" sans être une commande valide (ex. un chemin
-    de fichier) suit le flux normal plutôt que de déclencher une erreur 404
-    confuse pour un nom qui n'était jamais censé être un outil.
+    Graph's conditional entry point: switches to prepare_slash_command if
+    the last message is a slash command whose tool name is KNOWN
+    (_tools_schema_cache, nested OpenAI function-calling format
+    {"function": {"name": ...}}, see mcp-client:/tools/schema) — a message
+    that just starts with "/" without being a valid command (e.g. a file
+    path) follows the normal flow rather than triggering a confusing 404
+    error for a name that was never meant to be a tool.
     """
     parsed = _parse_slash_command(state["messages"][-1].content)
     if parsed is None:
@@ -2329,6 +2630,62 @@ async def _route_entry(state: AgentState) -> str:
     schema = await _get_tools_schema()
     known_names = {t.get("function", {}).get("name") for t in schema}
     return "slash_command" if tool_name in known_names else "normal"
+
+
+def route_after_tool_execution(state: AgentState) -> str:
+    """
+    Routing after call_tools/auto_call_tools (latency fix 1/2-bis, see
+    route_after_verification for why this moved here):
+
+    1. Subtask "echoue" (verify_action just marked it, attempt budget
+       exhausted, see above) -> replan_task/report_failure — the turn's
+       tool_calls (at minimum report_and_act) was just executed right
+       before, hence already resolved by a ToolMessage, whichever path is
+       chosen next.
+    2. Shortcut otherwise: if the turn's ONLY tool_calls was
+       report_and_act (no real action decided) AND that same turn already
+       carried a visible answer (frequent case: last subtask reached,
+       final answer given in the same turn as its observation), looping
+       back to call_llm would cost a whole LLM call just to have the
+       model repeat an answer already produced — exactly the cost this
+       effort aims to eliminate. Routes to finalize_after_report rather
+       than straight to END (see that node: without it, the thread's last
+       message would be report_and_act's acknowledgment ToolMessage, not
+       the visible answer — breaking _current_answer/app/main.py, which
+       assumes everywhere that messages[-1] is the answer's AIMessage).
+    3. Normal case (a real action was also executed, or no visible
+       answer): unchanged behavior, back to call_llm.
+    """
+    plan = state.get("plan") or []
+    if any(st.get("status") == "echoue" for st in plan):
+        if state.get("replan_count", 0) < REPLAN_BUDGET:
+            return "replan"
+        return "give_up"
+
+    last_ai = next((m for m in reversed(state["messages"]) if getattr(m, "type", None) == "ai"), None)
+    if last_ai is None:
+        return "call_llm"
+    tool_calls = getattr(last_ai, "tool_calls", None) or []
+    only_report = bool(tool_calls) and all(tc["name"] == _REPORT_AND_ACT_TOOL_NAME for tc in tool_calls)
+    if only_report and has_visible_answer(last_ai.content):
+        return "finalize"
+    return "call_llm"
+
+
+async def finalize_after_report_and_act(state: AgentState) -> dict:
+    """
+    See route_after_tool_execution ("finalize"): re-emits the text of the
+    answer already produced (and already streamed to the client by
+    call_llm) as a NEW clean AIMessage, WITHOUT tool_calls — so that
+    messages[-1] stays the visible answer's AIMessage, not the
+    acknowledgment ToolMessage from report_and_act that was just
+    executed. Same precedent as run_slash_command_direct (see its
+    docstring): no LLM call, a plain standard-shaped message to stay
+    compatible with app/main.py.
+    """
+    last_ai = next((m for m in reversed(state["messages"]) if getattr(m, "type", None) == "ai"), None)
+    content = last_ai.content if last_ai is not None else ""
+    return {"messages": [{"role": "assistant", "content": content}]}
 
 
 def build_graph(checkpointer=None):
@@ -2345,6 +2702,7 @@ def build_graph(checkpointer=None):
     graph.add_node("call_tools", call_tools)
     graph.add_node("auto_call_tools", auto_call_tools)
     graph.add_node("verify_action", verify_action)
+    graph.add_node("finalize_after_report_and_act", finalize_after_report_and_act)
     graph.add_node("replan_task", replan_task)
     graph.add_node("report_failure", report_failure)
     graph.add_node("reject_tools", reject_tools)
@@ -2376,9 +2734,16 @@ def build_graph(checkpointer=None):
         {"call_llm": "call_llm", "reject_plan": "reject_plan"},
     )
     graph.add_edge("reject_plan", END)
+    # verify_action runs AFTER call_llm (analysis of the observation that
+    # same call just produced, see docs/history.md "latency fix") —
+    # route_after_verification delegates to has_tool_calls
+    # (call_tools/auto_call_tools/retry_empty_answer/end). The
+    # replan/give_up dispatch on a "echoue" subtask lives in
+    # route_after_tool_execution, not here.
+    graph.add_edge("call_llm", "verify_action")
     graph.add_conditional_edges(
-        "call_llm",
-        has_tool_calls,
+        "verify_action",
+        route_after_verification,
         {
             "call_tools": "require_approval",
             "auto_call_tools": "auto_call_tools",
@@ -2389,16 +2754,31 @@ def build_graph(checkpointer=None):
     graph.add_conditional_edges(
         "require_approval", route_after_approval, {"call_tools": "call_tools", "reject_tools": "reject_tools"}
     )
-    graph.add_edge("call_tools", "verify_action")
-    graph.add_edge("auto_call_tools", "verify_action")
     graph.add_conditional_edges(
-        "verify_action",
-        route_after_verification,
-        {"continue": "call_llm", "replan": "replan_task", "give_up": "report_failure"},
+        "call_tools",
+        route_after_tool_execution,
+        {"call_llm": "call_llm", "finalize": "finalize_after_report_and_act", "replan": "replan_task", "give_up": "report_failure"},
+    )
+    graph.add_conditional_edges(
+        "auto_call_tools",
+        route_after_tool_execution,
+        {"call_llm": "call_llm", "finalize": "finalize_after_report_and_act", "replan": "replan_task", "give_up": "report_failure"},
     )
     graph.add_edge("replan_task", "validate_plan")
     graph.add_edge("report_failure", END)
-    graph.add_edge("reject_tools", "call_llm")
+    graph.add_edge("finalize_after_report_and_act", END)
+    # reject_tools also resolves ALL of the turn's tool_calls (including
+    # report_and_act, see reject_tools) — same post-execution routing as
+    # call_tools/auto_call_tools, so as never to skip over an
+    # echoue/give_up potentially set by verify_action just before
+    # (latency fix 1/2-bis: this case wasn't exercised by the tests
+    # before report_and_act made a tool_calls near-systematic on verified
+    # turns).
+    graph.add_conditional_edges(
+        "reject_tools",
+        route_after_tool_execution,
+        {"call_llm": "call_llm", "finalize": "finalize_after_report_and_act", "replan": "replan_task", "give_up": "report_failure"},
+    )
     graph.add_edge("retry_empty_answer", "call_llm")
 
     return graph.compile(checkpointer=checkpointer or MemorySaver())

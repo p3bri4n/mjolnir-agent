@@ -1,29 +1,34 @@
 """
-Journal d'audit (Phase 2) : trace machine-lisible de chaque tool_call
-TIER_REVERSIBLE effectivement exécuté (auto-approuvé silencieusement, ou
-après approbation humaine explicite d'un tour mixte/streak-limit — voir
-call_tools, app/graph.py). Les tool_calls TIER_READ ne sont volontairement
-PAS tracés (silencieux par design, rien de nouveau à auditer), pas plus que
-les TIER_SENSITIVE (déjà tracés dans l'historique de conversation via le
-message "⚠️ Approbation requise" et la réponse "approuver"/"refuser").
+Audit log (Phase 2, blind spot fixed — see docs/history.md, T9
+investigation): machine-readable trace of every actually executed
+tool_call whose tier isn't TIER_READ (silent by design, nothing new to
+audit) — TIER_REVERSIBLE as well as TIER_SENSITIVE, whether it comes from
+auto_call_tools (auto-approved) or call_tools (after approval, human or
+via the campaign harness — see _execute_tool_calls, app/graph.py).
+Previously, only auto_call_tools logged: a turn that went through
+require_approval was assumed to be "already traced in the conversation
+history", a false assumption in automated campaigns (no human ever
+looks) and moot anyway after a service restart (MemorySaver checkpointer,
+in-memory only) — the very first call of each tool per thread, the most
+useful for investigation, stayed invisible.
 
-Résultat d'outil (Phase 1d-révisée, voir HISTORY.md "l'observabilité
-d'abord") : chaque entrée porte désormais aussi le résultat TEL QUE VU PAR
-LE MODÈLE (déjà tronqué/hiérarchisé par _truncate_browser_result côté
-appelant — jamais la version brute, ce serait dupliquer une donnée que le
-modèle n'a jamais reçue). Sans ça, l'archive ne permettait de reconstruire
-que la SÉQUENCE d'appels (tool + arguments), jamais ce que l'agent a
-réellement perçu à chaque étape — ce qui a bloqué la vérification stricte
-des hypothèses 0a/0b lors du diagnostic T5/T8 (voir HISTORY.md). C'est
-aussi la fondation du futur endpoint "contexte de l'agent" du dashboard.
+Tool result (revised Phase 1d, see docs/history.md "observability
+first"): every entry now also carries the result AS SEEN BY THE MODEL
+(already truncated/prioritized by _truncate_browser_result on the caller
+side — never the raw version, that would duplicate data the model never
+received). Without this, the archive could only reconstruct the
+SEQUENCE of calls (tool + arguments), never what the agent actually
+perceived at each step — which blocked strict verification of
+hypotheses 0a/0b during the T5/T8 diagnosis (see docs/history.md). This
+is also the foundation for the dashboard's future "agent context"
+endpoint.
 
-Un fichier JSONL par jour, sous AUDIT_LOG_DIR (défaut /workspace/.audit,
-partagé avec les serveurs MCP filesystem/git/terminal via le même bind
-mount, voir docker-compose.yml). Rotation/compression (voir
-AUDIT_LOG_MAX_BYTES/_rotate_if_needed) : la persistance des résultats
-gonfle significativement le volume par rapport à tool+arguments seuls,
-d'où la nécessité de borner la taille d'un fichier journalier plutôt que de
-le laisser croître sans fin.
+One JSONL file per day, under AUDIT_LOG_DIR (default /workspace/.audit,
+shared with the filesystem/git/terminal MCP servers via the same bind
+mount, see docker-compose.yml). Rotation/compression (see
+AUDIT_LOG_MAX_BYTES/_rotate_if_needed): persisting results significantly
+inflates the volume compared to tool+arguments alone, hence the need to
+bound a daily file's size rather than let it grow unbounded.
 """
 
 import gzip
@@ -36,11 +41,11 @@ from typing import Optional
 
 AUDIT_LOG_DIR = os.environ.get("AUDIT_LOG_DIR", "/workspace/.audit")
 
-# Au-delà de cette taille, le fichier journalier du jour est compressé et
-# archivé (suffixe ".N.jsonl.gz", N croissant) avant qu'une nouvelle écriture
-# ne reparte sur un fichier ".jsonl" frais pour le même jour — la journée
-# n'est donc plus garantie tenir dans un seul fichier une fois ce seuil
-# franchi, contrairement à avant l'ajout des résultats d'outil.
+# Beyond this size, the day's log file is compressed and archived
+# (suffix ".N.jsonl.gz", increasing N) before a new write starts a fresh
+# ".jsonl" file for the same day — the day is therefore no longer
+# guaranteed to fit in a single file once this threshold is crossed,
+# unlike before tool results were added.
 AUDIT_LOG_MAX_BYTES = int(os.environ.get("AUDIT_LOG_MAX_BYTES", str(20 * 1024 * 1024)))
 
 
@@ -85,18 +90,18 @@ def log_tool_call(
 
 def log_message(thread_id: str, role: str, content) -> None:
     """
-    Observabilité (Phase 1d-révisée, voir HISTORY.md "correctif extraction"
-    -> "OBSERVABILITÉ") : persiste le message ASSISTANT (raisonnement
-    <think> inclus + réponse finale, voir call_llm/app/graph.py) produit à
-    chaque tour — dernière pièce manquante de l'archive. Sans elle, une
-    investigation d'archive ne pouvait reconstruire QUE ce que l'agent a
-    perçu (résultats d'outils, voir log_tool_call) et sa séquence d'actions,
-    jamais son propre raisonnement/texte — limite honnêtement signalée
-    plusieurs fois pendant le diagnostic T1/T7/T10 (voir HISTORY.md).
-    `kind: "message"` distingue ces entrées des tool_calls (`kind` absent
-    pour ceux-ci, rétrocompatible) à la lecture — voir GET /audit,
-    app/main.py, qui reste volontairement générique (renvoie tout, au
-    consommateur de filtrer).
+    Observability (revised Phase 1d, see docs/history.md "extraction fix"
+    -> "OBSERVABILITY"): persists the ASSISTANT message (<think> reasoning
+    included + final answer, see call_llm/app/graph.py) produced each
+    turn — the archive's last missing piece. Without it, an archive
+    investigation could only reconstruct what the agent perceived (tool
+    results, see log_tool_call) and its action sequence, never its own
+    reasoning/text — a limitation honestly flagged several times during
+    the T1/T7/T10 diagnosis (see docs/history.md). `kind: "message"`
+    distinguishes these entries from tool_calls (`kind` absent for those,
+    backward-compatible) on read — see GET /audit, app/main.py, which
+    stays deliberately generic (returns everything, filtering is up to
+    the consumer).
     """
     _append_entry(
         {
@@ -110,22 +115,21 @@ def log_message(thread_id: str, role: str, content) -> None:
 
 
 def _iter_log_files(root: Path):
-    """Fichiers journaliers, plein (.jsonl) puis archives compressées
-    (.N.jsonl.gz) du même jour, triés par nom (donc par ordre chronologique
-    de rotation) — voir _rotate_if_needed."""
+    """Daily files, full (.jsonl) then compressed archives (.N.jsonl.gz)
+    of the same day, sorted by name (hence in chronological rotation
+    order) — see _rotate_if_needed."""
     yield from sorted(root.glob("*.jsonl"))
     yield from sorted(root.glob("*.jsonl.gz"))
 
 
 def read_entries(thread_id: Optional[str] = None) -> list:
     """
-    Relit tous les fichiers journaliers (potentiellement plusieurs si la
-    conversation a traversé un changement de jour ou une rotation par
-    volume), triés par timestamp, optionnellement filtrés par thread_id.
-    Usage : GET /audit (app/main.py). Une ligne corrompue individuelle est
-    ignorée plutôt que de faire échouer toute la lecture — le journal reste
-    consultable même si un écrivain a été interrompu en plein milieu d'une
-    ligne.
+    Reads back all daily files (potentially several if the conversation
+    spanned a day change or a volume-based rotation), sorted by
+    timestamp, optionally filtered by thread_id. Used by: GET /audit
+    (app/main.py). An individual corrupted line is skipped rather than
+    failing the whole read — the log stays browsable even if a writer was
+    interrupted mid-line.
     """
     root = Path(AUDIT_LOG_DIR)
     if not root.exists():

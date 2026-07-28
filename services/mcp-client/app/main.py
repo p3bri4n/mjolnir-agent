@@ -1,23 +1,24 @@
 """
-MCP Client : point d'entrée unique du LangGraph Agent vers les serveurs MCP.
+MCP Client: LangGraph Agent's single entry point to the MCP servers.
 
-Les images officielles mcp/* (filesystem, git, playwright) et l'image
-mcp-terminal construite localement communiquent en STDIO. Ce service les
-spawn donc à la demande, via `docker run -i --rm ...` sur le socket Docker
-monté depuis l'hôte, plutôt que de les traiter comme des serveurs réseau
-persistants.
+The official mcp/* images (filesystem, git, playwright) and the locally
+built mcp-terminal image communicate over STDIO. This service therefore
+spawns them on demand, via `docker run -i --rm ...` on the Docker socket
+mounted from the host, rather than treating them as persistent network
+servers.
 
-⚠️ Monter /var/run/docker.sock dans un conteneur équivaut à lui donner un
-accès root sur l'hôte (le conteneur peut lancer n'importe quel autre
-conteneur, y compris privilégié). En prod, préférer une alternative type
-Docker socket proxy (ex: tecnativa/docker-socket-proxy) qui restreint les
-opérations autorisées (uniquement `create`/`start`/`attach` sur des images
-whitelistées), plutôt que d'exposer le socket brut.
+⚠️ Mounting /var/run/docker.sock into a container is equivalent to giving
+it root access on the host (the container can launch any other
+container, including privileged ones). In production, prefer a Docker
+socket proxy alternative (e.g. tecnativa/docker-socket-proxy) that
+restricts allowed operations (only `create`/`start`/`attach` on
+whitelisted images), rather than exposing the raw socket.
 
-GhostDesk (serveur "desktop") est différent des autres : c'est un serveur
-HTTP persistant avec état (bureau virtuel, session VNC), pas un process
-ponctuel. Il tourne en continu comme service docker-compose à part, et
-mcp-client s'y connecte en Streamable HTTP au lieu de spawn un container.
+GhostDesk (the "desktop" server) is different from the others: it's a
+persistent, stateful HTTP server (virtual desktop, VNC session), not a
+one-off process. It runs continuously as its own docker-compose service,
+and mcp-client connects to it over Streamable HTTP instead of spawning a
+container.
 """
 
 import asyncio
@@ -41,13 +42,13 @@ SERVERS = {
             args=[
                 "run", "-i", "--rm",
                 "-v", f"{WORKSPACE_HOST_PATH}:/projects",
-                # Volume PARTAGÉ en LECTURE SEULE avec playwright-mcp (voir
-                # docker-compose.yml, --output-dir) : donne à l'agent un
-                # chemin de lecture DOCUMENTÉ pour un fichier téléchargé par
-                # le navigateur, plutôt que de deviner un chemin interne au
-                # conteneur playwright-mcp (voir HISTORY.md "Phase
-                # 1d-révisée", T5). ":ro" car ce serveur ne doit jamais
-                # pouvoir écrire dans les téléchargements de l'agent web.
+                # Volume SHARED READ-ONLY with playwright-mcp (see
+                # docker-compose.yml, --output-dir): gives the agent a
+                # DOCUMENTED read path for a file downloaded by the
+                # browser, rather than guessing a path internal to the
+                # playwright-mcp container (see docs/history.md "revised
+                # Phase 1d", T5). ":ro" because this server must never be
+                # able to write into the web agent's downloads.
                 "-v", "agent-downloads:/downloads:ro",
                 os.environ.get("MCP_FILESYSTEM_IMAGE", "mcp/filesystem:latest"),
                 "/projects",
@@ -67,24 +68,24 @@ SERVERS = {
         ),
     },
     "browser": {
-        # Contrairement aux autres serveurs stdio ci-dessus, "browser" est un
-        # serveur HTTP persistant (comme "desktop"/"ocr" plus bas) : un spawn
-        # éphémère (`docker run --rm` par appel) redémarrait un navigateur
-        # tout neuf à CHAQUE appel d'outil, sans continuité d'état entre
-        # `browser_navigate` et l'appel suivant — voir BUGS.md. L'image
-        # mcp/playwright officielle supporte un mode serveur HTTP natif
-        # (`--port`, endpoint Streamable HTTP `/mcp`), utilisé ici via le
-        # service docker-compose dédié `playwright-mcp`.
+        # Unlike the other stdio servers above, "browser" is a persistent
+        # HTTP server (like "desktop"/"ocr" below): an ephemeral spawn
+        # (`docker run --rm` per call) would restart a brand-new browser
+        # on EVERY tool call, with no state continuity between
+        # `browser_navigate` and the next call — see docs/resolved-bugs.md.
+        # The official mcp/playwright image supports a native HTTP server
+        # mode (`--port`, Streamable HTTP `/mcp` endpoint), used here via
+        # the dedicated `playwright-mcp` docker-compose service.
         "transport": "http",
         "url": os.environ.get("MCP_PLAYWRIGHT_URL", "http://playwright-mcp:8931/mcp"),
         "token": "",
-        # Playwright MCP scope son contexte navigateur (page, cookies,
-        # historique) à la SESSION MCP, pas au process serveur : passer par
-        # une session éphémère par appel (comme les autres serveurs http)
-        # recrée un `about:blank` à chaque fois même une fois le serveur
-        # rendu persistant (constaté empiriquement). Nécessite donc de
-        # garder une session ouverte entre les appels, voir
-        # `_get_persistent_session` ci-dessous.
+        # Playwright MCP scopes its browser context (page, cookies,
+        # history) to the MCP SESSION, not the server process: going
+        # through an ephemeral session per call (like the other http
+        # servers) recreates an `about:blank` every time even once the
+        # server is made persistent (verified empirically). Hence the
+        # need to keep a session open across calls, see
+        # `_get_persistent_session` below.
         "persistent_session": True,
     },
     "terminal": {
@@ -104,45 +105,44 @@ SERVERS = {
         "transport": "http",
         "url": os.environ.get("MCP_GHOSTDESK_URL", "http://ghostdesk:3000/mcp"),
         "token": os.environ.get("GHOSTDESK_AUTH_TOKEN", ""),
-        # Sans cet en-tête, GhostDesk attend des coordonnées en pixels écran
-        # natifs (1280x1024 ici) ; les modèles Qwen raisonnent eux nativement
-        # en repère normalisé 0-1000 et leurs clics atterrissent alors
-        # complètement à côté de la cible (documenté par GhostDesk). Les
-        # modèles frontière (Claude, GPT-4o) fonctionnent nativement en
-        # pixels écran et n'en ont pas besoin — d'où la variable d'env
-        # plutôt qu'une valeur figée, à vider si le modèle servi change.
+        # Without this header, GhostDesk expects coordinates in native
+        # screen pixels (1280x1024 here); Qwen models natively reason in
+        # a normalized 0-1000 coordinate space, so their clicks land
+        # completely off target (documented by GhostDesk). Frontier
+        # models (Claude, GPT-4o) work natively in screen pixels and
+        # don't need it — hence the env var rather than a fixed value, to
+        # clear if the served model changes.
         "model_space": os.environ.get("GHOSTDESK_MODEL_SPACE", "1000"),
     },
     "ocr": {
-        # Comme "desktop" ci-dessus : serveur HTTP persistant (ocr-service),
-        # pas un conteneur spawné à la demande. Pas de header
-        # GhostDesk-Model-Space ici : ocr-service convertit déjà lui-même ses
-        # coordonnées vers le repère 0-1000 avant de répondre (OCR_COORD_SPACE,
-        # voir services/ocr-service/app/coords.py), ce header n'a de sens que
-        # pour les appels adressés directement à GhostDesk.
+        # Like "desktop" above: persistent HTTP server (ocr-service), not
+        # an on-demand spawned container. No GhostDesk-Model-Space header
+        # here: ocr-service already converts its own coordinates to the
+        # 0-1000 space before responding (OCR_COORD_SPACE, see
+        # services/ocr-service/app/coords.py), this header only makes
+        # sense for calls addressed directly to GhostDesk.
         "transport": "http",
         "url": os.environ.get("MCP_OCR_URL", "http://ocr-service:8004/mcp"),
         "token": os.environ.get("OCR_AUTH_TOKEN", ""),
     },
 }
 
-# Outil de LOCALISATION/EXTRACTION CIBLÉE (Phase 1d-révisée, voir HISTORY.md
-# "correctif extraction") : le MCP Playwright officiel n'expose aucun outil
-# "cherche ce texte et donne son contexte" (vérifié : browser_click/hover/
-# select_option exigent tous une cible déjà localisée ; seuls
-# browser_evaluate/browser_run_code_unsafe permettent de chercher, au prix
-# de code JS arbitraire, tier ENGAGEMENT). Constaté en conditions réelles
-# (T1/T10, campagne post-1d) que rendre ces deux outils jamais accordables
-# pour la session (voir approval_policy.NEVER_GRANTABLE_TOOLS côté
-# langgraph-agent) a fait disparaître leur usage — remplacé par une
-# exploration manuelle (ctrl+f, parcours page par page) nettement moins
-# fiable. La VOIE PROPRE reçoit ici la capacité de la béquille : un
-# TEMPLATE JS FIXE (jamais de code fourni par le modèle, seulement un texte
-# à chercher, interpolé via json.dumps — donc échappé comme une chaîne JS
-# valide, aucune injection de code possible) qui parcourt les nœuds texte de
-# la page et renvoie les occurrences avec leur contexte proche (texte du
-# parent, lien englobant s'il existe). Le modèle ne voit jamais ce template,
-# seulement le paramètre "query".
+# TARGETED LOCATION/EXTRACTION tool (revised Phase 1d, see
+# docs/history.md "extraction fix"): the official Playwright MCP exposes
+# no "search this text and give its context" tool (verified:
+# browser_click/hover/select_option all require an already-located
+# target; only browser_evaluate/browser_run_code_unsafe allow searching,
+# at the cost of arbitrary JS code, ENGAGEMENT tier). Observed under real
+# conditions (T1/T10, post-1d campaign) that making these two tools never
+# session-grantable (see approval_policy.NEVER_GRANTABLE_TOOLS on the
+# langgraph-agent side) made their usage disappear — replaced by manual
+# exploration (ctrl+f, page-by-page browsing) noticeably less reliable.
+# The CLEAN PATH gets the crutch's capability here: a FIXED JS TEMPLATE
+# (never model-supplied code, only a text to search, interpolated via
+# json.dumps — hence escaped as a valid JS string, no code injection
+# possible) that walks the page's text nodes and returns the occurrences
+# with their nearby context (parent text, enclosing link if any). The
+# model never sees this template, only the "query" parameter.
 _BROWSER_EXTRACT_JS_TEMPLATE = """() => {{
   const query = {query_json};
   const q = query.toLowerCase();
@@ -166,24 +166,87 @@ _BROWSER_EXTRACT_JS_TEMPLATE = """() => {{
 }}"""
 
 
-def _build_extract_function(query: str) -> str:
-    """Fonction pure (testable sans aucun serveur MCP réel) : construit le
-    JS fixe ci-dessus avec `query` interpolé via `json.dumps` — une syntaxe
-    de chaîne JSON est une syntaxe de chaîne JS valide, donc cet
-    échappement est suffisant pour empêcher toute évasion de la chaîne
-    littérale (guillemets, backslashs, retours à la ligne dans la requête)."""
+# Bulk mode (found while investigating T1, see docs/history.md
+# "BULK_CHECK_DIRECTIVE"): when the sought information only appears on
+# DETAIL pages (never the listing) and several need checking, a
+# page-by-page navigation exhausts the iteration budget before everything
+# is even checked. The prompt instruction used to push the model into
+# writing its own fetch() loop via browser_evaluate (TIER_SENSITIVE,
+# NEVER_GRANTABLE, arbitrary JS code) — it worked, but it's fragile (the
+# model must write correct JS every time) for a need that never actually
+# required arbitrary code, only a request across SEVERAL pages instead of
+# one. `urls` (optional) gives this capability at TIER_READ, the same
+# FIXED template as the single-page search: fetch() + DOMParser + the
+# same text-node walk, per URL. Failure on an individual URL (network,
+# cross-origin CORS) captured per page, never propagated — one
+# unreachable page must not invalidate the whole batch.
+_BROWSER_EXTRACT_BULK_JS_TEMPLATE = """async () => {{
+  const query = {query_json};
+  const urls = {urls_json};
+  const q = query.toLowerCase();
+  const MAX_PER_PAGE = 20;
+  const MAX_URLS = 50;
+  function extractFrom(doc) {{
+    const results = [];
+    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode())) {{
+      const text = (node.textContent || '').trim();
+      if (!text || !text.toLowerCase().includes(q)) continue;
+      const parent = node.parentElement;
+      const link = parent ? parent.closest('a') : null;
+      results.push({{
+        text: text.slice(0, 300),
+        parent_tag: parent ? parent.tagName.toLowerCase() : null,
+        parent_text: parent ? parent.textContent.trim().slice(0, 300) : null,
+        link_href: link ? link.getAttribute('href') : null,
+      }});
+      if (results.length >= MAX_PER_PAGE) break;
+    }}
+    return results;
+  }}
+  const targets = urls.slice(0, MAX_URLS);
+  const matches = {{}};
+  const errors = {{}};
+  for (const url of targets) {{
+    try {{
+      const resp = await fetch(url);
+      const html = await resp.text();
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const found = extractFrom(doc);
+      if (found.length) matches[url] = found;
+    }} catch (e) {{
+      errors[url] = String(e);
+    }}
+  }}
+  return JSON.stringify({{ checked: targets.length, matches, errors }});
+}}"""
+
+
+def _build_extract_function(query: str, urls: list = None) -> str:
+    """Pure function (testable with no real MCP server): builds the fixed
+    JS (single-page by default, bulk if `urls` is non-empty) with `query`/
+    `urls` interpolated via `json.dumps` — JSON string/array syntax is
+    valid JS syntax, so this escaping is enough to prevent any literal
+    escape (quotes, backslashes, newlines in the query or a URL)."""
+    if urls:
+        return _BROWSER_EXTRACT_BULK_JS_TEMPLATE.format(query_json=json.dumps(query), urls_json=json.dumps(urls))
     return _BROWSER_EXTRACT_JS_TEMPLATE.format(query_json=json.dumps(query))
 
 
 _BROWSER_EXTRACT_TOOL = {
-    "server": "browser",  # dispatché en interne vers browser_evaluate, voir call_tool()
+    "server": "browser",  # dispatched internally to browser_evaluate, see call_tool()
     "description": (
         "Cherche un TEXTE (pas du code) dans la page actuelle — référence "
         "produit, prix, nom, mot-clé — et renvoie les occurrences avec leur "
         "contexte proche (texte du parent, lien englobant si présent). "
         "Pour trouver une valeur précise dans une page, utilise CET outil : "
         "pas de parcours manuel page par page, pas de raccourci "
-        "clavier de recherche (ctrl+f)."
+        "clavier de recherche (ctrl+f). Si l'information n'apparaît que sur "
+        "des pages de DÉTAIL et qu'il faut en vérifier PLUSIEURS (ex. 30 "
+        "fiches produit) pour la trouver, passe leurs URL dans `urls` en UN "
+        "seul appel plutôt que de naviguer puis appeler cet outil page par "
+        "page — bien plus économe en itérations."
     ),
     "inputSchema": {
         "type": "object",
@@ -191,6 +254,16 @@ _BROWSER_EXTRACT_TOOL = {
             "query": {
                 "type": "string",
                 "description": "Texte exact ou partiel à chercher (ex: une référence produit, un nom).",
+            },
+            "urls": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Optionnel : URL de PLUSIEURS pages à vérifier en un seul appel "
+                    "(mode bulk) plutôt que la seule page actuelle. Chaque URL est "
+                    "récupérée indépendamment (fetch) ; une URL injoignable n'invalide "
+                    "pas les autres. Plafonné à 50 URL par appel."
+                ),
             },
         },
         "required": ["query"],
@@ -200,15 +273,15 @@ _BROWSER_EXTRACT_TOOL = {
 
 app = FastAPI(title="MCP Client")
 
-# registre {nom_outil: {"server", "description", "inputSchema"}}, construit
-# paresseusement au 1er appel (description/inputSchema nécessaires pour que
-# langgraph-agent puisse lier ces outils au LLM via bind_tools — sans quoi le
-# modèle ignore purement et simplement que ces outils existent).
+# registry {tool_name: {"server", "description", "inputSchema"}}, lazily
+# built on the 1st call (description/inputSchema needed so langgraph-agent
+# can bind these tools to the LLM via bind_tools — without which the
+# model simply has no idea these tools exist).
 _tool_registry: dict[str, dict] = {}
 
-# Sessions MCP gardées ouvertes entre deux appels HTTP, pour les serveurs où
-# l'état (navigateur, page) vit dans la session plutôt que dans le process
-# serveur — voir "persistent_session" sur l'entrée "browser" ci-dessus.
+# MCP sessions kept open across HTTP calls, for servers where state
+# (browser, page) lives in the session rather than the server process —
+# see "persistent_session" on the "browser" entry above.
 _persistent_sessions: dict[str, tuple[AsyncExitStack, ClientSession]] = {}
 _persistent_locks: dict[str, asyncio.Lock] = {
     name: asyncio.Lock() for name, server in SERVERS.items() if server.get("persistent_session")
@@ -238,7 +311,7 @@ async def _open_session(server_name: str, stack: AsyncExitStack) -> ClientSessio
 
 
 async def _get_persistent_session(server_name: str) -> ClientSession:
-    """Réutilise la session existante si vivante, en ouvre une nouvelle sinon."""
+    """Reuses the existing session if alive, opens a new one otherwise."""
     async with _persistent_locks[server_name]:
         cached = _persistent_sessions.get(server_name)
         if cached is not None:
@@ -260,15 +333,15 @@ async def _drop_persistent_session(server_name: str) -> None:
 
 
 async def _run_on_server(server_name: str, action):
-    """Exécute `action` sur le serveur : session persistante si configurée, éphémère sinon."""
+    """Runs `action` on the server: persistent session if configured, ephemeral otherwise."""
     server = SERVERS[server_name]
     if server.get("persistent_session"):
         session = await _get_persistent_session(server_name)
         try:
             return await action(session)
         except Exception:
-            # connexion probablement morte (serveur redémarré...) : on la jette,
-            # le prochain appel en rouvrira une neuve plutôt que de rester bloqué
+            # connection probably dead (server restarted...): drop it, the
+            # next call will reopen a fresh one rather than staying stuck
             await _drop_persistent_session(server_name)
             raise
     async with AsyncExitStack() as stack:
@@ -293,11 +366,11 @@ async def _refresh_registry():
                     "inputSchema": tool.inputSchema or {"type": "object", "properties": {}},
                 }
         except Exception:
-            # un serveur indisponible ne doit pas bloquer le démarrage des autres
+            # an unavailable server must not block the others from starting
             continue
-    # Outil synthétique (voir _BROWSER_EXTRACT_TOOL ci-dessus) : n'existe sur
-    # aucun serveur MCP réel, ajouté après coup pour ne jamais être écrasé
-    # par un rafraîchissement qui ne verrait, lui, que les serveurs réels.
+    # Synthetic tool (see _BROWSER_EXTRACT_TOOL above): doesn't exist on
+    # any real MCP server, added afterward so it's never overwritten by a
+    # refresh, which only ever sees the real servers.
     if "browser" in SERVERS:
         _tool_registry["browser_extract"] = _BROWSER_EXTRACT_TOOL
 
@@ -315,21 +388,20 @@ async def health():
 @app.post("/reset-session/{server_name}")
 async def reset_session(server_name: str):
     """
-    Réinitialisation explicite d'une session PERSISTANTE (Phase 1d-révisée,
-    voir HISTORY.md "isolation entre tâches") : jette la session en cache
-    (`_drop_persistent_session`), le prochain appel en rouvrira une neuve.
-    Sans ce point d'entrée, seul un redémarrage complet du service (ou une
-    exception fortuite pendant un appel) purgeait l'état d'une session
-    persistante — pour "browser" (playwright-mcp), cela signifiait des
-    onglets/URL laissés ouverts d'une tâche à l'autre, silencieusement
-    visibles dans le snapshot de la tâche SUIVANTE (constaté en conditions
-    réelles : un onglet "Science | Books to Scrape" resté ouvert après T10
-    polluait le snapshot de T7 dans une répétition ultérieure, plusieurs
-    campagnes/heures plus tard).
-    404 si `server_name` n'est pas configuré en session persistante (rien à
-    réinitialiser) plutôt qu'un no-op silencieux — évite qu'un nom de
-    serveur mal orthographié passe inaperçu côté appelant (le harnais de
-    tâches web, voir tests_integration/test_web_tasks.py).
+    Explicit reset of a PERSISTENT session (revised Phase 1d, see
+    docs/history.md "cross-task isolation"): drops the cached session
+    (`_drop_persistent_session`), the next call will reopen a fresh one.
+    Without this entry point, only a full service restart (or a
+    fortuitous exception during a call) would purge a persistent
+    session's state — for "browser" (playwright-mcp), this meant tabs/
+    URLs left open from one task to the next, silently visible in the
+    NEXT task's snapshot (observed under real conditions: a "Science |
+    Books to Scrape" tab left open after T10 polluted T7's snapshot in a
+    later repetition, several campaigns/hours later).
+    404 if `server_name` isn't configured for a persistent session
+    (nothing to reset) rather than a silent no-op — prevents a misspelled
+    server name from going unnoticed on the caller side (the web-task
+    harness, see tests_integration/test_web_tasks.py).
     """
     if not SERVERS.get(server_name, {}).get("persistent_session"):
         raise HTTPException(
@@ -342,7 +414,7 @@ async def reset_session(server_name: str):
 
 @app.get("/tools")
 async def list_all_tools():
-    """{nom_outil: nom_serveur} — vue simple utilisée pour l'inspection/debug."""
+    """{tool_name: server_name} — simple view used for inspection/debugging."""
     await _refresh_registry()
     return {"tools": {name: info["server"] for name, info in _tool_registry.items()}}
 
@@ -350,8 +422,8 @@ async def list_all_tools():
 @app.get("/tools/schema")
 async def list_tools_schema():
     """
-    Schéma au format OpenAI function-calling (utilisé par langgraph-agent pour
-    lier les outils au LLM via bind_tools — voir app/graph.py).
+    Schema in OpenAI function-calling format (used by langgraph-agent to
+    bind tools to the LLM via bind_tools — see app/graph.py).
     """
     await _refresh_registry()
     return {
@@ -369,6 +441,23 @@ async def list_tools_schema():
     }
 
 
+# Post-navigation stabilization (found while investigating T10, see
+# docs/history.md "snapshot/URL desync"): on a client-rendered page (e.g.
+# books.toscrape.com, category loaded after the click), `browser_snapshot`
+# can return the OLD page's content while the URL/screenshot already
+# confirm the change — the agent then loses several turns convincing
+# itself of where it is, sometimes exhausting its iteration budget before
+# even seeing the useful content. `browser_wait_for` (a real mcp/playwright
+# tool, confirmed via GET /tools/schema: time/text/textGone) is called
+# automatically after EVERY successful browser_navigate/browser_click,
+# transparent to the agent — no text expected in advance, a short fixed
+# delay is enough to let client-side rendering settle. A server-side fix
+# rather than a prompt instruction: a fixed delay doesn't depend on any
+# model behavior to be applied.
+_STABILIZE_AFTER_TOOLS = {"browser_navigate", "browser_click"}
+BROWSER_STABILIZE_WAIT_SECONDS = float(os.environ.get("BROWSER_STABILIZE_WAIT_SECONDS", "0.5"))
+
+
 @app.post("/call")
 async def call_tool(request: CallRequest):
     if request.tool not in _tool_registry:
@@ -378,10 +467,11 @@ async def call_tool(request: CallRequest):
         raise HTTPException(status_code=404, detail=f"Outil inconnu : {request.tool}")
 
     if request.tool == "browser_extract":
-        # Dispatché en interne vers browser_evaluate avec un template JS FIXE
-        # (voir _build_extract_function) : le modèle ne fournit jamais de
-        # code, seulement le texte à chercher.
-        js_function = _build_extract_function(request.arguments.get("query", ""))
+        # Dispatched internally to browser_evaluate with a FIXED JS
+        # template (see _build_extract_function): the model never
+        # supplies code, only the text to search for (and, in bulk mode,
+        # the list of URLs to check).
+        js_function = _build_extract_function(request.arguments.get("query", ""), request.arguments.get("urls"))
         result = await _run_on_server(
             "browser", lambda s: s.call_tool("browser_evaluate", {"function": js_function})
         )
@@ -390,4 +480,8 @@ async def call_tool(request: CallRequest):
     result = await _run_on_server(
         tool_info["server"], lambda s: s.call_tool(request.tool, request.arguments)
     )
+    if request.tool in _STABILIZE_AFTER_TOOLS and BROWSER_STABILIZE_WAIT_SECONDS > 0:
+        await _run_on_server(
+            "browser", lambda s: s.call_tool("browser_wait_for", {"time": BROWSER_STABILIZE_WAIT_SECONDS})
+        )
     return {"content": [block.model_dump() for block in result.content]}

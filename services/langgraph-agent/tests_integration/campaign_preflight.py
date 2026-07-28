@@ -1,58 +1,112 @@
 """
-Préambule de campagne (Itération 0, docs/briefs/phase-1-coeur-cognitif.md) :
-avant de lancer une campagne du harnais (test_web_tasks.py), vérifie que le
-schéma d'outils effectivement vu par langgraph-agent correspond à l'attendu
-ET à ce que sert mcp-client au même instant, puis force un état de départ
-propre (reset de session navigateur, purge du volume downloads). Un
-manquement lève PreflightError AVANT le premier run de la campagne — jamais
-un run qui démarre puis échoue pour une raison d'infra déjà détectable.
+Campaign preamble (Iteration 0, docs/briefs/phase-1-coeur-cognitif.md):
+before launching a harness campaign (test_web_tasks.py), checks that the
+tool schema actually seen by langgraph-agent matches what's expected AND
+what mcp-client serves at that same instant, then forces a clean starting
+state (browser session reset, downloads volume purge). A gap raises
+PreflightError BEFORE the campaign's first run — never a run that starts
+then fails for an infra reason that was already detectable.
 
-Raison d'être (leçon du "bug de cache de schéma d'outils", voir HISTORY.md,
-Phase 1d-révisée) : `_tools_schema_cache` (app/graph.py) est rempli une
-seule fois pour la durée du process langgraph-agent et n'est JAMAIS
-invalidé. Un redémarrage de mcp-client seul (nouvel outil ajouté/schéma mis
-à jour côté serveur) peut donc laisser langgraph-agent tourner avec une vue
-périmée, silencieusement — une première tentative de campagne complète
-Phase 1d-révisée a tourné entièrement sur un schéma figé avant même
-l'activation réelle de `browser_extract`, invalidant tout le run sans
-qu'aucune erreur ne le signale sur le coup. Ce module rend cette classe de
-bug détectable AVANT de dépenser une campagne entière dessus.
+Raison d'être (lesson from the "tool-schema cache bug", see
+docs/history.md, revised Phase 1d): `_tools_schema_cache` (app/graph.py)
+is filled once for the langgraph-agent process's lifetime and is NEVER
+invalidated. Restarting mcp-client alone (new tool added/schema updated
+server-side) can therefore leave langgraph-agent running with a stale
+view, silently — a first full-campaign attempt in revised Phase 1d ran
+entirely on a frozen schema before `browser_extract` was even really
+active, invalidating the whole run with no error flagging it on the
+spot. This module makes this class of bug detectable BEFORE spending a
+whole campaign on it.
 
-EXPECTED_TOOLS n'est PAS une tentative d'énumération exhaustive du schéma
-(la plupart des outils browser_* proviennent de l'image officielle
-mcp/playwright, dont le nom exact de chaque tool n'est pas maintenu dans ce
-dépôt — les deviner violerait la règle "toute affirmation sur le
-comportement d'une lib se vérifie contre le code installé", CLAUDE.md #8).
-Se limite donc à l'union des outils déjà nommés ailleurs dans CE dépôt :
-les tiers de app/approval_policy.py (déjà la config de référence
-maintenue) + browser_navigate (seul nom de tool browser_* littéralement
-référencé dans app/graph.py, via le garde-fou de fabrication d'URL).
+EXPECTED_TOOLS is NOT an attempt at an exhaustive enumeration of the
+schema (most browser_* tools come from the official mcp/playwright
+image, whose exact tool names aren't maintained in this repo — guessing
+them would violate the rule "any claim about a library's behavior is
+verified against the installed code", CLAUDE.md #8). It's therefore
+limited to the union of tools already named elsewhere in THIS repo: the
+tiers from app/approval_policy.py (already the maintained reference
+config) + browser_navigate (the only browser_* tool name literally
+referenced in app/graph.py, via the URL-fabrication guardrail).
 """
 
 import json
 import subprocess
+import time
 from typing import Callable, Iterable, Optional
 
 import app.approval_policy as policy
+from tests_integration import campaign_persistence
 
 AGENT_CONTAINER = "langgraph-agent"
 MCP_CLIENT_CONTAINER = "mcp-client"
+TABBYAPI_CONTAINER = "tabbyapi"
+TABBYAPI_IMAGE_TAG = "agentic-ai-playground-tabbyapi"
+
+# LLM readiness (campaign tooling, see docs/history.md): found under real
+# conditions — a `docker compose up --build langgraph-agent` also
+# recreated tabbyapi (config drift detected); the campaign started ~20s
+# after "Model successfully loaded" but BEFORE the HTTP server was
+# actually listening, producing 30 near-instant failures
+# (openai.APIConnectionError, captured as an internal error notice)
+# before any assertion could reveal the problem. The previous preamble
+# (check_tools_schema) checked ONLY the tool schema via mcp-client, never
+# that the LLM backend actually answers a completion — blind spot now
+# covered by wait_for_llm_ready.
+LLM_READY_TIMEOUT_SECONDS = 180
+LLM_READY_POLL_INTERVAL_SECONDS = 5
 
 EXPECTED_TOOLS = policy.TIER_READ_TOOLS | policy.TIER_REVERSIBLE_TOOLS | policy.NEVER_GRANTABLE_TOOLS | {
     "browser_navigate"
 }
 
+# Effective flags control (docs/briefs/flags-du-coeur-cognitif.md, point
+# 2): expected values INSIDE THE RUNNING CONTAINER — the 4 cognitive-core
+# flags (default "true" now, see app/graph.py and docker-compose.yml) +
+# the other variables that drive measured behavior (attempt/replan
+# budgets, curbed thinking, tier overrides, truncation thresholds). List
+# and values taken as-is from app/graph.py/app/approval_policy.py (never
+# guessed) — see CAMPAIGN_ENV_FLAGS (campaign_persistence.py) for the
+# same list of NAMES, reused here to avoid duplicating it. A value absent
+# from the container (docker-compose.yml doesn't pass it in environment)
+# compares to "" (empty string, never None — avoids a false type
+# mismatch in the diff).
+EXPECTED_AGENT_FLAGS = {
+    "MAX_TOOL_ITERATIONS": "20",
+    "LLM_MAX_TOKENS": "2048",
+    "PLANNER_ENABLED": "true",
+    "PLANNER_MAX_TOKENS": "8192",
+    "PLANNER_THINKING_ENABLED": "false",
+    "VERIFICATION_ENABLED": "true",
+    "SUBTASK_ATTEMPT_BUDGET": "3",
+    "REPLAN_BUDGET": "2",
+    "PLAN_VALIDATION_ENABLED": "true",
+    "PLAN_JUDGE_ENABLED": "true",
+    "ADAPTIVE_THINKING": "true",
+    "MAX_IMAGES_IN_CONTEXT": "1",
+    "IMAGE_FORMAT_PASSTHROUGH": "",
+    "IMAGE_TOKEN_ESTIMATE": "1500",
+    "AUTO_APPROVAL_STREAK_LIMIT": "6",
+    "AUTO_APPROVED_TOOLS": "",
+    "APPROVAL_RULES_PATH": "",
+    "BROWSER_TOOL_OUTPUT_MAX_CHARS": "8000",
+    "AFFORDANCE_THRESHOLD": "60",
+    "FABRICATION_LIMIT": "5",
+    "BROWSER_NAVIGATE_GUARDRAIL": "true",
+    "MAX_EMPTY_ANSWER_RETRIES": "1",
+    "AUDIT_LOG_MAX_BYTES": str(20 * 1024 * 1024),
+}
+
 
 class PreflightError(RuntimeError):
-    """Levée par run_preflight() : la campagne ne doit PAS démarrer."""
+    """Raised by run_preflight(): the campaign must NOT start."""
 
 
 def check_tools_schema(agent_tools: Iterable[str], mcp_tools: Iterable[str]) -> Optional[str]:
     """
-    Pure, unit-testable sans docker : None si tout va bien, sinon un message
-    motivant le refus (comparaison AVANT expected, car une désynchronisation
-    entre les deux services rend toute conclusion sur "l'attendu" trompeuse
-    tant qu'elle n'est pas résolue).
+    Pure, unit-testable without docker: None if all is well, otherwise a
+    message explaining the rejection (compared BEFORE expected, since a
+    desync between the two services makes any conclusion about "the
+    expected" misleading until it's resolved).
     """
     agent_tools = set(agent_tools)
     mcp_tools = set(mcp_tools)
@@ -68,6 +122,33 @@ def check_tools_schema(agent_tools: Iterable[str], mcp_tools: Iterable[str]) -> 
     missing_expected = sorted(EXPECTED_TOOLS - agent_tools)
     if missing_expected:
         return f"outils attendus absents du schéma effectif de langgraph-agent : {missing_expected}"
+    return None
+
+
+def check_agent_flags(actual_flags: dict) -> Optional[str]:
+    """
+    Pure, unit-testable without docker (see check_tools_schema above,
+    same style): None if `actual_flags` (see _fetch_agent_env below)
+    exactly matches EXPECTED_AGENT_FLAGS for every expected key, otherwise
+    a message listing the diff (key, expected, actual) — a campaign
+    measured against a drifted flag (e.g. a local .env still overriding
+    the old "false" default) must never claim to be comparable to the
+    reference campaign without flagging it BEFORE the first run. A key
+    absent from `actual_flags` (docker exec returned nothing, e.g. a
+    container not restarted since a variable was added to
+    docker-compose.yml) compares to "" as an empty value, never ignored.
+    """
+    diffs = []
+    for key, expected in EXPECTED_AGENT_FLAGS.items():
+        actual = actual_flags.get(key, "")
+        if actual != expected:
+            diffs.append(f"{key} : attendu={expected!r} effectif={actual!r}")
+    if diffs:
+        return (
+            "flags d'env effectifs de langgraph-agent différents de la config mesurée "
+            f"({'; '.join(diffs)}) — commande à taper si un changement de .env n'a pas "
+            "encore été appliqué : docker compose up -d --force-recreate langgraph-agent"
+        )
     return None
 
 
@@ -102,24 +183,145 @@ print(json.dumps(sorted({t["function"]["name"] for t in body.get("tools", [])}))
     return json.loads(_docker_exec_python(MCP_CLIENT_CONTAINER, script))
 
 
+def _fetch_llm_ready() -> bool:
+    """
+    REAL completion call (not a /health) against LLM_BASE_URL as seen by
+    langgraph-agent itself (portable to the alternative llama-server
+    backend, see README "Inference backend" — not just TabbyAPI): this
+    is the only check that would have caught the real-conditions case
+    found (server not yet listening despite a model already loaded).
+    enable_thinking=False + max_tokens=1: as fast as possible, we only
+    want a finish_reason, not a real answer.
+    """
+    script = """
+import json, os, urllib.request, urllib.error
+base = os.environ.get('LLM_BASE_URL', 'http://tabbyapi:5000/v1').rstrip('/')
+req = urllib.request.Request(
+    base + '/chat/completions',
+    data=json.dumps({
+        'model': 'agent-llm',
+        'messages': [{'role': 'user', 'content': 'ping'}],
+        'max_tokens': 1,
+        'enable_thinking': False,
+    }).encode(),
+    headers={'Content-Type': 'application/json'},
+)
+try:
+    with urllib.request.urlopen(req, timeout=10) as r:
+        print(r.status)
+except Exception as e:
+    print('ERROR', repr(e))
+"""
+    out = _docker_exec_python(AGENT_CONTAINER, script, timeout=15)
+    return out.strip() == "200"
+
+
+def _run_docker(args: list, timeout: int = 15) -> str:
+    result = subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout)
+    if result.returncode != 0:
+        raise PreflightError(f"`docker {' '.join(args)}` a échoué (préambule) : {result.stderr.strip()}")
+    return result.stdout.strip()
+
+
+def _fetch_tabbyapi_image_ids() -> tuple:
+    """(id of the image ACTUALLY used by the running tabbyapi container,
+    id of the last locally built image for this tag) — see
+    check_tabbyapi_image_fresh."""
+    running = _run_docker(["inspect", "--format", "{{.Image}}", TABBYAPI_CONTAINER])
+    built = _run_docker(["image", "inspect", "--format", "{{.Id}}", TABBYAPI_IMAGE_TAG])
+    return running, built
+
+
+def check_tabbyapi_image_fresh(fetch_image_ids: Callable[[], tuple] = _fetch_tabbyapi_image_ids) -> Optional[str]:
+    """
+    Image digest check (post-1/2-ter arbitration, see docs/history.md,
+    action 1): detects a tabbyapi container running on an image
+    DIFFERENT from the last one built locally for this tag — e.g.
+    `docker compose build` run without the `up -d` that applies the
+    change, or a forgotten manual image rollback. Such a gap would let a
+    whole campaign run against a different model/version than expected,
+    silently (no error, just different behavior) — the same class of
+    risk as the tool-schema desync that check_tools_schema already
+    detects on the langgraph-agent/mcp-client side. Pure once
+    fetch_image_ids is injected (see tests/test_campaign_preflight.py):
+    no real docker in the tests.
+    """
+    running_id, built_id = fetch_image_ids()
+    if running_id != built_id:
+        return (
+            f"le conteneur {TABBYAPI_CONTAINER} tourne sur une image différente de la dernière "
+            f"construite pour {TABBYAPI_IMAGE_TAG} (running={running_id}, built={built_id}) — "
+            "commande à taper : docker compose up -d --build tabbyapi"
+        )
+    return None
+
+
+def _fetch_agent_env() -> dict:
+    """Effective flags INSIDE the running langgraph-agent container — see
+    check_agent_flags. Reuses campaign_persistence.collect_env_flags (the
+    same `docker exec ... env` primitive as campaign serialization, see
+    campaign_persistence.py) rather than duplicating a variant here."""
+    return campaign_persistence.collect_env_flags(AGENT_CONTAINER, list(EXPECTED_AGENT_FLAGS))
+
+
+def wait_for_llm_ready(
+    fetch_llm_ready: Callable[[], bool] = _fetch_llm_ready,
+    *,
+    timeout_seconds: int = LLM_READY_TIMEOUT_SECONDS,
+    interval_seconds: int = LLM_READY_POLL_INTERVAL_SECONDS,
+    sleep: Callable[[float], None] = time.sleep,
+    now: Callable[[], float] = time.monotonic,
+) -> None:
+    """
+    Polls fetch_llm_ready until success or timeout — see
+    LLM_READY_TIMEOUT_SECONDS above for the rationale. `sleep`/`now`
+    injectable for a fast unit test (see tests/test_campaign_preflight.py),
+    with no real delay or docker.
+    """
+    deadline = now() + timeout_seconds
+    while not fetch_llm_ready():
+        if now() >= deadline:
+            raise PreflightError(
+                f"LLM_BASE_URL ne répond pas à une complétion réelle après {timeout_seconds}s "
+                "— vérifier `docker logs tabbyapi` (serveur pas encore démarré, ou crash au chargement)"
+            )
+        sleep(interval_seconds)
+
+
 def run_preflight(
     *,
     purge_downloads: Callable[[], None],
     reset_browser_session: Callable[[], None],
     fetch_agent_tools: Callable[[], Iterable[str]] = _fetch_agent_tools,
     fetch_mcp_tools: Callable[[], Iterable[str]] = _fetch_mcp_tools,
+    fetch_llm_ready: Callable[[], bool] = _fetch_llm_ready,
+    fetch_tabbyapi_image_ids: Callable[[], tuple] = _fetch_tabbyapi_image_ids,
+    fetch_agent_env: Callable[[], dict] = _fetch_agent_env,
 ) -> None:
     """
-    Appelé UNE fois par campagne (pas par répétition, contrairement à
-    purge_downloads/reset_browser_session qui restent aussi appelés avant
-    chaque répétition individuelle — voir test_web_tasks.py). Callables de
-    fetch injectables pour permettre un test unitaire complet de
-    l'orchestration sans docker (voir tests/test_campaign_preflight.py) ;
-    purge_downloads/reset_browser_session restent des paramètres obligatoires
-    plutôt que des défauts internes pour ne jamais dupliquer leur
-    implémentation (déjà dans test_web_tasks.py, avec leurs propres raisons
-    d'être documentées).
+    Called ONCE per campaign (not per repetition, unlike
+    purge_downloads/reset_browser_session which also stay called before
+    each individual repetition — see test_web_tasks.py). Fetch callables
+    injectable to allow a full unit test of the orchestration with no
+    docker (see tests/test_campaign_preflight.py); purge_downloads/
+    reset_browser_session remain mandatory parameters rather than
+    internal defaults so as never to duplicate their implementation
+    (already in test_web_tasks.py, with their own documented rationale).
+
+    Order: LLM readiness FIRST (cheapest to observe IN ERROR — no point
+    comparing tool schemas if the backend doesn't even respond), then
+    tabbyapi image freshness (post-1/2-ter arbitration, see
+    docs/history.md), then effective env flags (docs/briefs/
+    flags-du-coeur-cognitif.md — no point measuring a campaign against a
+    config we don't actually have), then tool schema, then purge/reset.
     """
+    wait_for_llm_ready(fetch_llm_ready)
+    error = check_tabbyapi_image_fresh(fetch_tabbyapi_image_ids)
+    if error:
+        raise PreflightError(error)
+    error = check_agent_flags(fetch_agent_env())
+    if error:
+        raise PreflightError(error)
     error = check_tools_schema(fetch_agent_tools(), fetch_mcp_tools())
     if error:
         raise PreflightError(error)

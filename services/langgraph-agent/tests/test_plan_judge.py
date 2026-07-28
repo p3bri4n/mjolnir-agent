@@ -43,7 +43,7 @@ def test_validate_judge_json_accepts_full_verdict():
 def test_validate_judge_json_rejects_invalid_json():
     import app.graph as g
 
-    with pytest.raises(g.PlanJudgeValidationError, match="JSON invalide"):
+    with pytest.raises(g.PlanJudgeValidationError, match="invalid JSON"):
         g._validate_judge_json("pas du json")
 
 
@@ -91,7 +91,7 @@ async def test_judge_plan_returns_reasons_when_not_feasible():
 
 @pytest.mark.asyncio
 async def test_judge_plan_includes_page_snapshot_in_payload_when_provided():
-    """Correctif d'ancrage (Itération 4, voir HISTORY.md) : le juge reçoit
+    """Correctif d'ancrage (Itération 4, voir docs/history.md) : le juge reçoit
     l'état réel de la page s'il est fourni, pour ne pas exiger une
     fonctionnalité absente (ex. barre de recherche inexistante)."""
     import app.graph as g

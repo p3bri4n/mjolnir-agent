@@ -1,14 +1,14 @@
 """
-Matching insensible à la casse pour find_text : sous-chaîne d'abord (rapide,
-suffisant pour la majorité des requêtes), puis distance de Levenshtein
-"légère" en secours si fuzzy=True, pour tolérer les erreurs de lecture
-ponctuelles de l'OCR (ex. "Parametres" détecté au lieu de "Paramètres").
+Case-insensitive matching for find_text: substring first (fast, enough
+for most queries), then a "light" Levenshtein distance as a fallback if
+fuzzy=True, to tolerate occasional OCR reading errors (e.g. "Parametres"
+detected instead of "Paramètres").
 
-La distance s'applique MOT PAR MOT (pas sur la ligne détectée entière) :
-comparer une requête courte à une ligne longue via Levenshtein sur la ligne
-entière pénaliserait injustement toute correspondance partielle, alors que
-comparer aux mots individuels de la ligne capture l'intention réelle
-(l'utilisateur cherche un mot ou une courte expression, pas un paragraphe).
+The distance applies WORD BY WORD (not on the whole detected line):
+comparing a short query to a long line via Levenshtein on the entire
+line would unfairly penalize any partial match, whereas comparing
+against the line's individual words captures the real intent (the user
+is looking for a word or short phrase, not a paragraph).
 """
 
 
@@ -28,7 +28,7 @@ def _levenshtein(a: str, b: str) -> int:
         for j, char_b in enumerate(b, start=1):
             cost = 0 if char_a == char_b else 1
             current_row[j] = min(
-                previous_row[j] + 1,        # suppression
+                previous_row[j] + 1,        # deletion
                 current_row[j - 1] + 1,     # insertion
                 previous_row[j - 1] + cost,  # substitution
             )
@@ -45,9 +45,9 @@ def matches(query: str, detected_text: str, fuzzy: bool = True) -> bool:
     if not fuzzy or not normalized_query:
         return False
 
-    # Tolérance proportionnelle à la longueur de la requête plutôt qu'un
-    # seuil fixe : un mot d'1-2 lettres ne doit tolérer aucune erreur, un
-    # mot long peut en tolérer plusieurs.
+    # Tolerance proportional to the query's length rather than a fixed
+    # threshold: a 1-2 letter word should tolerate no error, a long word
+    # can tolerate several.
     max_distance = max(1, len(normalized_query) // 4)
     return any(
         _levenshtein(normalized_query, word) <= max_distance

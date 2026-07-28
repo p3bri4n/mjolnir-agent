@@ -1,76 +1,77 @@
 """
-Harnais de référence (Phase 0 du plan de migration langgraph/langchain-openai/
-openai, voir README) : capture le comportement actuel du tool-calling contre
-le trio pinné aujourd'hui (`langgraph==0.2.34`/`langchain-openai==0.2.2`/
-`openai==1.51.2`) AVANT toute montée de version, pour pouvoir détecter une
-régression de comportement après coup — pas pour faire échouer la CI sur la
-qualité du modèle lui-même.
+Reference harness (Phase 0 of the langgraph/langchain-openai/openai
+migration plan, see README): captures the current tool-calling behavior
+against today's pinned trio (`langgraph==0.2.34`/`langchain-openai==0.2.2`/
+`openai==1.51.2`) BEFORE any version bump, to be able to detect a
+behavior regression afterward — not to fail CI on the model's own
+quality.
 
-5 prompts fixes (mix simple / raisonnement préalable / capture->clic GhostDesk
-/ sans outil / deux outils), rejoués `BASELINE_REPETITIONS` fois chacun (5 par
-défaut, non-déterminisme du modèle assumé — voir README, plusieurs bugs déjà
-documentés comme non-déterministes). Pour chaque run, classification
-best-effort de l'issue :
+5 fixed prompts (mix of simple / prior-reasoning / GhostDesk
+capture->click / no tool / two tools), replayed `BASELINE_REPETITIONS`
+times each (5 by default, model non-determinism accepted — see README,
+several bugs already documented as non-deterministic). For each run,
+best-effort classification of the outcome:
 
-  - "structured"         : tool_calls natif reconnu par le serveur (pause
-                            d'approbation observée, OU exécution auto-approuvée
-                            tracée dans le journal d'audit)
-  - "fallback_recovered"  : `_extract_fallback_tool_call` a dû rattraper un
-                            appel écrit en prose (détecté via le WARNING loggé
-                            par `call_llm`, voir app/graph.py)
-  - "empty_notice"        : dernier filet, `_format_empty_answer_notice`
-                            affiché (voir app/main.py)
-  - "ok_no_tool"          : réponse texte normale, aucun signal de tool_calls
+  - "structured"         : native tool_calls recognized by the server
+                            (approval pause observed, OR auto-approved
+                            execution traced in the audit log)
+  - "fallback_recovered"  : `_extract_fallback_tool_call` had to catch a
+                            call written in prose (detected via the
+                            WARNING logged by `call_llm`, see app/graph.py)
+  - "empty_notice"        : last-resort safety net, `_format_empty_answer_notice`
+                            displayed (see app/main.py)
+  - "ok_no_tool"          : normal text answer, no tool_calls signal
 
-Limite connue de cette classification (best-effort, pas d'instrumentation
-serveur au-delà du journal d'audit existant) : un outil TIER_READ exécuté
-seul, sans qu'aucun outil TIER_REVERSIBLE/TIER_SENSITIVE ne suive dans le même
-tour, n'est ni loggé (jamais audité, voir approval_policy.py) ni visible dans
-le texte streamé -> il retomberait à tort dans "ok_no_tool". Les prompts
-ci-dessous ciblent donc délibérément des outils TIER_REVERSIBLE (journalisés
-même auto-approuvés) pour rester détectables en boîte noire.
+Known limitation of this classification (best-effort, no server
+instrumentation beyond the existing audit log): a TIER_READ tool executed
+alone, with no TIER_REVERSIBLE/TIER_SENSITIVE tool following in the same
+turn, is neither logged (never audited, see approval_policy.py) nor
+visible in the streamed text -> it would wrongly fall into "ok_no_tool".
+The prompts below therefore deliberately target TIER_REVERSIBLE tools
+(logged even when auto-approved) to stay detectable as a black box.
 
-Vérifie en plus, sur CHAQUE run, les invariants structurels du streaming SSE
-(indépendants de la qualité du modèle, doivent tenir même si le modèle
-"dérive") :
-  - format OpenAI (`chat.completion.chunk`, flux terminé par `data: [DONE]`,
-    dernier chunk réel à `finish_reason: "stop"`) ;
-  - au plus une balise `<think>` sur tout le tour streamé, ouverte en tout
-    début de tour (jamais après du texte déjà visible) et refermée une seule
-    fois si ouverte (voir README, "fusion d'un seul bloc <think> continu sur
-    plusieurs itérations de la boucle d'outils auto-approuvés").
+Additionally checks, on EVERY run, the SSE streaming's structural
+invariants (independent of model quality, must hold even if the model
+"drifts"):
+  - OpenAI format (`chat.completion.chunk`, stream ended by `data:
+    [DONE]`, last real chunk with `finish_reason: "stop"`);
+  - at most one `<think>` tag across the whole streamed turn, opened at
+    the very start of the turn (never after already-visible text) and
+    closed exactly once if opened (see README, "merging a single
+    continuous <think> block across several auto-approved tool-loop
+    iterations").
 
-À la fin de la session, écrit/écrase automatiquement
-`tests_integration/BASELINE.md` (tableau récapitulatif + détail par run) —
-c'est ce fichier qu'il faut committer comme référence Phase 0, et rejouer tel
-quel après la Phase 4 pour comparer les taux avant/après (voir le plan).
+At the end of the session, automatically writes/overwrites
+`tests_integration/BASELINE.md` (summary table + per-run detail) — this
+is the file to commit as the Phase 0 reference, and to replay as-is
+after Phase 4 to compare before/after rates (see the plan).
 
-Comme `test_semantic_drift.py` : parle aux vrais conteneurs Docker via
-`docker exec`, lent (génération LLM réelle) et non déterministe par nature.
-Ignoré par défaut ; opt-in explicite :
+Like `test_semantic_drift.py`: talks to real Docker containers via
+`docker exec`, slow (real LLM generation) and non-deterministic by
+nature. Skipped by default; explicit opt-in:
 
     RUN_LIVE_LLM_TESTS=1 python -m pytest tests_integration/test_tool_calling_baseline.py -v
 
-Prérequis identiques à `test_semantic_drift.py` : `docker compose up` avec
-langgraph-agent/mcp-client/llama-server actifs, bureau virtuel GhostDesk sans
-application ouverte (vérifié ci-dessous, mêmes raisons : une fenêtre parasite
-fausserait le grounding visuel du prompt capture->clic).
+Prerequisites identical to `test_semantic_drift.py`: `docker compose up`
+with langgraph-agent/mcp-client/llama-server active, GhostDesk virtual
+desktop with no application open (checked below, same reasons: a stray
+window would throw off the capture->click prompt's visual grounding).
 
-Cadence délibérément ralentie entre runs (voir `_wait_for_llama_health` et
-`BASELINE_PAUSE_SECONDS`) : une première version de ce harnais, tirant les 25
-générations réelles à la chaîne sans pause, a fait planter `llama-server`
-(observé en conditions réelles : `CUDA error: unspecified launch failure` sur
-un rig double-GPU hétérogène, `ggml-cuda.cu`) — `llama-server` s'auto-relance
-après ce crash (superviseur `cmd_child_to_router`), mais les requêtes tombant
-pendant la fenêtre de rechargement du modèle échouaient en cascade
-(`httpcore.RemoteProtocolError: Server disconnected without sending a
-response`), polluant la classification (un crash GPU n'est pas un échec de
-tool-calling). Attendre `GET http://llama-server:8000/health` en plus d'une
-pause fixe avant chaque run rapproche la cadence d'un usage conversationnel
-normal (jamais 25 générations dos-à-dos) plutôt que d'un test de charge — ce
-harnais mesure le tool-calling, pas la résilience de `llama-server` sous
-rafale, qui reste un problème d'infrastructure hors périmètre de cette
-migration.
+Deliberately slowed cadence between runs (see `_wait_for_llama_health`
+and `BASELINE_PAUSE_SECONDS`): an early version of this harness, firing
+the 25 real generations back-to-back with no pause, crashed
+`llama-server` (observed under real conditions: `CUDA error: unspecified
+launch failure` on a heterogeneous dual-GPU rig, `ggml-cuda.cu`) —
+`llama-server` auto-restarts after this crash (`cmd_child_to_router`
+supervisor), but requests falling during the model-reload window failed
+in cascade (`httpcore.RemoteProtocolError: Server disconnected without
+sending a response`), polluting the classification (a GPU crash isn't a
+tool-calling failure). Waiting for `GET http://llama-server:8000/health`
+in addition to a fixed pause before each run brings the cadence closer
+to normal conversational use (never 25 back-to-back generations) rather
+than a load test — this harness measures tool-calling, not
+`llama-server`'s resilience under a burst, which remains an
+infrastructure problem out of scope for this migration.
 """
 import hashlib
 import json
@@ -84,35 +85,36 @@ import pytest
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("RUN_LIVE_LLM_TESTS") != "1",
-    reason="test d'intégration live (LLM réel) : opt-in via RUN_LIVE_LLM_TESTS=1, nécessite docker compose up",
+    reason="live integration test (real LLM): opt-in via RUN_LIVE_LLM_TESTS=1, requires docker compose up",
 )
 
 AGENT_CONTAINER = os.environ.get("LANGGRAPH_AGENT_CONTAINER", "langgraph-agent")
 MCP_CLIENT_CONTAINER = os.environ.get("MCP_CLIENT_CONTAINER", "mcp-client")
 N_REPETITIONS = int(os.environ.get("BASELINE_REPETITIONS", "5"))
-# Pause fixe avant chaque run, EN PLUS de l'attente de santé de llama-server
-# (voir docstring du module) : rapproche la cadence d'un usage conversationnel
-# normal plutôt que d'un test de charge qui a fait planter le GPU.
+# Fixed pause before each run, IN ADDITION to waiting for llama-server's
+# health (see module docstring): brings the cadence closer to normal
+# conversational use rather than a load test that crashed the GPU.
 PAUSE_BETWEEN_RUNS_SECONDS = float(os.environ.get("BASELINE_PAUSE_SECONDS", "5"))
 LLAMA_HEALTH_TIMEOUT_SECONDS = int(os.environ.get("BASELINE_HEALTH_TIMEOUT", "90"))
 
-# Textes exacts émis côté serveur (voir app/main.py) : sert à classifier une
-# issue depuis le texte streamé, sans dépendre du contenu variable qui suit.
+# Exact texts emitted server-side (see app/main.py): used to classify an
+# outcome from the streamed text, without depending on the variable
+# content that follows.
 _APPROVAL_PREFIX = "⚠️ Approbation requise pour"
 _ITERATION_LIMIT_PREFIX = "⚠️ Limite d'itérations d'outils atteinte"
 _EMPTY_NOTICE_PREFIX = "⚠️ Le modèle a terminé son tour sans réponse exploitable"
-_FALLBACK_LOG_MARKER = "Tool call de secours extrait"
-# Texte du repli `except Exception` de _stream_response (app/main.py) : un
-# crash côté llama-server (ex. CUDA, voir docstring du module) coupe la
-# génération en plein milieu et ce texte apparaît alors AU MILIEU du flux,
-# pas forcément en préfixe — recherché en `in`, pas en `startswith`, et
-# vérifié en priorité pour ne jamais retomber dans "ok_no_tool" par erreur.
+_FALLBACK_LOG_MARKER = "Fallback tool call extracted"
+# Text of _stream_response's `except Exception` fallback (app/main.py):
+# an llama-server-side crash (e.g. CUDA, see module docstring) cuts the
+# generation mid-way and this text then appears IN THE MIDDLE of the
+# stream, not necessarily as a prefix — searched with `in`, not
+# `startswith`, and checked first so as never to wrongly fall into
+# "ok_no_tool".
 _INTERNAL_ERROR_TEXT = "⚠️ Erreur interne pendant la génération, réessayez."
 
-# (identifiant, prompt, tier ciblé) — les 4 premiers ciblent volontairement un
-# outil TIER_REVERSIBLE (auto-approuvé mais journalisé, voir docstring) pour
-# rester détectables en boîte noire ; le 5e est délibérément hors périmètre
-# MCP.
+# (id, prompt, targeted tier) — the first 4 deliberately target a
+# TIER_REVERSIBLE tool (auto-approved but logged, see docstring) to stay
+# detectable as a black box; the 5th is deliberately out of MCP scope.
 PROMPTS = [
     (
         "appel_simple",
@@ -155,13 +157,13 @@ def _docker_exec_python(container: str, script: str, timeout: int = 260) -> str:
 
 def _wait_for_llama_health(timeout: int = LLAMA_HEALTH_TIMEOUT_SECONDS) -> None:
     """
-    Attend que llama-server réponde sain avant de lancer un nouveau run
-    (voir docstring du module : un crash CUDA suivi d'un redémarrage
-    automatique laisse une fenêtre de plusieurs secondes où le modèle
-    recharge, pendant laquelle toute requête échoue en cascade). Requête
-    faite depuis le conteneur langgraph-agent (réseau interne compose, nom
-    de service `llama-server` résolu par Docker DNS) plutôt que depuis
-    l'hôte, qui n'a pas forcément le port publié.
+    Waits for llama-server to answer healthy before launching a new run
+    (see module docstring: a CUDA crash followed by an automatic restart
+    leaves a window of several seconds where the model reloads, during
+    which every request fails in cascade). Request made from the
+    langgraph-agent container (internal compose network, `llama-server`
+    service name resolved by Docker DNS) rather than from the host, which
+    doesn't necessarily have the port published.
     """
     script = """
 import urllib.request
@@ -366,19 +368,19 @@ def _write_baseline_md(results: list) -> None:
 @pytest.mark.parametrize("repetition", range(N_REPETITIONS))
 @pytest.mark.parametrize("prompt_id,prompt_text", PROMPTS, ids=[p[0] for p in PROMPTS])
 def test_tool_calling_run(prompt_id, prompt_text, repetition):
-    # Tag unique par run (identifiant + répétition + pid) pour dériver un
-    # thread_id frais à chaque fois (_derive_thread_id, app/main.py, hash du
-    # premier message humain) : sans ça, deux runs du même prompt
-    # partageraient le même thread et le second reprendrait l'état persisté
-    # du premier au lieu de démarrer une tâche neuve.
+    # Unique tag per run (id + repetition + pid) to derive a fresh
+    # thread_id each time (_derive_thread_id, app/main.py, hash of the
+    # first human message): without this, two runs of the same prompt
+    # would share the same thread and the second would resume the
+    # first's persisted state instead of starting a fresh task.
     tag = f"[baseline {prompt_id} rep{repetition} pid{os.getpid()}]"
     content = f"{tag} {prompt_text}"
     thread_id = hashlib.sha256(content.encode()).hexdigest()[:16]
 
-    # Cadence délibérément ralentie (voir docstring du module) : attend que
-    # llama-server soit sain (couvre le cas d'un crash CUDA pendant le run
-    # précédent, encore en train de recharger le modèle) puis marque une
-    # pause fixe, pour ne jamais tirer deux générations réelles dos-à-dos.
+    # Deliberately slowed cadence (see module docstring): waits for
+    # llama-server to be healthy (covers a CUDA crash during the previous
+    # run, still reloading the model) then marks a fixed pause, so as
+    # never to fire two real generations back-to-back.
     _wait_for_llama_health()
     time.sleep(PAUSE_BETWEEN_RUNS_SECONDS)
 

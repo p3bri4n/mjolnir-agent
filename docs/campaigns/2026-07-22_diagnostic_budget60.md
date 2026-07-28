@@ -1,6 +1,6 @@
 # Campagne B (diagnostic, MAX_TOOL_ITERATIONS=60) — suite de tâches web (Phase 0)
 
-Générée automatiquement le 2026-07-22T14:10:45.710429+00:00 (3 répétitions/tâche). Voir BENCHMARK0.md pour la spec complète et les limites connues de chaque assertion, et la docstring de test_web_tasks.py pour la méthode de sous-classification boucle_fabrication/boucle_budget.
+Générée automatiquement le 2026-07-22T14:10:45.710429+00:00 (3 répétitions/tâche). Voir docs/benchmark-v1.md pour la spec complète et les limites connues de chaque assertion, et la docstring de test_web_tasks.py pour la méthode de sous-classification boucle_fabrication/boucle_budget.
 **Score de campagne : 25/33 passages réussis brut, 27/33 corrigé** — voir
 « Vérification T5 » ci-dessous : les 2 échecs T5 sont en réalité des faux
 négatifs de l'assertion (T5 réel : 3/3).

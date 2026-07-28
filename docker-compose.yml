@@ -29,6 +29,12 @@ services:
     container_name: langgraph-agent
     restart: unless-stopped
     environment:
+      # Conscience temporelle (PLAN.md Phase 1, point 7a, voir docs/history.md) :
+      # un conteneur Docker tourne en UTC par défaut, jamais le fuseau de
+      # l'hôte automatiquement — défaut Europe/Paris (fuseau de ce
+      # déploiement, vérifié via `timedatectl` sur l'hôte), surchargeable
+      # via .env si l'hôte change.
+      - TZ=${TZ:-Europe/Paris}
       - LLM_BASE_URL=${LLM_BASE_URL:-http://tabbyapi:5000/v1}
       - SKILL_MANAGER_URL=http://skill-manager:8001
       - CONTEXT_MANAGER_URL=http://context-manager:8002
@@ -53,17 +59,18 @@ services:
       - ADAPTIVE_THINKING=${ADAPTIVE_THINKING:-true}
       # Plan explicite (Phase 1 « cœur cognitif », Itération 1 — voir
       # docs/briefs/phase-1-coeur-cognitif.md et README, section "Plan
-      # explicite"). Désactivé par défaut : un appel LLM supplémentaire en
-      # tête de chaque tâche, mesuré uniquement quand explicitement activé
-      # pour une campagne dédiée (voir HISTORY.md, Itération 1).
-      - PLANNER_ENABLED=${PLANNER_ENABLED:-false}
+      # explicite"). DÉFAUT INVERSÉ (docs/briefs/flags-du-coeur-cognitif.md,
+      # voir app/graph.py) : le cœur cognitif est mesuré et adopté (campagne
+      # finale 29/33), c'est la DÉSACTIVATION qui doit être explicite —
+      # ATTENTION : ce défaut doit rester cohérent avec celui d'app/graph.py
+      # ($PLANNER_ENABLED non défini dans .env retomberait sinon sur CE
+      # défaut-ci, pas sur celui du code Python).
+      - PLANNER_ENABLED=${PLANNER_ENABLED:-true}
       # Vérification post-action + budget d'échec (Itération 2 — voir
       # docs/briefs/phase-1-coeur-cognitif.md et README, section "Plan
       # explicite"). N'A D'EFFET QUE SI PLANNER_ENABLED EST AUSSI true.
-      # Désactivé par défaut : un appel LLM juge supplémentaire par tour
-      # d'outils vérifié, mesuré uniquement pour une campagne dédiée (voir
-      # HISTORY.md, Itération 2).
-      - VERIFICATION_ENABLED=${VERIFICATION_ENABLED:-false}
+      # DÉFAUT INVERSÉ, même justification que PLANNER_ENABLED ci-dessus.
+      - VERIFICATION_ENABLED=${VERIFICATION_ENABLED:-true}
       # Tentatives par sous-tâche avant de la marquer "echoue" (voir
       # verify_action, app/graph.py).
       - SUBTASK_ATTEMPT_BUDGET=${SUBTASK_ATTEMPT_BUDGET:-3}
@@ -74,19 +81,30 @@ services:
       # Pipeline de validation du plan (Itération 3 — voir
       # docs/briefs/phase-1-coeur-cognitif.md et README, section "Plan
       # explicite"). N'A D'EFFET QUE SI PLANNER_ENABLED EST AUSSI true.
-      - PLAN_VALIDATION_ENABLED=${PLAN_VALIDATION_ENABLED:-false}
+      # DÉFAUT INVERSÉ, même justification que PLANNER_ENABLED ci-dessus.
+      - PLAN_VALIDATION_ENABLED=${PLAN_VALIDATION_ENABLED:-true}
       # Juge LLM du plan (heuristiques déjà passées, coûteux). Clause de
-      # retrait mesurée (voir HISTORY.md, Itération 3) : désactivé par
-      # défaut, même convention que le reste de ce chantier.
-      - PLAN_JUDGE_ENABLED=${PLAN_JUDGE_ENABLED:-false}
+      # retrait mesurée (voir docs/history.md, Itération 3) : a réellement
+      # vétoté un plan que les heuristiques laissaient passer. DÉFAUT
+      # INVERSÉ (docs/briefs/flags-du-coeur-cognitif.md) : décision
+      # explicite de l'activer avec les 3 flags ci-dessus, la campagne
+      # finale 29/33 ayant mesuré les 4 flags actifs ensemble.
+      - PLAN_JUDGE_ENABLED=${PLAN_JUDGE_ENABLED:-true}
       # Budget de tokens dédié aux appels LLM auxiliaires (plan_task/
       # verify_action/replan_task/revise_plan/_judge_plan), SÉPARÉ de
       # LLM_MAX_TOKENS (boucle conversationnelle). Bug réel trouvé en
-      # conditions réelles (voir HISTORY.md, Itération 3) : Qwen3.6/TabbyAPI
+      # conditions réelles (voir docs/history.md, Itération 3) : Qwen3.6/TabbyAPI
       # raisonne dans reasoning_content avant de répondre, ce raisonnement
       # consommait à lui seul tout LLM_MAX_TOKENS (2048), tronquant la
       # réponse JSON systématiquement.
       - PLANNER_MAX_TOKENS=${PLANNER_MAX_TOKENS:-8192}
+      # Correctif latence 2/2 (voir docs/history.md) : thinking bridé sur les
+      # appels auxiliaires (plan_task/revise_plan/replan_task/_judge_plan,
+      # tous via planner_llm) — TabbyAPI expose enable_thinking en
+      # paramètre par requête, vérifié en direct sans effet sur la validité
+      # du JSON produit. Défaut false (thinking bridé) ; override à true
+      # pour revenir au comportement précédent sans redéploiement de code.
+      - PLANNER_THINKING_ENABLED=${PLANNER_THINKING_ENABLED:-false}
       # Filet de sécurité (voir README, tableau des bugs) : certains modèles
       # écrivent parfois leur appel d'outil en prose au lieu d'un tool_calls
       # structuré, piégé dans le raisonnement. Nombre de relances
@@ -99,13 +117,31 @@ services:
       # app/graph.py). Pas de passthrough env avant le harnais
       # tests_integration/test_web_tasks.py (Campagne B, budget relevé pour
       # isoler l'effet du plafond des vraies capacités de navigation —
-      # voir BENCHMARK0.md).
+      # voir docs/benchmark-v1.md).
       - MAX_TOOL_ITERATIONS=${MAX_TOOL_ITERATIONS:-20}
       # Forfait de tokens par image dans la décomposition approximative du
       # contexte (POST /context, voir README section Observabilité) — un
       # compte exact dépendrait du tokenizer visuel du modèle servi, hors
       # périmètre pour un simple ordre de grandeur affiché sur le dashboard.
       - IMAGE_TOKEN_ESTIMATE=${IMAGE_TOKEN_ESTIMATE:-1500}
+      # Ci-dessous : passthrough ajouté pour que
+      # campaign_preflight.check_agent_flags() (voir tests_integration/) et
+      # campaign_persistence.collect_env_flags() puissent lire la valeur
+      # EFFECTIVE de ces variables via `docker exec langgraph-agent env` —
+      # sans ce passthrough, une variable jamais listée ici est absente de
+      # l'environnement du conteneur, quel que soit le défaut du code
+      # Python (app/graph.py/approval_policy.py), rendant la vérification
+      # de préambule inopérante pour elle. Défauts identiques au code.
+      - LLM_MAX_TOKENS=${LLM_MAX_TOKENS:-2048}
+      - MAX_IMAGES_IN_CONTEXT=${MAX_IMAGES_IN_CONTEXT:-1}
+      - AUTO_APPROVAL_STREAK_LIMIT=${AUTO_APPROVAL_STREAK_LIMIT:-6}
+      - AUTO_APPROVED_TOOLS=${AUTO_APPROVED_TOOLS:-}
+      - APPROVAL_RULES_PATH=${APPROVAL_RULES_PATH:-}
+      - BROWSER_TOOL_OUTPUT_MAX_CHARS=${BROWSER_TOOL_OUTPUT_MAX_CHARS:-8000}
+      - AFFORDANCE_THRESHOLD=${AFFORDANCE_THRESHOLD:-60}
+      - FABRICATION_LIMIT=${FABRICATION_LIMIT:-5}
+      - BROWSER_NAVIGATE_GUARDRAIL=${BROWSER_NAVIGATE_GUARDRAIL:-true}
+      - AUDIT_LOG_MAX_BYTES=${AUDIT_LOG_MAX_BYTES:-20971520}
     volumes:
       - ./workspace:/workspace
     depends_on:
@@ -236,7 +272,7 @@ services:
       - MCP_GHOSTDESK_URL=http://ghostdesk:3000/mcp
       # "browser" (Playwright) : serveur HTTP persistant lui aussi (service
       # playwright-mcp ci-dessous), pas un spawn éphémère par appel — voir
-      # BUGS.md (perte de continuité d'état entre deux appels d'outils).
+      # docs/resolved-bugs.md (perte de continuité d'état entre deux appels d'outils).
       - MCP_PLAYWRIGHT_URL=http://playwright-mcp:8931/mcp
       - GHOSTDESK_AUTH_TOKEN=${GHOSTDESK_AUTH_TOKEN}
       # Requis par les modèles Qwen pour que leurs clics tombent sur la bonne
@@ -249,6 +285,13 @@ services:
       # ses coordonnées vers 0-1000 lui-même avant de répondre.
       - MCP_OCR_URL=http://ocr-service:8004/mcp
       - OCR_AUTH_TOKEN=${OCR_AUTH_TOKEN}
+      # Stabilisation post-navigation (trouvé en investiguant T10, voir
+      # docs/history.md « désynchronisation snapshot/URL ») : sur une page à
+      # rendu client, browser_snapshot peut renvoyer le contenu de
+      # l'ANCIENNE page juste après un browser_navigate/browser_click —
+      # browser_wait_for est appelé automatiquement après ces deux outils
+      # pour laisser le rendu se stabiliser. 0 désactive ce délai.
+      - BROWSER_STABILIZE_WAIT_SECONDS=${BROWSER_STABILIZE_WAIT_SECONDS:-0.5}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock   # ⚠️ équivaut à un accès root sur l'hôte,
                                                        # voir avertissement de sécurité dans le README
@@ -279,7 +322,7 @@ services:
   # --- Playwright MCP : navigateur piloté par l'agent (serveur HTTP) --
   # ⚠️ Anciennement spawné à la demande par mcp-client (`docker run --rm`
   # par appel d'outil) : chaque appel repartait sur `about:blank` sans
-  # continuité d'état avec le précédent (voir BUGS.md). L'image officielle
+  # continuité d'état avec le précédent (voir docs/resolved-bugs.md). L'image officielle
   # mcp/playwright supporte un mode serveur HTTP natif (`--port`, endpoint
   # Streamable HTTP `/mcp`) ; on l'utilise ici comme service persistant,
   # même patron que GhostDesk/OCR ci-dessous.
@@ -288,7 +331,7 @@ services:
   # dans /downloads sans ce correctif — constaté en conditions réelles
   # (browser_navigate échouait systématiquement en EACCES en tentant
   # d'écrire son propre snapshot de debug page-*.yml sous --output-dir,
-  # voir HISTORY.md "Phase 1d-révisée", vérification post-déploiement T5).
+  # voir docs/history.md "Phase 1d-révisée", vérification post-déploiement T5).
   # Tourne une fois avant playwright-mcp (condition
   # service_completed_successfully), jamais en continu.
   agent-downloads-init:
@@ -316,7 +359,7 @@ services:
       - --isolated   # profil navigateur en mémoire, jamais persisté sur disque
       - --headless
       - --browser=chromium
-      # Chemin EXPLICITE (voir HISTORY.md "Phase 1d-révisée", T5) plutôt que
+      # Chemin EXPLICITE (voir docs/history.md "Phase 1d-révisée", T5) plutôt que
       # le défaut implicite (~/.playwright-mcp du conteneur) — l'agent
       # fabriquait régulièrement de mauvais chemins en devinant ce défaut
       # (/app/.playwright-mcp, /.playwright-mcp...), jamais le vrai. Partagé
@@ -429,6 +472,21 @@ services:
     build: ./services/tabbyapi
     container_name: tabbyapi
     restart: unless-stopped
+    # Explicite plutôt que de dépendre du défaut du daemon Docker de l'hôte
+    # (souvent plus restrictif, ex. Desktop Linux : max-size 20m/max-file 5,
+    # ~100 Mio — insuffisant pour garder les lignes "tokens generated"
+    # exploitées par tests_integration/campaign_persistence.py sur une
+    # campagne complète) : ces logs sont la SEULE source réelle de
+    # performance par requête pour TabbyAPI (pas d'endpoint /metrics, voir
+    # campaign_persistence.py) — les perdre au gré du daemon invaliderait
+    # silencieusement `collect_tabbyapi_raw_samples` sur les runs les plus
+    # anciens d'une campagne. Toujours borné (pas de croissance infinie) :
+    # ~1 Gio cumulé, plusieurs campagnes complètes de marge.
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "10"
     volumes:
       - ./services/tabbyapi/config.yml:/app/config.yml:ro
       - ${MODELS_HOST_PATH:-./models}:/models
@@ -459,7 +517,7 @@ services:
 
   # ──────────────────────────────────────────────────────────────
   # Fixtures Benchmark 0 (plan d'autonomie, voir PLAN.md et
-  # tests_integration/BENCHMARK0.md) : sites/app auto-hébergés à vérité
+  # docs/benchmark-v1.md) : sites/app auto-hébergés à vérité
   # terrain connue par construction, ciblés par le harnais
   # test_web_tasks.py (T1-T7). Profil dédié : ne tournent jamais par défaut
   # avec le reste de la stack, seulement quand on lance ce harnais.
@@ -485,7 +543,7 @@ services:
     container_name: fixture-hr-app
     profiles: ["test-fixtures"]
     environment:
-      # court délibérément (voir T6, BENCHMARK0.md) : teste que l'agent reste
+      # court délibérément (voir T6, docs/benchmark-v1.md) : teste que l'agent reste
       # efficace dans sa trajectoire plutôt que d'errer avant de répondre.
       - HR_APP_SESSION_TIMEOUT_SECONDS=${HR_APP_SESSION_TIMEOUT_SECONDS:-90}
     volumes:
@@ -513,7 +571,7 @@ volumes:
   # Volume PARTAGÉ entre playwright-mcp (écriture) et le serveur MCP
   # filesystem spawné par mcp-client (lecture seule) — voir playwright-mcp
   # (--output-dir) et services/mcp-client/app/main.py (SERVERS["filesystem"])
-  # ci-dessous, HISTORY.md "Phase 1d-révisée" (T5). On partage les
+  # ci-dessous, docs/history.md "Phase 1d-révisée" (T5). On partage les
   # ARTEFACTS de téléchargement, jamais l'état du navigateur : playwright-mcp
   # reste --isolated (profil en mémoire, jamais persisté).
   #
@@ -527,7 +585,7 @@ volumes:
   # (celui, vide, que `docker run` créait implicitement sous le nom littéral
   # "agent-downloads") — bug constaté en conditions réelles : le fichier
   # téléchargé existait bien côté playwright-mcp mais `read_file` échouait
-  # en ENOENT côté filesystem-MCP (voir HISTORY.md, vérification
+  # en ENOENT côté filesystem-MCP (voir docs/history.md, vérification
   # post-déploiement T5).
   agent-downloads:
     name: agent-downloads

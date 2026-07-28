@@ -1,6 +1,7 @@
 """
-Tests de l'endpoint HTTP compatible OpenAI, en streaming et en mode classique,
-via une vraie requête ASGI (httpx.ASGITransport) contre l'application FastAPI.
+Tests for the OpenAI-compatible HTTP endpoint, streaming and classic
+mode, via a real ASGI request (httpx.ASGITransport) against the FastAPI
+application.
 """
 
 import json
@@ -66,16 +67,17 @@ async def test_non_streaming_endpoint_returns_full_answer(mock_side_services):
 @pytest.mark.asyncio
 async def test_streaming_endpoint_returns_slash_command_result_not_empty_answer_notice(mock_side_services):
     """
-    Non-régression (bug réel observé via Open WebUI, qui streame toujours) :
-    une commande slash (app/graph.py, run_slash_command_direct) n'invoque
-    jamais le LLM, donc aucun événement on_chat_model_stream n'est jamais
-    émis pendant la boucle de _stream_response — sans le correctif, le
-    message final PERSISTÉ (qui contient bien la vraie réponse) était
-    ignoré, remplacé à tort par la notice "réponse non exploitable" (le code
-    ne vérifiait que ce qui avait été streamé, jamais l'état persisté). Le
-    mode non-streaming (test_non_streaming_endpoint_returns_full_answer,
-    _current_answer) ne souffrait pas de ce bug, qui n'affecte QUE le
-    streaming — d'où sa découverte tardive, Open WebUI streamant toujours.
+    Non-regression (real bug observed via Open WebUI, which always
+    streams): a slash command (app/graph.py, run_slash_command_direct)
+    never invokes the LLM, so no on_chat_model_stream event is ever
+    emitted during _stream_response's loop — without the fix, the
+    PERSISTED final message (which does contain the real answer) was
+    ignored, wrongly replaced by the "réponse non exploitable" notice
+    (the code only checked what had been streamed, never the persisted
+    state). Non-streaming mode
+    (test_non_streaming_endpoint_returns_full_answer, _current_answer)
+    didn't suffer from this bug, which affects ONLY streaming — hence its
+    late discovery, since Open WebUI always streams.
     """
     import app.graph as g
     import app.main as main_mod
@@ -115,18 +117,18 @@ async def test_streaming_endpoint_returns_slash_command_result_not_empty_answer_
 @pytest.mark.asyncio
 async def test_streaming_endpoint_splits_large_content_into_multiple_sse_lines(mock_side_services):
     """
-    Non-régression (erreur réelle observée via Open WebUI : "Got more than
-    131072 bytes when reading" — limite de taille de ligne d'aiohttp côté
-    client) : un contenu volumineux (ex. une image en data URI base64 pour
-    une commande slash sur screen_shot, voir app/graph.py,
-    run_slash_command_direct) envoyé en UNE seule ligne SSE dépasse cette
-    limite. app/main.py, _sse_content_chunks doit le découper en plusieurs
-    petites lignes SSE, comme le ferait un vrai streaming token-par-token.
+    Non-regression (real error observed via Open WebUI: "Got more than
+    131072 bytes when reading" — aiohttp's client-side line-size limit):
+    large content (e.g. a base64 data-URI image for a slash command on
+    screen_shot, see app/graph.py, run_slash_command_direct) sent as a
+    SINGLE SSE line exceeds this limit. app/main.py's
+    _sse_content_chunks must split it into several small SSE lines, like
+    real token-by-token streaming would.
     """
     import app.graph as g
     import app.main as main_mod
 
-    big_content = "x" * 300_000  # > 131072 octets, > plusieurs fois _SSE_CONTENT_CHUNK_SIZE
+    big_content = "x" * 300_000  # > 131072 bytes, > several times _SSE_CONTENT_CHUNK_SIZE
 
     mock_side_services.get("http://fake-mcp-client/tools/schema").mock(
         return_value=httpx.Response(
@@ -155,7 +157,7 @@ async def test_streaming_endpoint_splits_large_content_into_multiple_sse_lines(m
 
     data_lines = [line for line in lines if line.startswith("data: {")]
     assert all(len(line.encode("utf-8")) < 131072 for line in data_lines)
-    assert len(data_lines) > 1  # bien découpé en plusieurs morceaux, pas un seul bloc géant
+    assert len(data_lines) > 1  # properly split into several pieces, not one giant block
 
     payloads = [json.loads(line[len("data: "):]) for line in data_lines]
     full_text = "".join(p["choices"][0]["delta"].get("content", "") for p in payloads)
@@ -165,15 +167,15 @@ async def test_streaming_endpoint_splits_large_content_into_multiple_sse_lines(m
 @pytest.mark.asyncio
 async def test_non_streaming_endpoint_renders_slash_command_image_without_persisting_it(mock_side_services):
     """
-    Non-régression bout en bout (bug réel via Open WebUI) : /screen_shot doit
-    afficher l'image dans LA réponse HTTP de ce tour (_render_visible_answer,
-    app/main.py), sans que le message assistant PERSISTÉ ne contienne le
-    base64 — sans quoi un second tour normal sur ce même thread fait exploser
-    le contexte du LLM en le retokenisant comme texte brut (voir
-    app/graph.py, run_slash_command_direct, et
-    tests/test_slash_commands.py::
-    test_slash_command_image_only_result_persists_light_text_only pour la
-    partie graphe de cette même non-régression).
+    End-to-end non-regression (real bug via Open WebUI): /screen_shot
+    must display the image in THIS turn's HTTP response
+    (_render_visible_answer, app/main.py), without the PERSISTED
+    assistant message containing the base64 — otherwise a second normal
+    turn on this same thread blows up the LLM's context by
+    re-tokenizing it as raw text (see app/graph.py,
+    run_slash_command_direct, and tests/test_slash_commands.py::
+    test_slash_command_image_only_result_persists_light_text_only for the
+    graph-side part of this same non-regression).
     """
     import base64
     import io
@@ -210,9 +212,9 @@ async def test_non_streaming_endpoint_renders_slash_command_image_without_persis
 
     assert resp.status_code == 200
     content = resp.json()["choices"][0]["message"]["content"]
-    assert f"data:image/png;base64,{png_b64}" in content  # visible dans CETTE réponse
+    assert f"data:image/png;base64,{png_b64}" in content  # visible in THIS response
 
-    # Mais le message persisté par le graphe reste léger, sans le base64.
+    # But the message persisted by the graph stays light, without the base64.
     config = {"configurable": {"thread_id": main_mod._derive_thread_id([main_mod.ChatMessage(role="user", content="/screen_shot")])}}
     snapshot = await g.agent_graph.aget_state(config)
     assert png_b64 not in snapshot.values["messages"][-1].content
@@ -250,15 +252,15 @@ async def test_streaming_endpoint_yields_sse_chunks_and_done(mock_side_services)
 @pytest.mark.asyncio
 async def test_streaming_endpoint_closes_dangling_think_tag_before_approval_text(mock_side_services):
     """
-    Non-régression : quand le modèle raisonne avant de décider d'appeler un
-    outil, le tour se termine avec un content réel vide (le tool_call arrive
-    par un canal séparé) — aucun chunk de contenu "réel" n'arrive jamais pour
-    déclencher la fermeture de <think> (voir _convert_delta_with_reasoning
-    dans app/graph.py). Sans le correctif, le texte "⚠️ Approbation requise"
-    ajouté ensuite se retrouvait concaténé À L'INTÉRIEUR du <think> jamais
-    fermé côté client — invisible en dehors de la bulle de pensée repliée
-    d'Open WebUI, et donc introuvable par toute automatisation (bouton
-    d'approbation) qui cherche ce texte dans le contenu du message.
+    Non-regression: when the model reasons before deciding to call a
+    tool, the turn ends with empty real content (the tool_call arrives
+    on a separate channel) — no "real" content chunk ever arrives to
+    trigger closing <think> (see _convert_delta_with_reasoning in
+    app/graph.py). Without the fix, the "⚠️ Approbation requise" text
+    added next ended up concatenated INSIDE the never-closed <think> on
+    the client side — invisible outside Open WebUI's collapsed thinking
+    bubble, and therefore unfindable by any automation (approval button)
+    looking for this text in the message content.
     """
     import app.graph as g
     import app.main as main_mod
@@ -289,23 +291,23 @@ async def test_streaming_endpoint_closes_dangling_think_tag_before_approval_text
     full_text = "".join(chunks)
     assert "<think>" in full_text
     assert "</think>" in full_text
-    # la balise doit être fermée AVANT le texte d'approbation, pas juste
-    # présente quelque part dans le flux
+    # the tag must be closed BEFORE the approval text, not just present
+    # somewhere in the stream
     assert full_text.index("</think>") < full_text.index("Approbation requise")
 
 
 @pytest.mark.asyncio
 async def test_streaming_endpoint_merges_think_across_auto_approved_tool_loop(mock_side_services):
     """
-    Non-régression : avec AUTO_APPROVED_TOOLS, call_llm peut s'exécuter
-    plusieurs fois d'affilée sans pause d'approbation (boucle capture/clic
-    GhostDesk). Chaque itération raisonne (champ "reasoning") avant de
-    décider quoi faire ensuite. Sans le report de l'état <think> d'un appel
-    de call_llm à l'autre (AgentState.think_opened/think_closed), chaque
-    itération rouvrait sa propre balise <think> en plein milieu du flux —
-    Open WebUI n'affiche en bulle repliable que celle en tout début de
-    message, les suivantes apparaissant en texte brut visible au milieu de
-    la réponse.
+    Non-regression: with AUTO_APPROVED_TOOLS, call_llm can run several
+    times in a row with no approval pause (GhostDesk capture/click loop).
+    Each iteration reasons (the "reasoning" field) before deciding what
+    to do next. Without carrying the <think> state over from one
+    call_llm invocation to the next (AgentState.think_opened/
+    think_closed), each iteration would reopen its own <think> tag in
+    the middle of the stream — Open WebUI only renders the very first
+    one as a collapsible bubble, later ones appearing as raw visible text
+    in the middle of the answer.
     """
     import app.graph as g
     import app.main as main_mod
@@ -339,8 +341,8 @@ async def test_streaming_endpoint_merges_think_across_auto_approved_tool_loop(mo
                         chunks.append(content)
 
     full_text = "".join(chunks)
-    # Une seule balise ouvrante/fermante malgré deux itérations de call_llm :
-    # tout le raisonnement des deux tours doit tenir dans le même bloc.
+    # A single opening/closing tag despite two call_llm iterations: both
+    # turns' reasoning must fit in the same block.
     assert full_text.count("<think>") == 1
     assert full_text.count("</think>") == 1
     assert full_text.index("<think>") < full_text.index("</think>") < full_text.index("Cliqué.")
@@ -349,15 +351,15 @@ async def test_streaming_endpoint_merges_think_across_auto_approved_tool_loop(mo
 @pytest.mark.asyncio
 async def test_streaming_endpoint_recovers_from_llm_connection_error(mock_side_services):
     """
-    Non-régression : si l'appel streamé vers le LLM échoue en cours de route
-    (ex. llama-server qui coupe la connexion), _stream_response ne doit pas
-    mourir en plein milieu du flux "Transfer-Encoding: chunked" sans jamais
-    envoyer le chunk terminal — côté client (aiohttp, via Open WebUI), ça se
-    manifeste par "TransferEncodingError: Not enough data to satisfy
-    transfer length header", symptôme d'un crash serveur non géré plutôt
-    qu'une vraie erreur réseau côté client. Le flux SSE doit se terminer
-    proprement (notice d'erreur visible + finish_reason + [DONE]) même dans
-    ce cas.
+    Non-regression: if the streamed call to the LLM fails along the way
+    (e.g. llama-server cutting the connection), _stream_response must not
+    die mid-way through the "Transfer-Encoding: chunked" stream without
+    ever sending the terminal chunk — on the client side (aiohttp, via
+    Open WebUI), this shows up as "TransferEncodingError: Not enough data
+    to satisfy transfer length header", a symptom of an unhandled server
+    crash rather than a real client-side network error. The SSE stream
+    must end cleanly (visible error notice + finish_reason + [DONE]) even
+    in this case.
     """
     import app.graph as g
     import app.main as main_mod
@@ -416,12 +418,11 @@ async def test_non_streaming_endpoint_pauses_for_approval(mock_side_services):
 @pytest.mark.asyncio
 async def test_non_streaming_endpoint_reports_iteration_limit_notice(mock_side_services, monkeypatch):
     """
-    Non-régression : avant ce correctif, un run qui percutait
-    MAX_TOOL_ITERATIONS avec un tool_call encore en attente (boucle
-    GhostDesk auto-approuvée) rendait juste le dernier texte de raisonnement
-    du modèle tel quel, sans aucune indication que la tâche avait été
-    interrompue — observé en usage réel (l'agent semblait "s'arrêter" en
-    plein milieu d'une phrase).
+    Non-regression: before this fix, a run that hit MAX_TOOL_ITERATIONS
+    with a tool_call still pending (auto-approved GhostDesk loop) just
+    rendered the model's last reasoning text as-is, with no indication
+    the task had been interrupted — observed in real usage (the agent
+    seemed to "stop" mid-sentence).
     """
     import app.graph as g
     import app.main as main_mod
@@ -455,14 +456,13 @@ async def test_non_streaming_endpoint_reports_iteration_limit_notice(mock_side_s
 @pytest.mark.asyncio
 async def test_non_streaming_endpoint_reports_empty_answer_notice(mock_side_services):
     """
-    Non-régression (bug réel observé en usage réel, voir tableau des bugs du
-    README) : un modèle peut terminer un tour sans aucun tool_calls
-    structuré ET sans texte de réponse visible (tout son output tenait dans
-    le raisonnement, ex. une tentative d'appel d'outil écrite en prose
-    jamais reconnue comme un vrai tool_calls). Sans ce correctif, l'agent
-    répond juste "<think>...</think>" — vide une fois la bulle de
-    raisonnement repliée, sans aucune indication que quelque chose a mal
-    tourné.
+    Non-regression (real bug observed in real usage, see the README's bug
+    table): a model can end a turn with no structured tool_calls AND no
+    visible answer text (its whole output fit in the reasoning, e.g. a
+    tool-call attempt written in prose never recognized as a real
+    tool_calls). Without this fix, the agent just answers
+    "<think>...</think>" — empty once the reasoning bubble is collapsed,
+    with no indication anything went wrong.
     """
     import app.main as main_mod
     import app.graph as g
@@ -487,7 +487,7 @@ async def test_non_streaming_endpoint_reports_empty_answer_notice(mock_side_serv
 
 @pytest.mark.asyncio
 async def test_streaming_endpoint_reports_empty_answer_notice(mock_side_services):
-    """Pendant du test non-streaming ci-dessus, côté flux SSE."""
+    """Counterpart of the non-streaming test above, on the SSE stream side."""
     import app.main as main_mod
     import app.graph as g
 
@@ -502,8 +502,8 @@ async def test_streaming_endpoint_reports_empty_answer_notice(mock_side_services
         content = await _stream_contents(client, [{"role": "user", "content": "Fais quelque chose"}])
 
     assert "réponse exploitable" in content
-    # la balise <think> doit être refermée AVANT la notice, comme pour les
-    # autres notices (approbation, limite d'itérations)
+    # the <think> tag must be closed BEFORE the notice, like for the
+    # other notices (approval, iteration limit)
     assert content.index("</think>") < content.index("réponse exploitable")
 
 
@@ -531,8 +531,8 @@ async def test_non_streaming_endpoint_resumes_after_approval_reply(mock_side_ser
         )
         assert "Approbation requise" in first.json()["choices"][0]["message"]["content"]
 
-        # Open WebUI renvoie l'historique complet, y compris la question d'approbation
-        # et la réponse de l'utilisateur au tour suivant.
+        # Open WebUI resends the full history, including the approval
+        # question and the user's answer, on the next turn.
         second = await client.post(
             "/v1/chat/completions",
             json={
@@ -553,11 +553,11 @@ async def test_non_streaming_endpoint_resumes_after_approval_reply(mock_side_ser
 @pytest.mark.asyncio
 async def test_approve_endpoint_resumes_without_text_reply(mock_side_services):
     """
-    /approve permet de reprendre une pause d'approbation depuis un clic de
-    bouton (Open WebUI Action function) plutôt que le message texte
-    "approuver" attendu par /v1/chat/completions. Le tour normal suivant ne
-    doit pas dupliquer l'historique (même bookkeeping owui_message_count que
-    le flux texte, voir _resolve_run).
+    /approve lets an approval pause be resumed from a button click (Open
+    WebUI Action function) rather than the "approuver" text message
+    expected by /v1/chat/completions. The next normal turn must not
+    duplicate the history (same owui_message_count bookkeeping as the
+    text flow, see _resolve_run).
     """
     import app.graph as g
     import app.main as main_mod
@@ -597,9 +597,9 @@ async def test_approve_endpoint_resumes_without_text_reply(mock_side_services):
         assert approved.json()["content"] == "Resultat: 42."
         assert mcp_route.call_count == 1
 
-        # Tour normal suivant : Open WebUI renvoie son historique tel quel
-        # (sans "approuver", puisque la décision est passée par le bouton).
-        # Ne doit ni dupliquer ni perdre de messages.
+        # Next normal turn: Open WebUI resends its history as-is (no
+        # "approuver", since the decision went through the button). Must
+        # neither duplicate nor lose messages.
         second = await client.post(
             "/v1/chat/completions",
             json={
@@ -617,17 +617,17 @@ async def test_approve_endpoint_resumes_without_text_reply(mock_side_services):
 
     thread_id = main_mod._derive_thread_id([type("M", (), {"role": "user", "content": "Question ? Site : http://example.com"})()])
     snapshot = await g.agent_graph.aget_state({"configurable": {"thread_id": thread_id}})
-    # human1, AI(tool_call), tool, AI(final), human2, AI(autre) : exactement 6, aucun doublon
+    # human1, AI(tool_call), tool, AI(final), human2, AI(other): exactly 6, no duplicate
     assert len(snapshot.values["messages"]) == 6
 
 
 @pytest.mark.asyncio
 async def test_approve_endpoint_grant_session_field_auto_approves_next_call(mock_side_services):
     """
-    /approve accepte un champ optionnel grant_session (Phase 3), miroir de la
-    réponse texte "approuver pour la session" côté /v1/chat/completions : le
-    deuxième appel du même outil (ici key_type, TIER_SENSITIVE par défaut) ne
-    doit plus déclencher de pause.
+    /approve accepts an optional grant_session field (Phase 3), mirroring
+    the "approuver pour la session" text reply on the /v1/chat/completions
+    side: the second call of the same tool (here key_type, TIER_SENSITIVE
+    by default) must no longer trigger a pause.
     """
     import app.graph as g
     import app.main as main_mod
@@ -667,7 +667,7 @@ async def test_approve_endpoint_grant_session_field_auto_approves_next_call(mock
         assert approved.status_code == 200
         assert approved.json()["content"] == "Fini."
 
-    assert mcp_route.call_count == 2  # key_type call_1 ET call_2, sans nouvelle pause entre les deux
+    assert mcp_route.call_count == 2  # key_type call_1 AND call_2, no new pause between the two
 
 
 @pytest.mark.asyncio
@@ -698,13 +698,14 @@ async def test_approve_endpoint_returns_409_without_pending_approval(mock_side_s
 @pytest.mark.asyncio
 async def test_pending_endpoint_reports_status_without_side_effects(mock_side_services):
     """
-    /pending ne dépend que du premier message humain (thread_id) — jamais du
-    contenu du dernier message assistant, qui peut être vide ou tronqué côté
-    client selon comment celui-ci a interprété les balises <think> (observé
-    en conditions réelles avec Open WebUI : le texte affiché à l'écran et le
-    "content" du message tel que renvoyé à une intégration tierce peuvent
-    diverger). C'est ce qui permet à un bouton d'UI de savoir s'il y a une
-    approbation en attente sans se fier à ce contenu potentiellement vide.
+    /pending only depends on the first human message (thread_id) — never
+    on the last assistant message's content, which can be empty or
+    truncated on the client side depending on how it interpreted the
+    <think> tags (observed under real conditions with Open WebUI: the
+    text shown on screen and the "content" of the message as returned to
+    a third-party integration can diverge). This is what lets a UI
+    button know whether an approval is pending without relying on this
+    potentially empty content.
     """
     import app.graph as g
     import app.main as main_mod
@@ -727,9 +728,9 @@ async def test_pending_endpoint_reports_status_without_side_effects(mock_side_se
             json={"model": "agent-llm", "messages": [{"role": "user", "content": "Question ?"}], "stream": False},
         )
 
-        # Content vide sur le dernier message : reproduit le cas réel où le
-        # client (Open WebUI) renvoie un content vide pour le message
-        # d'approbation malgré son affichage correct à l'écran.
+        # Empty content on the last message: reproduces the real case
+        # where the client (Open WebUI) sends back empty content for the
+        # approval message despite its correct on-screen display.
         during_pause = await client.post(
             "/pending",
             json={
@@ -776,9 +777,9 @@ async def _stream_contents(client, messages):
 @pytest.mark.asyncio
 async def test_streaming_endpoint_hides_tool_call_iteration_then_asks_approval(mock_side_services):
     """
-    L'itération où le LLM décide d'appeler un outil ne doit produire aucun
-    token de contenu normal ; seul le message d'approbation apparaît, en une
-    fois, à la place de la réponse finale.
+    The iteration where the LLM decides to call a tool must produce no
+    normal content token; only the approval message appears, all at
+    once, in place of the final answer.
     """
     import app.graph as g
     import app.main as main_mod
@@ -835,15 +836,16 @@ async def test_streaming_endpoint_resumes_after_approval_reply(mock_side_service
 @pytest.mark.asyncio
 async def test_streaming_endpoint_reopens_think_tag_after_approval_resume(mock_side_services):
     """
-    Non-régression : le premier tour raisonne puis demande un outil non
-    auto-approuvé -> pause. Le </think> orphelin qui clôt alors le message
-    d'approbation (closing_prefix, app/main.py) n'était jamais répercuté dans
-    AgentState.think_opened/think_closed persisté par le checkpointer. Une
-    fois l'utilisateur approuve et qu'un DEUXIÈME round de raisonnement
-    démarre (avant la réponse finale), l'état persisté croyait le <think>
-    encore ouvert : aucune balise ouvrante n'était réémise pour ce nouveau
-    raisonnement, alors qu'une balise fermante l'était bien en fin de tour —
-    un </think> visible côté client sans <think> correspondant dans ce tour.
+    Non-regression: the first turn reasons then requests a non-
+    auto-approved tool -> pause. The orphaned </think> that then closes
+    the approval message (closing_prefix, app/main.py) was never
+    reflected in AgentState.think_opened/think_closed persisted by the
+    checkpointer. Once the user approves and a SECOND reasoning round
+    starts (before the final answer), the persisted state believed
+    <think> was still open: no opening tag was re-emitted for this new
+    reasoning, while a closing tag was indeed emitted at the end of the
+    turn — a </think> visible on the client side with no matching
+    <think> in this turn.
     """
     import app.graph as g
     import app.main as main_mod

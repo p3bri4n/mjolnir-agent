@@ -55,7 +55,7 @@ def test_validate_plan_json_strips_think_block_and_code_fence():
 def test_validate_plan_json_rejects_invalid_json():
     import app.graph as g
 
-    with pytest.raises(g.PlanValidationError, match="JSON invalide"):
+    with pytest.raises(g.PlanValidationError, match="invalid JSON"):
         g._validate_plan_json("pas du json")
 
 
@@ -70,14 +70,14 @@ def test_validate_plan_json_rejects_too_many_subtasks():
     import app.graph as g
 
     subtasks = [{"description": f"étape {i}", "critere_succes": "ok"} for i in range(9)]
-    with pytest.raises(g.PlanValidationError, match="hors bornes"):
+    with pytest.raises(g.PlanValidationError, match="out of bounds"):
         g._validate_plan_json(json.dumps({"sous_taches": subtasks}))
 
 
 def test_validate_plan_json_rejects_empty_subtask_list():
     import app.graph as g
 
-    with pytest.raises(g.PlanValidationError, match="hors bornes"):
+    with pytest.raises(g.PlanValidationError, match="out of bounds"):
         g._validate_plan_json(json.dumps({"sous_taches": []}))
 
 

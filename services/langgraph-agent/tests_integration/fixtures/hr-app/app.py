@@ -1,5 +1,5 @@
 """
-Mini-app RH du fixture Benchmark 0 (T2/T3/T5/T6 — voir BENCHMARK0.md).
+Mini-app RH du fixture Benchmark 0 (T2/T3/T5/T6 — voir docs/benchmark-v1.md).
 Flask minimal, données figées dans hr_data.py. Les soumissions du
 formulaire de congé (T2) sont écrites en JSON dans /data (volume monté),
 lu ensuite par les assertions du harnais de test — jamais par cette app

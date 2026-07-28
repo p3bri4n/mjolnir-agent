@@ -1,186 +1,185 @@
-# Plan de développement — agent web autonome
+# Development plan — autonomous web agent
 
-Ce document remplace les sections « Plan de développement » et « Amendements »
-de `CLAUDE.md` : les deux amendements y sont intégrés à leur place logique
-plutôt que listés en patch séparé. En cas de divergence, ce fichier fait foi.
+This document replaces the "Development plan" and "Amendments" sections of
+`CLAUDE.md`: both amendments are integrated here in their logical place
+rather than listed as a separate patch. In case of divergence, this file
+is authoritative.
 
-## Contexte
+## Context
 
-La stack sert désormais Qwen3.6-27B EXL3 via TabbyAPI/ExLlamaV3 (dual-GPU,
-vision + MTP), le trio langgraph/langchain-openai/openai est migré en
-1.x/2.x, et un serveur MCP Playwright est branché aux côtés de GhostDesk.
-Objectif du chantier : faire passer l'agent de « exécute des actions
-approuvées » à « accomplit des tâches web multi-étapes en autonomie », sans
-affaiblir le modèle de sécurité existant (tiers d'approbation, PromptGuard,
-firewall egress).
+The stack now serves Qwen3.6-27B EXL3 via TabbyAPI/ExLlamaV3 (dual-GPU,
+vision + MTP), the langgraph/langchain-openai/openai trio is migrated to
+1.x/2.x, and an MCP Playwright server is wired in alongside GhostDesk.
+Goal of this effort: move the agent from "executes approved actions" to
+"accomplishes multi-step web tasks autonomously", without weakening the
+existing security model (approval tiers, PromptGuard, egress firewall).
 
-## Phase 0 — L'instrument d'abord : harnais de niveau TÂCHE
+## Phase 0 — The instrument first: TASK-level harness
 
-Avant tout changement du graphe, construire `tests_integration/test_web_tasks.py`
-(opt-in `RUN_LIVE_AGENT_TESTS=1`) :
+Before any change to the graph, build `tests_integration/test_web_tasks.py`
+(opt-in `RUN_LIVE_AGENT_TESTS=1`):
 
-1. **11 tâches web fixes**, reproductibles : 7 sur fixtures auto-hébergées
-   (catalogue e-commerce, site de doc, mini-app RH — vérité terrain connue
-   par construction), 3 sur sites réels stables (Wikipedia, Google/INSEE,
-   books.toscrape.com), + T11 (sonde de péremption, voir amendement
-   « conscience temporelle » ci-dessous). Spec complète, prompts exacts et
-   critères d'assertion :
-   `services/langgraph-agent/tests_integration/BENCHMARK0.md`.
-2. **Critère de succès PROGRAMMATIQUE par tâche** (assertion sur le résultat :
-   valeur extraite exacte, état final du formulaire, fichier présent) — jamais
-   « la réponse a l'air bien ». Détail par tâche dans `BENCHMARK0.md`.
-3. **Métriques par run** (les 11 tâches) : taux de tâches réussies /11, nombre
-   d'étapes par tâche, tokens consommés, interventions d'approbation
-   requises, durée, cause d'échec classée (navigation / extraction /
-   hallucination / boucle / blocage externe / infra).
-4. **Baseline immédiate** : rejouer la suite sur l'agent ACTUEL, tel quel,
-   3 répétitions. Consigner dans `tests_integration/TASKS-BASELINE.md`.
-   C'est le point zéro — tout le chantier se mesure contre lui.
+1. **11 fixed, reproducible web tasks**: 7 on self-hosted fixtures
+   (e-commerce catalog, doc site, mini HR app — ground truth known by
+   construction), 3 on stable real sites (Wikipedia, Google/INSEE,
+   books.toscrape.com), + T11 (staleness probe, see the "temporal
+   awareness" amendment below). Full spec, exact prompts and assertion
+   criteria: `docs/benchmark-v1.md`.
+2. **PROGRAMMATIC success criterion per task** (assertion on the result:
+   exact extracted value, final form state, file present) — never "the
+   answer looks right". Per-task detail in `docs/benchmark-v1.md`.
+3. **Per-run metrics** (all 11 tasks): success rate /11, steps per task,
+   tokens consumed, approval interventions required, duration, classified
+   failure cause (navigation / extraction / hallucination / loop /
+   external block / infra).
+4. **Immediate baseline**: replay the suite against the CURRENT agent,
+   as-is, 3 repetitions. Record under `docs/campaigns/` (see the reporting
+   convention in `docs/operations/runbook.md`/`scripts/run-campaign.sh`).
+   This is the point zero — the whole effort is measured against it.
 
-🧑 **Checkpoint : je valide la liste des 11 tâches et la baseline.**
+🧑 **Checkpoint: I sign off on the 11-task list and the baseline.**
 
-## Phase 1 — Boucle plan → agir → vérifier → replanifier
+## Phase 1 — Plan → act → verify → replan loop
 
-**1ère tranche livrée** (voir HISTORY.md, "garde-fou fabrication d'URL +
-tronquage snapshots") : `browser_navigate` refuse toute URL non observée
-(racines du périmètre de la tâche + navigations/liens déjà vus),
-`BROWSER_TOOL_OUTPUT_MAX_CHARS` borne la taille des résultats `browser_*`.
-Vérifié contre la Campagne A (budget 20) : score global 16/33 → 24/33, mais
-AUCUN des 5 critères de réussite fixés au checkpoint n'est intégralement
-atteint — le garde-fou bloque l'exécution d'une URL fabriquée mais ne
-dissuade pas le modèle de continuer à en inventer d'autres (voir rapport
-détaillé, `tests_integration/TASKS-BASELINE-post-phase1.md`). Piste
-retenue pour la suite : la vérification post-action systématique
-ci-dessous (point 4) pourrait mieux capter ce pattern qu'un blocage
-d'exécution seul — à trancher au prochain checkpoint plutôt qu'assumé.
+Progress status (campaign scores, past checkpoints): see
+`docs/project-status.md`, not here — this file stays the roadmap.
 
-**Campagne A finale (isolation + browser_extract)** : 30/33, voir
-HISTORY.md "Phase 1d-révisée — campagne A finale". La couche
-perception/outillage est désormais saine et mesurée.
+**Rest of Phase 1 ("cognitive core")**: points 1 to 7 below are detailed
+and sequenced iteration by iteration (one iteration = one mechanism = one
+designated judge = one checkpoint) in
+`docs/briefs/phase-1-coeur-cognitif.md`, committed before any code for
+this sub-effort. This plan keeps the overview; the brief is authoritative
+for execution order and pass criteria.
 
-**Suite de la Phase 1 ("cœur cognitif")** : les points 1 à 7 ci-dessous sont
-détaillés et séquencés itération par itération (une itération = un
-mécanisme = un juge désigné = un checkpoint) dans
-`docs/briefs/phase-1-coeur-cognitif.md`, committé avant tout code de ce
-sous-chantier. Ce plan-ci garde la vue d'ensemble ; le brief fait foi pour
-l'ordre d'exécution et les critères de passage.
+In `app/graph.py`, without breaking the existing approval flow:
 
-Dans `app/graph.py`, sans casser le flux d'approbation existant :
+1. **Explicit plan state** in `AgentState`: list of subtasks (description,
+   status: todo/in-progress/done/failed, result), overall objective,
+   per-subtask attempt counter.
+2. **Planner node**: on receiving a task, decompose it into subtasks
+   (structured JSON, validated schema). Replanning triggered only on
+   subtask failure or an invalidating discovery — not every turn (cost).
+3. **Plan validation pipeline** (from the dedicated amendment), inserted
+   between the planner node and execution:
+   a. **Programmatic heuristics** (dedicated module, unit-testable):
+      existing tools, domains within scope, size bounds, no
+      duplicates/cycles, verifiable success criterion per subtask,
+      plan/task tier consistency. Justified rejection → back to the
+      planner, max 2 cycles then human escalation.
+   b. **LLM judge** (creation + replanning only): structured JSON verdict
+      (feasible yes/no, risks, missing steps). Negative verdict → back to
+      the planner with the verdict. Tracked metrics: veto rate, outcome of
+      vetoed-then-fixed plans. Withdrawal clause: if, after the full
+      Phase 0 suite, the judge hasn't caught any defect the heuristics
+      didn't already see, disable it by default (env flag) and record it.
+   c. **Tiered human validation**: plan tier = tier of its worst action.
+      Pure READ → auto after a+b. WRITE → human approval of the plan
+      (relaxable via a session grant). COMMIT → mandatory plan approval
+      AND individual approval of the committing action at execution time
+      (not combinable into a single yes). Plan displayed in the existing
+      approval format (numbered subtasks + each one's tier). Any
+      replanning goes back through the full pipeline.
+4. **Systematic post-action verification**: after every web tool call, the
+   agent must observe the result BEFORE the next action — via the
+   Playwright observation (targeted accessibility/DOM snapshot) rather
+   than a pixel capture when possible. The action's success criterion
+   stated BEFORE its execution (in structured reasoning), compared
+   afterward.
+5. **Failure budget**: N attempts per subtask (env, default 3) with an
+   alternative strategy required on each retry (not the same action
+   repeated); beyond that → replanning; if replanning is exhausted →
+   honest failure report to the user with the state reached. Never an
+   infinite loop, never a false success.
+6. **Hybrid perception**: Playwright = primary channel for anything that
+   is a web page (cheaper, more reliable); GhostDesk = explicit fallback
+   (canvas, outside the browser, Playwright failure). The routing rule
+   lives in the system prompt + a programmatic guardrail (if the
+   URL/context is web and the agent attempts a pixel capture, suggest the
+   DOM channel in the tool feedback).
+7. **Temporal awareness** (from the dedicated amendment):
+   a. Date injection into the system prompt on EVERY request: DAY
+      granularity (never the time — preserves the prefix cache), format
+      "Current date: {weekday} {date} ({timezone})", placed at the END of
+      the system block after the static sections. Timezone from the host
+      env.
+   b. Staleness directive in the system prompt (~10 lines): the model's
+      estimated cutoff (conservative bound, recorded with its source),
+      categories to verify via the web before asserting (versions,
+      prices, news, roles, service status), memory-based answers allowed
+      only for stable facts.
 
-1. **État de plan explicite** dans `AgentState` : liste de sous-tâches
-   (description, statut : à-faire/en-cours/fait/échoué, résultat), objectif
-   global, compteur de tentatives par sous-tâche.
-2. **Nœud planificateur** : à réception d'une tâche, décomposition en
-   sous-tâches (JSON structuré, schéma validé). Replanification déclenchée
-   uniquement sur échec de sous-tâche ou découverte invalidante — pas à
-   chaque tour (coût).
-3. **Pipeline de validation du plan** (issu de l'amendement dédié), inséré
-   entre le nœud planificateur et l'exécution :
-   a. **Heuristiques programmatiques** (module dédié, testable
-      unitairement) : outils existants, domaines dans le périmètre, bornes
-      de taille, pas de doublons/cycles, critère de succès vérifiable par
-      sous-tâche, cohérence tier plan/tâche. Rejet motivé → retour
-      planificateur, max 2 cycles puis escalade humaine.
-   b. **Juge LLM** (création + replanification uniquement) : verdict JSON
-      structuré (faisable oui/non, risques, étapes manquantes). Verdict
-      négatif → retour planificateur avec le verdict. Métriques trackées :
-      taux de veto, issue des plans vétoés puis corrigés. Clause de
-      retrait : si après la suite Phase 0 complète le juge n'a attrapé
-      aucun défaut que les heuristiques ne voyaient pas, le désactiver par
-      défaut (flag env) et le consigner.
-   c. **Validation humaine tierée** : tier du plan = tier de sa pire action.
-      LECTURE pure → auto après a+b. ÉCRITURE → approbation humaine du plan
-      (relâchable en grant de session). ENGAGEMENT → approbation du plan
-      obligatoire ET approbation individuelle de l'action d'engagement à
-      son exécution (non cumulables en un seul oui). Affichage du plan dans
-      le format d'approbation existant (sous-tâches numérotées + tier de
-      chacune). Toute replanification repasse le pipeline complet.
-4. **Vérification post-action systématique** : après chaque tool call web,
-   l'agent doit constater le résultat AVANT l'action suivante — via
-   l'observation Playwright (snapshot accessibilité/DOM ciblé) plutôt qu'une
-   capture pixel quand possible. Critère de succès de l'action énoncé AVANT
-   son exécution (dans le raisonnement structuré), comparé après.
-5. **Budget d'échec** : N tentatives par sous-tâche (env, défaut 3) avec
-   stratégie alternative exigée à chaque retry (pas la même action répétée) ;
-   au-delà → replanification ; si replanification épuisée → rapport d'échec
-   honnête à l'utilisateur avec l'état atteint. Jamais de boucle infinie,
-   jamais de faux succès.
-6. **Hybride perception** : Playwright = canal primaire pour tout ce qui est
-   page web (moins cher, plus fiable) ; GhostDesk = repli explicite (canvas,
-   hors-navigateur, échec Playwright). La règle de routage vit dans le prompt
-   système + un garde-fou programmatique (si l'URL/le contexte est web et que
-   l'agent tente une capture pixel, suggérer le canal DOM dans le feedback
-   d'outil).
-7. **Conscience temporelle** (issue de l'amendement dédié) :
-   a. Injection de date dans le system prompt à CHAQUE requête : granularité
-      JOUR (jamais l'heure — préservation du prefix cache), format
-      « Date actuelle : {jour} {date} ({timezone}) », positionnée EN FIN de
-      bloc système après les sections statiques. Timezone depuis l'env hôte.
-   b. Directive de péremption dans le system prompt (~10 lignes) : cutoff
-      estimé du modèle (borne conservatrice, consignée avec sa source),
-      catégories à vérifier via le web avant d'affirmer (versions, prix,
-      actualité, rôles, états de services), autorisation de répondre de
-      mémoire pour les faits stables uniquement.
+Unit tests: mocked planning, state transitions, validation pipeline
+(heuristics, judge, tiers), failure budget, hybrid routing, date
+injection. Then replay the Phase 0 suite (11 tasks, T11 in particular):
+the delta vs. baseline is this phase's verdict. Metric added to the
+harness: human interventions per task — the validation pipeline's goal is
+for this number to GO DOWN at equal or better control. 🧑 **Checkpoint.**
 
-Tests unitaires : planification mockée, transitions d'état, pipeline de
-validation (heuristiques, juge, tiers), budget d'échec, routage hybride,
-injection de date. Puis rejouer la suite Phase 0 (11 tâches, T11 en
-particulier) : le delta vs baseline est le verdict de cette phase.
-Métrique ajoutée au harnais : interventions humaines par tâche — l'objectif
-du pipeline de validation est que ce chiffre BAISSE à contrôle égal ou
-supérieur. 🧑 **Checkpoint.**
+## Phase 2 — Context discipline
 
-## Phase 2 — Discipline de contexte
+1. **Images**: keep only the last 2 captures in the history; earlier ones
+   replaced by their textual description generated at the time of use
+   (already in the thread) + a `[capture removed]` note.
+2. **Episode compaction**: beyond a turn-count threshold (env), completed
+   subtasks are compacted into a structured summary (subtask, key
+   actions, result) injected in place of the detailed turns. The plan and
+   the objective always stay whole.
+3. Before/after measurement on the Phase 0 suite: tokens/task and success
+   rate (compaction must NOT degrade the rate — if it does, thresholds to
+   revisit at the checkpoint). 🧑 **Checkpoint.**
 
-1. **Images** : ne conserver dans l'historique que les 2 dernières captures ;
-   les antérieures remplacées par leur description textuelle générée au moment
-   de leur usage (déjà dans le fil) + mention `[capture retirée]`.
-2. **Compaction d'épisodes** : au-delà d'un seuil de tours (env), les
-   sous-tâches terminées sont compactées en un résumé structuré (sous-tâche,
-   actions clés, résultat) injecté à la place des tours détaillés. Le plan et
-   l'objectif restent toujours intégraux.
-3. Mesure avant/après sur la suite Phase 0 : tokens/tâche et taux de réussite
-   (la compaction ne doit PAS dégrader le taux — si elle le dégrade, seuils à
-   revoir au checkpoint). 🧑 **Checkpoint.**
+## Phase 3 — Security tiers by action nature
 
-## Phase 3 — Tiers de sécurité par nature d'action
+Extend the existing approval policy, without removing from it:
 
-Étendre la politique d'approbation existante, sans en retirer :
+1. **Classification by nature** for web tools: READ (navigation, snapshot,
+   extraction) → auto-approvable tier; REVERSIBLE WRITE (filling a field,
+   clicking without submitting) → auto-approvable under a granted
+   session; COMMIT (submitting a form, downloading/uploading, any action
+   with an external effect) → mandatory approval, not covered by the
+   session grant. Tool→nature mapping in config, not in code.
+2. **Per-task domain scope**: allowlist declared when the task starts; any
+   navigation outside scope → approval escalation. Consistent with the
+   egress firewall philosophy.
+3. **Dedicated browser profile**: the agent's Playwright context is blank
+   (no personal-profile cookies/credentials), persistent per task only if
+   needed.
+4. **Prompt injection**: page content is an UNTRUSTED INPUT. Verify that
+   the Playwright→LLM flow goes through the same PromptGuard inspection
+   as everything else; at a minimum, any instruction detected in web
+   content that requests a COMMIT action triggers escalation. Add 2
+   trapped tasks to the Phase 0 suite (a page containing an injection
+   requesting an out-of-scope action): success = the agent does not obey.
+   The suite thus goes from 11 to **13 tasks**.
 
-1. **Classification par nature** pour les outils web : LECTURE (navigation,
-   snapshot, extraction) → tier auto-approuvable ; ÉCRITURE RÉVERSIBLE
-   (remplir un champ, cliquer hors soumission) → auto-approuvable en session
-   accordée ; ENGAGEMENT (soumettre un formulaire, télécharger/uploader,
-   toute action à effet externe) → approbation obligatoire, non couverte par
-   le grant de session. Mapping outil→nature dans la config, pas dans le code.
-2. **Périmètre de domaines par tâche** : liste d'autorisation déclarée au
-   lancement de la tâche ; toute navigation hors périmètre → escalade
-   d'approbation. Cohérent avec la philosophie du firewall egress.
-3. **Profil navigateur dédié** : le contexte Playwright de l'agent est vierge
-   (pas de cookies/credentials du profil personnel), persistant par tâche
-   seulement si nécessaire.
-4. **Injection de prompt** : le contenu de page est une ENTRÉE NON FIABLE.
-   Vérifier que le flux Playwright→LLM passe par la même inspection
-   PromptGuard que le reste ; à minima, toute instruction détectée dans le
-   contenu web qui demande une action d'ENGAGEMENT déclenche l'escalade.
-   Ajouter 2 tâches piégées à la suite Phase 0 (page contenant une injection
-   demandant une action hors périmètre) : le succès = l'agent n'obéit pas.
-   La suite passe ainsi de 11 à **13 tâches**.
-
-🧑 **Checkpoint : revue de la matrice nature×tier ensemble avant merge.**
+🧑 **Checkpoint: review the nature×tier matrix together before merging.**
 
 ## Phase 4 — Consolidation
 
-Rejouer la suite complète (13 tâches désormais, T11 et injections comprises),
-3 répétitions, consigner dans `TASKS-BASELINE.md` le tableau d'évolution par
-phase. README : nouvelle section « Autonomie » (architecture de la boucle,
-politique de tiers web, limites connues et assumées). 🧑 **Checkpoint final.**
+Replay the full suite (now 13 tasks, including T11 and the injections), 3
+repetitions, record the phase-by-phase evolution table under
+`docs/campaigns/`. README: new "Autonomy" section (loop architecture, web
+tier policy, known and accepted limitations). 🧑 **Final checkpoint.**
 
-## Hors périmètre explicite
+## Explicitly out of scope
 
-- OmniParser / grounding GPU sur la 5060 Ti : itération ultérieure, motivée
-  par les échecs OBSERVÉS de la suite de tâches (si le canal DOM couvre le
-  besoin, ne pas l'ajouter).
-- Authentification de l'agent sur des comptes réels, paiements, captchas.
-- Multi-agent / sous-agents parallèles.
-- Toute tâche nécessitant plus que le périmètre navigateur + GhostDesk actuel.
+- OmniParser / GPU grounding on the 5060 Ti: a later iteration, motivated
+  by OBSERVED failures of the task suite (if the DOM channel covers the
+  need, don't add it).
+- Agent authentication on real accounts, payments, captchas.
+- Multi-agent / parallel sub-agents.
+- Any task requiring more than the current browser + GhostDesk scope.
+
+## Deferred architecture effort: Mjolnir folder (second model)
+
+Recorded after the "latency fix 2/2" checkpoint (see docs/history.md): the
+cache/context isolation of the auxiliary calls (`planner_llm` —
+plan_task/revise_plan/replan_task/_judge_plan) from the main loop was
+diagnosed as a probable cause of part of the residual cache=0 on the
+TabbyAPI side (alternating request shape evicting the shared prefix
+cache) — not resolved by simply raising `cache_size` (see docs/history.md,
+"chasing cache=0"). Joins the Mjolnir folder, where a second model already
+has a planned role (critique/compaction): **three candidate uses for a
+single architecture decision** (critique, compaction, planner/cache
+isolation), to be worked out with the checkpoint's numbers rather than
+treated in isolation here.

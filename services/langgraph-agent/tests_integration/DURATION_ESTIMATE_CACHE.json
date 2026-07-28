@@ -1,0 +1,16 @@
+{
+  "_note": "Cache glissant d'ESTIMATION de durée, PAS un historique de campagnes : `estimates` est réécrit (médiane fusionnée) à la fin de CHAQUE campagne, complète ou smoke — la valeur d'une tâche ne reflète donc que la DERNIÈRE campagne qui l'a mesurée, jamais une série dans le temps. Sert uniquement à estimer la durée d'un prochain lancement avant de le démarrer (scripts/run-campaign.sh). Pour un historique par campagne (thread_id, métadonnées, métriques par run), voir campaign-<timestamp>-<label>.json (campaign_persistence.py).",
+  "estimates": {
+    "T10_books_toscrape": 116.6,
+    "T11_sonde_peremption": 18.9,
+    "T1_extraction_paginee": 61.3,
+    "T2_formulaire_conge": 35.9,
+    "T3_tableau_dynamique": 17.3,
+    "T4_recherche_multi_sauts": 46.2,
+    "T5_telechargement_calcul": 16.4,
+    "T6_session_authentifiee": 42.0,
+    "T7_impossible_par_construction": 100.3,
+    "T8_wikipedia": 67.6,
+    "T9_google_insee": 85.3
+  }
+}
