@@ -96,8 +96,7 @@ of them were thrown away.
 - Dual-GPU heterogeneous setups supported (documented Ada + Blackwell
   configuration, including the tensor-split crash diagnosis and its
   workaround in `docs/resolved-bugs.md`).
-- Two interchangeable inference backends: TabbyAPI/ExLlamaV3 (default) or
-  llama.cpp.
+- A powerful inference backend for mixed Nvidia GPUs: TabbyAPI/ExLlamaV3
 
 ## Roadmap
 
@@ -120,9 +119,6 @@ cp .env.example .env
 # place the model's EXL3 quant (safetensors + config.json + tokenizer,
 # HuggingFace format) under ./models/agent-llm/ — TabbyAPI is the default
 # backend, never downloaded automatically (see docs/architecture/inference-backend.md).
-# For the alternative llama-server backend (.gguf), edit .env:
-# LLAMA_MODEL_FILE/LLAMA_MMPROJ_FILE must match the files
-# actually present in ./models
 
 docker pull mcp/filesystem:latest
 docker pull mcp/git:latest
@@ -165,8 +161,6 @@ services/
   playwright-mcp/      official mcp/playwright image, browser driven by
                        the agent (separate docker-compose service, native HTTP
                        server — see docs/resolved-bugs.md)
-  llama-server/        build of the llama.cpp fork serving the model (alternative
-                       backend — see docs/architecture/inference-backend.md)
   ocr-service/         supplementary OCR for VLM grounding (PaddleOCR CPU,
                        find_text/read_screen — see docs/architecture/autonomy.md)
     app/
@@ -180,14 +174,14 @@ skills/     to be filled in (one subfolder per skill, each with a SKILL.md)
 workspace/  shared with the filesystem/git/terminal MCP servers, and
             with langgraph-agent for the audit log (.audit/, see
             docs/architecture/tool-supervision.md)
-models/     weights (.gguf) of the model and multimodal projector served by
-            llama-server — never downloaded automatically, see
+models/     weights (exl3) of the model and multimodal projector served by
+            tabbyAPI — never downloaded automatically, see
             docs/architecture/inference-backend.md
 ```
 
 ## Documentation
 
-- `docs/architecture/inference-backend.md` — TabbyAPI/llama-server, image
+- `docs/architecture/inference-backend.md` — TabbyAPI, image
   conversion, adaptive thinking.
 - `docs/architecture/autonomy.md` — plan → act → verify → replan loop
   ("cognitive core" Phase 1), supplementary OCR.
@@ -223,20 +217,6 @@ models/     weights (.gguf) of the model and multimodal projector served by
   warrants it — the two knowingly coexist rather than one replacing the
   other. Access: http://localhost:6080 once the service is started,
   password = `GHOSTDESK_VNC_PASSWORD` (see `.env`).
-- **Historical limitation lifted**: GhostDesk's screenshot/guided-click
-  tools were not usable by the agent as long as the model served
-  (Qwen2.5-Coder, via vLLM) was not multimodal. The default backend is now
-  `llama-server` (see docs/architecture/inference-backend.md), serving
-  Qwen3.6-35B-A3B with a multimodal projector (`--mmproj`) — the agent can
-  therefore now receive and interpret GhostDesk screenshots. A distinct
-  limitation remains, however, now mitigated but not resolved: the
-  grounding accuracy (aiming at the right on-screen element) of a
-  general-purpose vision model. `ocr-service` (see
-  docs/architecture/autonomy.md) compensates for TEXTUAL elements via
-  `find_text`/`read_screen` (exact OCR coordinates rather than a visual
-  estimate); elements without text (icons) are still estimated visually by
-  the VLM, with no dedicated UI-element detection (OmniParser-style,
-  explicitly out of scope for now).
 - **`ghostdesk` is a stateful, persistent HTTP MCP server** (desktop/VNC
   session), unlike the other MCP servers in the project, which are spawned
   as ephemeral STDIO processes by `mcp-client` (`docker run -i --rm` per
