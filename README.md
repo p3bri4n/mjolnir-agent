@@ -1,11 +1,15 @@
-# agentic-ai-playground
+# Mjolnir agent
 
-![CI](https://github.com/p3bri4n/agentic-ai-playground/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/p3bri4n/mjolnir-agent/actions/workflows/ci.yml/badge.svg)
 
-![Logo](docs/assets/logo.png)
+![Logo](docs/assets/logo.jpeg)
 
-Docker Compose stack for a local AI agent: Open WebUI → LangGraph Agent →
-(Skill Manager / Context Manager / MCP Client) → TabbyAPI.
+An AI agent powered by your nvidia graphic card(s).
+All is dockerized for security & simplicity of deployement.
+The agent has the ablity to browse the internet and handle your daily tasks.
+Tested LLM model : Qwen 3.6 27B (exl3)
+
+The stack is : Open WebUI → LangGraph Agent → (Skill Manager / Context Manager / MCP Client) → TabbyAPI.
 
 ## Quick start
 
