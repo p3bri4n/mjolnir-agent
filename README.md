@@ -4,12 +4,112 @@
 
 ![Logo](docs/assets/logo.jpeg)
 
-An AI agent powered by your nvidia graphic card(s).
-All is dockerized for security & simplicity of deployement.
-The agent has the ablity to browse the internet and handle your daily tasks.
-Tested LLM model : Qwen 3.6 27B (exl3)
+**A fully local, autonomous web agent that runs on consumer NVIDIA GPUs —
+with human approval tiers, mechanical guardrails, and a benchmark that
+measures whether any of it actually works.**
 
-The stack is : Open WebUI → LangGraph Agent → (Skill Manager / Context Manager / MCP Client) → TabbyAPI.
+No API keys, no data leaving the machine. The whole stack is dockerised.
+Tested on Qwen3.6-27B (EXL3) across a dual-GPU setup (RTX 4070 Ti Super +
+RTX 5060 Ti).
+
+Open WebUI → LangGraph agent → (Skill Manager / Context Manager / MCP
+Client) → TabbyAPI.
+
+## Features
+
+### Autonomy that reports its own failures
+
+- **Explicit plan**: tasks are decomposed into subtasks with a stated
+  success criterion each, before any action.
+- **Post-action verification**: every tool call is checked against the
+  criterion stated beforehand — the agent cannot silently proceed on a
+  failed step.
+- **Failure budget with mandatory alternative**: a retry must use a
+  different strategy, not repeat the same call. Budget exhausted → replan;
+  replans exhausted → honest failure report with the state reached.
+- **Plan validation pipeline**: programmatic heuristics, then an optional
+  LLM judge, then human approval — tiered by the plan's riskiest action.
+
+### Human supervision that scales
+
+- **Approval tiers by action nature**: read is auto-approvable, reversible
+  writes are covered by a session grant, engagements (submissions, uploads,
+  arbitrary code) always require individual approval.
+- **Never-grantable tools**: arbitrary JS execution can never be blanket-
+  approved, whatever the session state.
+- **Approve a plan, not twenty clicks**: reviewing one trajectory replaces
+  N action-by-action confirmations.
+
+### Guardrails in code, not in prompts
+
+- **URL-fabrication guardrail**: navigation to an address never observed in
+  a page is refused mechanically, with the real links offered instead.
+- **`browser_extract`**: a named, declarative extraction tool (single or
+  bulk) replacing model-written JavaScript — same capability, auditable, at
+  read tier.
+- **Structured reporting**: statuses and budgets travel through tool-call
+  schemas, never through textual conventions the model is asked to honour.
+
+### Hybrid perception
+
+- **DOM first** (Playwright MCP: accessibility tree, real links), **vision
+  as fallback** (GhostDesk desktop capture), **OCR** for exact text.
+- **Affordance-preserving truncation**: page content may be summarised, the
+  inventory of links, buttons and fields never is.
+
+### Measured, not asserted
+
+- **Task-level benchmark**: 11 web tasks with programmatic assertions (7 on
+  self-hosted fixtures with known ground truth, 3 on real sites, 1 live
+  staleness probe) — no LLM-as-judge on the final score.
+- **Permanent judges**: success rate, average time per task, prompt tokens
+  per task, URL-fabrication count, verification coverage, human
+  interventions, prefill cost.
+- **Campaign persistence**: per-run JSON with effective configuration (git
+  commit, image digests, behaviour flags) — every campaign can say *which
+  agent* it measured.
+- **Full audit trail**: intentions, tool results and model messages
+  persisted as JSONL, which is how most of this project's bugs were
+  diagnosed without re-running anything.
+
+Latest campaign: **29/33** — see `docs/campaigns/` for the full history,
+and `docs/methodology.md` for how these numbers are produced and why some
+of them were thrown away.
+
+### Security posture
+
+- **Approval tiers with a never-grantable class**: some tools (arbitrary JS
+  execution) can never be covered by a session grant, whatever the state.
+- **Mechanical guardrails, not prompt instructions**: navigation to an
+  address never observed in a page is refused in code; extraction goes
+  through a named read-tier tool rather than model-written JavaScript.
+- **Isolated browser profile**: `--isolated`, in-memory, never persisted —
+  no personal cookies or credentials reachable by the agent.
+- **MCP terminal restricted to a command whitelist** (no arbitrary command
+  execution).
+- **Full audit trail**: intentions, tool results and model messages
+  persisted, so any action taken can be reconstructed after the fact.
+- Everything runs locally: no API keys, no data leaving the machine.
+
+### Runs on hardware you own
+
+- Dual-GPU heterogeneous setups supported (documented Ada + Blackwell
+  configuration, including the tensor-split crash diagnosis and its
+  workaround in `docs/resolved-bugs.md`).
+- Two interchangeable inference backends: TabbyAPI/ExLlamaV3 (default) or
+  llama.cpp.
+
+## Roadmap
+
+Planned, not implemented — tracked in `PLAN.md`:
+
+- Egress firewall on the agent network (`agent-net` is currently a plain
+  Docker bridge) and network restriction on spawned MCP containers.
+- PromptGuard screening of untrusted web content.
+- Approval tiers refined by action nature (read / reversible write /
+  engagement) and per-task domain scope.
+- A prompt-injection benchmark family (v2, family C) to measure resistance
+  rather than assert it.
 
 ## Quick start
 

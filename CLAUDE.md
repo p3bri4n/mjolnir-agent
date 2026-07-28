@@ -16,7 +16,11 @@
 6. STOP 🧑 at checkpoints.
 7. No opportunistic refactor outside scope — propose it at the checkpoint.
 8. Any claim about a library's behavior is verified against the installed code.
-9. README updated as you go, existing style.
+9. README updated as you go, existing style. Any capability claim in the
+   README or public docs is verified against the installed code before
+   publication. Planned features go under Roadmap, never under Features.
+   Security claims are the strictest case: a reader may deploy on the
+   strength of them.
 10. Suggest obvious simplifications when it's opportune
 11. Code/doc language ("restructuring + English" effort, see
     `docs/briefs/`): new content in English — docstrings, comments,
