@@ -1,3 +1,19 @@
+**REQUALIFIÉ « non concluant » (analyse d'archives a posteriori, zéro
+run).** Ce rapport n'a pas encore le compteur de couverture permanent
+(`episode_compaction_messages_max`/`episode_compaction_applied_count`,
+ajouté après coup à `test_web_tasks.py`/`app/graph.py`). Reconstruction
+par proxy depuis `tabbyapi_requests`/`tool_calls_observed` du JSON
+(`campaign-20260728T130843Z-post-rename-mjolnir-v2.json` pour la
+baseline, `campaign-20260728T141444Z-episode-compaction-enabled.json`
+ici — `messages ≈ 2×tool_calls_observed + 2`) : seuls **3/33 runs (9%)**
+ici et **5/33 (15%)** côté baseline sont estimés au-delà des 40 messages
+d'`EPISODE_COMPACTION_TURN_THRESHOLD`. Sous les 30% requis pour que la
+campagne teste réellement le mécanisme, le score 30/33 et l'écart de
+prefill/cache observés avec la baseline (715.7s/16.7% ici vs 945.9s/20.9%)
+sont du bruit de mesure, pas un effet du flag — à refaire avec le
+compteur permanent avant toute conclusion, idéalement sur des tâches
+conçues pour dépasser le seuil.
+
 # episode-compaction-enabled — suite de tâches web (Phase 0)
 
 Générée automatiquement le 2026-07-28T14:14:44.346219+00:00 (3 répétitions/tâche). Voir docs/benchmark-v1.md pour la spec complète et les limites connues de chaque assertion, et la docstring de test_web_tasks.py pour la méthode de sous-classification boucle_fabrication/boucle_budget.

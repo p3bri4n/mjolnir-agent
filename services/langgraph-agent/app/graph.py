@@ -1867,8 +1867,22 @@ async def call_llm(state: AgentState, config: dict) -> dict:
     bound_llm = await _get_bound_llm()
     # Compacted BEFORE the system message is prepended: subtask_message_start
     # indices are relative to state["messages"] (see _apply_episode_compaction).
+    raw_message_count = len(state["messages"])
     compacted_messages = _apply_episode_compaction(
         state["messages"], state.get("plan") or [], state.get("subtask_message_start") or []
+    )
+    # Coverage judge for episode compaction (PLAN.md Phase 2, point 2):
+    # logged on EVERY call_llm invocation, regardless of
+    # EPISODE_COMPACTION_ENABLED — a campaign run with the flag OFF still
+    # needs this to answer "would compaction even have triggered here?"
+    # before its result can be read as a real measurement of the
+    # mechanism (see docs/campaigns/2026-07-28_campaign_episode-
+    # compaction-enabled.md, requalified "non concluant" after only
+    # 9-15% of runs were estimated to cross the threshold).
+    audit_log.log_message(
+        config.get("configurable", {}).get("thread_id", ""),
+        "episode_compaction",
+        {"messages_count": raw_message_count, "compacted": len(compacted_messages) < raw_message_count},
     )
     messages_for_llm = [
         SystemMessage(

@@ -66,19 +66,28 @@ Point 2 (episode compaction) delivered, OFF by default
 (`EPISODE_COMPACTION_ENABLED=false`): completed subtasks' raw turns
 replaced by a structured summary in what's sent to the LLM only
 (checkpointer/audit log untouched) beyond
-`EPISODE_COMPACTION_TURN_THRESHOLD` (40) messages. Single-variable
-validation campaign run 2026-07-28 with the flag forced to `true`: **30/33,
-consistent with the 29/33 baseline (no regression)**, prefill total lower
-(715.7s vs 945.9s) and cache=0 rate lower (16.7% vs 20.9%) — see
-`docs/campaigns/2026-07-28_campaign_episode-compaction-enabled.md`.
-**N=1 per side**: directionally encouraging, not proof of a real token
-reduction given this project's documented run-to-run noise (16→24→20→24
-zigzag, docs/methodology.md) — more reps needed before considering
-flipping the default. Flag reverted to `false` after the experiment.
+`EPISODE_COMPACTION_TURN_THRESHOLD` (40) messages.
 
-Point 3 (tokens/task before/after) partially covered by the campaign
-above; a dedicated tokens/task metric (not just prefill seconds) is still
-to be added if this mechanism is pursued further.
+**Coverage judge added retroactively** (`episode_compaction_messages_max`/
+`episode_compaction_applied_count`, logged on EVERY `call_llm` call
+regardless of the flag — `app/graph.py`/`test_web_tasks.py`): applied to
+the 2026-07-28 validation campaign via an archives-only reconstruction
+(`messages ≈ 2×tool_calls_observed + 2`, proxy — the real counter didn't
+exist yet at run time), it showed only **3/33 runs (9%)** crossed the
+threshold, vs **5/33 (15%)** on the baseline. **Below the 30% coverage
+bar: the campaign result is REQUALIFIED "non concluant"**, not
+"encouraging" — the observed prefill/cache-rate delta (715.7s/16.7% vs
+945.9s/20.9%) is run-to-run noise, not evidence the mechanism reduced
+tokens (docs/campaigns/2026-07-28_campaign_episode-compaction-enabled.md,
+status note added). To redo with the real counter, on tasks designed to
+actually cross the threshold.
+
+Point 3 (tokens/task judge): prefill seconds conflate token volume with
+cache-hit rate and TabbyAPI throughput — not a clean tokens/task measure.
+`tabbyapi_raw_samples` already carries `cached_tokens`/`new_tokens` per
+LLM call (sum = real prompt token count for that call); a proper
+tokens/task aggregate from this field is still to be added to
+`_write_report` before the next repetitions campaign.
 
 ## Phases 3 to 4 (of PLAN.md)
 
