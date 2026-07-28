@@ -1,8 +1,11 @@
 # Project-specific instructions
 
-1. read `CLAUDE.md`, the README (short) and the brief for the ongoing
-   effort at the start of a session; `docs/history.md`/`docs/resolved-bugs.md`
-   are consulted via targeted search (grep on a keyword), never in full.
+1. At session start, read in this order: `CLAUDE.md` →
+   `docs/project-status.md` (where we are) → `README.md` (short) → the
+   brief of the ongoing effort (`docs/briefs/`). Never load in full:
+   `docs/history.md`, `docs/resolved-bugs.md`, `docs/briefs/archive/`,
+   `docs/campaigns/` reports — consult them via targeted search. Startup
+   budget: ~5000 tokens; report it rather than loading more.
 2. resolved bugs must be recorded in docs/resolved-bugs.md
 3. progress history must be recorded in docs/history.md
 4. always inform the user of the commands they need to type if a docker
@@ -24,6 +27,26 @@
     entries of `docs/history.md`/`docs/resolved-bugs.md` (dated
     archives); approval messages/user-facing notices (separate decision
     to come).
+12. Measurement rules:
+    - one variable per experiment; each mechanism has its judge designated
+      BEFORE the measurement. If a technical coupling forces two changes
+      to ship together, declare it at the checkpoint beforehand, with one
+      judge per mechanism.
+    - decision thresholds are frozen: they apply as written and are not
+      reinterpreted in light of the results.
+    - report without advocacy: missed criteria are announced as such. Do
+      not start a fix on an unvalidated result.
+    - archives first, zero runs: exhaust the audit log and existing
+      reports before relaunching anything.
+    - beware flattering zeros: an error counter at zero on a rarely
+      triggered mechanism measures nothing — every reliability judge
+      comes with a coverage judge.
+    - the brief before the code: every effort's instructions are written
+      in `docs/briefs/` and committed before the first line. A closed
+      effort gets a status header (result, deviations from the brief) and
+      moves to `docs/briefs/archive/`.
+
+    Full rationale: `docs/methodology.md` — read once, not every session.
 
 ## Docstrings/comments contract
 
@@ -47,6 +70,36 @@
 No summary of what precedes, no "Conclusion"/"Key points" section in
 technical docs, no table when three lines suffice. One document = one
 function.
+
+## Measured behavior — do not touch lightly
+
+Any change to the following alters results and requires its own
+single-variable validation campaign:
+- system prompts and directives sent to the model (`GROUNDING_DIRECTIVE`,
+  `DOWNLOAD_DIRECTIVE`, `BULK_CHECK_DIRECTIVE`, `PEREMPTION_DIRECTIVE`,
+  `NO_THINK_DIRECTIVE`, `PLANNER_SYSTEM_PROMPT`, `PLAN_JUDGE_SYSTEM_PROMPT`);
+- cognitive-core flags (`PLANNER_ENABLED`, `VERIFICATION_ENABLED`,
+  `PLAN_VALIDATION_ENABLED`, `PLAN_JUDGE_ENABLED`, `PLANNER_THINKING_ENABLED`),
+  budgets (`MAX_TOOL_ITERATIONS`, `SUBTASK_ATTEMPT_BUDGET`,
+  `REPLAN_BUDGET`), truncation thresholds (`AFFORDANCE_THRESHOLD`),
+  approval tiers;
+- benchmark task prompts, assertions and fixtures — **frozen**: any change
+  creates a new benchmark version, and cross-version comparisons are
+  forbidden.
+
+## Operational traps
+
+- Environment variables are read at import: a change requires
+  `docker compose up -d --force-recreate <service>`; a restart is not
+  enough. Setting them in the harness shell has NO effect (the harness
+  talks to the agent over HTTP) — silent trap.
+- `entrypoint.sh` is copied at build time: any change requires
+  `docker compose build <service>` before `up -d`.
+- Effective configuration is read from `/proc/1/cmdline` or
+  `docker exec … env`, never from the file.
+- No campaign starts without a green preflight (tool schema, image
+  freshness, effective flags, resets and purges). A campaign started on
+  an unverified stack is void.
 
 
 # Context
