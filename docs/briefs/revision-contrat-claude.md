@@ -1,5 +1,13 @@
 # Work contract — targeted revision of CLAUDE.md + methodology.md
 
+**Status: closed.** Result: all six steps applied as specified — rule 1
+fixed, "Measured behavior" and "Operational traps" sections added with
+variable names drawn from `graph.py`, measurement rules added as item 12,
+`docs/methodology.md` translated to English and pointed to from CLAUDE.md.
+CLAUDE.md stayed at 117 lines. Deviation: `docs/briefs/archive/` did not
+exist yet — created when this brief was archived, not treated as a stale
+reference.
+
 Own commit, before the closing 33-run campaign. Two of the sections added
 below protect that very campaign.
 
