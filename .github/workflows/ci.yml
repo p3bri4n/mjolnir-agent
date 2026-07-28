@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - skill-manager
+          - context-manager
+          - mcp-client
+          - mcp-terminal
+          - ocr-service
+          - dashboard
+          - langgraph-agent
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # context-manager/ocr-service pull heavy, unneeded deps for the test
+      # suite (sentence-transformers/torch, paddlepaddle/paddleocr) — see
+      # docs/operations/testing.md.
+      - name: Install dependencies
+        run: |
+          pip install -r requirements-test.txt
+          case "${{ matrix.service }}" in
+            context-manager)
+              grep -v sentence-transformers services/context-manager/requirements.txt > /tmp/service-reqs.txt
+              ;;
+            ocr-service)
+              grep -vE "paddlepaddle|paddleocr" services/ocr-service/requirements.txt > /tmp/service-reqs.txt
+              ;;
+            *)
+              cp services/${{ matrix.service }}/requirements.txt /tmp/service-reqs.txt
+              ;;
+          esac
+          pip install -r /tmp/service-reqs.txt
+
+      # tests_integration/ (langgraph-agent) needs a live stack and is
+      # opt-in via RUN_LIVE_LLM_TESTS — never run here.
+      - name: Run tests
+        run: cd services/${{ matrix.service }} && python3 -m pytest tests/ -v

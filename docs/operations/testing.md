@@ -2,6 +2,11 @@
 
 Content moved as-is from README.md (restructuring effort, see docs/briefs/restructuration-et-anglais.md, phase 3) — no rewrite at this stage.
 
+`.github/workflows/ci.yml` runs each service's `tests/` suite (never
+`tests_integration/`, which needs a live stack) on every push to
+`main`/`dev` and every pull request, one matrix job per service, with the
+same install commands as below.
+
 Each service has its own pytest suite, isolated from the others (no shared
 dependency between services, just like in production where each one runs
 in its own Docker image). To run a service's suite:
