@@ -38,17 +38,24 @@ T1/T7/T9 backlog investigated and closed (see docs/history.md,
   in one call, TIER_READ, replacing the `browser_evaluate`-based
   workaround — delivered.
 - Restructuring + English (`docs/briefs/archive/restructuration-et-anglais.md`,
-  archived — see its status header): phases 0-4 delivered (contracts,
-  `graph.py` trimming, moves/renames, README split, translation — French
-  remaining in code/docs is intentional: model-facing strings, user-facing
-  notices, frozen benchmark prompts). **Phase 5 (33-run closing campaign,
-  proof of neutrality) not run.**
+  archived and closed — see its status header): all 6 phases delivered,
+  including Phase 5 (33-run closing campaign, run 2026-07-28): **29/33,
+  consistent with the pre-restructuring checkpoint (29-30/33), no
+  regression** — see
+  `docs/campaigns/2026-07-28_campaign_post-rename-mjolnir-v2.md`. A first
+  attempt the same day scored 14/33 and is marked invalid in its report:
+  the self-hosted fixtures (`fixture-catalog`/`fixture-docs`/`fixture-hr-app`,
+  profile `test-fixtures`) hadn't been started before launch — operational
+  mistake, not a behavioral regression.
 - Mjolnir rename: done (repo, local folder, README/docs, Docker
-  project/image/volume names), ahead of Phase 5 as noted above — see the
-  brief's status header for the full deviation note.
+  project/image/volume names). Ran ahead of Phase 5 (deviation from the
+  brief's declared order, at explicit user request) — since covered by a
+  green Phase 5 result above.
 
-**Not yet done from this batch** (prerequisite for considering the
-restructuring effort fully closed): the Phase 5 33-run closing campaign.
+**Known preflight gap** (not yet fixed): `campaign_preflight.py` does not
+check that the `test-fixtures` profile is up before a campaign — nothing
+stopped the invalid 14/33 run above from executing for 44 minutes on
+unreachable fixtures. Candidate for a small, separately-scoped fix.
 
 ## Phases 2 to 4 (of PLAN.md)
 
