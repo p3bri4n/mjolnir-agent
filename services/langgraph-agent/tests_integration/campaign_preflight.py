@@ -40,7 +40,7 @@ from tests_integration import campaign_persistence
 AGENT_CONTAINER = "langgraph-agent"
 MCP_CLIENT_CONTAINER = "mcp-client"
 TABBYAPI_CONTAINER = "tabbyapi"
-TABBYAPI_IMAGE_TAG = "agentic-ai-playground-tabbyapi"
+TABBYAPI_IMAGE_TAG = "mjolnir-agent-tabbyapi"
 
 # LLM readiness (campaign tooling, see docs/history.md): found under real
 # conditions — a `docker compose up --build langgraph-agent` also

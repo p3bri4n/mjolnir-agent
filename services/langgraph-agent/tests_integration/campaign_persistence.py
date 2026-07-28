@@ -13,7 +13,7 @@ d'image, modèle, flags) au moment du run.
 
 Correction factuelle avant implémentation (CLAUDE.md #8 — toute affirmation
 sur le comportement d'une lib se vérifie contre le code installé) :
-TabbyAPI (image `agentic-ai-playground-tabbyapi`, vérifié dans
+TabbyAPI (image `mjolnir-agent-tabbyapi`, vérifié dans
 /app/endpoints/*/router.py de l'image réellement construite) N'EXPOSE PAS
 d'endpoint /metrics Prometheus, contrairement à llama-server (voir
 services/dashboard/app/prometheus.py et le commentaire déjà présent dans
