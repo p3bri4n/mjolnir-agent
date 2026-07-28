@@ -52,15 +52,38 @@ T1/T7/T9 backlog investigated and closed (see docs/history.md,
   brief's declared order, at explicit user request) — since covered by a
   green Phase 5 result above.
 
-**Known preflight gap** (not yet fixed): `campaign_preflight.py` does not
-check that the `test-fixtures` profile is up before a campaign — nothing
-stopped the invalid 14/33 run above from executing for 44 minutes on
-unreachable fixtures. Candidate for a small, separately-scoped fix.
+**Preflight gap fixed**: `campaign_preflight.py` now checks the
+`test-fixtures` profile is reachable before a campaign starts
+(`check_fixtures_reachable`) — closes the gap that let the invalid 14/33
+run above execute for 44 minutes on unreachable fixtures.
 
-## Phases 2 to 4 (of PLAN.md)
+## Phase 2 — Context discipline
 
-Not started (context discipline, security tiers by action nature,
-consolidation — see `PLAN.md`).
+Point 1 (image retention, `MAX_IMAGES_IN_CONTEXT`) was already delivered
+as part of the cognitive-core batch above — not revisited here.
+
+Point 2 (episode compaction) delivered, OFF by default
+(`EPISODE_COMPACTION_ENABLED=false`): completed subtasks' raw turns
+replaced by a structured summary in what's sent to the LLM only
+(checkpointer/audit log untouched) beyond
+`EPISODE_COMPACTION_TURN_THRESHOLD` (40) messages. Single-variable
+validation campaign run 2026-07-28 with the flag forced to `true`: **30/33,
+consistent with the 29/33 baseline (no regression)**, prefill total lower
+(715.7s vs 945.9s) and cache=0 rate lower (16.7% vs 20.9%) — see
+`docs/campaigns/2026-07-28_campaign_episode-compaction-enabled.md`.
+**N=1 per side**: directionally encouraging, not proof of a real token
+reduction given this project's documented run-to-run noise (16→24→20→24
+zigzag, docs/methodology.md) — more reps needed before considering
+flipping the default. Flag reverted to `false` after the experiment.
+
+Point 3 (tokens/task before/after) partially covered by the campaign
+above; a dedicated tokens/task metric (not just prefill seconds) is still
+to be added if this mechanism is pursued further.
+
+## Phases 3 to 4 (of PLAN.md)
+
+Not started (security tiers by action nature, consolidation — see
+`PLAN.md`).
 
 ## Deferred effort: Mjolnir folder (second model)
 
