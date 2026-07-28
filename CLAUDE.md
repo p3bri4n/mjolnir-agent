@@ -41,6 +41,13 @@
     - beware flattering zeros: an error counter at zero on a rarely
       triggered mechanism measures nothing — every reliability judge
       comes with a coverage judge.
+    - a conditional mechanism ships with its trigger-rate counter: any
+      mechanism gated on a threshold/condition (a flag, a turn count, a
+      budget) must expose how often it actually fired, from day one —
+      never bolted on after a campaign already came back unreadable (see
+      episode compaction, docs/campaigns/2026-07-28_campaign_episode-
+      compaction-enabled.md, requalified "non concluante" once this
+      counter was added retroactively and showed a 9-15% trigger rate).
     - the brief before the code: every effort's instructions are written
       in `docs/briefs/` and committed before the first line. A closed
       effort gets a status header (result, deviations from the brief) and

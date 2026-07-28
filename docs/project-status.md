@@ -68,26 +68,52 @@ replaced by a structured summary in what's sent to the LLM only
 (checkpointer/audit log untouched) beyond
 `EPISODE_COMPACTION_TURN_THRESHOLD` (40) messages.
 
-**Coverage judge added retroactively** (`episode_compaction_messages_max`/
-`episode_compaction_applied_count`, logged on EVERY `call_llm` call
-regardless of the flag — `app/graph.py`/`test_web_tasks.py`): applied to
-the 2026-07-28 validation campaign via an archives-only reconstruction
-(`messages ≈ 2×tool_calls_observed + 2`, proxy — the real counter didn't
-exist yet at run time), it showed only **3/33 runs (9%)** crossed the
-threshold, vs **5/33 (15%)** on the baseline. **Below the 30% coverage
-bar: the campaign result is REQUALIFIED "non concluant"**, not
-"encouraging" — the observed prefill/cache-rate delta (715.7s/16.7% vs
-945.9s/20.9%) is run-to-run noise, not evidence the mechanism reduced
-tokens (docs/campaigns/2026-07-28_campaign_episode-compaction-enabled.md,
-status note added). To redo with the real counter, on tasks designed to
-actually cross the threshold.
+**2026-07-28 campaign (30/33) — REQUALIFIED "non concluante"**: mechanism
+triggered in only **9-15% of runs** (`episode_compaction_messages_max`/
+`episode_compaction_applied_count`, coverage judge added retroactively —
+see below — applied via an archives-only proxy reconstruction, the real
+counter didn't exist at run time). Below any reasonable coverage bar, this
+campaign mostly measured the noise of runs the mechanism never touched,
+not its effect. The observed cache=0 IMPROVEMENT (16.7% vs 20.9% baseline)
+specifically cannot be attributed to compaction either way: replacing
+messages rewrites the prompt prefix, which should if anything DEGRADE the
+KV cache hit rate for that request, not improve it — the direction of the
+delta itself is inconsistent with compaction being the cause, reinforcing
+that it's noise. See `docs/campaigns/2026-07-28_campaign_episode-compaction-enabled.md`.
 
-Point 3 (tokens/task judge): prefill seconds conflate token volume with
-cache-hit rate and TabbyAPI throughput — not a clean tokens/task measure.
-`tabbyapi_raw_samples` already carries `cached_tokens`/`new_tokens` per
-LLM call (sum = real prompt token count for that call); a proper
-tokens/task aggregate from this field is still to be added to
-`_write_report` before the next repetitions campaign.
+**Coverage counters made permanent** (`episode_compaction_messages_max`/
+`episode_compaction_applied_count`, logged on EVERY `call_llm` call
+regardless of the flag — `app/graph.py`/`test_web_tasks.py`): any future
+campaign now reports its own trigger rate, no reconstruction needed. New
+rule added to `CLAUDE.md` (measurement rules): a conditional mechanism
+ships with its trigger-rate counter.
+
+**Real tokens/task judge added** (`prompt_tokens_total`,
+`campaign_persistence.aggregate_prefill_stats`): sum of
+`cached_tokens`+`new_tokens` per TabbyAPI call — prefill seconds alone
+conflate token volume with cache-hit rate and backend throughput, exactly
+what made the campaign above unreadable as a token-reduction signal.
+
+**Targeted test attempted, inconclusive for a deeper reason than expected**
+(`tests_integration/probe_episode_compaction.py`, never added to the
+frozen suite): building a local task guaranteeing >60 messages while
+`PLANNER_ENABLED`+`VERIFICATION_ENABLED` stay on (required for compaction
+to have any "fait"/"echoue" subtask to compact) ran into the plan/verify
+pipeline's OWN structural limits — `_PLAN_SUBTASKS_MAX=8` bounds subtask
+granularity, and `verify_action`'s page-snapshot-based judge can't confirm
+success criteria that aren't visible on the page (e.g. "extract and add to
+a list"), so it returns `non_atteint` even on genuine progress, exhausting
+`SUBTASK_ATTEMPT_BUDGET`×`REPLAN_BUDGET` after ~17 tool_calls,
+reproducibly (identical across 3 reps, not sampling noise). **Long
+single-task episodes appear structurally rare with the current
+architecture, not just under-sampled by the 11-task benchmark** — a
+useful diagnostic for benchmark v2's task design in its own right.
+
+**Phase 2 fully closed**, see `docs/briefs/archive/phase-2-discipline-contexte.md`
+(written retroactively — deviation from "brief before code", assumed and
+recorded) for the full reasoning. `EPISODE_COMPACTION_ENABLED` stays
+`false`; re-evaluation deferred to benchmark v2's long tasks, designed
+with page-observable success criteria to work with the current verifier.
 
 ## Phases 3 to 4 (of PLAN.md)
 
