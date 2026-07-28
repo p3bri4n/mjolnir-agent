@@ -157,6 +157,10 @@ async def test_plan_task_builds_plan_from_valid_llm_response(monkeypatch):
     assert all(st["attempts"] == 0 and st["result"] is None for st in plan)
     assert plan[0]["description"] == "Ouvrir le catalogue"
     assert plan[0]["success_criterion"] == "page affichée"
+    # Episode compaction (Phase 2, PLAN.md): boundary for subtask 0 set to
+    # the message count at plan-build time (see app/graph.py, AgentState.
+    # subtask_message_start).
+    assert result["subtask_message_start"] == [len(state["messages"])]
 
 
 @pytest.mark.asyncio

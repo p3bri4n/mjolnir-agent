@@ -443,6 +443,19 @@ AUTO_APPROVAL_STREAK_LIMIT = int(os.environ.get("AUTO_APPROVAL_STREAK_LIMIT", "6
 MAX_IMAGES_IN_CONTEXT = int(os.environ.get("MAX_IMAGES_IN_CONTEXT", "1"))
 IMAGE_RETENTION_PLACEHOLDER = "[screenshot antérieure supprimée]"
 
+# Episode compaction (Phase 2, PLAN.md): same transient-filter principle as
+# image retention above (only what's sent to the LLM, never the
+# checkpointer/audit log) — beyond EPISODE_COMPACTION_TURN_THRESHOLD
+# messages, a completed subtask's raw turns are replaced by one structured
+# summary (see _apply_episode_compaction). Ships OFF by default, like
+# PLANNER_ENABLED originally did (docs/briefs/flags-du-coeur-cognitif.md):
+# flip to "true" only after its own single-variable validation campaign
+# (CLAUDE.md, Measured behavior). EPISODE_COMPACTION_TURN_THRESHOLD's
+# default (40) is a starting point for that campaign, not a calibrated
+# value.
+EPISODE_COMPACTION_ENABLED = os.environ.get("EPISODE_COMPACTION_ENABLED", "false").lower() == "true"
+EPISODE_COMPACTION_TURN_THRESHOLD = int(os.environ.get("EPISODE_COMPACTION_TURN_THRESHOLD", "40"))
+
 # Planner node (Iteration 1, Phase 1 "cognitive core" — see
 # docs/briefs/phase-1-coeur-cognitif.md). DEFAULT FLIPPED (docs/briefs/
 # flags-du-coeur-cognitif.md): the "false" default dated back to
@@ -1165,6 +1178,15 @@ class AgentState(TypedDict):
     # verify_action, replan_task, report_failure below). No-op while
     # PLANNER_ENABLED is disabled (default): stays [] then.
     plan: list
+    # Episode compaction (Phase 2, PLAN.md): subtask_message_start[i] is
+    # len(messages) at the moment plan[i] became "en_cours" — lets
+    # _apply_episode_compaction find each completed subtask's raw message
+    # range without scanning message content. Set by plan_task/revise_plan
+    # (fresh list, index 0) and verify_action (appended on advance);
+    # replan_task keeps entries before the replanned index, resets the
+    # replanned one. Reset to [] on every new top-level user message (see
+    # run_input, app/main.py), same lifecycle as plan.
+    subtask_message_start: list
     # Number of replans already performed for THIS task (Iteration 2, see
     # replan_task/route_after_verification) — cumulative budget, like
     # tool_iterations, capped by REPLAN_BUDGET. Reset to 0 on every new
@@ -1408,7 +1430,7 @@ async def plan_task(state: AgentState) -> dict:
     if plan:
         plan[0]["status"] = "en_cours"
     logger.info("Initial plan (%d subtask(s)): %s", len(plan), plan)
-    return {"plan": plan}
+    return {"plan": plan, "subtask_message_start": [len(state["messages"])] if plan else []}
 
 
 def _plan_tier(plan: list) -> str:
@@ -1540,7 +1562,7 @@ async def revise_plan(state: AgentState) -> dict:
     if plan:
         plan[0]["status"] = "en_cours"
     logger.info("Revised plan (%d subtask(s), validation cycle): %s", len(plan), plan)
-    return {"plan": plan}
+    return {"plan": plan, "subtask_message_start": [len(state["messages"])] if plan else []}
 
 
 async def require_plan_approval(state: AgentState) -> dict:
@@ -1703,6 +1725,61 @@ def _apply_image_retention(messages: list) -> list:
     return filtered
 
 
+def _summarize_subtask(subtask: dict, turns: list) -> str:
+    """Structured summary replacing a completed subtask's raw turns (see
+    _apply_episode_compaction): description, key actions distilled from
+    the AI messages' tool_calls in that range (name + first argument
+    value, truncated), and the result verify_action recorded."""
+    actions = []
+    for m in turns:
+        for call in getattr(m, "tool_calls", None) or []:
+            args = call.get("args") or {}
+            hint = str(next(iter(args.values()), ""))[:40]
+            actions.append(f"{call.get('name', '?')}({hint})" if hint else call.get("name", "?"))
+    result = subtask.get("result") or "(résultat non consigné)"
+    return (
+        f"[Sous-tâche compactée] {subtask.get('description', '')} — "
+        f"actions : {', '.join(actions) or '(aucune)'} — résultat : {result}"
+    )
+
+
+def _apply_episode_compaction(messages: list, plan: list, subtask_message_start: list) -> list:
+    """
+    Beyond EPISODE_COMPACTION_TURN_THRESHOLD messages, replaces each
+    COMPLETED ("fait"/"echoue") subtask's raw message range with one
+    summary message (_summarize_subtask) — same transient-filter
+    principle as _apply_image_retention (new list, checkpointer never
+    touched). The active subtask's turns and anything not yet attributed
+    to a completed subtask are left untouched, so is the objective
+    (always before subtask_message_start[0]). No-op if disabled, under
+    threshold, or subtask_message_start doesn't cover the plan (index out
+    of range — a plan/boundary desync should degrade to "compact
+    nothing", never raise mid-task).
+    """
+    if not EPISODE_COMPACTION_ENABLED or len(messages) <= EPISODE_COMPACTION_TURN_THRESHOLD:
+        return messages
+
+    active_index = _active_subtask_index(plan)
+    limit = subtask_message_start[active_index] if active_index is not None and active_index < len(
+        subtask_message_start
+    ) else len(messages)
+
+    ranges = []
+    for i, start in enumerate(subtask_message_start):
+        if i >= len(plan) or plan[i].get("status") not in ("fait", "echoue"):
+            continue
+        end = min(subtask_message_start[i + 1] if i + 1 < len(subtask_message_start) else limit, limit)
+        if end > start:
+            ranges.append((start, end, _summarize_subtask(plan[i], messages[start:end])))
+    if not ranges:
+        return messages
+
+    compacted = list(messages)
+    for start, end, summary in sorted(ranges, key=lambda r: r[0], reverse=True):
+        compacted[start:end] = [HumanMessage(content=summary)]
+    return compacted
+
+
 def _previous_turn_tool_calls(messages: list) -> Optional[list]:
     """Last AI message with tool_calls in the history — the turn that led to this call_llm invocation."""
     for message in reversed(messages):
@@ -1788,6 +1865,11 @@ def _verification_directive(state: AgentState) -> str:
 
 async def call_llm(state: AgentState, config: dict) -> dict:
     bound_llm = await _get_bound_llm()
+    # Compacted BEFORE the system message is prepended: subtask_message_start
+    # indices are relative to state["messages"] (see _apply_episode_compaction).
+    compacted_messages = _apply_episode_compaction(
+        state["messages"], state.get("plan") or [], state.get("subtask_message_start") or []
+    )
     messages_for_llm = [
         SystemMessage(
             content=(
@@ -1795,7 +1877,7 @@ async def call_llm(state: AgentState, config: dict) -> dict:
                 f"{_date_directive()}{_verification_directive(state)}"
             )
         )
-    ] + state["messages"]
+    ] + compacted_messages
     messages_for_llm = _apply_image_retention(messages_for_llm)
     messages_for_llm = _apply_adaptive_thinking(messages_for_llm, state.get("session_grants") or [])
     # Carried over as-is from the previous call within this turn (see
@@ -2322,10 +2404,15 @@ async def verify_action(state: AgentState, config: dict) -> dict:
     if verdict == "atteint":
         new_plan[active_index]["status"] = "fait"
         new_plan[active_index]["result"] = "critère atteint (constat intégré au tour)"
+        result = {"plan": new_plan, "pending_verification": False}
         if active_index + 1 < len(new_plan):
             new_plan[active_index + 1]["status"] = "en_cours"
+            boundaries = list(state.get("subtask_message_start") or [])
+            if len(boundaries) == active_index + 1:
+                boundaries.append(len(state["messages"]))
+                result["subtask_message_start"] = boundaries
         logger.info("Subtask %d reached", active_index)
-        return {"plan": new_plan, "pending_verification": False}
+        return result
 
     # verdict == "non_atteint"
     attempts = new_plan[active_index]["attempts"] + 1
@@ -2396,16 +2483,20 @@ async def replan_task(state: AgentState) -> dict:
         new_plan = [dict(st) for st in plan]
         new_plan[failed_index]["status"] = "en_cours"
         new_plan[failed_index]["attempts"] = 0
-        return {"plan": new_plan, "replan_count": replan_count}
+        boundaries = (state.get("subtask_message_start") or [])[:failed_index]
+        boundaries.append(len(state["messages"]))
+        return {"plan": new_plan, "replan_count": replan_count, "subtask_message_start": boundaries}
 
     rebuilt = [dict(st) for st in plan[:failed_index]]
     for i, st in enumerate(new_subtasks):
         rebuilt.append({**st, "status": "en_cours" if i == 0 else "a_faire", "attempts": 0, "result": None})
+    boundaries = (state.get("subtask_message_start") or [])[:failed_index]
+    boundaries.append(len(state["messages"]))
     logger.info(
         "Replan #%d after subtask %d failure: %d new subtask(s)",
         replan_count, failed_index, len(new_subtasks),
     )
-    return {"plan": rebuilt, "replan_count": replan_count}
+    return {"plan": rebuilt, "replan_count": replan_count, "subtask_message_start": boundaries}
 
 
 async def report_failure(state: AgentState) -> dict:

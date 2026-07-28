@@ -37,19 +37,53 @@ T1/T7/T9 backlog investigated and closed (see docs/history.md,
 - Bulk mode for `browser_extract`: `urls` parameter checks several pages
   in one call, TIER_READ, replacing the `browser_evaluate`-based
   workaround — delivered.
-- Restructuring + English (`docs/briefs/restructuration-et-anglais.md`):
-  phase 0 (contracts) delivered, phase 1 (trimming) done on `graph.py`
-  only (rest of the services untouched), phase 2 (moves/renames)
-  delivered, phase 3 (README split) delivered, phase 4 (translation) in
-  progress (top-level docs first).
+- Restructuring + English (`docs/briefs/archive/restructuration-et-anglais.md`,
+  archived and closed — see its status header): all 6 phases delivered,
+  including Phase 5 (33-run closing campaign, run 2026-07-28): **29/33,
+  consistent with the pre-restructuring checkpoint (29-30/33), no
+  regression** — see
+  `docs/campaigns/2026-07-28_campaign_post-rename-mjolnir-v2.md`. A first
+  attempt the same day scored 14/33 and is marked invalid in its report:
+  the self-hosted fixtures (`fixture-catalog`/`fixture-docs`/`fixture-hr-app`,
+  profile `test-fixtures`) hadn't been started before launch — operational
+  mistake, not a behavioral regression.
+- Mjolnir rename: done (repo, local folder, README/docs, Docker
+  project/image/volume names). Ran ahead of Phase 5 (deviation from the
+  brief's declared order, at explicit user request) — since covered by a
+  green Phase 5 result above.
 
-**Not yet done from this batch** (prerequisite for the restructuring
-effort): full 33-run closing campaign.
+**Preflight gap fixed**: `campaign_preflight.py` now checks the
+`test-fixtures` profile is reachable before a campaign starts
+(`check_fixtures_reachable`) — closes the gap that let the invalid 14/33
+run above execute for 44 minutes on unreachable fixtures.
 
-## Phases 2 to 4 (of PLAN.md)
+## Phase 2 — Context discipline
 
-Not started (context discipline, security tiers by action nature,
-consolidation — see `PLAN.md`).
+Point 1 (image retention, `MAX_IMAGES_IN_CONTEXT`) was already delivered
+as part of the cognitive-core batch above — not revisited here.
+
+Point 2 (episode compaction) delivered, OFF by default
+(`EPISODE_COMPACTION_ENABLED=false`): completed subtasks' raw turns
+replaced by a structured summary in what's sent to the LLM only
+(checkpointer/audit log untouched) beyond
+`EPISODE_COMPACTION_TURN_THRESHOLD` (40) messages. Single-variable
+validation campaign run 2026-07-28 with the flag forced to `true`: **30/33,
+consistent with the 29/33 baseline (no regression)**, prefill total lower
+(715.7s vs 945.9s) and cache=0 rate lower (16.7% vs 20.9%) — see
+`docs/campaigns/2026-07-28_campaign_episode-compaction-enabled.md`.
+**N=1 per side**: directionally encouraging, not proof of a real token
+reduction given this project's documented run-to-run noise (16→24→20→24
+zigzag, docs/methodology.md) — more reps needed before considering
+flipping the default. Flag reverted to `false` after the experiment.
+
+Point 3 (tokens/task before/after) partially covered by the campaign
+above; a dedicated tokens/task metric (not just prefill seconds) is still
+to be added if this mechanism is pursued further.
+
+## Phases 3 to 4 (of PLAN.md)
+
+Not started (security tiers by action nature, consolidation — see
+`PLAN.md`).
 
 ## Deferred effort: Mjolnir folder (second model)
 

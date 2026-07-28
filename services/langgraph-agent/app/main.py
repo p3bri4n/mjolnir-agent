@@ -318,6 +318,7 @@ async def _resolve_run(request: ChatCompletionRequest):
         "current_page_links": [],
         "fabricated_navigation_attempts": 0,
         "plan": [],
+        "subtask_message_start": [],
         "replan_count": 0,
         "plan_validation_reasons": [],
         "plan_validation_cycles": 0,
