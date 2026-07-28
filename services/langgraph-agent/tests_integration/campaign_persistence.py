@@ -209,18 +209,30 @@ def aggregate_prefill_stats(samples: list) -> dict:
     """Même calcul que l'ancien _fetch_tabbyapi_prefill_stats
     (test_web_tasks.py, avant ce chantier) mais depuis les échantillons déjà
     collectés par collect_tabbyapi_raw_samples — évite un second `docker
-    logs` sur la même fenêtre temporelle pour le même résultat."""
+    logs` sur la même fenêtre temporelle pour le même résultat.
+
+    prompt_tokens_total (PLAN.md Phase 2, point 3 — trouvé manquant lors de
+    la requalification de la campagne 2026-07-28_campaign_episode-
+    compaction-enabled.md) : somme de cached_tokens+new_tokens, soit la
+    taille RÉELLE du contexte envoyé à TabbyAPI pour chaque appel — un
+    vrai juge tokens/tâche, distinct de prefill_seconds qui mélange volume
+    de tokens ET taux de cache ET débit du backend (deux runs au même
+    volume de tokens peuvent avoir des prefill_seconds très différents
+    selon le cache hit rate, l'inverse aussi)."""
     prefill_seconds = 0.0
     cache_zero = 0
+    prompt_tokens_total = 0
     for s in samples:
         if s["cached_tokens"] == 0:
             cache_zero += 1
         if s["process_speed_tps"] > 0:
             prefill_seconds += s["new_tokens"] / s["process_speed_tps"]
+        prompt_tokens_total += s["cached_tokens"] + s["new_tokens"]
     return {
         "prefill_seconds": round(prefill_seconds, 2),
         "cache_zero_requests": cache_zero,
         "tabbyapi_requests": len(samples),
+        "prompt_tokens_total": prompt_tokens_total,
     }
 
 

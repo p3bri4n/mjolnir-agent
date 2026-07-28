@@ -66,19 +66,54 @@ Point 2 (episode compaction) delivered, OFF by default
 (`EPISODE_COMPACTION_ENABLED=false`): completed subtasks' raw turns
 replaced by a structured summary in what's sent to the LLM only
 (checkpointer/audit log untouched) beyond
-`EPISODE_COMPACTION_TURN_THRESHOLD` (40) messages. Single-variable
-validation campaign run 2026-07-28 with the flag forced to `true`: **30/33,
-consistent with the 29/33 baseline (no regression)**, prefill total lower
-(715.7s vs 945.9s) and cache=0 rate lower (16.7% vs 20.9%) — see
-`docs/campaigns/2026-07-28_campaign_episode-compaction-enabled.md`.
-**N=1 per side**: directionally encouraging, not proof of a real token
-reduction given this project's documented run-to-run noise (16→24→20→24
-zigzag, docs/methodology.md) — more reps needed before considering
-flipping the default. Flag reverted to `false` after the experiment.
+`EPISODE_COMPACTION_TURN_THRESHOLD` (40) messages.
 
-Point 3 (tokens/task before/after) partially covered by the campaign
-above; a dedicated tokens/task metric (not just prefill seconds) is still
-to be added if this mechanism is pursued further.
+**2026-07-28 campaign (30/33) — REQUALIFIED "non concluante"**: mechanism
+triggered in only **9-15% of runs** (`episode_compaction_messages_max`/
+`episode_compaction_applied_count`, coverage judge added retroactively —
+see below — applied via an archives-only proxy reconstruction, the real
+counter didn't exist at run time). Below any reasonable coverage bar, this
+campaign mostly measured the noise of runs the mechanism never touched,
+not its effect. The observed cache=0 IMPROVEMENT (16.7% vs 20.9% baseline)
+specifically cannot be attributed to compaction either way: replacing
+messages rewrites the prompt prefix, which should if anything DEGRADE the
+KV cache hit rate for that request, not improve it — the direction of the
+delta itself is inconsistent with compaction being the cause, reinforcing
+that it's noise. See `docs/campaigns/2026-07-28_campaign_episode-compaction-enabled.md`.
+
+**Coverage counters made permanent** (`episode_compaction_messages_max`/
+`episode_compaction_applied_count`, logged on EVERY `call_llm` call
+regardless of the flag — `app/graph.py`/`test_web_tasks.py`): any future
+campaign now reports its own trigger rate, no reconstruction needed. New
+rule added to `CLAUDE.md` (measurement rules): a conditional mechanism
+ships with its trigger-rate counter.
+
+**Real tokens/task judge added** (`prompt_tokens_total`,
+`campaign_persistence.aggregate_prefill_stats`): sum of
+`cached_tokens`+`new_tokens` per TabbyAPI call — prefill seconds alone
+conflate token volume with cache-hit rate and backend throughput, exactly
+what made the campaign above unreadable as a token-reduction signal.
+
+**Targeted test attempted, inconclusive for a deeper reason than expected**
+(`tests_integration/probe_episode_compaction.py`, never added to the
+frozen suite): building a local task guaranteeing >60 messages while
+`PLANNER_ENABLED`+`VERIFICATION_ENABLED` stay on (required for compaction
+to have any "fait"/"echoue" subtask to compact) ran into the plan/verify
+pipeline's OWN structural limits — `_PLAN_SUBTASKS_MAX=8` bounds subtask
+granularity, and `verify_action`'s page-snapshot-based judge can't confirm
+success criteria that aren't visible on the page (e.g. "extract and add to
+a list"), so it returns `non_atteint` even on genuine progress, exhausting
+`SUBTASK_ATTEMPT_BUDGET`×`REPLAN_BUDGET` after ~17 tool_calls,
+reproducibly (identical across 3 reps, not sampling noise). **Long
+single-task episodes appear structurally rare with the current
+architecture, not just under-sampled by the 11-task benchmark** — a
+useful diagnostic for benchmark v2's task design in its own right.
+
+**Phase 2 fully closed**, see `docs/briefs/archive/phase-2-discipline-contexte.md`
+(written retroactively — deviation from "brief before code", assumed and
+recorded) for the full reasoning. `EPISODE_COMPACTION_ENABLED` stays
+`false`; re-evaluation deferred to benchmark v2's long tasks, designed
+with page-observable success criteria to work with the current verifier.
 
 ## Phases 3 to 4 (of PLAN.md)
 

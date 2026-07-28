@@ -237,7 +237,12 @@ async def test_call_llm_logs_assistant_message_every_turn(mock_side_services):
     await g.agent_graph.ainvoke(state, CONFIG)
 
     entries = audit_log.read_entries()
-    messages = [e for e in entries if e.get("kind") == "message"]
+    # kind="message" also carries role="episode_compaction" entries since
+    # PLAN.md Phase 2 (one per call_llm invocation, regardless of
+    # EPISODE_COMPACTION_ENABLED — see app/graph.py, coverage judge for
+    # the compaction mechanism) — filtered out here, this test is only
+    # about the "assistant" reasoning trace.
+    messages = [e for e in entries if e.get("kind") == "message" and e.get("role") == "assistant"]
     assert len(messages) == 2  # un par appel à call_llm dans ce tour (tool_call puis réponse finale)
     assert all(e["thread_id"] == "test-thread-audit" for e in messages)
     assert all(e["role"] == "assistant" for e in messages)

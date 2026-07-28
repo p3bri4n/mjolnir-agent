@@ -150,7 +150,12 @@ def test_aggregate_prefill_stats_sums_and_counts_cache_zero():
         {"cached_tokens": 50, "new_tokens": 50, "process_speed_tps": 50.0},
     ]
     stats = cp.aggregate_prefill_stats(samples)
-    assert stats == {"prefill_seconds": 2.0, "cache_zero_requests": 1, "tabbyapi_requests": 2}
+    assert stats == {
+        "prefill_seconds": 2.0,
+        "cache_zero_requests": 1,
+        "tabbyapi_requests": 2,
+        "prompt_tokens_total": 200,
+    }
 
 
 def test_aggregate_prefill_stats_empty_samples():
@@ -158,6 +163,7 @@ def test_aggregate_prefill_stats_empty_samples():
         "prefill_seconds": 0.0,
         "cache_zero_requests": 0,
         "tabbyapi_requests": 0,
+        "prompt_tokens_total": 0,
     }
 
 

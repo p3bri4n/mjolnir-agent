@@ -355,6 +355,12 @@ class TaskResult:
         self.prefill_seconds = 0.0
         self.cache_zero_requests = 0
         self.tabbyapi_requests = 0
+        # Real tokens/task judge (PLAN.md Phase 2, point 3 — see
+        # campaign_persistence.aggregate_prefill_stats docstring for why
+        # prefill_seconds alone conflates token volume with cache rate and
+        # backend throughput): sum of cached_tokens+new_tokens across this
+        # run's TabbyAPI calls, i.e. the real prompt size sent per call.
+        self.prompt_tokens_total = 0
         # Campaign persistence (see campaign_persistence.py): thread_id
         # computed here with the same algorithm as _derive_thread_id
         # (app/main.py), join key with /workspace/.audit;
@@ -362,6 +368,17 @@ class TaskResult:
         # aggregate above).
         self.thread_id = ""
         self.tabbyapi_raw_samples = []
+        # Episode compaction coverage judge (PLAN.md Phase 2, point 2; see
+        # app/graph.py, call_llm's role="episode_compaction" audit entry,
+        # logged on EVERY call_llm regardless of EPISODE_COMPACTION_ENABLED):
+        # episode_compaction_messages_max is this run's peak message count
+        # (whether or not it ever crossed EPISODE_COMPACTION_TURN_THRESHOLD),
+        # episode_compaction_applied_count is how many call_llm invocations
+        # actually got compacted. A campaign where few runs approach the
+        # threshold isn't a real measurement of the mechanism — see
+        # docs/campaigns/2026-07-28_campaign_episode-compaction-enabled.md.
+        self.episode_compaction_messages_max = 0
+        self.episode_compaction_applied_count = 0
 
 
 TABBYAPI_CONTAINER = os.environ.get("TABBYAPI_CONTAINER", "tabbyapi")
@@ -410,10 +427,18 @@ def run_task(prompt: str) -> TaskResult:
     # app/audit_log.py) — not to be mixed up.
     tool_call_entries = [e for e in entries if e.get("kind") is None]
     verification_entries = [e for e in entries if e.get("kind") == "message" and e.get("role") == "verification"]
+    compaction_entries = [e for e in entries if e.get("kind") == "message" and e.get("role") == "episode_compaction"]
     result.tool_calls_observed = result.approvals + len(tool_call_entries)
     result.verification_opportunities = len(verification_entries)
     result.verification_exploitable = sum(
         1 for e in verification_entries if (e.get("content") or {}).get("exploitable")
+    )
+    if compaction_entries:
+        result.episode_compaction_messages_max = max(
+            (e.get("content") or {}).get("messages_count", 0) for e in compaction_entries
+        )
+    result.episode_compaction_applied_count = sum(
+        1 for e in compaction_entries if (e.get("content") or {}).get("compacted")
     )
     for e in tool_call_entries:
         if e.get("tool") == "browser_navigate":
@@ -429,6 +454,7 @@ def run_task(prompt: str) -> TaskResult:
     result.prefill_seconds = prefill_stats["prefill_seconds"]
     result.cache_zero_requests = prefill_stats["cache_zero_requests"]
     result.tabbyapi_requests = prefill_stats["tabbyapi_requests"]
+    result.prompt_tokens_total = prefill_stats["prompt_tokens_total"]
     return result
 
 
@@ -834,11 +860,14 @@ def _run_campaign():
                     "prefill_seconds": result.prefill_seconds,
                     "cache_zero_requests": result.cache_zero_requests,
                     "tabbyapi_requests": result.tabbyapi_requests,
+                    "prompt_tokens_total": result.prompt_tokens_total,
                     "tabbyapi_raw_samples": result.tabbyapi_raw_samples,
                     "fabricated_urls": fabricated_urls,
                     "duration_seconds": round(result.duration_seconds, 1),
                     "failure_cause": cause,
                     "final_text": result.final_text,
+                    "episode_compaction_messages_max": result.episode_compaction_messages_max,
+                    "episode_compaction_applied_count": result.episode_compaction_applied_count,
                 }
             )
     _update_duration_stats(rows)
@@ -899,6 +928,20 @@ def _write_report(rows: list) -> None:
     for r in rows:
         by_task.setdefault(r["task_id"], []).append(r)
 
+    # Episode compaction coverage judge (PLAN.md Phase 2, point 2): read
+    # the REAL effective threshold from the running container (never
+    # guessed/duplicated, CLAUDE.md #8) — best-effort, a docker failure
+    # here must never break report generation.
+    try:
+        compaction_threshold = int(
+            campaign_persistence.collect_env_flags(
+                campaign_preflight.AGENT_CONTAINER, ["EPISODE_COMPACTION_TURN_THRESHOLD"]
+            ).get("EPISODE_COMPACTION_TURN_THRESHOLD")
+            or 0
+        )
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        compaction_threshold = None
+
     lines = [
         f"# {CAMPAIGN_LABEL} — suite de tâches web (Phase 0)",
         "",
@@ -908,8 +951,8 @@ def _write_report(rows: list) -> None:
         "de test_web_tasks.py pour la méthode de sous-classification "
         "boucle_fabrication/boucle_budget.",
         "",
-        "| Tâche | Succès | Approbations (moy.) | Tool calls observés (moy.) | Couverture constats | Prefill total (s) | Cache=0 | Durée (moy., s) | Causes d'échec |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "| Tâche | Succès | Approbations (moy.) | Tool calls observés (moy.) | Couverture constats | Prefill total (s) | Cache=0 | Tokens prompt (total) | Durée (moy., s) | Messages max | Compactions | Causes d'échec |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     total_ok = 0
     total_n = 0
@@ -918,6 +961,9 @@ def _write_report(rows: list) -> None:
     total_prefill_seconds = 0.0
     total_cache_zero = 0
     total_tabbyapi_requests = 0
+    total_prompt_tokens = 0
+    total_threshold_crossed = 0
+    total_compactions_applied = 0
     for task_id, task_rows in by_task.items():
         n_ok = sum(1 for r in task_rows if r["success"])
         n = len(task_rows)
@@ -933,9 +979,11 @@ def _write_report(rows: list) -> None:
         task_prefill = sum(r["prefill_seconds"] for r in task_rows)
         task_cache_zero = sum(r["cache_zero_requests"] for r in task_rows)
         task_tabbyapi_requests = sum(r["tabbyapi_requests"] for r in task_rows)
+        task_prompt_tokens = sum(r["prompt_tokens_total"] for r in task_rows)
         total_prefill_seconds += task_prefill
         total_cache_zero += task_cache_zero
         total_tabbyapi_requests += task_tabbyapi_requests
+        total_prompt_tokens += task_prompt_tokens
         coverage_str = (
             f"{100 * task_exploitable / task_opportunities:.0f}% ({task_exploitable}/{task_opportunities})"
             if task_opportunities
@@ -948,9 +996,18 @@ def _write_report(rows: list) -> None:
         )
         causes = Counter(r["failure_cause"] for r in task_rows if r["failure_cause"])
         causes_str = ", ".join(f"{c}×{n}" for c, n in causes.items()) or "—"
+        task_messages_max = max((r["episode_compaction_messages_max"] for r in task_rows), default=0)
+        task_threshold_crossed = sum(
+            1 for r in task_rows
+            if compaction_threshold and r["episode_compaction_messages_max"] > compaction_threshold
+        )
+        task_compactions_applied = sum(r["episode_compaction_applied_count"] for r in task_rows)
+        total_threshold_crossed += task_threshold_crossed
+        total_compactions_applied += task_compactions_applied
         lines.append(
             f"| {task_id} | {n_ok}/{n} | {avg_approvals:.1f} | {avg_tool_calls:.1f} | "
-            f"{coverage_str} | {task_prefill:.1f} | {cache_zero_str} | {avg_duration:.1f} | {causes_str} |"
+            f"{coverage_str} | {task_prefill:.1f} | {cache_zero_str} | {task_prompt_tokens} | {avg_duration:.1f} | "
+            f"{task_messages_max} | {task_compactions_applied} | {causes_str} |"
         )
 
     lines.insert(3, f"**Score de campagne : {total_ok}/{total_n} passages réussis.**")
@@ -977,6 +1034,31 @@ def _write_report(rows: list) -> None:
         else "**Couverture des constats : aucune opportunité observée (VERIFICATION_ENABLED désactivé ?).**"
     )
     lines.insert(4, coverage_line)
+    # Real tokens/task judge (PLAN.md Phase 2, point 3 — see
+    # campaign_persistence.aggregate_prefill_stats docstring): sum of
+    # cached_tokens+new_tokens across ALL TabbyAPI calls in the campaign,
+    # i.e. the real prompt volume sent — distinct from prefill_seconds
+    # above, which conflates that volume with cache-hit rate and backend
+    # throughput (found missing while requalifying the 2026-07-28 episode-
+    # compaction campaign as "non concluant").
+    if total_tabbyapi_requests:
+        lines.insert(6, f"**Tokens de prompt (total, toutes tâches) : {total_prompt_tokens}.**")
+    # Coverage judge for episode compaction (PLAN.md Phase 2, point 2, see
+    # app/graph.py call_llm's role="episode_compaction" audit entry): a
+    # campaign result only measures the mechanism if a meaningful share of
+    # runs actually crossed EPISODE_COMPACTION_TURN_THRESHOLD — below that,
+    # any score/token delta is noise, not evidence (see docs/campaigns/
+    # 2026-07-28_campaign_episode-compaction-enabled.md, requalified
+    # "non concluant" after this judge was added retroactively from
+    # archives).
+    if compaction_threshold is not None:
+        crossed_pct = 100 * total_threshold_crossed / total_n if total_n else 0
+        lines.insert(
+            7 if total_tabbyapi_requests else 6,
+            f"**Couverture compaction d'épisode : {total_threshold_crossed}/{total_n} runs "
+            f"au-delà du seuil ({compaction_threshold} messages, {crossed_pct:.0f}%), "
+            f"{total_compactions_applied} compaction(s) effectivement appliquée(s).**",
+        )
     lines.append("")
     lines.append("## Détail par run")
     lines.append("")
@@ -990,13 +1072,23 @@ def _write_report(rows: list) -> None:
             if r["verification_opportunities"]
             else ""
         )
-        prefill_note = f", prefill={r['prefill_seconds']:.1f}s" if r["tabbyapi_requests"] else ""
+        prefill_note = (
+            f", prefill={r['prefill_seconds']:.1f}s, tokens_prompt={r['prompt_tokens_total']}"
+            if r["tabbyapi_requests"]
+            else ""
+        )
+        compaction_note = (
+            f", messages_max={r['episode_compaction_messages_max']}"
+            f"{', compactions=' + str(r['episode_compaction_applied_count']) if r['episode_compaction_applied_count'] else ''}"
+            if r["episode_compaction_messages_max"]
+            else ""
+        )
         lines.append(
             f"- {status} `{r['task_id']}` #{r['repetition']} — {r['detail']} "
             f"(approbations={r['approvals']}, tool_calls_observés={r['tool_calls_observed']}, "
             f"durée={r['duration_seconds']}s"
             f"{', cause=' + r['failure_cause'] if r['failure_cause'] else ''}{fabricated_note}"
-            f"{coverage_note}{prefill_note})"
+            f"{coverage_note}{prefill_note}{compaction_note})"
         )
 
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
