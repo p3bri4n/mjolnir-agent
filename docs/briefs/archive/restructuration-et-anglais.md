@@ -1,5 +1,16 @@
 # Chantier « Restructuration + passage à l'anglais » — brief d'exécution
 
+**Statut : partiellement clos.** Phases 0 à 4 livrées et vérifiées
+(contrats, allègement de `graph.py`, déplacements/renommages, découpage du
+README, traduction — le français restant dans le code/docs est
+intentionnel : prompts système/directives, descriptions d'outils envoyées
+au modèle, messages d'approbation utilisateur, prompts de tâches du
+benchmark, tous explicitement hors périmètre de cette phase). **Phase 5
+(campagne de clôture 33 runs, preuve de neutralité) non exécutée.** Le
+baptême Mjolnir (section « Après », normalement gaté sur un Phase 5 vert)
+a été effectué hors séquence, à la demande explicite de l'utilisateur dans
+une session ultérieure — écart assumé, consigné ici plutôt que masqué.
+
 > **Prérequis** : le lot en cours (persistance des campagnes, flags du cœur
 > cognitif, angle mort d'audit, mode bulk de `browser_extract`) est livré et le
 > checkpoint complet 33 runs est passé. Exception : les phases 1 et 3

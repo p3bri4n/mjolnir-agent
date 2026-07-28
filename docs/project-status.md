@@ -37,14 +37,18 @@ T1/T7/T9 backlog investigated and closed (see docs/history.md,
 - Bulk mode for `browser_extract`: `urls` parameter checks several pages
   in one call, TIER_READ, replacing the `browser_evaluate`-based
   workaround — delivered.
-- Restructuring + English (`docs/briefs/restructuration-et-anglais.md`):
-  phase 0 (contracts) delivered, phase 1 (trimming) done on `graph.py`
-  only (rest of the services untouched), phase 2 (moves/renames)
-  delivered, phase 3 (README split) delivered, phase 4 (translation) in
-  progress (top-level docs first).
+- Restructuring + English (`docs/briefs/archive/restructuration-et-anglais.md`,
+  archived — see its status header): phases 0-4 delivered (contracts,
+  `graph.py` trimming, moves/renames, README split, translation — French
+  remaining in code/docs is intentional: model-facing strings, user-facing
+  notices, frozen benchmark prompts). **Phase 5 (33-run closing campaign,
+  proof of neutrality) not run.**
+- Mjolnir rename: done (repo, local folder, README/docs, Docker
+  project/image/volume names), ahead of Phase 5 as noted above — see the
+  brief's status header for the full deviation note.
 
-**Not yet done from this batch** (prerequisite for the restructuring
-effort): full 33-run closing campaign.
+**Not yet done from this batch** (prerequisite for considering the
+restructuring effort fully closed): the Phase 5 33-run closing campaign.
 
 ## Phases 2 to 4 (of PLAN.md)
 
