@@ -310,6 +310,47 @@ async def test_verify_action_atteint_advances_plan(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_verify_action_atteint_appends_episode_compaction_boundary(monkeypatch):
+    """Episode compaction (Phase 2, PLAN.md): advancing to the next subtask
+    records the current message count as its start boundary — see
+    app/graph.py, AgentState.subtask_message_start."""
+    import app.graph as g
+
+    monkeypatch.setattr(g, "VERIFICATION_ENABLED", True)
+    plan = [_subtask(status="en_cours"), _subtask(description="Lire le prix", status="a_faire")]
+    messages = _with_constat(_turn_messages(), "atteint")
+    state = {
+        "messages": messages,
+        "plan": plan,
+        "pending_verification": True,
+        "subtask_message_start": [0],
+    }
+    result = await g.verify_action(state, _FakeConfig())
+
+    assert result["subtask_message_start"] == [0, len(messages)]
+
+
+@pytest.mark.asyncio
+async def test_verify_action_atteint_skips_boundary_append_on_desync(monkeypatch):
+    """Defensive degradation (see _apply_episode_compaction docstring): a
+    subtask_message_start already out of sync with the plan must never
+    raise — just skip the append."""
+    import app.graph as g
+
+    monkeypatch.setattr(g, "VERIFICATION_ENABLED", True)
+    plan = [_subtask(status="en_cours"), _subtask(description="Lire le prix", status="a_faire")]
+    state = {
+        "messages": _with_constat(_turn_messages(), "atteint"),
+        "plan": plan,
+        "pending_verification": True,
+        "subtask_message_start": [],
+    }
+    result = await g.verify_action(state, _FakeConfig())
+
+    assert "subtask_message_start" not in result
+
+
+@pytest.mark.asyncio
 async def test_verify_action_non_atteint_under_budget_stays_en_cours(monkeypatch):
     import app.graph as g
 

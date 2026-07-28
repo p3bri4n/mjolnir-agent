@@ -126,6 +126,11 @@ async def test_replan_task_rebuilds_plan_preserving_done_subtasks(monkeypatch):
     assert new_plan[1]["description"] == "Nouvelle approche"
     assert new_plan[1]["status"] == "en_cours"
     assert new_plan[1]["attempts"] == 0
+    # Episode compaction (Phase 2, PLAN.md): the replanned subtask (index 1,
+    # replacing the "echoue" one) gets a fresh boundary; the preserved
+    # "fait" subtask (index 0) keeps none here (state had no prior
+    # boundaries — see app/graph.py, AgentState.subtask_message_start).
+    assert result["subtask_message_start"] == [len(state["messages"])]
 
 
 @pytest.mark.asyncio
@@ -146,6 +151,7 @@ async def test_replan_task_falls_back_to_retry_on_llm_error(monkeypatch):
     assert result["replan_count"] == 1
     assert new_plan[0]["status"] == "en_cours"
     assert new_plan[0]["attempts"] == 0
+    assert result["subtask_message_start"] == [len(state["messages"])]
 
 
 @pytest.mark.asyncio
