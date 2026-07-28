@@ -1,5 +1,7 @@
 # agentic-ai-playground
 
+![CI](https://github.com/p3bri4n/agentic-ai-playground/actions/workflows/ci.yml/badge.svg)
+
 ![Logo](docs/assets/logo.png)
 
 Docker Compose stack for a local AI agent: Open WebUI → LangGraph Agent →
