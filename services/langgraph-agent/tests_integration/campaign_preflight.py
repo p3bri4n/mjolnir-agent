@@ -59,6 +59,18 @@ EXPECTED_TOOLS = policy.TIER_READ_TOOLS | policy.TIER_REVERSIBLE_TOOLS | policy.
     "browser_navigate"
 }
 
+# Self-hosted fixtures (docker-compose.yml, profile "test-fixtures") targeted
+# by T1-T7 (docs/benchmark-v1.md): found missing 2026-07-28 (docs/campaigns/
+# 2026-07-28_campaign_post-rename-mjolnir.md, invalid 14/33 run) — nothing
+# checked the profile was up before launch, so a campaign ran 44 minutes
+# against unreachable fixtures before anyone noticed. URLs as reachable from
+# AGENT_CONTAINER (same agent-net network).
+FIXTURE_URLS = {
+    "fixture-catalog": "http://fixture-catalog/",
+    "fixture-docs": "http://fixture-docs/",
+    "fixture-hr-app": "http://fixture-hr-app:5000/",
+}
+
 # Effective flags control (docs/briefs/flags-du-coeur-cognitif.md, point
 # 2): expected values INSIDE THE RUNNING CONTAINER — the 4 cognitive-core
 # flags (default "true" now, see app/graph.py and docker-compose.yml) +
@@ -152,6 +164,23 @@ def check_agent_flags(actual_flags: dict) -> Optional[str]:
     return None
 
 
+def check_fixtures_reachable(reachability: dict) -> Optional[str]:
+    """
+    Pure, unit-testable without docker (same style as check_tools_schema):
+    None if `reachability` (see _fetch_fixtures_reachable below) marks every
+    FIXTURE_URLS entry as reachable, otherwise a message listing which
+    aren't, with the profile start command.
+    """
+    unreachable = sorted(name for name in FIXTURE_URLS if not reachability.get(name, False))
+    if unreachable:
+        return (
+            f"fixtures self-hosted injoignables depuis {AGENT_CONTAINER} : {unreachable} — "
+            "commande à taper : docker compose --profile test-fixtures up -d "
+            "fixture-catalog fixture-docs fixture-hr-app"
+        )
+    return None
+
+
 def _docker_exec_python(container: str, script: str, timeout: int = 30) -> str:
     result = subprocess.run(
         ["docker", "exec", "-i", container, "python3", "-c", script],
@@ -214,6 +243,26 @@ except Exception as e:
 """
     out = _docker_exec_python(AGENT_CONTAINER, script, timeout=15)
     return out.strip() == "200"
+
+
+def _fetch_fixtures_reachable() -> dict:
+    """Real HTTP GET (docker exec + urllib, same primitive as
+    _fetch_llm_ready) against each of FIXTURE_URLS from inside
+    AGENT_CONTAINER — {name: True/False}, never raises on an individual
+    unreachable fixture (that's exactly the condition being checked)."""
+    script = f"""
+import json, urllib.request
+urls = {FIXTURE_URLS!r}
+result = {{}}
+for name, url in urls.items():
+    try:
+        with urllib.request.urlopen(url, timeout=5) as r:
+            result[name] = r.status == 200
+    except Exception:
+        result[name] = False
+print(json.dumps(result))
+"""
+    return json.loads(_docker_exec_python(AGENT_CONTAINER, script))
 
 
 def _run_docker(args: list, timeout: int = 15) -> str:
@@ -297,6 +346,7 @@ def run_preflight(
     fetch_llm_ready: Callable[[], bool] = _fetch_llm_ready,
     fetch_tabbyapi_image_ids: Callable[[], tuple] = _fetch_tabbyapi_image_ids,
     fetch_agent_env: Callable[[], dict] = _fetch_agent_env,
+    fetch_fixtures_reachable: Callable[[], dict] = _fetch_fixtures_reachable,
 ) -> None:
     """
     Called ONCE per campaign (not per repetition, unlike
@@ -313,7 +363,10 @@ def run_preflight(
     tabbyapi image freshness (post-1/2-ter arbitration, see
     docs/history.md), then effective env flags (docs/briefs/
     flags-du-coeur-cognitif.md — no point measuring a campaign against a
-    config we don't actually have), then tool schema, then purge/reset.
+    config we don't actually have), then tool schema, then fixture
+    reachability (docs/campaigns/2026-07-28_campaign_post-rename-mjolnir.md
+    — a campaign against unreachable T1-T7 fixtures wastes a full run
+    before failing on assertions, not before starting), then purge/reset.
     """
     wait_for_llm_ready(fetch_llm_ready)
     error = check_tabbyapi_image_fresh(fetch_tabbyapi_image_ids)
@@ -323,6 +376,9 @@ def run_preflight(
     if error:
         raise PreflightError(error)
     error = check_tools_schema(fetch_agent_tools(), fetch_mcp_tools())
+    if error:
+        raise PreflightError(error)
+    error = check_fixtures_reachable(fetch_fixtures_reachable())
     if error:
         raise PreflightError(error)
     purge_downloads()

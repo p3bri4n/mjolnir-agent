@@ -62,6 +62,7 @@ def test_run_preflight_purges_and_resets_when_schema_ok():
         fetch_llm_ready=lambda: True,
         fetch_tabbyapi_image_ids=lambda: ("sha256:same", "sha256:same"),
         fetch_agent_env=lambda: dict(preflight.EXPECTED_AGENT_FLAGS),
+        fetch_fixtures_reachable=lambda: {name: True for name in preflight.FIXTURE_URLS},
     )
     assert calls == ["purge", "reset"]
 
@@ -194,3 +195,46 @@ def test_wait_for_llm_ready_raises_after_timeout():
         preflight.wait_for_llm_ready(
             lambda: False, timeout_seconds=100, interval_seconds=5, sleep=lambda s: None, now=lambda: next(clock)
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# check_fixtures_reachable (docs/campaigns/2026-07-28_campaign_post-rename-
+# mjolnir.md — invalid 14/33 run, test-fixtures profile never started)
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_check_fixtures_reachable_ok_when_all_reachable():
+    reachability = {name: True for name in preflight.FIXTURE_URLS}
+    assert preflight.check_fixtures_reachable(reachability) is None
+
+
+def test_check_fixtures_reachable_flags_unreachable_fixture():
+    reachability = {name: True for name in preflight.FIXTURE_URLS}
+    reachability["fixture-catalog"] = False
+    error = preflight.check_fixtures_reachable(reachability)
+    assert error is not None
+    assert "fixture-catalog" in error
+    assert "docker compose --profile test-fixtures up -d" in error
+
+
+def test_check_fixtures_reachable_treats_missing_key_as_unreachable():
+    error = preflight.check_fixtures_reachable({})
+    assert error is not None
+    assert all(name in error for name in preflight.FIXTURE_URLS)
+
+
+def test_run_preflight_checks_fixtures_after_schema_before_purge():
+    calls = []
+
+    with pytest.raises(preflight.PreflightError, match="injoignables"):
+        preflight.run_preflight(
+            purge_downloads=lambda: calls.append("purge"),
+            reset_browser_session=lambda: calls.append("reset"),
+            fetch_agent_tools=lambda: preflight.EXPECTED_TOOLS,
+            fetch_mcp_tools=lambda: preflight.EXPECTED_TOOLS,
+            fetch_llm_ready=lambda: True,
+            fetch_tabbyapi_image_ids=lambda: ("sha256:same", "sha256:same"),
+            fetch_agent_env=lambda: dict(preflight.EXPECTED_AGENT_FLAGS),
+            fetch_fixtures_reachable=lambda: {},
+        )
+    assert calls == [], "purge/reset ne doivent jamais tourner si les fixtures sont injoignables"
