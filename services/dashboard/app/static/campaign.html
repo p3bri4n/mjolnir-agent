@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Progression de campagne — agentic-ai-playground</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1:      #fcfcfb;
+    --page-plane:     #f9f9f7;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --gridline:       #e1e0d9;
+    --border:         rgba(11,11,11,0.10);
+    --good:           #0ca30c;
+    --warning:        #fab219;
+    --critical:       #d03b3b;
+    --seq-450: #2a78d6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --surface-1:      #1a1a19;
+      --page-plane:     #0d0d0d;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --gridline:       #2c2c2a;
+      --border:         rgba(255,255,255,0.10);
+      --good:           #0ca30c;
+      --warning:        #fab219;
+      --critical:       #e66767;
+      --seq-450: #2a78d6;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--page-plane);
+    color: var(--text-primary);
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
+    gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  header a { color: var(--text-secondary); font-size: 12px; text-decoration: none; }
+  header a:hover { text-decoration: underline; }
+
+  select#campaign-select {
+    font: inherit; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--surface-1); color: var(--text-primary); max-width: 360px;
+  }
+
+  main { padding: 16px 20px 40px; max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .card h2 {
+    font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;
+    color: var(--text-secondary); margin: 0 0 12px;
+  }
+
+  .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+  .stat-tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .stat-tile .label { font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
+  .stat-tile .value { font-size: 24px; font-weight: 600; line-height: 1.1; }
+  .stat-tile .value .unit { font-size: 13px; font-weight: 500; color: var(--text-muted); margin-left: 4px; }
+  .stat-tile .note { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--gridline); }
+  th { color: var(--text-secondary); font-weight: 600; font-size: 11px; text-transform: uppercase; }
+  .status-badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+  .status-badge.success { background: color-mix(in srgb, var(--good) 18%, transparent); color: var(--good); }
+  .status-badge.failure { background: color-mix(in srgb, var(--critical) 18%, transparent); color: var(--critical); }
+  .status-badge.running { background: color-mix(in srgb, var(--warning) 22%, transparent); color: var(--warning); }
+  .runs-table-wrap { max-height: 360px; overflow-y: auto; }
+
+  .current-task-row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .current-task-row .task-id { font-size: 16px; font-weight: 600; }
+  .current-task-row .over-budget { color: var(--critical); font-weight: 600; }
+
+  .audit-list { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-family: ui-monospace, monospace; max-height: 260px; overflow-y: auto; }
+  .audit-entry { padding: 4px 6px; border-radius: 4px; background: var(--page-plane); border: 1px solid var(--border); }
+  .audit-entry .ts { color: var(--text-muted); margin-right: 6px; }
+
+  .empty-note { color: var(--text-muted); font-size: 13px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Progression de campagne</h1>
+  <div style="display:flex; align-items:center; gap:14px;">
+    <select id="campaign-select"></select>
+    <a href="/">← Cockpit d'observabilité</a>
+  </div>
+</header>
+
+<main>
+
+  <section class="stat-row" id="header-stats" aria-label="Résumé de campagne"></section>
+
+  <section class="card" id="current-card">
+    <h2>Run en cours</h2>
+    <div id="current-content" class="empty-note">Aucune campagne sélectionnée.</div>
+  </section>
+
+  <section class="card">
+    <h2>Compteurs cumulés</h2>
+    <div class="stat-row" id="counters-row"></div>
+  </section>
+
+  <section class="card">
+    <h2>Runs</h2>
+    <div class="runs-table-wrap">
+      <table>
+        <thead>
+          <tr><th>Statut</th><th>Tâche</th><th>#</th><th>Durée</th><th>Cause</th></tr>
+        </thead>
+        <tbody id="runs-tbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Derniers événements d'audit (thread en cours)</h2>
+    <div class="audit-list" id="audit-list"><div class="empty-note">—</div></div>
+  </section>
+
+</main>
+
+<script>
+(() => {
+  const POLL_MS = 2500;
+  const CAMPAIGN_LIST_POLL_MS = 10000;
+
+  const el = (id) => document.getElementById(id);
+  let selectedCampaignId = null;
+  let userPickedCampaign = false;
+
+  function fmtSeconds(s) {
+    if (s === null || s === undefined) return "—";
+    if (s < 90) return `${s.toFixed(0)}s`;
+    return `${(s / 60).toFixed(1)}min`;
+  }
+
+  function fmtElapsed(startedAtIso) {
+    if (!startedAtIso) return "—";
+    const ms = Date.now() - new Date(startedAtIso).getTime();
+    return fmtSeconds(ms / 1000);
+  }
+
+  async function fetchCampaignList() {
+    const resp = await fetch("/api/campaigns", { cache: "no-store" });
+    const data = await resp.json();
+    return data.campaigns || [];
+  }
+
+  function renderCampaignSelect(campaigns) {
+    const select = el("campaign-select");
+    if (!campaigns.length) {
+      select.innerHTML = `<option value="">Aucune campagne trouvée</option>`;
+      select.disabled = true;
+      return;
+    }
+    select.disabled = false;
+    const current = select.value;
+    select.innerHTML = campaigns
+      .map((c) => `<option value="${c.campaign_id}">${c.label} — ${c.runs_completed}/${c.total_runs}${c.paused ? " (en pause)" : ""}</option>`)
+      .join("");
+    if (!userPickedCampaign) {
+      select.value = campaigns[0].campaign_id;
+      selectedCampaignId = campaigns[0].campaign_id;
+    } else if (campaigns.some((c) => c.campaign_id === current)) {
+      select.value = current;
+    }
+  }
+
+  function renderHeaderStats(state, eta) {
+    const done = (state.completed || []).length;
+    const total = state.total_runs || 0;
+    const etaLabel = eta.reliable
+      ? `${fmtSeconds(eta.min_seconds)} – ${fmtSeconds(eta.max_seconds)}`
+      : `estimation non fiable (${eta.unreliable_task_count} tâche(s) sans historique)`;
+
+    const tiles = [
+      { label: "Campagne", value: state.label || "—", unit: "" },
+      { label: "Écoulé", value: fmtElapsed(state.started_at), unit: "" },
+      { label: "Runs", value: `${done}`, unit: `/ ${total}` },
+      { label: "ETA restant", value: etaLabel, unit: "", small: !eta.reliable },
+    ];
+    el("header-stats").innerHTML = tiles.map((t) => `
+      <div class="stat-tile">
+        <div class="label">${t.label}</div>
+        <div class="value" style="${t.small ? "font-size:15px;" : ""}">${t.value}<span class="unit">${t.unit}</span></div>
+      </div>
+    `).join("");
+  }
+
+  function renderCurrent(state, estimates) {
+    const c = state.current;
+    if (!c) {
+      el("current-content").innerHTML = `<div class="empty-note">Entre deux runs (ou campagne terminée).</div>`;
+      return;
+    }
+    const elapsedS = (Date.now() - new Date(c.started_at).getTime()) / 1000;
+    const expected = estimates && estimates[c.task_id];
+    const expectedMedian = expected ? (typeof expected === "object" ? expected.median : expected) : null;
+    const over = expectedMedian != null && elapsedS > expectedMedian * 2;
+    el("current-content").innerHTML = `
+      <div class="current-task-row">
+        <span class="task-id">${c.task_id}</span>
+        <span>répétition ${c.repetition}</span>
+        <span class="${over ? "over-budget" : ""}">écoulé ${fmtSeconds(elapsedS)}${expectedMedian != null ? ` / attendu ~${fmtSeconds(expectedMedian)}` : ""}</span>
+      </div>
+    `;
+  }
+
+  function renderCounters(counters) {
+    const tiles = [
+      { label: "CuP jusqu'ici", value: counters.cup_so_far != null ? `${(counters.cup_so_far * 100).toFixed(0)}%` : "—" },
+      { label: "Fabrications", value: `${counters.fabrications_total}` },
+      { label: "Approbations", value: `${counters.approvals_total}` },
+      { label: "Score par famille", value: "—", note: "v1 n'a pas de familles de tâches (voir B3)" },
+    ];
+    el("counters-row").innerHTML = tiles.map((t) => `
+      <div class="stat-tile">
+        <div class="label">${t.label}</div>
+        <div class="value">${t.value}</div>
+        ${t.note ? `<div class="note">${t.note}</div>` : ""}
+      </div>
+    `).join("");
+  }
+
+  function renderRuns(completed) {
+    if (!completed.length) {
+      el("runs-tbody").innerHTML = `<tr><td colspan="5" class="empty-note">Aucun run terminé.</td></tr>`;
+      return;
+    }
+    el("runs-tbody").innerHTML = completed.slice().reverse().map((r) => `
+      <tr>
+        <td><span class="status-badge ${r.status}">${r.status === "success" ? "OK" : "échec"}</span></td>
+        <td>${r.task_id}</td>
+        <td>${r.repetition}</td>
+        <td>${fmtSeconds(r.duration_s)}</td>
+        <td>${r.failure_cause || "—"}</td>
+      </tr>
+    `).join("");
+  }
+
+  function renderAudit(entries) {
+    if (!entries.length) {
+      el("audit-list").innerHTML = `<div class="empty-note">Aucun événement (thread pas encore démarré, ou langgraph-agent injoignable).</div>`;
+      return;
+    }
+    el("audit-list").innerHTML = entries.map((e) => `
+      <div class="audit-entry">
+        <span class="ts">${new Date(e.timestamp).toLocaleTimeString("fr-FR")}</span>
+        ${e.kind === "message" ? `[message ${e.role || ""}]` : `${e.tool || "?"} (${e.tier || "?"})`}
+      </div>
+    `).join("");
+  }
+
+  async function pollCampaignList() {
+    try {
+      const campaigns = await fetchCampaignList();
+      renderCampaignSelect(campaigns);
+    } catch (err) { /* keep last known list on transient failure */ }
+  }
+
+  async function pollDetail() {
+    if (!selectedCampaignId) return;
+    try {
+      const resp = await fetch(`/api/campaign/${encodeURIComponent(selectedCampaignId)}`, { cache: "no-store" });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const estimates = data.estimates || {};
+      renderHeaderStats(data.state, data.eta);
+      renderCurrent(data.state, estimates);
+      renderCounters(data.counters);
+      renderRuns(data.state.completed || []);
+      renderAudit(data.audit_tail || []);
+    } catch (err) { /* next poll retries */ }
+  }
+
+  el("campaign-select").addEventListener("change", (e) => {
+    userPickedCampaign = true;
+    selectedCampaignId = e.target.value || null;
+    pollDetail();
+  });
+
+  (async () => {
+    await pollCampaignList();
+    await pollDetail();
+    setInterval(pollDetail, POLL_MS);
+    setInterval(pollCampaignList, CAMPAIGN_LIST_POLL_MS);
+  })();
+})();
+</script>
+
+</body>
+</html>
