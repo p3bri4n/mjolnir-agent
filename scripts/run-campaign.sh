@@ -14,8 +14,16 @@
 #   scripts/run-campaign.sh --pause <campaign-id>              # demande de pause (voir Part 2.1)
 #   scripts/run-campaign.sh --pause <campaign-id> --release    # + arrêt tabbyapi/playwright-mcp/fixtures une fois la pause confirmée
 #   scripts/run-campaign.sh --resume <campaign-id>              # reprise (préambule complet rejoué, refuse sur dérive de config)
-#   scripts/run-campaign.sh --suite v2                          # benchmark v2 (docs/briefs/B3-benchmark-v2.md) — famille F seule pour l'instant
+#   scripts/run-campaign.sh --suite v2                          # benchmark v2 (docs/briefs/B3-benchmark-v2.md) — familles F + B (intent α)
+#   scripts/run-campaign.sh --suite v2 --tasks B1_conge_easy    # filtre par tâche (WEB_TASKS_V2_TASKS)
 #   scripts/run-campaign.sh --suite v2 --resume <campaign-id>   # --suite requis pour reprendre une campagne v2 (le cid seul ne dit pas quelle suite)
+#
+# Famille B medium/hard (docs/briefs/B3-benchmark-v2.md, checkpoint
+# 2026-07-30) : nécessite NEVER_GRANTABLE_TOOLS_EXTRA=browser_click sur
+# langgraph-agent (docker compose up -d --force-recreate langgraph-agent)
+# AVANT le lancement — ce script ne le fait pas à votre place. Lancer easy
+# et medium/hard comme deux campagnes séparées (conteneur recréé entre les
+# deux), jamais dans le même run.
 #
 # Protocole (voir docstring de test_web_tasks.py, WEB_TASKS_SMOKE_TASKS) :
 # le mode smoke (--tasks) sert à ITÉRER vite sur un correctif — n réduit,
@@ -63,13 +71,14 @@ if [[ "$SUITE" != "v1" && "$SUITE" != "v2" ]]; then
   echo "--suite doit valoir v1 ou v2 (reçu : $SUITE)" >&2
   exit 1
 fi
-if [[ "$SUITE" == "v2" && -n "$TASKS" ]]; then
-  echo "--tasks n'a pas de sens avec --suite v2 (pas de filtre smoke côté benchmark v2, famille F seule pour l'instant)" >&2
-  exit 1
+# v1 : défaut 3 répétitions si --reps omis. v2 : répétitions PAR FAMILLE
+# (2 pour F, 3 pour B — test_web_tasks_v2._repetitions_for_task), --reps
+# n'écrase les deux défauts QUE si explicitement donné (voir export plus
+# bas) — sinon on laisse le module python appliquer ses propres défauts
+# par famille plutôt que d'en imposer un seul, faux pour l'une des deux.
+if [[ "$SUITE" == "v1" ]]; then
+  [[ -z "$REPS" ]] && REPS=3
 fi
-# Défaut de --reps dépendant de la suite (3 pour v1, 2 pour v2 — famille F,
-# voir docs/briefs/B3-benchmark-v2.md, "2 repetitions instead of 3").
-[[ -z "$REPS" ]] && REPS=$([[ "$SUITE" == "v2" ]] && echo 2 || echo 3)
 
 VENV_PYTHON="${VENV_PYTHON:-$AGENT_DIR/.venv/bin/python}"
 if [[ ! -x "$VENV_PYTHON" ]]; then
@@ -118,8 +127,12 @@ if [[ -z "$REPORT_PATH" ]]; then
   if [[ "$SUITE" == "v2" ]]; then
     if [[ -n "$RESUME_CID" ]]; then
       REPORT_PATH="$CAMPAIGNS_DIR/$(date +%Y-%m-%d)_campaign-v2_resume-${RESUME_CID}.md"
+    elif [[ -n "$LABEL" ]]; then
+      REPORT_PATH="$CAMPAIGNS_DIR/$(date +%Y-%m-%d)_campaign-v2_${LABEL}.md"
+    elif [[ -n "$TASKS" ]]; then
+      REPORT_PATH="$CAMPAIGNS_DIR/$(date +%Y-%m-%d)_campaign-v2_adhoc-$(date +%H%M%S).md"
     else
-      REPORT_PATH="$CAMPAIGNS_DIR/$(date +%Y-%m-%d)_campaign-v2_famille-f.md"
+      REPORT_PATH="$CAMPAIGNS_DIR/$(date +%Y-%m-%d)_campaign-v2.md"
     fi
   elif [[ -n "$RESUME_CID" ]]; then
     REPORT_PATH="$CAMPAIGNS_DIR/$(date +%Y-%m-%d)_campaign_resume-${RESUME_CID}.md"
@@ -149,11 +162,24 @@ ALL_TASK_IDS=(T1_extraction_paginee T2_formulaire_conge T3_tableau_dynamique
   T4_recherche_multi_sauts T5_telechargement_calcul T6_session_authentifiee
   T7_impossible_par_construction T8_wikipedia T9_google_insee
   T10_books_toscrape T11_sonde_peremption)
-# Famille F seule pour l'instant (docs/briefs/B3-benchmark-v2.md) — garder
-# en synchronisation manuelle avec FAMILY_F_TASK_IDS, test_web_tasks_v2.py.
-V2_TASK_IDS=(T3_tableau_dynamique T5_telechargement_calcul T6_session_authentifiee T10_books_toscrape)
+REPS_LIST=()
+
 if [[ "$SUITE" == "v2" ]]; then
-  ALL_TASK_IDS=("${V2_TASK_IDS[@]}")
+  # Familles F + B (docs/briefs/B3-benchmark-v2.md) — garder en
+  # synchronisation manuelle avec ALL_V2_TASKS, test_web_tasks_v2.py.
+  # Répétitions PAR FAMILLE (2 pour F, 3 pour B) sauf --reps explicite,
+  # qui écrase les deux défauts uniformément (smoke rapide).
+  REPS_F=2
+  REPS_B=3
+  if [[ -n "$REPS" ]]; then
+    REPS_F="$REPS"
+    REPS_B="$REPS"
+  fi
+  ALL_TASK_IDS=(T3_tableau_dynamique T5_telechargement_calcul T6_session_authentifiee T10_books_toscrape
+    B1_conge_easy B1_conge_medium B1_conge_hard)
+  REPS_LIST=("$REPS_F" "$REPS_F" "$REPS_F" "$REPS_F" "$REPS_B" "$REPS_B" "$REPS_B")
+else
+  for _ in "${ALL_TASK_IDS[@]}"; do REPS_LIST+=("$REPS"); done
 fi
 
 if [[ -n "$RESUME_CID" ]]; then
@@ -174,12 +200,15 @@ print(f'--- Reprise de {state[\"campaign_id\"]!r} : {remaining}/{state[\"total_r
 "
 else
 
-"$VENV_PYTHON" - "$STATS_PATH" "$REPS" "$TASKS" "${ALL_TASK_IDS[@]}" <<'PYEOF'
+N_TASKS="${#ALL_TASK_IDS[@]}"
+"$VENV_PYTHON" - "$STATS_PATH" "$TASKS" "$N_TASKS" "${ALL_TASK_IDS[@]}" "${REPS_LIST[@]}" <<'PYEOF'
 import json
 import sys
 
-stats_path, reps, tasks_filter, *all_tasks = sys.argv[1:]
-reps = int(reps)
+stats_path, tasks_filter, n_tasks, *rest = sys.argv[1:]
+n_tasks = int(n_tasks)
+all_tasks = rest[:n_tasks]
+reps_by_task = dict(zip(all_tasks, (int(r) for r in rest[n_tasks:2 * n_tasks])))
 prefixes = [p for p in tasks_filter.split(",") if p]
 
 try:
@@ -201,18 +230,20 @@ def normalize(value):
 
 selected = [t for t in all_tasks if not prefixes or any(t == p or t.startswith(p + "_") for p in prefixes)]
 entries = {t: normalize(stats[t]) if t in stats else None for t in selected}
-total_median = sum((entries[t] or {"median": DEFAULT_ESTIMATE_SECONDS})["median"] for t in selected) * reps
-total_min = sum((entries[t] or {"min": DEFAULT_ESTIMATE_SECONDS})["min"] for t in selected) * reps
-total_max = sum((entries[t] or {"max": DEFAULT_ESTIMATE_SECONDS})["max"] for t in selected) * reps
+total_runs = sum(reps_by_task[t] for t in selected)
+total_median = sum((entries[t] or {"median": DEFAULT_ESTIMATE_SECONDS})["median"] * reps_by_task[t] for t in selected)
+total_min = sum((entries[t] or {"min": DEFAULT_ESTIMATE_SECONDS})["min"] * reps_by_task[t] for t in selected)
+total_max = sum((entries[t] or {"max": DEFAULT_ESTIMATE_SECONDS})["max"] * reps_by_task[t] for t in selected)
 
-print(f"--- Estimation ({len(selected)} tache(s) x {reps} repetition(s) = {len(selected) * reps} runs) ---")
+print(f"--- Estimation ({len(selected)} tache(s), {total_runs} runs — repetitions par tache) ---")
 for t in selected:
     e = entries[t]
+    r = reps_by_task[t]
     if e is None:
-        print(f"  {t:32s} {DEFAULT_ESTIMATE_SECONDS:6.1f}s (jamais mesuree, defaut)")
+        print(f"  {t:32s} x{r}  {DEFAULT_ESTIMATE_SECONDS:6.1f}s (jamais mesuree, defaut)")
     else:
         spread = f" (min {e['min']:.1f}s / max {e['max']:.1f}s, n={e['n']})" if e["min"] != e["max"] else ""
-        print(f"  {t:32s} {e['median']:6.1f}s{spread}")
+        print(f"  {t:32s} x{r}  {e['median']:6.1f}s{spread}")
 print(
     f"--- Duree totale estimee : ~{total_median / 60:.0f} min "
     f"(plage {total_min / 60:.0f}-{total_max / 60:.0f} min, {total_median:.0f}s) ---"
@@ -229,7 +260,15 @@ fi
 export RUN_LIVE_AGENT_TESTS=1
 if [[ "$SUITE" == "v2" ]]; then
   export WEB_TASKS_V2_REPORT_PATH="$REPORT_PATH"
-  export WEB_TASKS_V2_REPETITIONS="$REPS"
+  # Répétitions par famille (test_web_tasks_v2._repetitions_for_task) :
+  # n'écraser les défauts (2 pour F, 3 pour B) que si --reps a été donné
+  # explicitement — un export à vide romprait le défaut python
+  # (os.environ.get renvoie "" plutôt que d'utiliser son propre défaut).
+  if [[ -n "$REPS" ]]; then
+    export WEB_TASKS_V2_REPETITIONS="$REPS"
+    export WEB_TASKS_V2_REPETITIONS_B="$REPS"
+  fi
+  export WEB_TASKS_V2_TASKS="$TASKS"
   [[ -n "$LABEL" ]] && export WEB_TASKS_V2_CAMPAIGN_LABEL="$LABEL"
   [[ -n "$RESUME_CID" ]] && export WEB_TASKS_V2_RESUME_CAMPAIGN_ID="$RESUME_CID"
   PYTEST_TARGET="tests_integration/test_web_tasks_v2.py::test_web_tasks_v2_baseline"
@@ -267,7 +306,11 @@ fi
 # ─────────────────────────────────────────────────────────────────────────
 DONE_PATH="${REPORT_PATH%.md}.DONE"
 SCORE_PATTERN='^\*\*Score de campagne'
-[[ "$SUITE" == "v2" ]] && SCORE_PATTERN='^\*\*Alarmes'
+# v2 : famille F produit une ligne "**Alarmes", famille B seule n'en a
+# pas (tableau CuP sans ligne récapitulative unique) — repli sur le
+# premier "## Famille" pour ne jamais afficher "rapport absent" alors
+# qu'il existe.
+[[ "$SUITE" == "v2" ]] && SCORE_PATTERN='^\*\*Alarmes\|^## Famille'
 SCORE_LINE="$(grep -m1 "$SCORE_PATTERN" "$REPORT_PATH" 2>/dev/null || echo "(rapport absent, voir STATUS=$STATUS)")"
 {
   echo "Campagne terminée : $(date -u +%Y-%m-%dT%H:%M:%SZ)"
