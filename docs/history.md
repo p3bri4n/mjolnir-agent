@@ -2730,6 +2730,17 @@ produced it (no `suite` field in the persisted metadata yet).
 Verified: `tests/test_web_tasks_v2.py` (3 new: task-id order matches the
 brief, tuples are the SAME objects as v1's, default repetitions == 2),
 full `tests/` suite 341/341, `bash -n scripts/run-campaign.sh`, module
-import smoke-checked (family F tuples resolve correctly). **Not run
-live** — no real campaign launched against family F yet, follow-up before
-this is relied on for a v2 report.
+import smoke-checked (family F tuples resolve correctly).
+
+**Live smoke run (2026-07-29, `run-campaign.sh --suite v2 --reps 1
+--label smoke-familleF`)**: full stack up, real agent, real fixtures.
+**4/4 passed** in 3min21 (T3=34.4s, T5=15.6s, T6=45.9s, T10=99.3s) —
+`docs/campaigns/2026-07-29_campaign-v2_famille-f.md`,
+`campaign-20260729T125802Z-smoke-famillef.json`,
+`20260729T125802Z-smoke-famillef.progress.json`. Confirms end-to-end:
+`planned`/`segments`/`completed` correctly populated, the dashboard's
+`/api/campaigns` picks up the v2 campaign with no code change needed
+(the pause/resume/progress plumbing is genuinely suite-agnostic, not
+just in theory). n=1 per task, a single run — not a statistically
+meaningful result, just a plumbing confirmation. Real n=2 measurement
+deferred to when family F is next run as part of a fuller v2 launch.

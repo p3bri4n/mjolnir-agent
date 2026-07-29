@@ -1,0 +1,445 @@
+{
+  "metadata": {
+    "commit": "5078fd05c1f6cab9ca3cab9306fb20017e967edd",
+    "ended_at": "2026-07-29T13:01:19.483570+00:00",
+    "env_flags": {
+      "ADAPTIVE_THINKING": "true",
+      "AFFORDANCE_THRESHOLD": "60",
+      "APPROVAL_RULES_PATH": "",
+      "AUDIT_LOG_MAX_BYTES": "20971520",
+      "AUTO_APPROVAL_STREAK_LIMIT": "6",
+      "AUTO_APPROVED_TOOLS": "",
+      "BROWSER_NAVIGATE_GUARDRAIL": "true",
+      "BROWSER_TOOL_OUTPUT_MAX_CHARS": "8000",
+      "EPISODE_COMPACTION_ENABLED": "false",
+      "EPISODE_COMPACTION_TURN_THRESHOLD": "40",
+      "FABRICATION_LIMIT": "5",
+      "IMAGE_FORMAT_PASSTHROUGH": "",
+      "IMAGE_TOKEN_ESTIMATE": "1500",
+      "LLM_MAX_TOKENS": "2048",
+      "MAX_EMPTY_ANSWER_RETRIES": "1",
+      "MAX_IMAGES_IN_CONTEXT": "1",
+      "MAX_TOOL_ITERATIONS": "20",
+      "PLANNER_ENABLED": "true",
+      "PLANNER_MAX_TOKENS": "8192",
+      "PLANNER_THINKING_ENABLED": "false",
+      "PLAN_JUDGE_ENABLED": "true",
+      "PLAN_VALIDATION_ENABLED": "true",
+      "REPLAN_BUDGET": "2",
+      "SUBTASK_ATTEMPT_BUDGET": "3",
+      "TZ": "Europe/Paris",
+      "VERIFICATION_ENABLED": "true"
+    },
+    "image_ids": {
+      "langgraph-agent": "sha256:093d4f78c447fa1d0e9286718a631f22786600ed8bbaf88364119906761d14cf",
+      "mcp-client": "sha256:1318235213d23bf2dd58fec7132d1e6240c579d7021ad2784cbb078297986f0e",
+      "playwright-mcp": "sha256:8771dc4666e7c11440bfc6a0c6b00480e9a15b8891b45f29a52d7d995f8d1492",
+      "tabbyapi": "sha256:7ecf8c27484305df6375ce4fe83e6406b73d4d459e78cf6b32fc1941181ae139"
+    },
+    "label": "smoke-familleF",
+    "started_at": "2026-07-29T12:58:02.888690+00:00",
+    "tabbyapi_model_id": "qwen3.6-27b-exl3-3.50bpw"
+  },
+  "runs": [
+    {
+      "approvals": 3,
+      "cache_zero_requests": 3,
+      "detail": "nom exact trouvé",
+      "duration_seconds": 34.4,
+      "episode_compaction_applied_count": 0,
+      "episode_compaction_messages_max": 5,
+      "fabricated_urls": [],
+      "failure_cause": "",
+      "final_text": "Parfait ! J'ai maintenant toutes les données. Je dois identifier les employés du département Ingénierie et trouver celui qui a le 3e salaire le plus élevé.\n\nEmployés du département Ingénierie :\n1. Sophie Bernard - 61000\n2. Antoine Leroy - 58000\n3. Léa Fontaine - 55000\n4. Julien Faure - 52000\n5. Paul Renard - 49500\n6. Thomas Girard - 47000\n\nTriés par salaire décroissant :\n1. Sophie Bernard - 61000\n2. Antoine Leroy - 58000\n3. Léa Fontaine - 55000\n4. Julien Faure - 52000\n5. Paul Renard - 49500\n6. Thomas Girard - 47000\n\nLe 3e salaire le plus élevé est Léa Fontaine avec 55000.\n</think>\n\n\n\nLes données des employés sont récupérées. Maintenant, je vais analyser les employés du département **Ingénierie** et leurs salaires :\n\n| Nom | Département | Salaire |\n|-----|-------------|---------|\n| Sophie Bernard | Ingénierie | 61 000 |\n| Antoine Leroy | Ingénierie | 58 000 |\n| **Léa Fontaine** | **Ingénierie** | **55 000** |\n| Julien Faure | Ingénierie | 52 000 |\n| Paul Renard | Ingénierie | 49 500 |\n| Thomas Girard | Ingénierie | 47 000 |\n\nTriés par salaire décroissant dans le département Ingénierie :\n\n1. Sophie Bernard — 61 000\n2. Antoine Leroy — 58 000\n3. **Léa Fontaine — 55 000**\n\nLe 3e salaire le plus élevé du département Ingénierie appartient à **Léa Fontaine** (55 000).",
+      "prefill_seconds": 15.97,
+      "prompt_tokens_total": 28868,
+      "repetition": 1,
+      "segment": 0,
+      "success": true,
+      "tabbyapi_raw_samples": [
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 5.41,
+          "new_tokens": 465,
+          "process_speed_tps": 645.83,
+          "queue_seconds": 0.0,
+          "tokens_generated": 340
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 1.03,
+          "new_tokens": 608,
+          "process_speed_tps": 789.61,
+          "queue_seconds": 0.0,
+          "tokens_generated": 22
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 15.01,
+          "new_tokens": 13718,
+          "process_speed_tps": 1004.98,
+          "queue_seconds": 0.0,
+          "tokens_generated": 101
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 1.82,
+          "new_tokens": 509,
+          "process_speed_tps": 613.25,
+          "queue_seconds": 0.03,
+          "tokens_generated": 62
+        }
+      ],
+      "tabbyapi_requests": 4,
+      "task_id": "T3_tableau_dynamique",
+      "thread_id": "ce61492ae6ac4455",
+      "tool_calls_observed": 5,
+      "verification_exploitable": 1,
+      "verification_opportunities": 2
+    },
+    {
+      "approvals": 1,
+      "cache_zero_requests": 2,
+      "detail": "masse salariale exacte trouvée",
+      "duration_seconds": 15.6,
+      "episode_compaction_applied_count": 0,
+      "episode_compaction_messages_max": 5,
+      "fabricated_urls": [],
+      "failure_cause": "",
+      "final_text": "J'ai maintenant le contenu du CSV. Je dois calculer la masse salariale totale du département Ventes.\n\nLes employés du département Ventes sont :\n- Camille Roux : 38 000\n- Élise Petit : 44 500\n- Marion Dubois : 36 000\n- Inès Marchand : 41 000\n- Victor Perrin : 39 500\n\nTotal = 38 000 + 44 500 + 36 000 + 41 000 + 39 500 = 199 000\n</think>\n\n\n\nLe fichier CSV a été téléchargé et analysé avec succès.\n\nVoici les employés du département **Ventes** :\n\n| Nom | Salaire |\n|-----|---------|\n| Camille Roux | 38 000 € |\n| Élise Petit | 44 500 € |\n| Marion Dubois | 36 000 € |\n| Inès Marchand | 41 000 € |\n| Victor Perrin | 39 500 € |\n\n**La masse salariale totale du département Ventes est de 199 000 €.**",
+      "prefill_seconds": 5.21,
+      "prompt_tokens_total": 44556,
+      "repetition": 1,
+      "segment": 0,
+      "success": true,
+      "tabbyapi_raw_samples": [
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 9.17,
+          "new_tokens": 2272,
+          "process_speed_tps": 847.76,
+          "queue_seconds": 0.03,
+          "tokens_generated": 493
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 4.0,
+          "new_tokens": 464,
+          "process_speed_tps": 662.86,
+          "queue_seconds": 0.0,
+          "tokens_generated": 224
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 1.01,
+          "new_tokens": 499,
+          "process_speed_tps": 712.86,
+          "queue_seconds": 0.0,
+          "tokens_generated": 26
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 1.71,
+          "new_tokens": 149,
+          "process_speed_tps": 465.62,
+          "queue_seconds": 0.03,
+          "tokens_generated": 100
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 1.92,
+          "new_tokens": 468,
+          "process_speed_tps": 577.78,
+          "queue_seconds": 0.03,
+          "tokens_generated": 81
+        }
+      ],
+      "tabbyapi_requests": 5,
+      "task_id": "T5_telechargement_calcul",
+      "thread_id": "eb175fff61233385",
+      "tool_calls_observed": 2,
+      "verification_exploitable": 1,
+      "verification_opportunities": 2
+    },
+    {
+      "approvals": 7,
+      "cache_zero_requests": 2,
+      "detail": "compte exact trouvé",
+      "duration_seconds": 45.9,
+      "episode_compaction_applied_count": 0,
+      "episode_compaction_messages_max": 19,
+      "fabricated_urls": [],
+      "failure_cause": "",
+      "final_text": "I can see the page clearly shows \"Demandes en attente : 3\" and there are 3 requests with status \"en attente\":\n1. Julien Faure - en attente\n2. Sophie Bernard - en attente\n3. Thomas Girard - en attente\n\nSo the answer is 3 demandes de congé en statut \"en attente\".\n</think>\n\n\n\nIl y a **3 demandes de congé** en statut \"en attente\" :\n\n1. **Julien Faure** — en attente\n2. **Sophie Bernard** — en attente\n3. **Thomas Girard** — en attente\n\nLe bandeau en haut de la page confirme également : « Demandes en attente : 3 ».",
+      "prefill_seconds": 15.8,
+      "prompt_tokens_total": 150944,
+      "repetition": 1,
+      "segment": 0,
+      "success": true,
+      "tabbyapi_raw_samples": [
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 4.84,
+          "new_tokens": 878,
+          "process_speed_tps": 737.82,
+          "queue_seconds": 0.03,
+          "tokens_generated": 293
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 4.53,
+          "new_tokens": 484,
+          "process_speed_tps": 691.43,
+          "queue_seconds": 0.0,
+          "tokens_generated": 292
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 0.82,
+          "new_tokens": 334,
+          "process_speed_tps": 630.19,
+          "queue_seconds": 0.03,
+          "tokens_generated": 22
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 1.99,
+          "new_tokens": 169,
+          "process_speed_tps": 528.12,
+          "queue_seconds": 0.03,
+          "tokens_generated": 127
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 1.29,
+          "new_tokens": 559,
+          "process_speed_tps": 690.12,
+          "queue_seconds": 0.03,
+          "tokens_generated": 34
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 2.92,
+          "new_tokens": 955,
+          "process_speed_tps": 729.01,
+          "queue_seconds": 0.03,
+          "tokens_generated": 130
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 3.72,
+          "new_tokens": 1129,
+          "process_speed_tps": 789.51,
+          "queue_seconds": 0.03,
+          "tokens_generated": 149
+        },
+        {
+          "cached_tokens": 14592,
+          "generation_seconds": 2.8,
+          "new_tokens": 302,
+          "process_speed_tps": 539.29,
+          "queue_seconds": 0.03,
+          "tokens_generated": 155
+        },
+        {
+          "cached_tokens": 14848,
+          "generation_seconds": 1.99,
+          "new_tokens": 254,
+          "process_speed_tps": 686.49,
+          "queue_seconds": 0.03,
+          "tokens_generated": 97
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 3.69,
+          "new_tokens": 1034,
+          "process_speed_tps": 975.47,
+          "queue_seconds": 0.0,
+          "tokens_generated": 188
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 3.14,
+          "new_tokens": 741,
+          "process_speed_tps": 823.33,
+          "queue_seconds": 0.03,
+          "tokens_generated": 128
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 3.44,
+          "new_tokens": 1699,
+          "process_speed_tps": 809.05,
+          "queue_seconds": 0.03,
+          "tokens_generated": 97
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 3.11,
+          "new_tokens": 1856,
+          "process_speed_tps": 855.3,
+          "queue_seconds": 0.03,
+          "tokens_generated": 69
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 3.4,
+          "new_tokens": 2054,
+          "process_speed_tps": 874.04,
+          "queue_seconds": 0.03,
+          "tokens_generated": 82
+        }
+      ],
+      "tabbyapi_requests": 14,
+      "task_id": "T6_session_authentifiee",
+      "thread_id": "aefefbff33622a27",
+      "tool_calls_observed": 16,
+      "verification_exploitable": 8,
+      "verification_opportunities": 8
+    },
+    {
+      "approvals": 7,
+      "cache_zero_requests": 3,
+      "detail": "titre+prix exacts trouvés",
+      "duration_seconds": 99.3,
+      "episode_compaction_applied_count": 0,
+      "episode_compaction_messages_max": 17,
+      "fabricated_urls": [],
+      "failure_cause": "",
+      "final_text": "Il n'y a qu'une seule page pour la catégorie Science. Le livre le moins cher encore en stock est donc \"The Origin of Species\" à £10.01.\n\nLa réponse contient le titre exact et le prix du livre identifié.\n</think>\n\n\n\nIl n'y a qu'une seule page dans la catégorie Science. Parmi les 14 livres affichés, tous sont en stock.\n\n**Le livre le moins cher encore en stock dans la catégorie Science est :**\n\n- **Titre :** *The Origin of Species*\n- **Prix :** £10.01\n\n",
+      "prefill_seconds": 45.31,
+      "prompt_tokens_total": 168333,
+      "repetition": 1,
+      "segment": 0,
+      "success": true,
+      "tabbyapi_raw_samples": [
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 5.51,
+          "new_tokens": 2786,
+          "process_speed_tps": 819.41,
+          "queue_seconds": 0.03,
+          "tokens_generated": 158
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 4.91,
+          "new_tokens": 457,
+          "process_speed_tps": 652.86,
+          "queue_seconds": 0.0,
+          "tokens_generated": 298
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 0.8,
+          "new_tokens": 311,
+          "process_speed_tps": 609.8,
+          "queue_seconds": 0.03,
+          "tokens_generated": 22
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 1.9,
+          "new_tokens": 142,
+          "process_speed_tps": 507.14,
+          "queue_seconds": 0.03,
+          "tokens_generated": 114
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 1.54,
+          "new_tokens": 509,
+          "process_speed_tps": 620.73,
+          "queue_seconds": 0.04,
+          "tokens_generated": 53
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 6.51,
+          "new_tokens": 3069,
+          "process_speed_tps": 831.71,
+          "queue_seconds": 0.03,
+          "tokens_generated": 173
+        },
+        {
+          "cached_tokens": 16384,
+          "generation_seconds": 3.24,
+          "new_tokens": 493,
+          "process_speed_tps": 593.98,
+          "queue_seconds": 0.03,
+          "tokens_generated": 135
+        },
+        {
+          "cached_tokens": 16640,
+          "generation_seconds": 2.97,
+          "new_tokens": 868,
+          "process_speed_tps": 723.33,
+          "queue_seconds": 0.03,
+          "tokens_generated": 128
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 5.09,
+          "new_tokens": 3055,
+          "process_speed_tps": 1028.62,
+          "queue_seconds": 0.0,
+          "tokens_generated": 137
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 7.17,
+          "new_tokens": 2677,
+          "process_speed_tps": 1021.76,
+          "queue_seconds": 0.04,
+          "tokens_generated": 252
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 8.02,
+          "new_tokens": 3211,
+          "process_speed_tps": 1039.16,
+          "queue_seconds": 0.0,
+          "tokens_generated": 335
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 7.47,
+          "new_tokens": 2775,
+          "process_speed_tps": 1016.48,
+          "queue_seconds": 0.03,
+          "tokens_generated": 216
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 6.48,
+          "new_tokens": 4278,
+          "process_speed_tps": 865.99,
+          "queue_seconds": 0.03,
+          "tokens_generated": 92
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 11.75,
+          "new_tokens": 6853,
+          "process_speed_tps": 849.19,
+          "queue_seconds": 0.03,
+          "tokens_generated": 245
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 13.25,
+          "new_tokens": 8081,
+          "process_speed_tps": 854.23,
+          "queue_seconds": 0.03,
+          "tokens_generated": 236
+        }
+      ],
+      "tabbyapi_requests": 15,
+      "task_id": "T10_books_toscrape",
+      "thread_id": "0ede28c4294de18e",
+      "tool_calls_observed": 14,
+      "verification_exploitable": 8,
+      "verification_opportunities": 8
+    }
+  ]
+}

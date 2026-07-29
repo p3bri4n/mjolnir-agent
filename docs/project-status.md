@@ -138,9 +138,12 @@ in the B2.2 history entry.
 ## Benchmark v2 (`docs/briefs/B3-benchmark-v2.md`)
 
 Design validated at checkpoint 2026-07-30 (22 tasks, 6 families, CuP
-headline metric). **Slice 1 (family F, regression core) delivered**:
+headline metric). **Slice 1 (family F, regression core) delivered and smoke-verified live**:
 `tests_integration/test_web_tasks_v2.py`, T3/T5/T6/T10 reused verbatim
 from v1 by import (identity-checked), `run-campaign.sh --suite v2` — see
-docs/history.md, "B3 SLICE 1 — BENCHMARK V2, FAMILY F". Not run live yet.
-Families A-E (long horizon, policy compliance/CuP, hostile content,
-honesty, perception channels) not started.
+docs/history.md, "B3 SLICE 1 — BENCHMARK V2, FAMILY F". Live smoke
+(2026-07-29, n=1/task): 4/4 passed, dashboard picked up the v2 campaign
+with no code change — plumbing confirmed end-to-end, not yet a
+statistically meaningful measurement (n=1). Families A-E (long horizon,
+policy compliance/CuP, hostile content, honesty, perception channels)
+not started.
