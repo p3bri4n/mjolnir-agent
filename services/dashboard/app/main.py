@@ -173,7 +173,8 @@ def _compute_remaining_eta(state: dict, estimates: dict) -> dict:
 
     median_total = min_total = max_total = 0.0
     unreliable_tasks = set()
-    for task_id in remaining:
+    for entry in remaining:
+        task_id = entry["task_id"]
         raw = estimates.get(task_id)
         if raw is None:
             unreliable_tasks.add(task_id)

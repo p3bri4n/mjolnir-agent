@@ -120,7 +120,7 @@
     <div class="runs-table-wrap">
       <table>
         <thead>
-          <tr><th>Statut</th><th>Tâche</th><th>#</th><th>Durée</th><th>Cause</th></tr>
+          <tr><th>Statut</th><th>Tâche</th><th>#</th><th>Durée</th><th>Cause</th><th>Segment</th></tr>
         </thead>
         <tbody id="runs-tbody"></tbody>
       </table>
@@ -188,10 +188,15 @@
       ? `${fmtSeconds(eta.min_seconds)} – ${fmtSeconds(eta.max_seconds)}`
       : `estimation non fiable (${eta.unreliable_task_count} tâche(s) sans historique)`;
 
+    const segments = state.segments || [];
+    const segmentLabel = segments.length > 1 ? `${segments.length} (dont pause)` : "1";
+
     const tiles = [
       { label: "Campagne", value: state.label || "—", unit: "" },
+      { label: "Statut", value: state.paused ? "En pause" : "En cours", unit: "" },
       { label: "Écoulé", value: fmtElapsed(state.started_at), unit: "" },
       { label: "Runs", value: `${done}`, unit: `/ ${total}` },
+      { label: "Segments", value: segmentLabel, unit: "" },
       { label: "ETA restant", value: etaLabel, unit: "", small: !eta.reliable },
     ];
     el("header-stats").innerHTML = tiles.map((t) => `
@@ -239,7 +244,7 @@
 
   function renderRuns(completed) {
     if (!completed.length) {
-      el("runs-tbody").innerHTML = `<tr><td colspan="5" class="empty-note">Aucun run terminé.</td></tr>`;
+      el("runs-tbody").innerHTML = `<tr><td colspan="6" class="empty-note">Aucun run terminé.</td></tr>`;
       return;
     }
     el("runs-tbody").innerHTML = completed.slice().reverse().map((r) => `
@@ -249,6 +254,7 @@
         <td>${r.repetition}</td>
         <td>${fmtSeconds(r.duration_s)}</td>
         <td>${r.failure_cause || "—"}</td>
+        <td>${r.segment ?? "—"}</td>
       </tr>
     `).join("");
   }
