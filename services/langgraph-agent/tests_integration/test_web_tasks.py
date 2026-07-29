@@ -820,6 +820,21 @@ def _run_campaign():
                 f"(voir TASKS/_t11_task dans ce module)"
             )
 
+    # Metadata/cid computed HERE, before the loop starts (moved up from
+    # test_web_tasks_baseline — B2 Part 1.1, docs/briefs/B2-campaign-control.md):
+    # the progress file needs a campaign id to name itself before the first
+    # run, not just after the last row is collected.
+    metadata = campaign_persistence.collect_metadata(CAMPAIGN_LABEL)
+    cid = campaign_persistence.campaign_id(CAMPAIGN_LABEL)
+    started_at = datetime.now(timezone.utc).isoformat()
+    progress_path = campaign_persistence.progress_json_path(CAMPAIGNS_DIR, cid)
+    planned = [task_id for task_id, _, _ in tasks for _ in range(N_REPETITIONS)]
+    state = campaign_persistence.init_progress_state(
+        cid, CAMPAIGN_LABEL, started_at,
+        campaign_persistence.config_digest(metadata), planned,
+    )
+    campaign_persistence.write_progress_json(progress_path, state)
+
     rows = []
     for task_id, base_prompt, assert_fn in tasks:
         for rep in range(1, N_REPETITIONS + 1):
@@ -836,6 +851,18 @@ def _run_campaign():
             # Iteration 4 final campaign (T8_wikipedia, see
             # docs/history.md and docs/resolved-bugs.md).
             prompt = f"{base_prompt} (essai {uuid.uuid4().hex[:8]})"
+            # Computed before run_task() so the progress file can name the
+            # in-flight thread_id for the dashboard to tail (B2 Part 1.2)
+            # — same hash run_task()/result.thread_id ends up with.
+            thread_id = _derive_thread_id(prompt)
+            state["current"] = {
+                "task_id": task_id,
+                "repetition": rep,
+                "thread_id": thread_id,
+                "started_at": datetime.now(timezone.utc).isoformat(),
+            }
+            campaign_persistence.write_progress_json(progress_path, state)
+
             _purge_downloads_volume()
             _reset_browser_session()
             _reset_ghostdesk_desktop()
@@ -846,43 +873,66 @@ def _run_campaign():
                 u for u in result.observed_navigate_urls
                 if KNOWN_URLS_BY_TASK.get(task_id) and u not in KNOWN_URLS_BY_TASK[task_id]()
             ]
-            rows.append(
+            row = {
+                "task_id": task_id,
+                "repetition": rep,
+                "thread_id": result.thread_id,
+                "success": ok,
+                "detail": detail,
+                "approvals": result.approvals,
+                "tool_calls_observed": result.tool_calls_observed,
+                "verification_opportunities": result.verification_opportunities,
+                "verification_exploitable": result.verification_exploitable,
+                "prefill_seconds": result.prefill_seconds,
+                "cache_zero_requests": result.cache_zero_requests,
+                "tabbyapi_requests": result.tabbyapi_requests,
+                "prompt_tokens_total": result.prompt_tokens_total,
+                "tabbyapi_raw_samples": result.tabbyapi_raw_samples,
+                "fabricated_urls": fabricated_urls,
+                "duration_seconds": round(result.duration_seconds, 1),
+                "failure_cause": cause,
+                "final_text": result.final_text,
+                "episode_compaction_messages_max": result.episode_compaction_messages_max,
+                "episode_compaction_applied_count": result.episode_compaction_applied_count,
+            }
+            rows.append(row)
+
+            state["completed"].append(
                 {
                     "task_id": task_id,
                     "repetition": rep,
-                    "thread_id": result.thread_id,
-                    "success": ok,
-                    "detail": detail,
-                    "approvals": result.approvals,
-                    "tool_calls_observed": result.tool_calls_observed,
-                    "verification_opportunities": result.verification_opportunities,
-                    "verification_exploitable": result.verification_exploitable,
-                    "prefill_seconds": result.prefill_seconds,
-                    "cache_zero_requests": result.cache_zero_requests,
-                    "tabbyapi_requests": result.tabbyapi_requests,
-                    "prompt_tokens_total": result.prompt_tokens_total,
-                    "tabbyapi_raw_samples": result.tabbyapi_raw_samples,
-                    "fabricated_urls": fabricated_urls,
-                    "duration_seconds": round(result.duration_seconds, 1),
+                    "status": "success" if ok else "failure",
                     "failure_cause": cause,
-                    "final_text": result.final_text,
-                    "episode_compaction_messages_max": result.episode_compaction_messages_max,
-                    "episode_compaction_applied_count": result.episode_compaction_applied_count,
+                    "duration_s": row["duration_seconds"],
+                    "tool_calls": row["tool_calls_observed"],
+                    "thread_id": thread_id,
+                    # Extension beyond the brief's literal field list
+                    # (docs/briefs/B2-campaign-control.md, Part 1.1): Part
+                    # 1.3's running counters (CuP, fabrications, approvals)
+                    # need these per run — already computed for `row`
+                    # above, just also mirrored here instead of the
+                    # dashboard re-deriving them from nothing.
+                    "approvals": row["approvals"],
+                    "fabricated_urls_count": len(row["fabricated_urls"]),
                 }
             )
+            state["current"] = None
+            campaign_persistence.write_progress_json(progress_path, state)
     _update_duration_stats(rows)
-    return rows
+    return rows, cid, metadata, started_at
 
 
 _ESTIMATE_CACHE_NOTE = (
     "Cache glissant d'ESTIMATION de durée, PAS un historique de campagnes : "
-    "\"estimates\" est réécrit (médiane fusionnée) à la fin de CHAQUE campagne, "
-    "complète ou smoke — la valeur d'une tâche ne reflète donc que la DERNIÈRE "
-    "campagne qui l'a mesurée, jamais une série dans le temps. Sert uniquement "
-    "à estimer la durée d'un prochain lancement avant de le démarrer "
-    "(scripts/run-campaign.sh). Pour un historique par campagne (thread_id, "
-    "métadonnées, métriques par run), voir campaign-<timestamp>-<label>.json "
-    "(campaign_persistence.py)."
+    "\"estimates\" est réécrit (médiane+plage fusionnées) à la fin de CHAQUE "
+    "campagne, complète ou smoke — la valeur d'une tâche ne reflète donc que "
+    "la DERNIÈRE campagne qui l'a mesurée, jamais une série dans le temps. "
+    "Chaque entrée est {median, min, max, n} sur les n répétitions de CETTE "
+    "campagne (B2 Part 1.4, docs/briefs/B2-campaign-control.md — la plage "
+    "sert l'ETA, jamais un point unique). Sert à estimer la durée d'un "
+    "prochain lancement avant de le démarrer (scripts/run-campaign.sh). Pour "
+    "un historique par campagne (thread_id, métadonnées, métriques par "
+    "run), voir campaign-<timestamp>-<label>.json (campaign_persistence.py)."
 )
 
 
@@ -890,7 +940,7 @@ def _update_duration_stats(rows: list) -> None:
     """
     See ESTIMATE_CACHE_PATH above. Merges with already-persisted
     estimates (a task absent from THIS run, e.g. a targeted smoke, keeps
-    its last known median rather than being erased) — best-effort, never
+    its last known entry rather than being erased) — best-effort, never
     fails the campaign over a write issue with this side file
     (permissions, disk full...).
     """
@@ -907,7 +957,12 @@ def _update_duration_stats(rows: list) -> None:
         by_task.setdefault(r["task_id"], []).append(r["duration_seconds"])
 
     for task_id, durations in by_task.items():
-        estimates[task_id] = round(statistics.median(durations), 1)
+        estimates[task_id] = {
+            "median": round(statistics.median(durations), 1),
+            "min": round(min(durations), 1),
+            "max": round(max(durations), 1),
+            "n": len(durations),
+        }
 
     payload = {"_note": _ESTIMATE_CACHE_NOTE, "estimates": estimates}
     try:
@@ -1096,16 +1151,13 @@ def _write_report(rows: list) -> None:
 
 
 def test_web_tasks_baseline():
-    # Context metadata (commit, image digests, loaded model, env flags)
-    # collected BEFORE the run — stable for the campaign's whole
-    # duration, no reason to repeat it per task (see
-    # campaign_persistence.py).
-    metadata = campaign_persistence.collect_metadata(CAMPAIGN_LABEL)
-    started_at = datetime.now(timezone.utc).isoformat()
-    rows = _run_campaign()
+    # Context metadata (commit, image digests, loaded model, env flags) and
+    # the campaign id are now collected INSIDE _run_campaign (B2 Part 1.1,
+    # docs/briefs/B2-campaign-control.md) — the progress file needs the id
+    # before the first run, not just after the last row is collected.
+    rows, cid, metadata, started_at = _run_campaign()
     ended_at = datetime.now(timezone.utc).isoformat()
 
-    cid = campaign_persistence.campaign_id(CAMPAIGN_LABEL)
     json_path = campaign_persistence.campaign_json_path(REPORT_PATH.parent, cid)
     campaign_persistence.write_campaign_json(json_path, metadata, started_at, ended_at, rows)
 

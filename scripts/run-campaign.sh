@@ -92,15 +92,33 @@ except (OSError, ValueError):
 
 DEFAULT_ESTIMATE_SECONDS = 150
 
+
+def normalize(value):
+    # Pre-B2 cache entries are a bare float — see _normalize_estimate,
+    # test_web_tasks.py (docs/briefs/B2-campaign-control.md, Part 1.4).
+    if isinstance(value, dict):
+        return value
+    return {"median": value, "min": value, "max": value, "n": 1}
+
+
 selected = [t for t in all_tasks if not prefixes or any(t == p or t.startswith(p + "_") for p in prefixes)]
-total_seconds = sum(stats.get(t, DEFAULT_ESTIMATE_SECONDS) for t in selected) * reps
-minutes = total_seconds / 60
+entries = {t: normalize(stats[t]) if t in stats else None for t in selected}
+total_median = sum((entries[t] or {"median": DEFAULT_ESTIMATE_SECONDS})["median"] for t in selected) * reps
+total_min = sum((entries[t] or {"min": DEFAULT_ESTIMATE_SECONDS})["min"] for t in selected) * reps
+total_max = sum((entries[t] or {"max": DEFAULT_ESTIMATE_SECONDS})["max"] for t in selected) * reps
 
 print(f"--- Estimation ({len(selected)} tache(s) x {reps} repetition(s) = {len(selected) * reps} runs) ---")
 for t in selected:
-    known = t in stats
-    print(f"  {t:32s} {stats.get(t, DEFAULT_ESTIMATE_SECONDS):6.1f}s{'' if known else ' (jamais mesuree, defaut)'}")
-print(f"--- Duree totale estimee : ~{minutes:.0f} min ({total_seconds:.0f}s) ---")
+    e = entries[t]
+    if e is None:
+        print(f"  {t:32s} {DEFAULT_ESTIMATE_SECONDS:6.1f}s (jamais mesuree, defaut)")
+    else:
+        spread = f" (min {e['min']:.1f}s / max {e['max']:.1f}s, n={e['n']})" if e["min"] != e["max"] else ""
+        print(f"  {t:32s} {e['median']:6.1f}s{spread}")
+print(
+    f"--- Duree totale estimee : ~{total_median / 60:.0f} min "
+    f"(plage {total_min / 60:.0f}-{total_max / 60:.0f} min, {total_median:.0f}s) ---"
+)
 PYEOF
 
 # ─────────────────────────────────────────────────────────────────────────

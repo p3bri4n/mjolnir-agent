@@ -200,3 +200,106 @@ def test_write_then_read_campaign_json_roundtrips(tmp_path):
 def test_campaign_json_path_uses_campaign_prefix(tmp_path):
     path = cp.campaign_json_path(tmp_path, "abc")
     assert path.name == "campaign-abc.json"
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Fichier de progression live (B2 Part 1.1, docs/briefs/B2-campaign-control.md)
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_progress_json_path_uses_progress_suffix(tmp_path):
+    path = cp.progress_json_path(tmp_path, "abc")
+    assert path.name == "abc.progress.json"
+
+
+def test_config_digest_stable_across_unrelated_field_changes():
+    base = {"commit": "abc", "image_ids": {"a": "sha256:1"}, "env_flags": {"X": "1"}, "label": "l1"}
+    other_label = {**base, "label": "l2"}
+    assert cp.config_digest(base) == cp.config_digest(other_label)
+
+
+def test_config_digest_changes_when_commit_drifts():
+    base = {"commit": "abc", "image_ids": {}, "env_flags": {}}
+    drifted = {"commit": "def", "image_ids": {}, "env_flags": {}}
+    assert cp.config_digest(base) != cp.config_digest(drifted)
+
+
+def test_init_progress_state_total_runs_derived_from_planned():
+    state = cp.init_progress_state("cid", "label", "2026-07-29T10:00:00Z", "digest123", ["T1", "T1", "T2"])
+    assert state["total_runs"] == 3
+    assert state["current"] is None
+    assert state["completed"] == []
+    assert state["paused"] is False
+
+
+def test_write_then_read_progress_json_roundtrips(tmp_path):
+    path = cp.progress_json_path(tmp_path, "cid")
+    state = cp.init_progress_state("cid", "label", "2026-07-29T10:00:00Z", "digest123", ["T1"])
+    cp.write_progress_json(path, state)
+    persisted = cp.read_campaign_json(path)  # generic JSON reader, reused
+    assert persisted == state
+
+
+def test_write_progress_json_overwrites_atomically_no_leftover_tmp(tmp_path):
+    path = cp.progress_json_path(tmp_path, "cid")
+    state = cp.init_progress_state("cid", "label", "2026-07-29T10:00:00Z", "digest123", ["T1"])
+    cp.write_progress_json(path, state)
+    state["current"] = {"task_id": "T1", "repetition": 1, "thread_id": "x", "started_at": "now"}
+    cp.write_progress_json(path, state)
+    assert not path.with_suffix(path.suffix + ".tmp").exists()
+    assert cp.read_campaign_json(path)["current"]["task_id"] == "T1"
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# ETA (B2 Part 1.4) : somme par tâche restante, jamais une médiane globale
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_normalize_duration_estimate_wraps_legacy_bare_float():
+    assert cp.normalize_duration_estimate(42.0) == {"median": 42.0, "min": 42.0, "max": 42.0, "n": 1}
+
+
+def test_normalize_duration_estimate_passes_through_dict():
+    entry = {"median": 10.0, "min": 8.0, "max": 12.0, "n": 3}
+    assert cp.normalize_duration_estimate(entry) is entry
+
+
+def test_compute_remaining_eta_sums_per_task_never_global_median():
+    # Two tasks of very different duration: T_long (300s) x2 remaining,
+    # T_short (10s) x1 remaining. A global-median approach (median of
+    # {300,300,10} = 300, applied x3) would grossly overestimate — the
+    # per-task sum must be 300+300+10, not 3x a shared median.
+    state = {
+        "planned": ["T_short", "T_long", "T_long"],
+        "completed": [],
+    }
+    estimates = {
+        "T_short": {"median": 10.0, "min": 8.0, "max": 12.0, "n": 3},
+        "T_long": {"median": 300.0, "min": 280.0, "max": 320.0, "n": 3},
+    }
+    eta = cp.compute_remaining_eta(state, estimates)
+    assert eta["remaining_runs"] == 3
+    assert eta["median_seconds"] == 610.0
+    assert eta["min_seconds"] == 568.0
+    assert eta["max_seconds"] == 652.0
+    assert eta["reliable"] is True
+    assert eta["unreliable_task_count"] == 0
+
+
+def test_compute_remaining_eta_only_counts_runs_after_completed():
+    state = {
+        "planned": ["T1", "T1", "T2"],
+        "completed": [{"task_id": "T1", "repetition": 1}],
+    }
+    estimates = {"T1": {"median": 5.0, "min": 5.0, "max": 5.0, "n": 1}, "T2": {"median": 7.0, "min": 7.0, "max": 7.0, "n": 1}}
+    eta = cp.compute_remaining_eta(state, estimates)
+    assert eta["remaining_runs"] == 2
+    assert eta["median_seconds"] == 12.0
+
+
+def test_compute_remaining_eta_flags_cold_start_tasks_as_unreliable():
+    state = {"planned": ["T_never_measured"], "completed": []}
+    eta = cp.compute_remaining_eta(state, estimates={})
+    assert eta["reliable"] is False
+    assert eta["unreliable_task_count"] == 1
+    assert eta["median_seconds"] == 0.0
