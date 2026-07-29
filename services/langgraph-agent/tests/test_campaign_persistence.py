@@ -224,17 +224,29 @@ def test_config_digest_changes_when_commit_drifts():
     assert cp.config_digest(base) != cp.config_digest(drifted)
 
 
+_PLANNED_T1_T1_T2 = [
+    {"task_id": "T1", "repetition": 1},
+    {"task_id": "T1", "repetition": 2},
+    {"task_id": "T2", "repetition": 1},
+]
+
+
 def test_init_progress_state_total_runs_derived_from_planned():
-    state = cp.init_progress_state("cid", "label", "2026-07-29T10:00:00Z", "digest123", ["T1", "T1", "T2"])
+    state = cp.init_progress_state("cid", "label", "2026-07-29T10:00:00Z", "digest123", _PLANNED_T1_T1_T2)
     assert state["total_runs"] == 3
     assert state["current"] is None
     assert state["completed"] == []
     assert state["paused"] is False
 
 
+def test_init_progress_state_opens_segment_zero():
+    state = cp.init_progress_state("cid", "label", "2026-07-29T10:00:00Z", "digest123", _PLANNED_T1_T1_T2)
+    assert state["segments"] == [{"index": 0, "started_at": "2026-07-29T10:00:00Z", "ended_at": None}]
+
+
 def test_write_then_read_progress_json_roundtrips(tmp_path):
     path = cp.progress_json_path(tmp_path, "cid")
-    state = cp.init_progress_state("cid", "label", "2026-07-29T10:00:00Z", "digest123", ["T1"])
+    state = cp.init_progress_state("cid", "label", "2026-07-29T10:00:00Z", "digest123", _PLANNED_T1_T1_T2)
     cp.write_progress_json(path, state)
     persisted = cp.read_campaign_json(path)  # generic JSON reader, reused
     assert persisted == state
@@ -242,12 +254,89 @@ def test_write_then_read_progress_json_roundtrips(tmp_path):
 
 def test_write_progress_json_overwrites_atomically_no_leftover_tmp(tmp_path):
     path = cp.progress_json_path(tmp_path, "cid")
-    state = cp.init_progress_state("cid", "label", "2026-07-29T10:00:00Z", "digest123", ["T1"])
+    state = cp.init_progress_state("cid", "label", "2026-07-29T10:00:00Z", "digest123", _PLANNED_T1_T1_T2)
     cp.write_progress_json(path, state)
     state["current"] = {"task_id": "T1", "repetition": 1, "thread_id": "x", "started_at": "now"}
     cp.write_progress_json(path, state)
     assert not path.with_suffix(path.suffix + ".tmp").exists()
     assert cp.read_campaign_json(path)["current"]["task_id"] == "T1"
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Pause/reprise (B2 Part 2-3, docs/briefs/B2-campaign-control.md)
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_pause_sentinel_path_uses_pause_suffix(tmp_path):
+    path = cp.pause_sentinel_path(tmp_path, "abc")
+    assert path.name == "abc.pause"
+
+
+def test_open_new_segment_appends_and_returns_new_index():
+    state = cp.init_progress_state("cid", "label", "t0", "digest", [])
+    fixed_now = lambda: datetime(2026, 7, 30, 9, 0, 0, tzinfo=timezone.utc)  # noqa: E731
+    index = cp.open_new_segment(state, now=fixed_now)
+    assert index == 1
+    assert state["segments"][1] == {"index": 1, "started_at": "2026-07-30T09:00:00+00:00", "ended_at": None}
+
+
+def test_close_current_segment_stamps_last_segment_only():
+    state = cp.init_progress_state("cid", "label", "t0", "digest", [])
+    cp.open_new_segment(state, now=lambda: datetime(2026, 7, 30, 9, 0, 0, tzinfo=timezone.utc))
+    fixed_now = lambda: datetime(2026, 7, 30, 10, 0, 0, tzinfo=timezone.utc)  # noqa: E731
+    cp.close_current_segment(state, now=fixed_now)
+    assert state["segments"][0]["ended_at"] is None
+    assert state["segments"][1]["ended_at"] == "2026-07-30T10:00:00+00:00"
+
+
+def test_config_drift_diff_none_when_unchanged():
+    metadata = {"commit": "abc", "image_ids": {"a": "sha256:1"}, "env_flags": {"X": "1"}}
+    assert cp.config_drift_diff(metadata, dict(metadata)) is None
+
+
+def test_config_drift_diff_reports_commit_image_and_flag_changes():
+    recorded = {"commit": "abc", "image_ids": {"a": "sha256:1"}, "env_flags": {"X": "1"}}
+    current = {"commit": "def", "image_ids": {"a": "sha256:2"}, "env_flags": {"X": "2"}}
+    diff = cp.config_drift_diff(recorded, current)
+    assert "commit: abc -> def" in diff
+    assert "image[a]: sha256:1 -> sha256:2" in diff
+    assert "flag[X]: 1 -> 2" in diff
+
+
+def test_check_resume_staleness_none_when_within_threshold():
+    state = {"segments": [{"index": 0, "started_at": "t0", "ended_at": "2026-07-29T10:00:00+00:00"}]}
+    fixed_now = lambda: datetime(2026, 7, 30, 10, 0, 0, tzinfo=timezone.utc)  # noqa: E731
+    assert cp.check_resume_staleness(state, max_days=7, now=fixed_now) is None
+
+
+def test_check_resume_staleness_warns_past_threshold():
+    state = {"segments": [{"index": 0, "started_at": "t0", "ended_at": "2026-07-01T10:00:00+00:00"}]}
+    fixed_now = lambda: datetime(2026, 7, 30, 10, 0, 0, tzinfo=timezone.utc)  # noqa: E731
+    warning = cp.check_resume_staleness(state, max_days=7, now=fixed_now)
+    assert warning is not None
+    assert "29.0 jours" in warning
+
+
+def test_check_resume_staleness_none_when_never_paused():
+    state = {"segments": [{"index": 0, "started_at": "t0", "ended_at": None}]}
+    assert cp.check_resume_staleness(state) is None
+
+
+def test_append_campaign_row_accumulates_across_calls(tmp_path):
+    path = cp.campaign_json_path(tmp_path, "cid")
+    metadata = {"commit": "abc", "label": "l"}
+    cp.append_campaign_row(path, metadata, "2026-07-29T10:00:00Z", {"task_id": "T1", "repetition": 1})
+    cp.append_campaign_row(path, metadata, "2026-07-29T10:00:00Z", {"task_id": "T1", "repetition": 2})
+    persisted = cp.read_campaign_json(path)
+    assert [r["repetition"] for r in persisted["runs"]] == [1, 2]
+    assert persisted["metadata"]["commit"] == "abc"
+
+
+def test_write_campaign_json_atomic_no_leftover_tmp(tmp_path):
+    path = cp.campaign_json_path(tmp_path, "cid")
+    cp.write_campaign_json(path, {"commit": "abc"}, "t0", "t1", [{"task_id": "T1"}])
+    assert not path.with_suffix(path.suffix + ".tmp").exists()
+    assert cp.read_campaign_json(path)["runs"] == [{"task_id": "T1"}]
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -270,7 +359,11 @@ def test_compute_remaining_eta_sums_per_task_never_global_median():
     # {300,300,10} = 300, applied x3) would grossly overestimate — the
     # per-task sum must be 300+300+10, not 3x a shared median.
     state = {
-        "planned": ["T_short", "T_long", "T_long"],
+        "planned": [
+            {"task_id": "T_short", "repetition": 1},
+            {"task_id": "T_long", "repetition": 1},
+            {"task_id": "T_long", "repetition": 2},
+        ],
         "completed": [],
     }
     estimates = {
@@ -288,7 +381,7 @@ def test_compute_remaining_eta_sums_per_task_never_global_median():
 
 def test_compute_remaining_eta_only_counts_runs_after_completed():
     state = {
-        "planned": ["T1", "T1", "T2"],
+        "planned": _PLANNED_T1_T1_T2,
         "completed": [{"task_id": "T1", "repetition": 1}],
     }
     estimates = {"T1": {"median": 5.0, "min": 5.0, "max": 5.0, "n": 1}, "T2": {"median": 7.0, "min": 7.0, "max": 7.0, "n": 1}}
@@ -298,7 +391,7 @@ def test_compute_remaining_eta_only_counts_runs_after_completed():
 
 
 def test_compute_remaining_eta_flags_cold_start_tasks_as_unreliable():
-    state = {"planned": ["T_never_measured"], "completed": []}
+    state = {"planned": [{"task_id": "T_never_measured", "repetition": 1}], "completed": []}
     eta = cp.compute_remaining_eta(state, estimates={})
     assert eta["reliable"] is False
     assert eta["unreliable_task_count"] == 1

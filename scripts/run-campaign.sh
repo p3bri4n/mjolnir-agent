@@ -11,22 +11,36 @@
 #   scripts/run-campaign.sh --tasks T1,T7,T11       # smoke ciblé (voir SMOKE_TASK_PREFIXES)
 #   scripts/run-campaign.sh --tasks T7 --reps 1     # smoke minimal, une seule tâche
 #   scripts/run-campaign.sh --label "post-correctif-X"
+#   scripts/run-campaign.sh --pause <campaign-id>              # demande de pause (voir Part 2.1)
+#   scripts/run-campaign.sh --pause <campaign-id> --release    # + arrêt tabbyapi/playwright-mcp/fixtures une fois la pause confirmée
+#   scripts/run-campaign.sh --resume <campaign-id>              # reprise (préambule complet rejoué, refuse sur dérive de config)
 #
 # Protocole (voir docstring de test_web_tasks.py, WEB_TASKS_SMOKE_TASKS) :
 # le mode smoke (--tasks) sert à ITÉRER vite sur un correctif — n réduit,
 # pas de signification statistique pour arbitrer un seuil de passage. Seule
 # la campagne complète (par défaut, --reps 3 sur les 11 tâches) compte
 # comme mesure de référence pour un checkpoint.
+#
+# Pause/reprise (docs/briefs/B2-campaign-control.md, Part 2) : --pause crée
+# un fichier sentinel, lu par le harnais EN COURS D'EXÉCUTION (dans un autre
+# terminal) à la prochaine frontière de run — ce script lui-même ne stoppe
+# jamais un service tant que --release n'est pas explicitement demandé, et
+# --release attend la confirmation `paused=true` avant de le faire (jamais
+# pendant qu'un run est en vol).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 PROJECT_DIR="$(dirname -- "$SCRIPT_DIR")"
 AGENT_DIR="$PROJECT_DIR/services/langgraph-agent"
+CAMPAIGNS_DIR="$PROJECT_DIR/docs/campaigns"
 
 TASKS=""
 REPS=3
 LABEL=""
 REPORT_PATH=""
+PAUSE_CID=""
+RESUME_CID=""
+RELEASE=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -34,6 +48,9 @@ while [[ $# -gt 0 ]]; do
     --reps) REPS="$2"; shift 2 ;;
     --label) LABEL="$2"; shift 2 ;;
     --report-path) REPORT_PATH="$2"; shift 2 ;;
+    --pause) PAUSE_CID="$2"; shift 2 ;;
+    --resume) RESUME_CID="$2"; shift 2 ;;
+    --release) RELEASE=1; shift ;;
     *) echo "Argument inconnu : $1" >&2; exit 1 ;;
   esac
 done
@@ -43,13 +60,48 @@ if [[ ! -x "$VENV_PYTHON" ]]; then
   VENV_PYTHON="python3"
 fi
 
+# ─────────────────────────────────────────────────────────────────────────
+# --pause : dépose le sentinel, optionnellement attend la confirmation
+# (paused=true dans le progress.json) puis relâche les services — voir Part
+# 2.1/2.2 du brief. Un run peut durer plusieurs minutes (famille A) : délai
+# large avant d'abandonner l'attente sans rien arrêter.
+# ─────────────────────────────────────────────────────────────────────────
+if [[ -n "$PAUSE_CID" ]]; then
+  PROGRESS_PATH="$CAMPAIGNS_DIR/${PAUSE_CID}.progress.json"
+  if [[ ! -f "$PROGRESS_PATH" ]]; then
+    echo "Campagne introuvable : $PROGRESS_PATH" >&2
+    exit 1
+  fi
+  touch "$CAMPAIGNS_DIR/${PAUSE_CID}.pause"
+  echo "Sentinel de pause créé : $CAMPAIGNS_DIR/${PAUSE_CID}.pause — la campagne s'arrêtera à la fin du run en cours."
+
+  if [[ "$RELEASE" == "1" ]]; then
+    echo "Attente de la confirmation de pause (paused=true dans $PROGRESS_PATH)..."
+    TIMEOUT_SECONDS=1800
+    WAITED=0
+    PAUSED="False"
+    while [[ "$PAUSED" != "True" ]]; do
+      if (( WAITED >= TIMEOUT_SECONDS )); then
+        echo "avertissement : pause non confirmée après ${TIMEOUT_SECONDS}s — services NON arrêtés (le run en cours tourne peut-être encore)." >&2
+        exit 1
+      fi
+      sleep 5
+      WAITED=$((WAITED + 5))
+      PAUSED="$("$VENV_PYTHON" -c "import json,sys; print(json.load(open(sys.argv[1])).get('paused', False))" "$PROGRESS_PATH" 2>/dev/null || echo "False")"
+    done
+    echo "Campagne en pause confirmée — arrêt de tabbyapi/playwright-mcp/fixtures (jamais fait automatiquement sans --release)."
+    ( cd "$PROJECT_DIR" && docker compose stop tabbyapi playwright-mcp fixture-catalog fixture-docs fixture-hr-app )
+  fi
+  exit 0
+fi
+
 # Convention de rapports (Phase 2, restructuration+anglais) :
 # AAAA-MM-JJ_type_label.md sous docs/campaigns/ — tri chronologique
 # naturel, type lisible (campaign/smoke), label thématique.
-CAMPAIGNS_DIR="$PROJECT_DIR/docs/campaigns"
-
 if [[ -z "$REPORT_PATH" ]]; then
-  if [[ -n "$LABEL" ]]; then
+  if [[ -n "$RESUME_CID" ]]; then
+    REPORT_PATH="$CAMPAIGNS_DIR/$(date +%Y-%m-%d)_campaign_resume-${RESUME_CID}.md"
+  elif [[ -n "$LABEL" ]]; then
     REPORT_PATH="$CAMPAIGNS_DIR/$(date +%Y-%m-%d)_campaign_${LABEL}.md"
   elif [[ -n "$TASKS" ]]; then
     REPORT_PATH="$CAMPAIGNS_DIR/$(date +%Y-%m-%d)_smoke_adhoc-$(date +%H%M%S).md"
@@ -75,6 +127,24 @@ ALL_TASK_IDS=(T1_extraction_paginee T2_formulaire_conge T3_tableau_dynamique
   T4_recherche_multi_sauts T5_telechargement_calcul T6_session_authentifiee
   T7_impossible_par_construction T8_wikipedia T9_google_insee
   T10_books_toscrape T11_sonde_peremption)
+
+if [[ -n "$RESUME_CID" ]]; then
+  # Reprise (Part 2.3) : REPS/TASKS/LABEL n'ont pas de sens ici (la liste
+  # exacte des runs restants vient de planned[len(completed):], déjà
+  # persistée) — affiche juste combien de runs restent plutôt que
+  # l'estimation par tâche du lancement initial.
+  PROGRESS_PATH="$CAMPAIGNS_DIR/${RESUME_CID}.progress.json"
+  if [[ ! -f "$PROGRESS_PATH" ]]; then
+    echo "Campagne introuvable : $PROGRESS_PATH" >&2
+    exit 1
+  fi
+  "$VENV_PYTHON" -c "
+import json
+state = json.load(open('$PROGRESS_PATH'))
+remaining = state['total_runs'] - len(state['completed'])
+print(f'--- Reprise de {state[\"campaign_id\"]!r} : {remaining}/{state[\"total_runs\"]} runs restants (segment {len(state.get(\"segments\", []))}) ---')
+"
+else
 
 "$VENV_PYTHON" - "$STATS_PATH" "$REPS" "$TASKS" "${ALL_TASK_IDS[@]}" <<'PYEOF'
 import json
@@ -120,6 +190,7 @@ print(
     f"(plage {total_min / 60:.0f}-{total_max / 60:.0f} min, {total_median:.0f}s) ---"
 )
 PYEOF
+fi
 
 # ─────────────────────────────────────────────────────────────────────────
 # Campagne : préambule (readiness LLM réelle + schéma d'outils) -> runs ->
@@ -129,14 +200,26 @@ PYEOF
 # ─────────────────────────────────────────────────────────────────────────
 export RUN_LIVE_AGENT_TESTS=1
 export WEB_TASKS_REPORT_PATH="$REPORT_PATH"
-export WEB_TASKS_REPETITIONS="$REPS"
-export WEB_TASKS_SMOKE_TASKS="$TASKS"
-[[ -n "$LABEL" ]] && export WEB_TASKS_CAMPAIGN_LABEL="$LABEL"
+if [[ -n "$RESUME_CID" ]]; then
+  export WEB_TASKS_RESUME_CAMPAIGN_ID="$RESUME_CID"
+else
+  export WEB_TASKS_REPETITIONS="$REPS"
+  export WEB_TASKS_SMOKE_TASKS="$TASKS"
+  [[ -n "$LABEL" ]] && export WEB_TASKS_CAMPAIGN_LABEL="$LABEL"
+fi
 
 cd "$AGENT_DIR"
 STATUS=0
 "$VENV_PYTHON" -m pytest tests_integration/test_web_tasks.py::test_web_tasks_baseline -q -s -p no:cacheprovider \
   || STATUS=$?
+
+# Pause propre (CAMPAIGN_PAUSED_EXIT_CODE, test_web_tasks.py Part 2.1) :
+# PAS un échec — aucun rapport Markdown/fichier DONE à produire (la
+# campagne n'est pas terminée), juste un message et une sortie 0.
+if [[ "$STATUS" == "75" ]]; then
+  echo "--- Campagne mise en pause (voir progress.json sous $CAMPAIGNS_DIR) — reprendre avec --resume ---"
+  exit 0
+fi
 
 # ─────────────────────────────────────────────────────────────────────────
 # Notification de fin — défaut : fichier DONE à côté du rapport (zéro

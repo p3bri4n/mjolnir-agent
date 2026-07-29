@@ -793,132 +793,226 @@ def _reset_hr_submissions():
     yield
 
 
-def _run_campaign():
+# B2 Part 2.1 (docs/briefs/B2-campaign-control.md): distinct exit code so
+# run-campaign.sh (and anyone reading pytest's exit status) can tell "the
+# campaign paused itself cleanly" apart from a genuine failure (1) or a
+# clean finish (0) — pytest.exit() below sets this as the process exit code.
+CAMPAIGN_PAUSED_EXIT_CODE = 75
+
+# Staleness guard on resume (Part 3.5) — a warning, never a refusal (see
+# campaign_persistence.check_resume_staleness).
+CAMPAIGN_RESUME_STALENESS_DAYS = int(os.environ.get("CAMPAIGN_RESUME_STALENESS_DAYS", "7"))
+
+# Resume mode (Part 2.3): set by run-campaign.sh --resume <cid>. Empty/unset
+# means a fresh campaign — the overwhelmingly common case, unchanged.
+RESUME_CAMPAIGN_ID = os.environ.get("WEB_TASKS_RESUME_CAMPAIGN_ID", "").strip() or None
+
+
+def _build_task_plan():
+    """Full task list (TASKS + T11), filtered by SMOKE_TASK_PREFIXES if
+    set — factored out of _run_campaign() so a resume can rebuild the SAME
+    id->(prompt, assert_fn) lookup (`tasks_by_id`) without needing the
+    original smoke filter: a task_id already fixes its prompt/assertion
+    regardless of which subset was launched originally."""
+    tasks = list(TASKS)
+    tasks.append(_t11_task())
+    if not SMOKE_TASK_PREFIXES:
+        return tasks
+    # Bug found under real conditions (see docs/history.md): a plain
+    # startswith(p) also matches "T1" against "T10_..."/"T11_..." (shared
+    # numeric prefix) — requires the "_" boundary (or an exact match) to
+    # match ONLY the intended task.
+    filtered = [
+        t for t in tasks
+        if any(t[0] == p or t[0].startswith(p + "_") for p in SMOKE_TASK_PREFIXES)
+    ]
+    if not filtered:
+        raise RuntimeError(
+            f"WEB_TASKS_SMOKE_TASKS={SMOKE_TASK_PREFIXES!r} ne matche aucune tâche connue "
+            f"(voir TASKS/_t11_task dans ce module)"
+        )
+    return filtered
+
+
+def _run_campaign(resume_cid: str = None):
     # Campaign preamble (Iteration 0, docs/briefs/phase-1-coeur-cognitif.md):
     # raises PreflightError and stops BEFORE the first run if the tool
     # schema seen by langgraph-agent is stale/incomplete — see
-    # campaign_preflight.py for the lesson motivating this guardrail.
+    # campaign_preflight.py for the lesson motivating this guardrail. Run
+    # identically on resume: a resume is exactly as exposed to a stale
+    # tool schema/unreachable fixtures as a fresh launch.
     campaign_preflight.run_preflight(
         purge_downloads=_purge_downloads_volume,
         reset_browser_session=_reset_browser_session,
     )
 
-    tasks = list(TASKS)
-    tasks.append(_t11_task())
-    if SMOKE_TASK_PREFIXES:
-        # Bug found under real conditions (see docs/history.md): a plain
-        # startswith(p) also matches "T1" against "T10_..."/"T11_..."
-        # (shared numeric prefix) — requires the "_" boundary (or an
-        # exact match) to match ONLY the intended task.
-        tasks = [
-            t for t in tasks
-            if any(t[0] == p or t[0].startswith(p + "_") for p in SMOKE_TASK_PREFIXES)
+    tasks_by_id = {t[0]: t for t in list(TASKS) + [_t11_task()]}
+
+    metadata_now = campaign_persistence.collect_metadata(CAMPAIGN_LABEL)
+    digest_now = campaign_persistence.config_digest(metadata_now)
+
+    if resume_cid:
+        # Part 2.3/3.3: reads the persisted state, refuses on config
+        # drift (commit/image/flags different from what was recorded at
+        # campaign START — never what a fresh collect_metadata() sees NOW
+        # relabeled as "start"), warns (never refuses) on staleness, then
+        # opens a new segment.
+        cid = resume_cid
+        progress_path = campaign_persistence.progress_json_path(CAMPAIGNS_DIR, cid)
+        if not progress_path.exists():
+            raise RuntimeError(f"reprise impossible : {progress_path} introuvable")
+        state = campaign_persistence.read_campaign_json(progress_path)
+        if not state.get("paused"):
+            raise RuntimeError(f"campagne {cid} n'est pas en pause (paused=false dans {progress_path})")
+
+        json_path = campaign_persistence.campaign_json_path(CAMPAIGNS_DIR, cid)
+        campaign_data = campaign_persistence.read_campaign_json(json_path)
+        rows = campaign_data["runs"]
+        metadata = campaign_data["metadata"]
+        started_at = metadata["started_at"]
+
+        drift = campaign_persistence.config_drift_diff(metadata, metadata_now)
+        if drift:
+            raise campaign_preflight.PreflightError(
+                f"reprise refusée : la configuration a dérivé depuis le lancement de {cid} ({drift})"
+            )
+        staleness_warning = campaign_persistence.check_resume_staleness(state, CAMPAIGN_RESUME_STALENESS_DAYS)
+        if staleness_warning:
+            print(f"AVERTISSEMENT : {staleness_warning}")
+
+        segment_index = campaign_persistence.open_new_segment(state)
+        state["paused"] = False
+        campaign_persistence.write_progress_json(progress_path, state)
+    else:
+        tasks = _build_task_plan()
+        metadata = metadata_now
+        cid = campaign_persistence.campaign_id(CAMPAIGN_LABEL)
+        started_at = datetime.now(timezone.utc).isoformat()
+        progress_path = campaign_persistence.progress_json_path(CAMPAIGNS_DIR, cid)
+        json_path = campaign_persistence.campaign_json_path(CAMPAIGNS_DIR, cid)
+        planned = [
+            {"task_id": task_id, "repetition": rep}
+            for task_id, _, _ in tasks for rep in range(1, N_REPETITIONS + 1)
         ]
-        if not tasks:
-            raise RuntimeError(
-                f"WEB_TASKS_SMOKE_TASKS={SMOKE_TASK_PREFIXES!r} ne matche aucune tâche connue "
-                f"(voir TASKS/_t11_task dans ce module)"
-            )
+        state = campaign_persistence.init_progress_state(cid, CAMPAIGN_LABEL, started_at, digest_now, planned)
+        campaign_persistence.write_progress_json(progress_path, state)
+        rows = []
+        segment_index = 0
 
-    # Metadata/cid computed HERE, before the loop starts (moved up from
-    # test_web_tasks_baseline — B2 Part 1.1, docs/briefs/B2-campaign-control.md):
-    # the progress file needs a campaign id to name itself before the first
-    # run, not just after the last row is collected.
-    metadata = campaign_persistence.collect_metadata(CAMPAIGN_LABEL)
-    cid = campaign_persistence.campaign_id(CAMPAIGN_LABEL)
-    started_at = datetime.now(timezone.utc).isoformat()
-    progress_path = campaign_persistence.progress_json_path(CAMPAIGNS_DIR, cid)
-    planned = [task_id for task_id, _, _ in tasks for _ in range(N_REPETITIONS)]
-    state = campaign_persistence.init_progress_state(
-        cid, CAMPAIGN_LABEL, started_at,
-        campaign_persistence.config_digest(metadata), planned,
-    )
-    campaign_persistence.write_progress_json(progress_path, state)
+    pause_path = campaign_persistence.pause_sentinel_path(CAMPAIGNS_DIR, cid)
+    remaining = state["planned"][len(state["completed"]):]
 
-    rows = []
-    for task_id, base_prompt, assert_fn in tasks:
-        for rep in range(1, N_REPETITIONS + 1):
-            # Unique marker per repetition (see _derive_thread_id,
-            # app/main.py: hashes the EXACT text of the 1st human message)
-            # — same fix as test_t7_noise_baseline/
-            # test_download_then_filesystem_read_roundtrip below, never
-            # applied here before: without it, a task's N_REPETITIONS
-            # share the SAME thread_id (fixed, identical prompt), hence
-            # the SAME checkpointer state — a repetition that blocks the
-            # thread before any checkpoint save (e.g. context overflow)
-            # then makes the following repetitions replay on that same
-            # blocked state, not independent attempts. Found on the
-            # Iteration 4 final campaign (T8_wikipedia, see
-            # docs/history.md and docs/resolved-bugs.md).
-            prompt = f"{base_prompt} (essai {uuid.uuid4().hex[:8]})"
-            # Computed before run_task() so the progress file can name the
-            # in-flight thread_id for the dashboard to tail (B2 Part 1.2)
-            # — same hash run_task()/result.thread_id ends up with.
-            thread_id = _derive_thread_id(prompt)
-            state["current"] = {
+    for entry in remaining:
+        task_id, rep = entry["task_id"], entry["repetition"]
+        base_prompt, assert_fn = tasks_by_id[task_id][1], tasks_by_id[task_id][2]
+
+        # Unique marker per repetition (see _derive_thread_id, app/main.py:
+        # hashes the EXACT text of the 1st human message) — same fix as
+        # test_t7_noise_baseline/test_download_then_filesystem_read_roundtrip
+        # below, never applied here before: without it, a task's
+        # N_REPETITIONS share the SAME thread_id (fixed, identical
+        # prompt), hence the SAME checkpointer state — a repetition that
+        # blocks the thread before any checkpoint save (e.g. context
+        # overflow) then makes the following repetitions replay on that
+        # same blocked state, not independent attempts. Found on the
+        # Iteration 4 final campaign (T8_wikipedia, see docs/history.md
+        # and docs/resolved-bugs.md).
+        prompt = f"{base_prompt} (essai {uuid.uuid4().hex[:8]})"
+        # Computed before run_task() so the progress file can name the
+        # in-flight thread_id for the dashboard to tail (B2 Part 1.2) —
+        # same hash run_task()/result.thread_id ends up with.
+        thread_id = _derive_thread_id(prompt)
+        state["current"] = {
+            "task_id": task_id,
+            "repetition": rep,
+            "thread_id": thread_id,
+            "started_at": datetime.now(timezone.utc).isoformat(),
+        }
+        campaign_persistence.write_progress_json(progress_path, state)
+
+        _purge_downloads_volume()
+        _reset_browser_session()
+        _reset_ghostdesk_desktop()
+        result = run_task(prompt)
+        ok, detail = (False, result.error) if result.error else assert_fn(result.final_text, prompt)
+        cause = _classify_failure_cause(task_id, result, ok, detail)
+        fabricated_urls = [
+            u for u in result.observed_navigate_urls
+            if KNOWN_URLS_BY_TASK.get(task_id) and u not in KNOWN_URLS_BY_TASK[task_id]()
+        ]
+        row = {
+            "task_id": task_id,
+            "repetition": rep,
+            "thread_id": result.thread_id,
+            "success": ok,
+            "detail": detail,
+            "approvals": result.approvals,
+            "tool_calls_observed": result.tool_calls_observed,
+            "verification_opportunities": result.verification_opportunities,
+            "verification_exploitable": result.verification_exploitable,
+            "prefill_seconds": result.prefill_seconds,
+            "cache_zero_requests": result.cache_zero_requests,
+            "tabbyapi_requests": result.tabbyapi_requests,
+            "prompt_tokens_total": result.prompt_tokens_total,
+            "tabbyapi_raw_samples": result.tabbyapi_raw_samples,
+            "fabricated_urls": fabricated_urls,
+            "duration_seconds": round(result.duration_seconds, 1),
+            "failure_cause": cause,
+            "final_text": result.final_text,
+            "episode_compaction_messages_max": result.episode_compaction_messages_max,
+            "episode_compaction_applied_count": result.episode_compaction_applied_count,
+            # B2 Part 3.1/3.2: needed by _write_report() to break down
+            # cache-sensitive metrics per segment rather than pooling them
+            # across a pause boundary (a fresh segment starts cold-cache
+            # by construction after a tabbyapi restart).
+            "segment": segment_index,
+        }
+        rows.append(row)
+        campaign_persistence.append_campaign_row(json_path, metadata, started_at, row)
+
+        state["completed"].append(
+            {
                 "task_id": task_id,
                 "repetition": rep,
-                "thread_id": thread_id,
-                "started_at": datetime.now(timezone.utc).isoformat(),
-            }
-            campaign_persistence.write_progress_json(progress_path, state)
-
-            _purge_downloads_volume()
-            _reset_browser_session()
-            _reset_ghostdesk_desktop()
-            result = run_task(prompt)
-            ok, detail = (False, result.error) if result.error else assert_fn(result.final_text, prompt)
-            cause = _classify_failure_cause(task_id, result, ok, detail)
-            fabricated_urls = [
-                u for u in result.observed_navigate_urls
-                if KNOWN_URLS_BY_TASK.get(task_id) and u not in KNOWN_URLS_BY_TASK[task_id]()
-            ]
-            row = {
-                "task_id": task_id,
-                "repetition": rep,
-                "thread_id": result.thread_id,
-                "success": ok,
-                "detail": detail,
-                "approvals": result.approvals,
-                "tool_calls_observed": result.tool_calls_observed,
-                "verification_opportunities": result.verification_opportunities,
-                "verification_exploitable": result.verification_exploitable,
-                "prefill_seconds": result.prefill_seconds,
-                "cache_zero_requests": result.cache_zero_requests,
-                "tabbyapi_requests": result.tabbyapi_requests,
-                "prompt_tokens_total": result.prompt_tokens_total,
-                "tabbyapi_raw_samples": result.tabbyapi_raw_samples,
-                "fabricated_urls": fabricated_urls,
-                "duration_seconds": round(result.duration_seconds, 1),
+                "status": "success" if ok else "failure",
                 "failure_cause": cause,
-                "final_text": result.final_text,
-                "episode_compaction_messages_max": result.episode_compaction_messages_max,
-                "episode_compaction_applied_count": result.episode_compaction_applied_count,
+                "duration_s": row["duration_seconds"],
+                "tool_calls": row["tool_calls_observed"],
+                "thread_id": thread_id,
+                # Extension beyond the brief's literal field list
+                # (docs/briefs/B2-campaign-control.md, Part 1.1): Part
+                # 1.3's running counters (CuP, fabrications, approvals)
+                # need these per run — already computed for `row` above,
+                # just also mirrored here instead of the dashboard
+                # re-deriving them from nothing.
+                "approvals": row["approvals"],
+                "fabricated_urls_count": len(row["fabricated_urls"]),
+                "segment": segment_index,
             }
-            rows.append(row)
+        )
+        state["current"] = None
+        campaign_persistence.write_progress_json(progress_path, state)
 
-            state["completed"].append(
-                {
-                    "task_id": task_id,
-                    "repetition": rep,
-                    "status": "success" if ok else "failure",
-                    "failure_cause": cause,
-                    "duration_s": row["duration_seconds"],
-                    "tool_calls": row["tool_calls_observed"],
-                    "thread_id": thread_id,
-                    # Extension beyond the brief's literal field list
-                    # (docs/briefs/B2-campaign-control.md, Part 1.1): Part
-                    # 1.3's running counters (CuP, fabrications, approvals)
-                    # need these per run — already computed for `row`
-                    # above, just also mirrored here instead of the
-                    # dashboard re-deriving them from nothing.
-                    "approvals": row["approvals"],
-                    "fabricated_urls_count": len(row["fabricated_urls"]),
-                }
-            )
-            state["current"] = None
+        # Run-boundary pause check (Part 2.1): AFTER this run is fully
+        # persisted (progress + full row), BEFORE the next one starts —
+        # a run is atomic, pausing mid-run is out of scope (brief, Part
+        # 2.1). The sentinel is consumed here so a resume doesn't
+        # immediately re-trip on a leftover file.
+        if pause_path.exists():
+            pause_path.unlink(missing_ok=True)
+            campaign_persistence.close_current_segment(state)
+            state["paused"] = True
             campaign_persistence.write_progress_json(progress_path, state)
+            _update_duration_stats(rows)
+            pytest.exit(
+                f"Campagne {cid} mise en pause après {len(state['completed'])}/{state['total_runs']} runs "
+                f"(segment {segment_index})",
+                returncode=CAMPAIGN_PAUSED_EXIT_CODE,
+            )
+
     _update_duration_stats(rows)
+    campaign_persistence.close_current_segment(state)
+    campaign_persistence.write_progress_json(progress_path, state)
     return rows, cid, metadata, started_at
 
 
@@ -1114,6 +1208,43 @@ def _write_report(rows: list) -> None:
             f"au-delà du seuil ({compaction_threshold} messages, {crossed_pct:.0f}%), "
             f"{total_compactions_applied} compaction(s) effectivement appliquée(s).**",
         )
+    # Segment breakdown (B2 Part 3.1/3.2, docs/briefs/B2-campaign-control.md):
+    # a paused-and-resumed campaign is NOT a continuous campaign — each
+    # segment restarts tabbyapi, emptying the prefix cache, so pooling
+    # prefill_seconds/cache_zero_rate/tokens-per-second ACROSS segments
+    # (the "Prefill total" line above) would produce the same kind of
+    # artefact as the invalid 14/33 campaign (docs/history.md). Score
+    # metrics (CuP, success, failure causes) stay poolable (Part 3.4) —
+    # only cache-sensitive figures are broken down here. A never-paused
+    # campaign has exactly one segment: no breakdown needed, the pooled
+    # line above already says everything.
+    segment_ids = sorted({r.get("segment", 0) for r in rows})
+    if len(segment_ids) > 1:
+        lines.append("")
+        lines.append("## Segments (pause/reprise — voir docs/briefs/archive/A6-campaign-control.md)")
+        lines.append("")
+        lines.append(
+            "Métriques cache-sensibles (prefill, cache=0, tokens de prompt) jamais "
+            "regroupées entre segments : chaque reprise redémarre tabbyapi, donc repart "
+            "à cache froid. Les métriques de score (CuP, causes d'échec) restent "
+            "cumulables — voir le tableau par tâche ci-dessus."
+        )
+        lines.append("")
+        lines.append("| Segment | Runs | Succès | Prefill (s) | Cache=0 | Tokens prompt (total) |")
+        lines.append("|---|---|---|---|---|---|")
+        for seg in segment_ids:
+            seg_rows = [r for r in rows if r.get("segment", 0) == seg]
+            seg_ok = sum(1 for r in seg_rows if r["success"])
+            seg_prefill = sum(r["prefill_seconds"] for r in seg_rows)
+            seg_cache_zero = sum(r["cache_zero_requests"] for r in seg_rows)
+            seg_requests = sum(r["tabbyapi_requests"] for r in seg_rows)
+            seg_tokens = sum(r["prompt_tokens_total"] for r in seg_rows)
+            cache_zero_str = f"{seg_cache_zero}/{seg_requests}" if seg_requests else "—"
+            lines.append(
+                f"| {seg} | {len(seg_rows)} | {seg_ok}/{len(seg_rows)} | {seg_prefill:.1f} | "
+                f"{cache_zero_str} | {seg_tokens} |"
+            )
+
     lines.append("")
     lines.append("## Détail par run")
     lines.append("")
@@ -1138,12 +1269,13 @@ def _write_report(rows: list) -> None:
             if r["episode_compaction_messages_max"]
             else ""
         )
+        segment_note = f", segment={r.get('segment', 0)}" if len(segment_ids) > 1 else ""
         lines.append(
             f"- {status} `{r['task_id']}` #{r['repetition']} — {r['detail']} "
             f"(approbations={r['approvals']}, tool_calls_observés={r['tool_calls_observed']}, "
             f"durée={r['duration_seconds']}s"
             f"{', cause=' + r['failure_cause'] if r['failure_cause'] else ''}{fabricated_note}"
-            f"{coverage_note}{prefill_note}{compaction_note})"
+            f"{coverage_note}{prefill_note}{compaction_note}{segment_note})"
         )
 
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -1155,10 +1287,19 @@ def test_web_tasks_baseline():
     # the campaign id are now collected INSIDE _run_campaign (B2 Part 1.1,
     # docs/briefs/B2-campaign-control.md) — the progress file needs the id
     # before the first run, not just after the last row is collected.
-    rows, cid, metadata, started_at = _run_campaign()
+    # RESUME_CAMPAIGN_ID (Part 2.3): set by run-campaign.sh --resume, None
+    # for the overwhelmingly common fresh-campaign case.
+    rows, cid, metadata, started_at = _run_campaign(resume_cid=RESUME_CAMPAIGN_ID)
     ended_at = datetime.now(timezone.utc).isoformat()
 
-    json_path = campaign_persistence.campaign_json_path(REPORT_PATH.parent, cid)
+    # _run_campaign() already wrote every row incrementally
+    # (append_campaign_row, Part 1.1) — this final call is idempotent, it
+    # only pins `ended_at` to the true campaign-completion instant. Same
+    # directory _run_campaign() itself used (CAMPAIGNS_DIR, not
+    # REPORT_PATH.parent — the two can differ under a custom
+    # WEB_TASKS_REPORT_PATH, and the incremental writer needs one single
+    # source of truth for where a resume will look).
+    json_path = campaign_persistence.campaign_json_path(CAMPAIGNS_DIR, cid)
     campaign_persistence.write_campaign_json(json_path, metadata, started_at, ended_at, rows)
 
     # _write_report() is a VIEW: rendered from a RE-READ of the JSON just
