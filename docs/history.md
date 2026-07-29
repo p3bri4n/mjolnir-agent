@@ -2593,3 +2593,86 @@ Operational note: `docker-compose.yml` changed (new dashboard volumes/env)
 — `docker compose build dashboard && docker compose up -d dashboard`
 required to pick this up, `--force-recreate` insufficient alone since the
 volumes list itself changed.
+
+## B2.2 — PAUSE/RESUME + SEGMENT VALIDITY RULES (docs/briefs/B2-campaign-control.md, Parts 2-3)
+
+Delivered Parts 2 (pause/resume) and 3 (validity rules) of the B2 brief —
+B2 is now fully closed.
+
+**Retroactive fix found while implementing this part**: B2.1 only made
+the LEAN `progress.json` incremental; the brief's Part 1.1 also asked for
+the FULL `campaign-<id>.json` (rich per-run fields — final_text, TabbyAPI
+samples...) to be written "as it goes", not just once at the end. Missed
+in the first pass. Fixed here (`append_campaign_row`, called at every run
+boundary) because resume genuinely needs it: those rich fields only ever
+lived in `_run_campaign()`'s in-memory `rows` list, which a pause's
+`pytest.exit()` destroys along with the process. `write_campaign_json`
+made atomic (temp+rename) accordingly, since it's now called far more
+than "once at the end".
+
+**Schema extensions beyond the brief's literal text** (same category as
+B2.1's `planned`/`approvals` additions): `planned` entries changed from a
+bare task_id to `{task_id, repetition}` — a resume needs the repetition
+number of each remaining run, not reconstructible from a bare task_id
+list once some runs are already done. `segments: [{index, started_at,
+ended_at}]` added to `progress.json`; segment 0 opened at campaign start
+(not only on first pause) so a never-paused campaign still reports "1
+segment", satisfying the brief's own non-regression requirement.
+
+**Pause** (`test_web_tasks.py::_run_campaign`): checked at every run
+boundary via a sentinel file (`campaign_persistence.pause_sentinel_path`)
+— consumed (deleted) the moment it's acted on, so a resume never
+re-trips on a leftover file. On detection: closes the current segment,
+marks `paused: true`, updates the duration cache from what ran, then
+`pytest.exit(reason, returncode=75)` — a distinct exit code
+(`CAMPAIGN_PAUSED_EXIT_CODE`) so `run-campaign.sh` (and anything reading
+pytest's exit status) can tell a clean pause apart from a real failure
+(1) or completion (0). `run-campaign.sh --pause <cid> [--release]`: drops
+the sentinel; `--release` polls `progress.json` for `paused: true` before
+stopping tabbyapi/playwright-mcp/fixtures — never while a run might still
+be in flight. The harness itself never stops a Docker service (brief's
+explicit constraint); only the shell script does, and only after
+confirmation.
+
+**Resume** (`run-campaign.sh --resume <cid>` → `WEB_TASKS_RESUME_CAMPAIGN_ID`):
+replays the full preflight identically to a fresh launch, then:
+1. refuses (`campaign_preflight.PreflightError`) if
+   `campaign_persistence.config_drift_diff` finds the current commit,
+   image ids, or env flags differ from what was recorded at campaign
+   START (never a bare digest mismatch — the diff is printed so the
+   operator knows exactly what changed);
+2. warns (never refuses — `check_resume_staleness`) if resuming more than
+   `CAMPAIGN_RESUME_STALENESS_DAYS` (default 7) after the pause;
+3. opens a new segment and continues from
+   `planned[len(completed):]`, looking up each remaining task's
+   prompt/assertion via `tasks_by_id` (built from the full, unfiltered
+   task list — a resume doesn't need to know the original smoke filter,
+   only which task_ids are in `planned`).
+
+**Markdown report** (`_write_report`): a second gap found while
+double-checking the README's own claim before publishing it (CLAUDE.md
+#9) — the rich per-run `row` dict never carried a `segment` field (only
+progress.json's lean `completed` summary did), so the report's
+prefill/cache-zero/tokens totals were POOLED across segments regardless,
+exactly what Part 3.2 forbids. Fixed: `segment` added to `row`; a new "##
+Segments" table (prefill/cache=0/tokens per segment, never pooled)
+appears whenever a campaign has more than one segment — a never-paused
+campaign's report is unchanged (single segment, no new section). Score
+metrics (CuP, failure causes) stay pooled as before (Part 3.4).
+
+**Dashboard**: updated for the `planned` shape change (`entry["task_id"]`
+instead of a bare string); header now shows paused/segment-count, the
+runs table a segment column per row.
+
+Verified: 39/39 `test_campaign_persistence.py` (11 new since B2.1), full
+`tests/` suite 338/338, bash syntax check
+(`bash -n scripts/run-campaign.sh`), manual dashboard check against a
+hand-written fixture with 2 segments + a paused-then-current-run state
+(removed after verification, not committed). **Not verified**: an actual
+live campaign pause/resume cycle against the real stack (would need a
+multi-minute real run, tabbyapi restart, and a second real run) — the
+brief's own integration-test requirement ("launch a 4-run smoke, pause
+after run 2, stop tabbyapi, restart, resume") is covered here only at the
+unit level (each mechanism tested in isolation with fakes), not
+end-to-end. Left as a follow-up before this is relied on for a real
+campaign.

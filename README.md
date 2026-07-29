@@ -72,6 +72,10 @@ Client) → TabbyAPI.
   boundary and a read-only dashboard page (`/campaign`) — per-task ETA
   range, current run, running counters — no need to tail a terminal for a
   long-running campaign.
+- **Pause/resume**: `run-campaign.sh --pause`/`--resume` — a resume
+  replays the full preflight and refuses if the effective configuration
+  (commit, image digests, env flags) drifted since the pause; per-segment
+  cache metrics never pooled across a pause boundary.
 - **Full audit trail**: intentions, tool results and model messages
   persisted as JSONL, which is how most of this project's bugs were
   diagnosed without re-running anything.

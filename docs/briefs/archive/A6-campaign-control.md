@@ -1,5 +1,18 @@
 # Campaign control — live progress + pause/resume
 
+**Status: closed.** Both parts delivered — see docs/history.md, "B2.1 —
+CAMPAIGN LIVE PROGRESS" and "B2.2 — PAUSE/RESUME + SEGMENT VALIDITY
+RULES". Deviations: the literal `progress.json` schema in Part 1.1 was
+extended (`planned` entries are `{task_id, repetition}` objects, not bare
+task_ids; `segments`, per-run `approvals`/`fabricated_urls_count` added)
+where later parts of this SAME brief needed fields it didn't literally
+list. Part 1.1's instruction to make the full `campaign-<id>.json`
+incremental too (not just `progress.json`) was missed in the first pass
+(B2.1) and fixed retroactively in B2.2, once resume's need for it became
+concrete. Part 2.4 (dashboard pause button) not built — marked optional
+in the brief ("after the rest works"). Not verified end-to-end against a
+real live campaign — unit-level coverage only, flagged as a follow-up.
+
 > **Context**: v2 campaigns run 22 tasks (56+ runs, family A tasks lasting
 > minutes each) — well past the point where watching a terminal is tolerable.
 > Two features: a local live view, and the ability to pause a campaign,

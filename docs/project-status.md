@@ -124,11 +124,13 @@ Not started (security tiers by action nature, consolidation — see
 
 Not started — see `PLAN.md`.
 
-## Campaign control (`docs/briefs/B2-campaign-control.md`)
+## Campaign control (`docs/briefs/archive/B2-campaign-control.md`)
 
-Tooling effort, outside PLAN.md's phase numbering. **Part 1 (live
-progress) delivered**: incremental `<campaign-id>.progress.json`,
-per-task ETA range (`compute_remaining_eta`), read-only dashboard page
-(`/campaign`) — see docs/history.md, "B2.1 — CAMPAIGN LIVE PROGRESS".
-Parts 2-3 (pause/resume, segment validity rules for cache-sensitive
-metrics) not started.
+Tooling effort, outside PLAN.md's phase numbering. **Closed, both parts
+delivered**: live progress (incremental `progress.json`, per-task ETA
+range, read-only dashboard page) and pause/resume (sentinel-triggered
+pause, `--resume` with drift refusal and staleness warning, segment
+tracking) — see docs/history.md, "B2.1 — CAMPAIGN LIVE PROGRESS" and
+"B2.2 — PAUSE/RESUME + SEGMENT VALIDITY RULES". Not verified end-to-end
+against a real live campaign (unit-level only) — flagged as a follow-up
+in the B2.2 history entry.
