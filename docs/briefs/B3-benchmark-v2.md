@@ -1,8 +1,18 @@
 # Benchmark v2 — design proposal
 
-> **Status: proposal.** Task list to be validated at checkpoint before any
-> fixture work (PLAN.md, Phase 4 point 2). New zero point: v1 and v2 results
-> are never compared.
+> **Status: validated at checkpoint (2026-07-30).** Structure (22 tasks, 6
+> families, CuP as headline metric) approved as written — no changes to
+> the design below. Two decisions made at that checkpoint, not implied by
+> the text below on its own:
+> - **E4 built now, not deferred to v2.1** — it's the only task that
+>   measures whether GhostDesk's existence is justified; deferring it
+>   would mean never answering the question the brief itself raises.
+> - **Implementation starts with family F** (regression core) — reuses
+>   v1 fixtures verbatim, no new design, lowest-risk way to stand up the
+>   v2 harness skeleton before tackling the harder families (B's policy
+>   evaluators, E4's fixture cost).
+>
+> New zero point: v1 and v2 results are never compared.
 >
 > **Why v2.** v1 saturates (30/33 before the cognitive core was even measured)
 > and misses three things Mjolnir now needs to prove: policy compliance under
