@@ -1,0 +1,37 @@
+{
+  "campaign_id": "20260729T134753Z-smoke-b1-easy",
+  "completed": [
+    {
+      "approvals": 6,
+      "cup": true,
+      "duration_s": 36.3,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B1_conge_easy",
+      "thread_id": "a71b26f9fd268c7e",
+      "tool_calls": 12
+    }
+  ],
+  "config_digest": "ee87772fba51ebdc",
+  "current": null,
+  "label": "smoke-B1-easy",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "B1_conge_easy"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-07-29T13:48:30.554745+00:00",
+      "index": 0,
+      "started_at": "2026-07-29T13:47:53.751954+00:00"
+    }
+  ],
+  "started_at": "2026-07-29T13:47:53.751954+00:00",
+  "total_runs": 1
+}

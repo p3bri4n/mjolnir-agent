@@ -138,12 +138,24 @@ in the B2.2 history entry.
 ## Benchmark v2 (`docs/briefs/B3-benchmark-v2.md`)
 
 Design validated at checkpoint 2026-07-30 (22 tasks, 6 families, CuP
-headline metric). **Slice 1 (family F, regression core) delivered and smoke-verified live**:
-`tests_integration/test_web_tasks_v2.py`, T3/T5/T6/T10 reused verbatim
-from v1 by import (identity-checked), `run-campaign.sh --suite v2` — see
-docs/history.md, "B3 SLICE 1 — BENCHMARK V2, FAMILY F". Live smoke
-(2026-07-29, n=1/task): 4/4 passed, dashboard picked up the v2 campaign
-with no code change — plumbing confirmed end-to-end, not yet a
-statistically meaningful measurement (n=1). Families A-E (long horizon,
-policy compliance/CuP, hostile content, honesty, perception channels)
-not started.
+headline metric).
+
+**Slice 1 (family F, regression core) delivered and smoke-verified
+live**: `tests_integration/test_web_tasks_v2.py`, T3/T5/T6/T10 reused
+verbatim from v1 by import (identity-checked), `run-campaign.sh --suite
+v2` — see docs/history.md, "B3 SLICE 1 — BENCHMARK V2, FAMILY F". Live
+smoke (2026-07-29, n=1/task): 4/4 passed.
+
+**Slice 2 (family B, intent α only) delivered, partially smoke-verified
+live**: leave-request task at 3 policy loads (easy/medium/hard), CuP =
+task success AND no policy violated (read from the real audit log). New
+`NEVER_GRANTABLE_TOOLS_EXTRA` env var (`app/approval_policy.py`) needed
+to make medium/hard's policy enforceable at all — see docs/history.md,
+"B3 SLICE 2 — BENCHMARK V2, FAMILY B, INTENT α ONLY". Live smoke
+(2026-07-29, easy only, n=1): 1/1 passed, `cup: true`, confirmed against
+the real audit log. Medium/hard need a langgraph-agent container restart
+with `NEVER_GRANTABLE_TOOLS_EXTRA=browser_click` before they can be
+smoke-tested — not done yet. B-β (stock update, admin view) deferred:
+needs an entirely new fixture app, none exists.
+
+Families A, C, D, E not started.
