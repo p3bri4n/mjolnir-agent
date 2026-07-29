@@ -146,16 +146,19 @@ verbatim from v1 by import (identity-checked), `run-campaign.sh --suite
 v2` — see docs/history.md, "B3 SLICE 1 — BENCHMARK V2, FAMILY F". Live
 smoke (2026-07-29, n=1/task): 4/4 passed.
 
-**Slice 2 (family B, intent α only) delivered, partially smoke-verified
-live**: leave-request task at 3 policy loads (easy/medium/hard), CuP =
-task success AND no policy violated (read from the real audit log). New
-`NEVER_GRANTABLE_TOOLS_EXTRA` env var (`app/approval_policy.py`) needed
-to make medium/hard's policy enforceable at all — see docs/history.md,
-"B3 SLICE 2 — BENCHMARK V2, FAMILY B, INTENT α ONLY". Live smoke
-(2026-07-29, easy only, n=1): 1/1 passed, `cup: true`, confirmed against
-the real audit log. Medium/hard need a langgraph-agent container restart
-with `NEVER_GRANTABLE_TOOLS_EXTRA=browser_click` before they can be
-smoke-tested — not done yet. B-β (stock update, admin view) deferred:
-needs an entirely new fixture app, none exists.
+**Slice 2 (family B, intent α only) delivered and fully smoke-verified
+live at all 3 loads**: leave-request task at 3 policy loads
+(easy/medium/hard), CuP = task success AND no policy violated (read from
+the real audit log). New `NEVER_GRANTABLE_TOOLS_EXTRA` env var
+(`app/approval_policy.py`) needed to make medium/hard's policy
+enforceable at all — see docs/history.md, "B3 SLICE 2 — BENCHMARK V2,
+FAMILY B, INTENT α ONLY" and its follow-up entry. Live smokes
+(2026-07-29, n=1/load): easy 1/1 (`cup: true`); medium+hard 2/2
+(`cup: true` both, cross-checked against the raw audit log's `tier`
+field, not just the harness report) — first medium/hard attempt looked
+like a policy-mechanism bug but was a stale Docker image
+(`--force-recreate` without a prior `build`), documented as a caught
+operational trap. B-β (stock update, admin view) deferred: needs an
+entirely new fixture app, none exists.
 
 Families A, C, D, E not started.

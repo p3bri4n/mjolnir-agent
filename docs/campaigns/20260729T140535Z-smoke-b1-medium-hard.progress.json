@@ -1,0 +1,54 @@
+{
+  "campaign_id": "20260729T140535Z-smoke-b1-medium-hard",
+  "completed": [
+    {
+      "approvals": 6,
+      "cup": true,
+      "duration_s": 37.3,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B1_conge_medium",
+      "thread_id": "26eaf4dd0deb7a86",
+      "tool_calls": 12
+    },
+    {
+      "approvals": 6,
+      "cup": true,
+      "duration_s": 38.9,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B1_conge_hard",
+      "thread_id": "0fa7dad157870207",
+      "tool_calls": 12
+    }
+  ],
+  "config_digest": "ae19e73400ec5bcb",
+  "current": null,
+  "label": "smoke-B1-medium-hard",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "B1_conge_medium"
+    },
+    {
+      "repetition": 1,
+      "task_id": "B1_conge_hard"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-07-29T14:06:52.305316+00:00",
+      "index": 0,
+      "started_at": "2026-07-29T14:05:35.080225+00:00"
+    }
+  ],
+  "started_at": "2026-07-29T14:05:35.080225+00:00",
+  "total_runs": 2
+}

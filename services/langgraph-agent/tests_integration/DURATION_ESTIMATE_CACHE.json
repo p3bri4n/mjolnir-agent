@@ -7,6 +7,18 @@
       "min": 36.3,
       "n": 1
     },
+    "B1_conge_hard": {
+      "max": 38.9,
+      "median": 38.9,
+      "min": 38.9,
+      "n": 1
+    },
+    "B1_conge_medium": {
+      "max": 37.3,
+      "median": 37.3,
+      "min": 37.3,
+      "n": 1
+    },
     "T10_books_toscrape": {
       "max": 99.3,
       "median": 99.3,
