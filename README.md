@@ -68,6 +68,10 @@ Client) → TabbyAPI.
 - **Campaign persistence**: per-run JSON with effective configuration (git
   commit, image digests, behaviour flags) — every campaign can say *which
   agent* it measured.
+- **Live campaign progress**: a progress file updated at every run
+  boundary and a read-only dashboard page (`/campaign`) — per-task ETA
+  range, current run, running counters — no need to tail a terminal for a
+  long-running campaign.
 - **Full audit trail**: intentions, tool results and model messages
   persisted as JSONL, which is how most of this project's bugs were
   diagnosed without re-running anything.

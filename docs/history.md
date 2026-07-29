@@ -2539,3 +2539,57 @@ Non re-mesuré en conditions réelles dans ce tour (pas de campagne live
 lancée) — la préférence de ce mode par le modèle face à
 `browser_evaluate`/`browser_navigate` reste à confirmer sur la prochaine
 campagne complète.
+
+## B2.1 — CAMPAIGN LIVE PROGRESS (docs/briefs/B2-campaign-control.md, Part 1)
+
+Delivered Part 1 (live progress) of the B2 brief; Parts 2-3 (pause/resume,
+segment validity rules) not started.
+
+**Harness side** (`campaign_persistence.py`, `test_web_tasks.py`):
+`<campaign-id>.progress.json` now rewritten atomically (temp+rename) at
+every run boundary instead of the single end-of-campaign
+`campaign-<id>.json` — a campaign killed mid-flight keeps everything up to
+the last completed run. `metadata`/`cid` generation moved from
+`test_web_tasks_baseline` into `_run_campaign()` (needed before the loop
+starts, not after). Extended the schema beyond the brief's literal field
+list where the brief's own later requirements needed it: `planned` (full
+ordered task_id list, so `compute_remaining_eta` knows which task each
+REMAINING run is — `total_runs` alone couldn't tell), and `approvals`/
+`fabricated_urls_count` per completed run (needed by Part 1.3's running
+counters, not otherwise present in the lean per-run summary).
+
+**Duration cache**: `DURATION_ESTIMATE_CACHE.json` entries changed from a
+bare float (median only) to `{median, min, max, n}` — Part 1.4 requires a
+range, never a point estimate. Old bare-float entries are read via
+`normalize_duration_estimate` as a degenerate `{median,min,max,n=1}`
+rather than migrating the tracked file upfront. `run-campaign.sh`'s
+pre-launch estimate print updated to show the range and total min-max.
+
+**ETA** (`compute_remaining_eta`): sum, over each remaining run, of ITS
+task's expected duration — never a global median (brief's explicit
+rationale: drifts with execution order across v2's heterogeneous task
+lengths). A task with no cache entry is excluded from the sum and counted
+in `unreliable_task_count`; the caller must render "unreliable" rather
+than a confident number.
+
+**Dashboard** (`services/dashboard`): new read-only page `GET /campaign`
++ `GET /api/campaigns` (picker) + `GET /api/campaign/{id}` (state + ETA +
+counters + last-15 audit tail for `current.thread_id`, fetched from
+langgraph-agent's existing `GET /audit?thread_id=` — no new coupling).
+Per the brief's design principle ("harness writes, dashboard reads"), no
+HTTP channel from harness to dashboard: `docker-compose.yml` now bind-mounts
+`docs/campaigns` (`CAMPAIGNS_DIR`) and `DURATION_ESTIMATE_CACHE.json`
+read-only into the dashboard container. The ETA/normalize logic is
+duplicated in `services/dashboard/app/main.py` rather than imported — the
+two services have no shared dependency surface (separate images). "Score
+par famille" counter left as an explicit "not applicable" placeholder: v1
+tasks have no family concept (introduced by B3, not built).
+
+Verified: 28/28 `test_campaign_persistence.py` (11 new), 327/327 full
+`tests/` suite, manual browser check of `/campaign` against a hand-written
+fixture progress file (removed after verification, not committed).
+
+Operational note: `docker-compose.yml` changed (new dashboard volumes/env)
+— `docker compose build dashboard && docker compose up -d dashboard`
+required to pick this up, `--force-recreate` insufficient alone since the
+volumes list itself changed.
