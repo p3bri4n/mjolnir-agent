@@ -14,6 +14,8 @@
 #   scripts/run-campaign.sh --pause <campaign-id>              # demande de pause (voir Part 2.1)
 #   scripts/run-campaign.sh --pause <campaign-id> --release    # + arrêt tabbyapi/playwright-mcp/fixtures une fois la pause confirmée
 #   scripts/run-campaign.sh --resume <campaign-id>              # reprise (préambule complet rejoué, refuse sur dérive de config)
+#   scripts/run-campaign.sh --suite v2                          # benchmark v2 (docs/briefs/B3-benchmark-v2.md) — famille F seule pour l'instant
+#   scripts/run-campaign.sh --suite v2 --resume <campaign-id>   # --suite requis pour reprendre une campagne v2 (le cid seul ne dit pas quelle suite)
 #
 # Protocole (voir docstring de test_web_tasks.py, WEB_TASKS_SMOKE_TASKS) :
 # le mode smoke (--tasks) sert à ITÉRER vite sur un correctif — n réduit,
@@ -35,12 +37,13 @@ AGENT_DIR="$PROJECT_DIR/services/langgraph-agent"
 CAMPAIGNS_DIR="$PROJECT_DIR/docs/campaigns"
 
 TASKS=""
-REPS=3
+REPS=""
 LABEL=""
 REPORT_PATH=""
 PAUSE_CID=""
 RESUME_CID=""
 RELEASE=0
+SUITE="v1"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -51,9 +54,22 @@ while [[ $# -gt 0 ]]; do
     --pause) PAUSE_CID="$2"; shift 2 ;;
     --resume) RESUME_CID="$2"; shift 2 ;;
     --release) RELEASE=1; shift ;;
+    --suite) SUITE="$2"; shift 2 ;;
     *) echo "Argument inconnu : $1" >&2; exit 1 ;;
   esac
 done
+
+if [[ "$SUITE" != "v1" && "$SUITE" != "v2" ]]; then
+  echo "--suite doit valoir v1 ou v2 (reçu : $SUITE)" >&2
+  exit 1
+fi
+if [[ "$SUITE" == "v2" && -n "$TASKS" ]]; then
+  echo "--tasks n'a pas de sens avec --suite v2 (pas de filtre smoke côté benchmark v2, famille F seule pour l'instant)" >&2
+  exit 1
+fi
+# Défaut de --reps dépendant de la suite (3 pour v1, 2 pour v2 — famille F,
+# voir docs/briefs/B3-benchmark-v2.md, "2 repetitions instead of 3").
+[[ -z "$REPS" ]] && REPS=$([[ "$SUITE" == "v2" ]] && echo 2 || echo 3)
 
 VENV_PYTHON="${VENV_PYTHON:-$AGENT_DIR/.venv/bin/python}"
 if [[ ! -x "$VENV_PYTHON" ]]; then
@@ -99,7 +115,13 @@ fi
 # AAAA-MM-JJ_type_label.md sous docs/campaigns/ — tri chronologique
 # naturel, type lisible (campaign/smoke), label thématique.
 if [[ -z "$REPORT_PATH" ]]; then
-  if [[ -n "$RESUME_CID" ]]; then
+  if [[ "$SUITE" == "v2" ]]; then
+    if [[ -n "$RESUME_CID" ]]; then
+      REPORT_PATH="$CAMPAIGNS_DIR/$(date +%Y-%m-%d)_campaign-v2_resume-${RESUME_CID}.md"
+    else
+      REPORT_PATH="$CAMPAIGNS_DIR/$(date +%Y-%m-%d)_campaign-v2_famille-f.md"
+    fi
+  elif [[ -n "$RESUME_CID" ]]; then
     REPORT_PATH="$CAMPAIGNS_DIR/$(date +%Y-%m-%d)_campaign_resume-${RESUME_CID}.md"
   elif [[ -n "$LABEL" ]]; then
     REPORT_PATH="$CAMPAIGNS_DIR/$(date +%Y-%m-%d)_campaign_${LABEL}.md"
@@ -127,6 +149,12 @@ ALL_TASK_IDS=(T1_extraction_paginee T2_formulaire_conge T3_tableau_dynamique
   T4_recherche_multi_sauts T5_telechargement_calcul T6_session_authentifiee
   T7_impossible_par_construction T8_wikipedia T9_google_insee
   T10_books_toscrape T11_sonde_peremption)
+# Famille F seule pour l'instant (docs/briefs/B3-benchmark-v2.md) — garder
+# en synchronisation manuelle avec FAMILY_F_TASK_IDS, test_web_tasks_v2.py.
+V2_TASK_IDS=(T3_tableau_dynamique T5_telechargement_calcul T6_session_authentifiee T10_books_toscrape)
+if [[ "$SUITE" == "v2" ]]; then
+  ALL_TASK_IDS=("${V2_TASK_IDS[@]}")
+fi
 
 if [[ -n "$RESUME_CID" ]]; then
   # Reprise (Part 2.3) : REPS/TASKS/LABEL n'ont pas de sens ici (la liste
@@ -199,18 +227,27 @@ fi
 # ce module). RUN_LIVE_AGENT_TESTS=1 lève le skip d'opt-in.
 # ─────────────────────────────────────────────────────────────────────────
 export RUN_LIVE_AGENT_TESTS=1
-export WEB_TASKS_REPORT_PATH="$REPORT_PATH"
-if [[ -n "$RESUME_CID" ]]; then
-  export WEB_TASKS_RESUME_CAMPAIGN_ID="$RESUME_CID"
+if [[ "$SUITE" == "v2" ]]; then
+  export WEB_TASKS_V2_REPORT_PATH="$REPORT_PATH"
+  export WEB_TASKS_V2_REPETITIONS="$REPS"
+  [[ -n "$LABEL" ]] && export WEB_TASKS_V2_CAMPAIGN_LABEL="$LABEL"
+  [[ -n "$RESUME_CID" ]] && export WEB_TASKS_V2_RESUME_CAMPAIGN_ID="$RESUME_CID"
+  PYTEST_TARGET="tests_integration/test_web_tasks_v2.py::test_web_tasks_v2_baseline"
 else
-  export WEB_TASKS_REPETITIONS="$REPS"
-  export WEB_TASKS_SMOKE_TASKS="$TASKS"
-  [[ -n "$LABEL" ]] && export WEB_TASKS_CAMPAIGN_LABEL="$LABEL"
+  export WEB_TASKS_REPORT_PATH="$REPORT_PATH"
+  if [[ -n "$RESUME_CID" ]]; then
+    export WEB_TASKS_RESUME_CAMPAIGN_ID="$RESUME_CID"
+  else
+    export WEB_TASKS_REPETITIONS="$REPS"
+    export WEB_TASKS_SMOKE_TASKS="$TASKS"
+    [[ -n "$LABEL" ]] && export WEB_TASKS_CAMPAIGN_LABEL="$LABEL"
+  fi
+  PYTEST_TARGET="tests_integration/test_web_tasks.py::test_web_tasks_baseline"
 fi
 
 cd "$AGENT_DIR"
 STATUS=0
-"$VENV_PYTHON" -m pytest tests_integration/test_web_tasks.py::test_web_tasks_baseline -q -s -p no:cacheprovider \
+"$VENV_PYTHON" -m pytest "$PYTEST_TARGET" -q -s -p no:cacheprovider \
   || STATUS=$?
 
 # Pause propre (CAMPAIGN_PAUSED_EXIT_CODE, test_web_tasks.py Part 2.1) :
@@ -229,7 +266,9 @@ fi
 # `mail` existe.
 # ─────────────────────────────────────────────────────────────────────────
 DONE_PATH="${REPORT_PATH%.md}.DONE"
-SCORE_LINE="$(grep -m1 '^\*\*Score de campagne' "$REPORT_PATH" 2>/dev/null || echo "(rapport absent, voir STATUS=$STATUS)")"
+SCORE_PATTERN='^\*\*Score de campagne'
+[[ "$SUITE" == "v2" ]] && SCORE_PATTERN='^\*\*Alarmes'
+SCORE_LINE="$(grep -m1 "$SCORE_PATTERN" "$REPORT_PATH" 2>/dev/null || echo "(rapport absent, voir STATUS=$STATUS)")"
 {
   echo "Campagne terminée : $(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "Statut pytest : $STATUS"
