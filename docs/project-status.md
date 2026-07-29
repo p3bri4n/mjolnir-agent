@@ -124,7 +124,7 @@ Not started (security tiers by action nature, consolidation — see
 
 Not started — see `PLAN.md`.
 
-## Campaign control (`docs/briefs/archive/B2-campaign-control.md`)
+## Campaign control (`docs/briefs/archive/A6-campaign-control.md`)
 
 Tooling effort, outside PLAN.md's phase numbering. **Closed, both parts
 delivered**: live progress (incremental `progress.json`, per-task ETA
@@ -134,3 +134,13 @@ tracking) — see docs/history.md, "B2.1 — CAMPAIGN LIVE PROGRESS" and
 "B2.2 — PAUSE/RESUME + SEGMENT VALIDITY RULES". Not verified end-to-end
 against a real live campaign (unit-level only) — flagged as a follow-up
 in the B2.2 history entry.
+
+## Benchmark v2 (`docs/briefs/B3-benchmark-v2.md`)
+
+Design validated at checkpoint 2026-07-30 (22 tasks, 6 families, CuP
+headline metric). **Slice 1 (family F, regression core) delivered**:
+`tests_integration/test_web_tasks_v2.py`, T3/T5/T6/T10 reused verbatim
+from v1 by import (identity-checked), `run-campaign.sh --suite v2` — see
+docs/history.md, "B3 SLICE 1 — BENCHMARK V2, FAMILY F". Not run live yet.
+Families A-E (long horizon, policy compliance/CuP, hostile content,
+honesty, perception channels) not started.

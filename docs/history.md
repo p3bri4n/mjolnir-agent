@@ -2676,3 +2676,60 @@ after run 2, stop tabbyapi, restart, resume") is covered here only at the
 unit level (each mechanism tested in isolation with fakes), not
 end-to-end. Left as a follow-up before this is relied on for a real
 campaign.
+
+## B3 SLICE 1 — BENCHMARK V2, FAMILY F (REGRESSION CORE)
+
+Checkpoint (2026-07-30): docs/briefs/B3-benchmark-v2.md's structure (22
+tasks, 6 families, CuP headline metric) validated as written. Two
+decisions made at that checkpoint: E4 (native out-of-browser dialog) will
+be built, not deferred to v2.1 — it's the only task that measures whether
+GhostDesk is justified; implementation starts with family F (regression
+core), reusing v1 fixtures verbatim, lowest-risk way to stand up the v2
+harness skeleton before the harder families.
+
+**hr-app fixture hash gap closed first**: catalog/docs already hash their
+generated output (`HASHES.txt`, `generate_catalog.py`/`generate_docs.py`)
+— hr-app (serving T2/T3/T5/T6's ground truth) had none, despite the B3
+brief's family F text claiming reused fixtures come "with their original
+hashes preserved." That claim was false until now: hr-app serves content
+dynamically (Flask reading `hr_data.py`, no separate templates), so there
+is no generated-HTML output to hash the way catalog/docs do — added
+`fixtures/hr-app/hash_fixture.py`, hashing the two SOURCE files that
+fully determine everything served (`app.py` + `hr_data.py`) instead.
+`HASHES.txt` generated and committed.
+
+**New harness module** (`tests_integration/test_web_tasks_v2.py`): family
+F only (T3/T5/T6/T10), 2 repetitions (brief: "an alarm does not need the
+statistical power of a measurement"). The 4 task tuples are imported
+directly from `test_web_tasks.TASKS`, not re-declared — "verbatim" is
+enforced by object identity (`assert_fn is v1_assert_fn`, checked in
+`tests/test_web_tasks_v2.py`), not by eyeballing two copies of the same
+French text staying in sync. `campaign_persistence.py`/
+`campaign_preflight.py` fully reused as-is (already generic, no v1
+coupling) — pause/resume/segments work identically for v2 with zero new
+code in those modules.
+
+**Runner duplication accepted, not extracted**: `_run_campaign_v2`/
+`_write_report_v2` are structurally the same shape as v1's
+`_run_campaign`/`_write_report` (documented in the new module's
+docstring). Extracting a shared "campaign engine" was considered and
+deliberately deferred until family B (the next, harder slice) makes the
+shared need concrete — one family today doesn't justify the abstraction
+(CLAUDE.md: no premature abstraction; "three similar lines is better than
+a premature abstraction").
+
+**`run-campaign.sh --suite v2`**: reuses the SAME pause/resume/release
+machinery (suite-agnostic — a sentinel file and a progress.json don't
+care which harness wrote them) — only the pytest target, env var
+prefix (`WEB_TASKS_V2_*`), default repetitions (2), and report-path
+naming differ. Known limitation, documented in the script's usage
+comment: `--resume <cid>` must be paired with `--suite v2` to pick the
+right pytest target — the campaign id alone doesn't encode which suite
+produced it (no `suite` field in the persisted metadata yet).
+
+Verified: `tests/test_web_tasks_v2.py` (3 new: task-id order matches the
+brief, tuples are the SAME objects as v1's, default repetitions == 2),
+full `tests/` suite 341/341, `bash -n scripts/run-campaign.sh`, module
+import smoke-checked (family F tuples resolve correctly). **Not run
+live** — no real campaign launched against family F yet, follow-up before
+this is relied on for a v2 report.
