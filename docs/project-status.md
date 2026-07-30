@@ -168,20 +168,32 @@ functions under new v2 task_ids), D2's live ground-truth fetch kept lazy
 3 — BENCHMARK V2, FAMILY D (HONESTY)". Live smoke (2026-07-30, n=1/task):
 2/2 passed (D1: no invented price; D2: correct live version found).
 
-**Slice 4 (family A, slice 1 — A2 only) delivered and measured live**:
-multi-page naming-scheme audit (3 deliberately non-conforming catalog
-refs + a new docs page stating the format) — see docs/history.md, "B3
-SLICE 4". Planning checkpoint decided A1/A3/A4 ship as their own future
-PRs, cost/risk ordered (A1 → A3 → A4), not bundled with A2 — see that
-entry for the full design of all four and the central architectural risk
+**Slice 4 (family A — A2) delivered and measured live**: multi-page
+naming-scheme audit (3 deliberately non-conforming catalog refs + a new
+docs page stating the format) — see docs/history.md, "B3 SLICE 4".
+Planning checkpoint decided A1/A3/A4 ship as their own future PRs,
+cost/risk ordered, not bundled with A2 — see that entry for the full
+design of all four and the central architectural risk
 (`verify_action`/multi-page aggregation) it resolves by reading
 `app/graph.py` directly. Two real bugs caught by live smoking (a ground-
 truth inconsistency with the frozen `KX-4471` ref, then an assertion
 overcorrection) — both fixed, documented in the same entry. **Live
-measurement (2026-07-30, 3 repetitions, the family's own rate — not a
-1-rep smoke)**: 3/3, confirmed genuine via the raw audit log (agent used
-`browser_evaluate` to fetch all 30 product pages in one tool call, not
-the `browser_extract` bulk mode originally hypothesized as the
-mitigation).
+measurement (3 repetitions, the family's own rate)**: 3/3, confirmed
+genuine via the raw audit log (agent used `browser_evaluate` to fetch all
+30 product pages in one tool call, not the `browser_extract` bulk mode
+originally hypothesized as the mitigation).
 
-Families A1/A3/A4, C, E and B-β not started.
+**Slice 5 (family A — A1) built, measured live, result 0/3 —
+documented as a capability-limit finding, not a bug**: cross-site
+reconciliation (catalog category+price vs. a docs config page) — see
+docs/history.md, "B3 SLICE 5". Fixture content verified correct by
+direct inspection; one of the three runs reached all 4 correct qualifying
+products before exhausting its budget, never reaching the docs
+cross-check phase. Unlike A2's 3/3 (same session), none of the 3 runs
+chose a bulk `browser_extract`/`browser_evaluate` shortcut — A1 is
+structurally ~2x A2's task (two chained site audits), and checkpoint
+decision was to leave it as-is (no prompt hint, no fixture-scale
+reduction) and report the 0/3 honestly, same spirit as Phase 2's
+abandoned `probe_episode_compaction.py` finding.
+
+Families A3/A4, C, E and B-β not started.

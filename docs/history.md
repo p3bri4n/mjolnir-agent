@@ -2987,3 +2987,60 @@ pass, not fail).
 design-only (planning checkpoint content, not yet built) — see the brief
 for their full design and the risk notes on A4 in particular
 (`_PLAN_SUBTASKS_MAX=8` vs. 20 dependent steps).
+
+## B3 SLICE 5 — BENCHMARK V2, FAMILY A (A1, CROSS-SITE RECONCILIATION) — 0/3, DOCUMENTED AS A FINDING
+
+A1 built per the design sketched in slice 4's planning checkpoint: a
+`category` field added to `generate_catalog.py` (dedicated `rng_category`
+stream, `SEED + 1`, so existing name/price/stock values for every OTHER
+product stay unperturbed), 4 fixed indices (`A1_QUALIFYING_INDICES` — 2,
+9, 21, 28, distinct from `TARGET_INDEX` and `A2_VIOLATING_REFS`, checked
+by a new unit test) forced to category "Mobilier" + a price above 120€ by
+construction; no other product can share that category (drawn from
+`CATEGORIES` minus "Mobilier" for everyone else), so "category Mobilier,
+price > 120€" designates exactly these 4, unambiguously. A new docs page
+(`generate_docs.A1_CONFIG_PAGE`) mentions 2 of the 4 by exact reference
+(`A1_MATCHED_REFS`) — the ground truth. Cross-generator fact-sharing done
+as hardcoded literals in both files rather than a cross-Docker-context
+import (the two fixtures build as fully independent images) — same
+convention already used for `TARGET_REF`, not a new pattern.
+
+**Live measurement (2026-07-30, 3 repetitions, same discipline as A2 —
+not a 1-rep smoke): 0/3.** Confirmed via the raw audit log per thread
+that this is a genuine capability-limit finding, not a fixture/assertion
+bug: fixture content is correct (spot-checked directly — exactly the 4
+expected products carry "Mobilier", the docs page has the right 2 exact
+references), and one of the three runs actually DID open all 4 correct
+product pages via one-by-one `browser_navigate`/`browser_click` before
+running out of budget — it simply never reached the docs-site
+cross-check phase. The other two got stuck earlier, treating the
+catalog's LIST pages (name+link only, by the fixture's own long-standing
+design — see `generate_catalog.py`'s own docstring) as if they might
+reveal category/price without opening a detail page; one run invented an
+explicit (wrong) heuristic to guess category from product-name keywords
+rather than reading the actual field. None of the 3 runs called
+`browser_extract`/`browser_evaluate` in bulk — unlike A2's own 3/3 run
+(same session), where exactly that choice is what made completion
+possible. A1 is structurally ~2x A2's task (catalog audit AND a
+docs-site cross-check, chained), and this run's evidence suggests that
+without the bulk-fetch shortcut, it exceeds the current budget
+(`MAX_TOOL_ITERATIONS`/`SUBTASK_ATTEMPT_BUDGET`/`REPLAN_BUDGET`) reliably.
+
+**Deliberately left as-is** (checkpoint decision): no prompt hint toward
+bulk extraction, no fixture-scale reduction. Documented as a genuine
+finding about family A's difficulty ceiling under the current
+architecture, in the same spirit as Phase 2's abandoned
+`probe_episode_compaction.py` conclusion ("long single-task episodes
+appear structurally rare with the current architecture") — a result
+reported as measured, not force-fixed to pass. A1 stays in the harness
+(`FAMILY_A_TASKS`, wired into `_all_v2_tasks()`/`run-campaign.sh`) since
+the code itself is correct and the 0/3 is itself the informative
+measurement, consistent with "report without advocacy: missed criteria
+are announced as such."
+
+Verified: 372/372 full `tests/` suite (4 new: task-id/prompt/repetition-
+default/known-urls tests for A1, plus a ground-truth sanity check that
+`A1_QUALIFYING_INDICES` never collides with `TARGET_INDEX`/
+`A2_VIOLATING_REFS`).
+`docs/campaigns/2026-07-30_campaign-v2_adhoc-115521.md`. A3/A4 remain
+design-only.
