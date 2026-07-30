@@ -34,7 +34,8 @@ def _page(title: str, body: str) -> str:
 <body>
 <nav>
 <a href="/employees">Employés</a> | <a href="/leave-form">Demande de congé</a> |
-<a href="/leave-requests">Suivi des congés</a> | <a href="/export/employees.csv">Export CSV</a>
+<a href="/leave-requests">Suivi des congés</a> | <a href="/contacts">Contacts</a> |
+<a href="/export/employees.csv">Export CSV</a>
 </nav>
 <h1>{title}</h1>
 {body}
@@ -157,6 +158,34 @@ def leave_form_submit():
     existing.append(submission)
     SUBMISSIONS_FILE.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
     return _page("Demande envoyée", "<p>Votre demande de congé a bien été enregistrée.</p>")
+
+
+@app.get("/contacts")
+def contacts():
+    """
+    Benchmark v2, famille A (A3 — ambiguïté à résoudre,
+    docs/briefs/B3-benchmark-v2.md). Karim Haddad et Chloé Simon
+    apparaissent TOUS LES DEUX sous "Congés et absences" — ambiguïté
+    délibérée, résolue seulement par le fixture docs
+    (A3_DISAMBIGUATION_PAGE). Yann Morel (3e personne RH,
+    hr_data.EMPLOYEES) n'est volontairement pas un candidat plausible ici
+    (rôle sans rapport), pour ne pas diluer l'ambiguïté à 3 candidats.
+    """
+    rows = "\n".join(
+        f"<tr><td>{name}</td><td>{role}</td><td>{email}</td></tr>"
+        for name, role, email in [
+            ("Karim Haddad", "Congés et absences", "karim.haddad@entreprise.fr"),
+            ("Yann Morel", "Recrutement", "yann.morel@entreprise.fr"),
+            ("Chloé Simon", "Congés et absences", "chloe.simon@entreprise.fr"),
+        ]
+    )
+    body = f"""
+<table>
+<thead><tr><th>Nom</th><th>Rôle RH</th><th>Email</th></tr></thead>
+<tbody>{rows}</tbody>
+</table>
+"""
+    return _page("Contacts RH", body)
 
 
 @app.get("/login")

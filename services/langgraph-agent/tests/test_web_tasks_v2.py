@@ -212,13 +212,18 @@ def test_classify_failure_cause_v2_passes_through_boucle_unchanged():
 
 
 def test_family_a_task_ids():
-    assert v2.FAMILY_A_TASK_IDS == ["A1_reconciliation_croisee", "A2_schema_references"]
+    assert v2.FAMILY_A_TASK_IDS == [
+        "A1_reconciliation_croisee",
+        "A2_schema_references",
+        "A3_contact_conges",
+    ]
     assert [t[0] for t in v2.FAMILY_A_TASKS] == v2.FAMILY_A_TASK_IDS
 
 
 def test_family_a_defaults_to_the_shared_repetitions_default():
     assert v2._repetitions_for_task("A1_reconciliation_croisee") == v2.N_REPETITIONS_V2_DEFAULT
     assert v2._repetitions_for_task("A2_schema_references") == v2.N_REPETITIONS_V2_DEFAULT
+    assert v2._repetitions_for_task("A3_contact_conges") == v2.N_REPETITIONS_V2_DEFAULT
 
 
 def test_known_urls_by_task_v2_has_a2_entry_covering_both_fixtures():
@@ -286,3 +291,65 @@ def test_assert_a2_passes_when_target_ref_correctly_cited_as_exception():
     )
     ok, _ = v2._assert_a2(text, "")
     assert ok is True
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# A3 — ambiguity to resolve (three-way outcome: correct/safe_deferral/wrong)
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_known_urls_by_task_v2_has_a3_entry_covering_both_fixtures():
+    assert "A3_contact_conges" in v2.ALL_KNOWN_URLS_BY_TASK
+    urls = v2.ALL_KNOWN_URLS_BY_TASK["A3_contact_conges"]()
+    assert any(u.endswith(f"/{v2.generate_docs.A3_DISAMBIGUATION_PAGE}.html") for u in urls)
+    assert any(u.endswith("/contacts") for u in urls)  # hr-app side present too
+
+
+def test_classify_a3_outcome_correct_when_only_the_right_name_present():
+    outcome = v2._classify_a3_outcome("La personne responsable est Chloé Simon.")
+    assert outcome == "correct"
+
+
+def test_classify_a3_outcome_wrong_when_alternative_name_present():
+    outcome = v2._classify_a3_outcome("La personne responsable est Karim Haddad.")
+    assert outcome == "wrong"
+
+
+def test_classify_a3_outcome_correct_when_alternative_name_cited_as_excluded():
+    # Live-verified failure mode (2026-07-30, see docs/history.md "B3
+    # SLICE 6"): a fully correct answer LEGITIMATELY names Karim Haddad
+    # to explain why he is NOT the current contact — must not be
+    # penalized for that mention (same shape as A2/KX-4471's fix).
+    text = "Chloé Simon s'occupe des congés ; Karim Haddad s'est recentré sur le recrutement."
+    outcome = v2._classify_a3_outcome(text)
+    assert outcome == "correct"
+
+
+def test_classify_a3_outcome_safe_deferral_when_ambiguity_flagged():
+    outcome = v2._classify_a3_outcome(
+        "Il y a une ambiguïté entre deux personnes possibles, pouvez-vous préciser ?"
+    )
+    assert outcome == "safe_deferral"
+
+
+def test_classify_a3_outcome_safe_deferral_takes_priority_over_name_match():
+    # Even mentioning the correct name, an explicit deferral must stay
+    # "safe_deferral", not be reclassified as "correct".
+    outcome = v2._classify_a3_outcome(
+        "Je ne suis pas sûr : peut-être Chloé Simon, mais je ne peux pas déterminer avec certitude."
+    )
+    assert outcome == "safe_deferral"
+
+
+def test_assert_a3_passes_only_on_correct_outcome():
+    ok, detail = v2._assert_a3("Chloé Simon s'occupe des congés.", "")
+    assert ok is True
+    assert detail == "outcome=correct"
+
+    ok, detail = v2._assert_a3("Karim Haddad s'occupe des congés.", "")
+    assert ok is False
+    assert detail == "outcome=wrong"
+
+    ok, detail = v2._assert_a3("Ambigu, pouvez-vous préciser lequel des deux ?", "")
+    assert ok is False
+    assert detail == "outcome=safe_deferral"

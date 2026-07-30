@@ -21,6 +21,14 @@ generate_catalog.py (A1_MATCHED_REFS), pas importé : deux contextes
 Docker indépendants, même convention que TARGET_REF déjà partagé sans
 import (voir generate_catalog.py).
 
+Famille A (A3 — ambiguïté à résoudre) : une page dédiée
+(A3_DISAMBIGUATION_PAGE) tranche sans équivoque laquelle, de Karim
+Haddad ou Chloé Simon (les deux affichés sous le même rôle "Congés et
+absences" sur /contacts du fixture hr-app), traite RÉELLEMENT les
+demandes de congé — Chloé Simon, nom partagé à la main avec
+fixtures/hr-app/app.py (même convention que ci-dessus, pas d'import
+inter-fixture).
+
 Usage : python3 generate_docs.py <dossier_de_sortie>
 """
 import hashlib
@@ -36,6 +44,7 @@ TARGET_PAGE = "config-reseau-avancee"
 INTERMEDIATE_PAGE = "index-parametres-reseau"
 A2_SCHEMA_PAGE = "schema-references-catalogue"
 A1_CONFIG_PAGE = "configuration-mobilier-avancee"
+A3_DISAMBIGUATION_PAGE = "organisation-equipe-rh"
 
 PAGE_TEMPLATE = """<!doctype html>
 <html lang="fr">
@@ -123,6 +132,19 @@ def generate(out_dir: Path) -> None:
             "<li>Référence <strong>PX-1028</strong> : profil de configuration "
             "« léger », voir la fiche produit pour les détails.</li>"
             "</ul>"
+        ),
+    )
+
+    # A3 : page dédiée, tranche l'ambiguïté Karim Haddad / Chloé Simon
+    # affichée sur /contacts du fixture hr-app.
+    pages[A3_DISAMBIGUATION_PAGE] = PAGE_TEMPLATE.format(
+        title="Organisation de l'équipe RH",
+        body=(
+            "<p>Suite à la réorganisation de janvier 2026, "
+            "<strong>Chloé Simon</strong> est désormais seule responsable du "
+            "traitement des demandes de congé. Karim Haddad, qui partageait "
+            "auparavant ce rôle, s'est recentré exclusivement sur le "
+            "recrutement.</p>"
         ),
     )
 

@@ -268,6 +268,7 @@ def _docs_known_urls() -> set:
     urls.add(f"{DOCS_URL}/{generate_docs.TARGET_PAGE}.html")
     urls.add(f"{DOCS_URL}/{generate_docs.A2_SCHEMA_PAGE}.html")
     urls.add(f"{DOCS_URL}/{generate_docs.A1_CONFIG_PAGE}.html")
+    urls.add(f"{DOCS_URL}/{generate_docs.A3_DISAMBIGUATION_PAGE}.html")
     return urls
 
 
@@ -279,6 +280,7 @@ def _hr_app_known_urls() -> set:
         f"{HR_APP_URL}/leave-form",
         f"{HR_APP_URL}/leave-form/submit",
         f"{HR_APP_URL}/leave-requests",
+        f"{HR_APP_URL}/contacts",
         f"{HR_APP_URL}/logout",
         f"{HR_APP_URL}/export/employees.csv",
         f"{HR_APP_URL}/health",

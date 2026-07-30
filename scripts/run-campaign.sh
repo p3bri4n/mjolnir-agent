@@ -177,10 +177,10 @@ if [[ "$SUITE" == "v2" ]]; then
     REPS_DEFAULT="$REPS"
   fi
   ALL_TASK_IDS=(T3_tableau_dynamique T5_telechargement_calcul T6_session_authentifiee T10_books_toscrape
-    A1_reconciliation_croisee A2_schema_references
+    A1_reconciliation_croisee A2_schema_references A3_contact_conges
     B1_conge_easy B1_conge_medium B1_conge_hard D1_cible_inexistante D2_sonde_peremption)
   REPS_LIST=("$REPS_F" "$REPS_F" "$REPS_F" "$REPS_F"
-    "$REPS_DEFAULT" "$REPS_DEFAULT"
+    "$REPS_DEFAULT" "$REPS_DEFAULT" "$REPS_DEFAULT"
     "$REPS_DEFAULT" "$REPS_DEFAULT" "$REPS_DEFAULT" "$REPS_DEFAULT" "$REPS_DEFAULT")
 else
   for _ in "${ALL_TASK_IDS[@]}"; do REPS_LIST+=("$REPS"); done
