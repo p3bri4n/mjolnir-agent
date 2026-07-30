@@ -1,0 +1,37 @@
+{
+  "campaign_id": "20260730T102603Z-benchmark-v2",
+  "completed": [
+    {
+      "approvals": 6,
+      "cup": null,
+      "duration_s": 87.5,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A4_parcours_guide",
+      "thread_id": "c694a536ce7d2f04",
+      "tool_calls": 24
+    }
+  ],
+  "config_digest": "e3f53de7bb0261ce",
+  "current": null,
+  "label": "Benchmark v2",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "A4_parcours_guide"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-07-30T10:27:31.012714+00:00",
+      "index": 0,
+      "started_at": "2026-07-30T10:26:03.114796+00:00"
+    }
+  ],
+  "started_at": "2026-07-30T10:26:03.114796+00:00",
+  "total_runs": 1
+}

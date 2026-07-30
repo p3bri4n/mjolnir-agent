@@ -206,4 +206,17 @@ and fixed the same way (a correct answer legitimately naming the
 excluded alternative must not be penalized). **Live measurement (3
 repetitions)**: 3/3, all `outcome=correct`.
 
-Family A4, C, E and B-β not started.
+**Slice 7 (family A — A4) delivered, family A now fully built**: A4 is a
+GUIDED cross-site workflow (explicit numbered steps, not an open audit —
+design choice made after A1's 0/3) — see docs/history.md, "B3 SLICE 7".
+A 9-step extension aiming for the brief's 60-message coverage target was
+tried and reverted (reproducibly 0/3, hit `MAX_TOOL_ITERATIONS`, a
+measured/frozen budget); checkpoint decision kept the working 7-step
+version (19-41 messages, short of 60) and accepted the shortfall as
+documented rather than force it — same trade-off Phase 2 already made
+for v1's compaction coverage. **Live measurement**: 3/3 (first smoke) +
+2/3 (final measurement after revert) = 5/6 across two windows. A4's
+secondary judge (tokens/task, compaction on vs off) remains a future,
+separate live A/B campaign.
+
+Families C, E and B-β not started.

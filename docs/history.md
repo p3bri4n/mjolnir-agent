@@ -3094,3 +3094,69 @@ cases, `_assert_a3` three-way behavior).
 design-only — see slice 4's entry for its risk notes
 (`_PLAN_SUBTASKS_MAX=8` vs. 20 dependent steps, needs its own live A/B
 compaction campaign).
+
+## B3 SLICE 7 — BENCHMARK V2, FAMILY A (A4, COMPACTION STRESS) — GUIDED WORKFLOW, RELIABILITY OVER THE 60-MESSAGE TARGET
+
+A4 built as a **guided** workflow (brief's own wording) — explicit
+numbered steps, each naming its own URL and what to note — a deliberate
+design choice made in response to A1's 0/3 (slice 5): an agent left to
+invent its own multi-page audit strategy reliably exhausted its budget,
+so A4 never asks it to plan an aggregation strategy, only to follow a
+checklist. Final state: a new hr-app `/special-request` route (same
+JSON-to-`/data` mechanism as v1's `_assert_t2`), 4 values gathered from
+earlier steps (catalog reference, `max_retry_delay` from the docs
+2-hop trail, 3rd-highest Ingénierie salary name) submitted in one form.
+
+**First live smoke (7 steps): 3/3**, but only 19-41 messages
+(`episode_compaction_messages_max`) — short of the brief's "every run
+crosses 60 messages" design target (stated purpose: guarantee compaction
+has something to compact, unlike v1 where it fired in only 9-15% of
+runs).
+
+**Extension attempted and REVERTED**: added 2 more checkpoints reusing
+EXISTING computed ground truth — T5's CSV-download-and-calculate
+(`hr_data.T5_ANSWER_TOTAL`) and T6's login-then-count-pending
+(`hr_data.T6_ANSWER_PENDING_COUNT`) — both inherently heavier in tool
+calls than a plain navigation, chosen specifically to add real message
+volume without inventing new fixture content. Result: reproducibly
+**0/3** across two separate attempts (1 then 2 more repetitions, same
+failure both times) — `MAX_TOOL_ITERATIONS` (20, a measured/frozen
+budget per CLAUDE.md, never to change as a side effect of building one
+task) reached before the form could be submitted; one run even skipped
+the CSV step entirely and still ran out of budget. A stale artifact
+caught along the way: the FIRST failed extension run's assertion
+compared against a leftover 4-field submission from EARLIER (pre-
+extension) testing still sitting in the mounted `/data` volume, printing
+a misleading "wrong values" detail for what was actually "no new
+submission at all" — `workspace/hr-app-data/special_requests.json` isn't
+purged between test sessions the way `_purge_downloads_volume` purges
+downloads; cleared manually via `docker exec … rm`, not a code fix (no
+existing purge hook covers this file, and one wasn't added — decided
+out of scope for this slice).
+
+**Checkpoint decision: revert to the 7-step version, accept the
+60-message shortfall as documented rather than force it** — reliability
+(3/3) over hitting the exact target, the same trade-off Phase 2 already
+made for v1 (`EPISODE_COMPACTION_ENABLED` stays off by default; coverage
+was measured and reported as partial, never forced). All app.py/prompt/
+assertion changes from the extension attempt reverted to the working
+7-step shape.
+
+**Final live measurement (2026-07-30, 3 repetitions on the reverted
+7-step version): 2/3** — run #1 failed on ordinary single-run variance
+(`verify_action` didn't confirm a page-observable criterion for one
+early subtask, budget exhausted after only 15 tool_calls, not a new
+failure mode), runs #2/#3 succeeded cleanly. Combined with the earlier
+3/3 smoke (different session, before the extension detour): 5/6 across
+two independent measurement windows — a reliability profile consistent
+with A2/A3's own observed variance, not a regression.
+
+Verified: 384/384 full `tests/` suite (task-id/prompt/repetition-
+default/known-urls/`_assert_a4` tests, monkeypatched file I/O — the
+first unit-level coverage of the `_assert_t2`-style mounted-JSON pattern
+anywhere in this harness, v1 never had it either).
+`docs/campaigns/2026-07-30_campaign-v2_adhoc-125152.md`. **Family A is
+now fully built** (A1/A2/A3/A4) — A4's secondary judge (tokens/task,
+compaction on vs off) remains a SEPARATE future measurement: its own
+live A/B campaign, its own checkpoint, deliberately not run as part of
+building the task (CLAUDE.md: one variable per experiment).

@@ -19,6 +19,12 @@
       "min": 40.7,
       "n": 3
     },
+    "A4_parcours_guide": {
+      "max": 83.9,
+      "median": 81.8,
+      "min": 80.1,
+      "n": 3
+    },
     "B1_conge_easy": {
       "max": 36.3,
       "median": 36.3,

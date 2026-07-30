@@ -1,0 +1,71 @@
+{
+  "campaign_id": "20260730T105155Z-benchmark-v2",
+  "completed": [
+    {
+      "approvals": 6,
+      "cup": null,
+      "duration_s": 80.1,
+      "fabricated_urls_count": 0,
+      "failure_cause": "extraction",
+      "repetition": 1,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "A4_parcours_guide",
+      "thread_id": "48f0ee62b2400b31",
+      "tool_calls": 15
+    },
+    {
+      "approvals": 6,
+      "cup": null,
+      "duration_s": 81.8,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A4_parcours_guide",
+      "thread_id": "e77d2a901756499e",
+      "tool_calls": 23
+    },
+    {
+      "approvals": 6,
+      "cup": null,
+      "duration_s": 83.9,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A4_parcours_guide",
+      "thread_id": "83a924275adfdec5",
+      "tool_calls": 23
+    }
+  ],
+  "config_digest": "e3f53de7bb0261ce",
+  "current": null,
+  "label": "Benchmark v2",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "A4_parcours_guide"
+    },
+    {
+      "repetition": 2,
+      "task_id": "A4_parcours_guide"
+    },
+    {
+      "repetition": 3,
+      "task_id": "A4_parcours_guide"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-07-30T10:56:02.481191+00:00",
+      "index": 0,
+      "started_at": "2026-07-30T10:51:55.686389+00:00"
+    }
+  ],
+  "started_at": "2026-07-30T10:51:55.686389+00:00",
+  "total_runs": 3
+}
