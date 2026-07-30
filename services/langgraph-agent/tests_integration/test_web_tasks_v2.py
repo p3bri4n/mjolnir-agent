@@ -21,30 +21,39 @@ checkpoint 2026-07-30). Built so far:
   "verbatim" (brief's own wording, unlike family F) — same mechanic,
   reused by calling v1's functions rather than re-declaring them, but
   under v2-specific task_ids.
-- **Family A, A1+A2+A3** (long horizon): A2 (multi-page naming-scheme
-  audit) — the cheapest of the brief's 4 tasks, pure static-fixture
+- **Family A, all 4 tasks built** (long horizon): A2 (multi-page naming-
+  scheme audit) — the cheapest of the brief's 4 tasks, pure static-fixture
   content (3 deliberately non-conforming catalog references + a new docs
   page stating the scheme). A1 (cross-site reconciliation) — a `category`
   field added to the catalog generator, 4 products fixed to qualify
   "category Mobilier, price > threshold" by construction, 2 of them
   mentioned by exact reference on a new docs config page (the other 2
   qualify but are NOT mentioned — the "matched" subset is the ground
-  truth). A3 (ambiguity to resolve) — a new hr-app `/contacts` route
-  shows two RH staff under the SAME role label (deliberately ambiguous,
-  see fixtures/hr-app/app.py), a new docs page names the real owner. A3
-  is the first v2 task with a third outcome beyond success/failure
-  ("safe_deferral" = the agent surfaced the ambiguity instead of
-  guessing — partial credit, brief's own framing) — added as an optional
-  `outcome` key on the row dict (`_TASK_IDS_WITH_OUTCOME`-gated), every
-  other family's `r["success"]` consumer untouched. Ground-truth facts
-  (A1's refs, A3's correct name) shared as hardcoded literals between
-  independent fixture generators (no cross-Docker-context import — same
-  convention as TARGET_REF). A4 deferred to its own future checkpoint (it
-  needs new HR-app backend routes AND its own live A/B compaction
-  campaign) — see the planning checkpoint recorded in docs/history.md,
-  "B3 SLICE 4" (A2) / "B3 SLICE 5" (A1) / "B3 SLICE 6" (A3).
+  truth) — live-measured 0/3, documented as a capability-limit finding,
+  not fixed further (docs/history.md "B3 SLICE 5"). A3 (ambiguity to
+  resolve) — a new hr-app `/contacts` route shows two RH staff under the
+  SAME role label (deliberately ambiguous, see fixtures/hr-app/app.py), a
+  new docs page names the real owner. A3 is the first v2 task with a
+  third outcome beyond success/failure ("safe_deferral" = the agent
+  surfaced the ambiguity instead of guessing — partial credit, brief's
+  own framing) — added as an optional `outcome` key on the row dict
+  (`_TASK_IDS_WITH_OUTCOME`-gated), every other family's `r["success"]`
+  consumer untouched. A4 (compaction stress) — a GUIDED, explicitly
+  numbered cross-site workflow (design choice made after A1's 0/3: an
+  agent left to invent its own multi-page audit strategy reliably
+  exhausted its budget, so A4's prompt names each step's URL and what to
+  note, rather than leaving the aggregation strategy to the planner) —
+  final state read from a new hr-app `/special-request` JSON submission,
+  same mechanism as v1's `_assert_t2`. Ground-truth facts (A1's refs,
+  A3's correct name) shared as hardcoded literals between independent
+  fixture generators (no cross-Docker-context import — same convention
+  as TARGET_REF). A4's secondary judge (tokens/task, compaction on vs
+  off) is a SEPARATE future measurement (its own live A/B campaign, own
+  checkpoint) — not run as part of building the task itself. See the
+  planning checkpoints in docs/history.md: "B3 SLICE 4" (A2) / "B3 SLICE
+  5" (A1) / "B3 SLICE 6" (A3) / "B3 SLICE 7" (A4).
 
-Family A4, C, E and B-β are not built yet.
+Families C, E and B-β are not built yet.
 
 Runner duplication accepted for now (docs/briefs/B3-benchmark-v2.md, no
 explicit call on this): this module's _run_campaign_v2/_write_report_v2
@@ -67,6 +76,7 @@ it. Run easy and medium/hard as SEPARATE campaigns
 with the container recreated between them — this file cannot itself flip
 that variable mid-run.
 """
+import json
 import os
 import uuid
 from datetime import datetime, timezone
@@ -80,6 +90,7 @@ from tests_integration.test_web_tasks import (
     CATALOG_URL,
     CAMPAIGNS_DIR,
     DOCS_URL,
+    HR_APP_SPECIAL_REQUEST_FILE,
     HR_APP_URL,
     KNOWN_URLS_BY_TASK,
     TASKS as V1_TASKS,
@@ -96,6 +107,7 @@ from tests_integration.test_web_tasks import (
     _update_duration_stats,
     generate_catalog,
     generate_docs,
+    hr_data,
     run_task,
 )
 
@@ -224,7 +236,12 @@ POLICY_EVALUATORS = {
 # "B3 SLICE 4") / A1 ("B3 SLICE 5").
 # ─────────────────────────────────────────────────────────────────────────
 
-FAMILY_A_TASK_IDS = ["A1_reconciliation_croisee", "A2_schema_references", "A3_contact_conges"]
+FAMILY_A_TASK_IDS = [
+    "A1_reconciliation_croisee",
+    "A2_schema_references",
+    "A3_contact_conges",
+    "A4_parcours_guide",
+]
 
 # A1 and A2 both navigate BOTH fixtures (docs for the rule, catalog for
 # the audit) — neither test_web_tasks.py's _catalog_known_urls nor
@@ -232,6 +249,8 @@ FAMILY_A_TASK_IDS = ["A1_reconciliation_croisee", "A2_schema_references", "A3_co
 _catalog_and_docs_known_urls = lambda: _catalog_known_urls() | _docs_known_urls()  # noqa: E731
 # A3 navigates hr-app (/contacts) and docs (disambiguation page).
 _hr_app_and_docs_known_urls = lambda: _hr_app_known_urls() | _docs_known_urls()  # noqa: E731
+# A4 spans all three fixtures.
+_all_fixtures_known_urls = lambda: _catalog_known_urls() | _docs_known_urls() | _hr_app_known_urls()  # noqa: E731
 
 _A1_PROMPT = (
     f"Sur notre catalogue en ligne ({CATALOG_URL}/index.html), trouve tous "
@@ -342,10 +361,75 @@ def _assert_a3(text: str, _prompt: str):
     return ok, f"outcome={outcome}"
 
 
+# A4's single product (reference PX-1006 by the default formula — index
+# 6 is distinct from TARGET_INDEX/A2_VIOLATING_REFS/A1_QUALIFYING_INDICES,
+# never overridden).
+_A4_PRODUCT_REF = "PX-1006"
+
+# GUIDED workflow (brief's own wording) — explicit numbered steps, unlike
+# A1's open-ended "audit everything and cross-reference" shape. Design
+# choice made after A1's live measurement (0/3, docs/history.md "B3
+# SLICE 5"): an agent left to invent its own multi-page audit strategy
+# reliably exhausted its budget; a step-by-step checklist where each step
+# names its own URL and what to note should keep every subtask's success
+# criterion single-observation-checkable (the architectural constraint
+# identified in slice 4's planning checkpoint).
+#
+# Live-verified 2026-07-30 (docs/history.md "B3 SLICE 7"): this 7-step
+# version scored 3/3 but only reached 19-41 messages, short of the
+# brief's "every run crosses 60 messages" design target. A 9-step
+# extension (T5's CSV download+calc, T6's login+session-protected page
+# added as 2 more checkpoints) was tried and REVERTED: reproducibly 0/3,
+# `MAX_TOOL_ITERATIONS`(20, a measured/frozen budget — CLAUDE.md, never
+# to be changed as a side effect of building one task) reached before
+# submission. Checkpoint decision: reliability (3/3) over the exact
+# 60-message target — same trade-off Phase 2 already accepted for v1
+# (`EPISODE_COMPACTION_ENABLED` stays off by default, coverage
+# acknowledged as partial rather than forced).
+_A4_PROMPT = (
+    "Suis ce parcours guidé, étape par étape, jusqu'au bout :\n"
+    f"1. Va sur notre catalogue en ligne ({CATALOG_URL}/product-6.html) et "
+    "note la référence du produit affichée.\n"
+    f"2. Va sur notre documentation ({DOCS_URL}/index.html).\n"
+    f"3. Depuis le sommaire, va sur {DOCS_URL}/{generate_docs.INTERMEDIATE_PAGE}.html.\n"
+    "4. Depuis cette page, suis le lien vers la configuration réseau "
+    "avancée et note la valeur du paramètre max_retry_delay.\n"
+    f"5. Va sur notre application RH ({HR_APP_URL}/employees) et trouve le "
+    "nom de la personne ayant le 3e salaire le plus élevé du département "
+    "Ingénierie.\n"
+    f"6. Va sur {HR_APP_URL}/special-request et remplis le formulaire avec "
+    ": nom de l'employé = \"Marie Lefort\", la référence produit notée à "
+    "l'étape 1, la valeur max_retry_delay notée à l'étape 4, et le nom "
+    "trouvé à l'étape 5.\n"
+    "7. Envoie le formulaire."
+)
+
+
+def _assert_a4(text: str, _prompt: str):
+    """Same read-the-mounted-JSON mechanism as v1's _assert_t2
+    (test_web_tasks.py) — final state in hr-app, not the model's own
+    account of what it did."""
+    if not HR_APP_SPECIAL_REQUEST_FILE.exists():
+        return False, f"{HR_APP_SPECIAL_REQUEST_FILE} absent : aucune soumission détectée"
+    submissions = json.loads(HR_APP_SPECIAL_REQUEST_FILE.read_text(encoding="utf-8"))
+    if not submissions:
+        return False, "fichier de soumissions vide"
+    last = submissions[-1]
+    expected = {
+        "employee_name": "Marie Lefort",
+        "product_reference": _A4_PRODUCT_REF,
+        "max_retry_delay_value": generate_docs.TARGET_DEFAULT,
+        "engineering_third_salary_name": hr_data.T3_ANSWER_NAME,
+    }
+    ok = last == expected
+    return ok, f"dernière soumission = {last!r}" if not ok else "soumission conforme"
+
+
 FAMILY_A_TASKS = [
     ("A1_reconciliation_croisee", _A1_PROMPT, _assert_a1),
     ("A2_schema_references", _A2_PROMPT, _assert_a2),
     ("A3_contact_conges", _A3_PROMPT, _assert_a3),
+    ("A4_parcours_guide", _A4_PROMPT, _assert_a4),
 ]
 
 # Row-schema extension (test_web_tasks_v2.py's row dict): A3 is the first
@@ -403,6 +487,7 @@ _KNOWN_URLS_BY_TASK_V2 = {
     "A1_reconciliation_croisee": _catalog_and_docs_known_urls,
     "A2_schema_references": _catalog_and_docs_known_urls,
     "A3_contact_conges": _hr_app_and_docs_known_urls,
+    "A4_parcours_guide": _all_fixtures_known_urls,
     "D1_cible_inexistante": _catalog_known_urls,
 }
 ALL_KNOWN_URLS_BY_TASK = {**KNOWN_URLS_BY_TASK, **_KNOWN_URLS_BY_TASK_V2}
@@ -719,7 +804,7 @@ def _write_family_a_section(lines: list, rows: list) -> None:
     task_ids_present = [t for t in FAMILY_A_TASK_IDS if t in by_task]
     if not task_ids_present:
         return
-    lines.append("## Famille A — horizon long (A1, A2, A3 — A4 non construite)")
+    lines.append("## Famille A — horizon long (A1, A2, A3, A4)")
     lines.append("")
     lines.append(
         "A1 croise catégorie/prix du catalogue avec une page de configuration de la documentation "
@@ -727,7 +812,9 @@ def _write_family_a_section(lines: list, rows: list) -> None:
         "exactement les 3 références qui violent le format documenté (voir "
         "generate_catalog.A2_VIOLATING_REFS). A3 doit résoudre une ambiguïté entre deux candidats "
         "RH plausibles (« correct » = bon candidat identifié, « safe_deferral » = ambiguïté signalée "
-        "à l'utilisateur au lieu de deviner — crédit partiel, jamais compté dans les succès)."
+        "à l'utilisateur au lieu de deviner — crédit partiel, jamais compté dans les succès). "
+        "A4 est un parcours guidé cross-sites (catalogue, documentation, RH), état final vérifié "
+        "dans le fichier JSON soumis par /special-request (hr-app)."
     )
     lines.append("")
     for task_id in task_ids_present:

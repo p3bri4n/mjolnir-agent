@@ -129,6 +129,9 @@ WORKSPACE_HOST_PATH = Path(
     os.environ.get("WORKSPACE_HOST_PATH", Path(__file__).parents[3] / "workspace")
 )
 HR_APP_DATA_FILE = WORKSPACE_HOST_PATH / "hr-app-data" / "leave_submissions.json"
+# A4 (docs/briefs/B3-benchmark-v2.md) — same mounted-volume read pattern
+# as HR_APP_DATA_FILE, see fixtures/hr-app/app.py SPECIAL_REQUEST_FILE.
+HR_APP_SPECIAL_REQUEST_FILE = WORKSPACE_HOST_PATH / "hr-app-data" / "special_requests.json"
 
 # Report naming convention (Phase 2, restructuration+anglais):
 # YYYY-MM-DD_type_label.md under docs/campaigns/ — run-campaign.sh builds
@@ -281,6 +284,8 @@ def _hr_app_known_urls() -> set:
         f"{HR_APP_URL}/leave-form/submit",
         f"{HR_APP_URL}/leave-requests",
         f"{HR_APP_URL}/contacts",
+        f"{HR_APP_URL}/special-request",
+        f"{HR_APP_URL}/special-request/submit",
         f"{HR_APP_URL}/logout",
         f"{HR_APP_URL}/export/employees.csv",
         f"{HR_APP_URL}/health",

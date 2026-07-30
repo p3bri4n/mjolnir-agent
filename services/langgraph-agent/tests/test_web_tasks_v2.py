@@ -5,6 +5,7 @@ test_web_tasks.py's TASKS rather than by eyeballing two copies of the same
 text staying in sync (test_web_tasks_v2.py imports these tuples directly,
 never re-declares them).
 """
+import json
 import os
 
 from tests_integration import test_web_tasks as v1
@@ -216,6 +217,7 @@ def test_family_a_task_ids():
         "A1_reconciliation_croisee",
         "A2_schema_references",
         "A3_contact_conges",
+        "A4_parcours_guide",
     ]
     assert [t[0] for t in v2.FAMILY_A_TASKS] == v2.FAMILY_A_TASK_IDS
 
@@ -224,6 +226,7 @@ def test_family_a_defaults_to_the_shared_repetitions_default():
     assert v2._repetitions_for_task("A1_reconciliation_croisee") == v2.N_REPETITIONS_V2_DEFAULT
     assert v2._repetitions_for_task("A2_schema_references") == v2.N_REPETITIONS_V2_DEFAULT
     assert v2._repetitions_for_task("A3_contact_conges") == v2.N_REPETITIONS_V2_DEFAULT
+    assert v2._repetitions_for_task("A4_parcours_guide") == v2.N_REPETITIONS_V2_DEFAULT
 
 
 def test_known_urls_by_task_v2_has_a2_entry_covering_both_fixtures():
@@ -353,3 +356,58 @@ def test_assert_a3_passes_only_on_correct_outcome():
     ok, detail = v2._assert_a3("Ambigu, pouvez-vous préciser lequel des deux ?", "")
     assert ok is False
     assert detail == "outcome=safe_deferral"
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# A4 — guided cross-site workflow, final state read from a mounted JSON
+# (same mechanism as v1's _assert_t2, never unit-tested there either —
+# only exercised live; monkeypatching the file path here is new but
+# cheap and worth it given A4's higher stakes).
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_family_a_task_ids_includes_a4_last():
+    assert v2.FAMILY_A_TASK_IDS[-1] == "A4_parcours_guide"
+
+
+def test_known_urls_by_task_v2_has_a4_entry_covering_all_three_fixtures():
+    assert "A4_parcours_guide" in v2.ALL_KNOWN_URLS_BY_TASK
+    urls = v2.ALL_KNOWN_URLS_BY_TASK["A4_parcours_guide"]()
+    assert any(u.endswith("/product-1.html") for u in urls)  # catalog
+    assert any(u.endswith(f"/{v2.generate_docs.A2_SCHEMA_PAGE}.html") for u in urls)  # docs
+    assert any(u.endswith("/special-request") for u in urls)  # hr-app
+
+
+def _expected_a4_submission():
+    return {
+        "employee_name": "Marie Lefort",
+        "product_reference": v2._A4_PRODUCT_REF,
+        "max_retry_delay_value": v2.generate_docs.TARGET_DEFAULT,
+        "engineering_third_salary_name": v2.hr_data.T3_ANSWER_NAME,
+    }
+
+
+def test_assert_a4_passes_when_submission_matches_expected(monkeypatch, tmp_path):
+    f = tmp_path / "special_requests.json"
+    f.write_text(json.dumps([_expected_a4_submission()]), encoding="utf-8")
+    monkeypatch.setattr(v2, "HR_APP_SPECIAL_REQUEST_FILE", f)
+    ok, _ = v2._assert_a4("", "")
+    assert ok is True
+
+
+def test_assert_a4_fails_when_a_field_is_wrong(monkeypatch, tmp_path):
+    f = tmp_path / "special_requests.json"
+    submission = _expected_a4_submission()
+    submission["product_reference"] = "PX-9999"
+    f.write_text(json.dumps([submission]), encoding="utf-8")
+    monkeypatch.setattr(v2, "HR_APP_SPECIAL_REQUEST_FILE", f)
+    ok, detail = v2._assert_a4("", "")
+    assert ok is False
+    assert "PX-9999" in detail
+
+
+def test_assert_a4_fails_when_file_absent(monkeypatch, tmp_path):
+    monkeypatch.setattr(v2, "HR_APP_SPECIAL_REQUEST_FILE", tmp_path / "missing.json")
+    ok, detail = v2._assert_a4("", "")
+    assert ok is False
+    assert "absent" in detail

@@ -4,6 +4,11 @@ Flask minimal, données figées dans hr_data.py. Les soumissions du
 formulaire de congé (T2) sont écrites en JSON dans /data (volume monté),
 lu ensuite par les assertions du harnais de test — jamais par cette app
 elle-même après écriture.
+
+Benchmark v2, famille A : /contacts (A3 — ambiguïté à résoudre, deux
+candidats RH sous le même intitulé). /special-request (A4 — horizon
+long/compaction stress) — formulaire final d'un parcours guidé
+cross-sites, même mécanique d'écriture JSON que /leave-form.
 """
 import csv
 import io
@@ -25,6 +30,9 @@ app.permanent_session_lifetime = timedelta(
 
 DATA_DIR = Path(os.environ.get("HR_APP_DATA_DIR", "/data"))
 SUBMISSIONS_FILE = DATA_DIR / "leave_submissions.json"
+# A4 (long-horizon/compaction stress, docs/briefs/B3-benchmark-v2.md) —
+# same write-once, read-by-the-harness-only pattern as SUBMISSIONS_FILE.
+SPECIAL_REQUEST_FILE = DATA_DIR / "special_requests.json"
 
 
 def _page(title: str, body: str) -> str:
@@ -35,7 +43,7 @@ def _page(title: str, body: str) -> str:
 <nav>
 <a href="/employees">Employés</a> | <a href="/leave-form">Demande de congé</a> |
 <a href="/leave-requests">Suivi des congés</a> | <a href="/contacts">Contacts</a> |
-<a href="/export/employees.csv">Export CSV</a>
+<a href="/special-request">Demande spéciale</a> | <a href="/export/employees.csv">Export CSV</a>
 </nav>
 <h1>{title}</h1>
 {body}
@@ -158,6 +166,52 @@ def leave_form_submit():
     existing.append(submission)
     SUBMISSIONS_FILE.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
     return _page("Demande envoyée", "<p>Votre demande de congé a bien été enregistrée.</p>")
+
+
+SPECIAL_REQUEST_FORM_HTML = """
+<form id="special-request-form" method="post" action="/special-request/submit">
+  <label>Nom de l'employé : <input type="text" name="employee_name" required></label><br>
+  <label>Référence produit (catalogue) : <input type="text" name="product_reference" required></label><br>
+  <label>Valeur max_retry_delay (documentation) : <input type="text" name="max_retry_delay_value" required></label><br>
+  <label>Nom (3e salaire Ingénierie) : <input type="text" name="engineering_third_salary_name" required></label><br>
+  <button type="submit">Envoyer</button>
+</form>
+"""
+
+
+@app.get("/special-request")
+def special_request_form():
+    """
+    Benchmark v2, famille A (A4 — horizon long/compaction stress,
+    docs/briefs/B3-benchmark-v2.md). Les 4 valeurs demandées doivent être
+    RÉCOLTÉES ailleurs (catalogue, documentation, page /employees) avant
+    de soumettre ce formulaire — dernière étape d'un parcours guidé
+    cross-sites, même mécanique de vérité terrain que /leave-form (T2).
+
+    Un ajout à 6 champs (masse salariale Ventes + congés en attente) a été
+    tenté puis retiré (docs/history.md "B3 SLICE 7") : reproductiblement
+    0/3 en direct, MAX_TOOL_ITERATIONS(20) atteint avant la soumission —
+    fiabilité (3/3 à 4 champs) préférée à l'atteinte du seuil de 60
+    messages visé par le brief, décision de checkpoint.
+    """
+    return _page("Demande spéciale", SPECIAL_REQUEST_FORM_HTML)
+
+
+@app.post("/special-request/submit")
+def special_request_submit():
+    submission = {
+        "employee_name": request.form.get("employee_name", ""),
+        "product_reference": request.form.get("product_reference", ""),
+        "max_retry_delay_value": request.form.get("max_retry_delay_value", ""),
+        "engineering_third_salary_name": request.form.get("engineering_third_salary_name", ""),
+    }
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    existing = []
+    if SPECIAL_REQUEST_FILE.exists():
+        existing = json.loads(SPECIAL_REQUEST_FILE.read_text(encoding="utf-8"))
+    existing.append(submission)
+    SPECIAL_REQUEST_FILE.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
+    return _page("Demande envoyée", "<p>Votre demande spéciale a bien été enregistrée.</p>")
 
 
 @app.get("/contacts")
