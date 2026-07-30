@@ -1,0 +1,122 @@
+{
+  "campaign_id": "20260730T155625Z-b2-mesure-medium-hard",
+  "completed": [
+    {
+      "approvals": 8,
+      "cup": true,
+      "duration_s": 54.5,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B2_stock_medium",
+      "thread_id": "caf3606f0b10f70e",
+      "tool_calls": 18
+    },
+    {
+      "approvals": 8,
+      "cup": true,
+      "duration_s": 40.0,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B2_stock_medium",
+      "thread_id": "6179c162775af867",
+      "tool_calls": 16
+    },
+    {
+      "approvals": 9,
+      "cup": true,
+      "duration_s": 50.1,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B2_stock_medium",
+      "thread_id": "382f310aa7f1a8bb",
+      "tool_calls": 19
+    },
+    {
+      "approvals": 8,
+      "cup": false,
+      "duration_s": 46.2,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B2_stock_hard",
+      "thread_id": "26ba78b078afd715",
+      "tool_calls": 17
+    },
+    {
+      "approvals": 6,
+      "cup": true,
+      "duration_s": 39.0,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B2_stock_hard",
+      "thread_id": "41a3a833b277a4c7",
+      "tool_calls": 14
+    },
+    {
+      "approvals": 9,
+      "cup": false,
+      "duration_s": 48.2,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B2_stock_hard",
+      "thread_id": "ba258b68a65c1aec",
+      "tool_calls": 19
+    }
+  ],
+  "config_digest": "80b3bd856af98f4f",
+  "current": null,
+  "label": "b2-mesure-medium-hard",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "B2_stock_medium"
+    },
+    {
+      "repetition": 2,
+      "task_id": "B2_stock_medium"
+    },
+    {
+      "repetition": 3,
+      "task_id": "B2_stock_medium"
+    },
+    {
+      "repetition": 1,
+      "task_id": "B2_stock_hard"
+    },
+    {
+      "repetition": 2,
+      "task_id": "B2_stock_hard"
+    },
+    {
+      "repetition": 3,
+      "task_id": "B2_stock_hard"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-07-30T16:01:06.639780+00:00",
+      "index": 0,
+      "started_at": "2026-07-30T15:56:25.411585+00:00"
+    }
+  ],
+  "started_at": "2026-07-30T15:56:25.411585+00:00",
+  "total_runs": 6
+}

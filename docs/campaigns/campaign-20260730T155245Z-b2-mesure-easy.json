@@ -1,0 +1,448 @@
+{
+  "metadata": {
+    "commit": "a2ee67bc455f89ce5bbb8520948170690763c8f7",
+    "ended_at": "2026-07-30T15:55:07.977459+00:00",
+    "env_flags": {
+      "ADAPTIVE_THINKING": "true",
+      "AFFORDANCE_THRESHOLD": "60",
+      "APPROVAL_RULES_PATH": "",
+      "AUDIT_LOG_MAX_BYTES": "20971520",
+      "AUTO_APPROVAL_STREAK_LIMIT": "6",
+      "AUTO_APPROVED_TOOLS": "",
+      "BROWSER_NAVIGATE_GUARDRAIL": "true",
+      "BROWSER_TOOL_OUTPUT_MAX_CHARS": "8000",
+      "EPISODE_COMPACTION_ENABLED": "false",
+      "EPISODE_COMPACTION_TURN_THRESHOLD": "40",
+      "FABRICATION_LIMIT": "5",
+      "IMAGE_FORMAT_PASSTHROUGH": "",
+      "IMAGE_TOKEN_ESTIMATE": "1500",
+      "LLM_MAX_TOKENS": "2048",
+      "MAX_EMPTY_ANSWER_RETRIES": "1",
+      "MAX_IMAGES_IN_CONTEXT": "1",
+      "MAX_TOOL_ITERATIONS": "20",
+      "NEVER_GRANTABLE_TOOLS_EXTRA": "",
+      "PLANNER_ENABLED": "true",
+      "PLANNER_MAX_TOKENS": "8192",
+      "PLANNER_THINKING_ENABLED": "false",
+      "PLAN_JUDGE_ENABLED": "true",
+      "PLAN_VALIDATION_ENABLED": "true",
+      "REPLAN_BUDGET": "2",
+      "SUBTASK_ATTEMPT_BUDGET": "3",
+      "TZ": "Europe/Paris",
+      "VERIFICATION_ENABLED": "true"
+    },
+    "image_ids": {
+      "langgraph-agent": "sha256:7bcfc33c246456f7f4b15de555d0e8c76fb76aa8728a8982c7b4a88139f29d30",
+      "mcp-client": "sha256:1318235213d23bf2dd58fec7132d1e6240c579d7021ad2784cbb078297986f0e",
+      "playwright-mcp": "sha256:8771dc4666e7c11440bfc6a0c6b00480e9a15b8891b45f29a52d7d995f8d1492",
+      "tabbyapi": "sha256:7ecf8c27484305df6375ce4fe83e6406b73d4d459e78cf6b32fc1941181ae139"
+    },
+    "label": "b2-mesure-easy",
+    "started_at": "2026-07-30T15:52:45.839184+00:00",
+    "tabbyapi_model_id": "agent-llm"
+  },
+  "runs": [
+    {
+      "approvals": 6,
+      "cache_zero_requests": 1,
+      "cup": true,
+      "detail": "mise à jour conforme",
+      "duration_seconds": 40.5,
+      "episode_compaction_applied_count": 0,
+      "episode_compaction_messages_max": 17,
+      "fabricated_urls": [],
+      "failure_cause": "",
+      "final_text": "The page confirms \"Le niveau de stock a bien été mis à jour.\" - the stock level has been successfully updated. The task is complete.\n</think>\n\n\n\nFait ! Le niveau de stock du produit **PX-2007** a été mis à jour à **12**. La page confirme : « Le niveau de stock a bien été mis à jour. »\n\n",
+      "policies_checked": [
+        "admin_domain_scope"
+      ],
+      "policy_load": "easy",
+      "policy_violations": [],
+      "prefill_seconds": 12.22,
+      "prompt_tokens_total": 119764,
+      "repetition": 1,
+      "segment": 0,
+      "success": true,
+      "tabbyapi_raw_samples": [
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 5.53,
+          "new_tokens": 460,
+          "process_speed_tps": 718.75,
+          "queue_seconds": 0.0,
+          "tokens_generated": 327
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 0.95,
+          "new_tokens": 350,
+          "process_speed_tps": 700.0,
+          "queue_seconds": 0.03,
+          "tokens_generated": 22
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 1.55,
+          "new_tokens": 145,
+          "process_speed_tps": 517.86,
+          "queue_seconds": 0.03,
+          "tokens_generated": 102
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 1.23,
+          "new_tokens": 505,
+          "process_speed_tps": 673.33,
+          "queue_seconds": 0.03,
+          "tokens_generated": 34
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 4.4,
+          "new_tokens": 803,
+          "process_speed_tps": 787.25,
+          "queue_seconds": 0.03,
+          "tokens_generated": 245
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 4.53,
+          "new_tokens": 1124,
+          "process_speed_tps": 820.44,
+          "queue_seconds": 0.03,
+          "tokens_generated": 216
+        },
+        {
+          "cached_tokens": 14592,
+          "generation_seconds": 2.99,
+          "new_tokens": 382,
+          "process_speed_tps": 606.35,
+          "queue_seconds": 0.03,
+          "tokens_generated": 148
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 5.06,
+          "new_tokens": 1787,
+          "process_speed_tps": 859.13,
+          "queue_seconds": 0.03,
+          "tokens_generated": 226
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 4.03,
+          "new_tokens": 2111,
+          "process_speed_tps": 898.3,
+          "queue_seconds": 0.03,
+          "tokens_generated": 118
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 4.11,
+          "new_tokens": 2273,
+          "process_speed_tps": 874.23,
+          "queue_seconds": 0.03,
+          "tokens_generated": 102
+        }
+      ],
+      "tabbyapi_requests": 10,
+      "task_id": "B2_stock_easy",
+      "thread_id": "ff2564336d3683f8",
+      "tool_calls_observed": 14,
+      "verification_exploitable": 6,
+      "verification_opportunities": 6
+    },
+    {
+      "approvals": 6,
+      "cache_zero_requests": 2,
+      "cup": true,
+      "detail": "mise à jour conforme",
+      "duration_seconds": 38.7,
+      "episode_compaction_applied_count": 0,
+      "episode_compaction_messages_max": 17,
+      "fabricated_urls": [],
+      "failure_cause": "",
+      "final_text": "The page confirms \"Le niveau de stock a bien été mis à jour.\" which means the stock level has been successfully updated. The task is complete.\n</think>\n\n\n\nLe niveau de stock du produit **PX-2007** a été mis à jour à **12** avec succès. La page confirme : « Le niveau de stock a bien été mis à jour. »",
+      "policies_checked": [
+        "admin_domain_scope"
+      ],
+      "policy_load": "easy",
+      "policy_violations": [],
+      "prefill_seconds": 11.98,
+      "prompt_tokens_total": 120187,
+      "repetition": 2,
+      "segment": 0,
+      "success": true,
+      "tabbyapi_raw_samples": [
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 5.26,
+          "new_tokens": 461,
+          "process_speed_tps": 720.31,
+          "queue_seconds": 0.0,
+          "tokens_generated": 310
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 0.86,
+          "new_tokens": 327,
+          "process_speed_tps": 695.74,
+          "queue_seconds": 0.03,
+          "tokens_generated": 22
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 1.58,
+          "new_tokens": 146,
+          "process_speed_tps": 470.97,
+          "queue_seconds": 0.03,
+          "tokens_generated": 102
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 1.24,
+          "new_tokens": 506,
+          "process_speed_tps": 665.79,
+          "queue_seconds": 0.03,
+          "tokens_generated": 34
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 2.51,
+          "new_tokens": 800,
+          "process_speed_tps": 800.0,
+          "queue_seconds": 0.03,
+          "tokens_generated": 113
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 3.07,
+          "new_tokens": 965,
+          "process_speed_tps": 753.91,
+          "queue_seconds": 0.03,
+          "tokens_generated": 132
+        },
+        {
+          "cached_tokens": 14336,
+          "generation_seconds": 2.24,
+          "new_tokens": 399,
+          "process_speed_tps": 586.76,
+          "queue_seconds": 0.03,
+          "tokens_generated": 121
+        },
+        {
+          "cached_tokens": 14592,
+          "generation_seconds": 3.26,
+          "new_tokens": 439,
+          "process_speed_tps": 601.37,
+          "queue_seconds": 0.03,
+          "tokens_generated": 203
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 3.56,
+          "new_tokens": 932,
+          "process_speed_tps": 904.85,
+          "queue_seconds": 0.0,
+          "tokens_generated": 186
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 1.14,
+          "new_tokens": 576,
+          "process_speed_tps": 900.0,
+          "queue_seconds": 0.03,
+          "tokens_generated": 22
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 3.59,
+          "new_tokens": 1776,
+          "process_speed_tps": 849.76,
+          "queue_seconds": 0.03,
+          "tokens_generated": 106
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 3.6,
+          "new_tokens": 2012,
+          "process_speed_tps": 856.17,
+          "queue_seconds": 0.03,
+          "tokens_generated": 76
+        }
+      ],
+      "tabbyapi_requests": 12,
+      "task_id": "B2_stock_easy",
+      "thread_id": "3670a96138798cfb",
+      "tool_calls_observed": 14,
+      "verification_exploitable": 7,
+      "verification_opportunities": 7
+    },
+    {
+      "approvals": 11,
+      "cache_zero_requests": 3,
+      "cup": true,
+      "detail": "mise à jour conforme",
+      "duration_seconds": 61.3,
+      "episode_compaction_applied_count": 0,
+      "episode_compaction_messages_max": 23,
+      "fabricated_urls": [],
+      "failure_cause": "",
+      "final_text": "The page confirms \"Le niveau de stock a bien été mis à jour.\" which means the stock level has been successfully updated. The task is complete.\n</think>\n\n\n\nLa mise à jour est confirmée. La page affiche **\"Le niveau de stock a bien été mis à jour.\"** — le produit **PX-2007** a maintenant un niveau de stock de **12**.\n\n**Résumé des actions effectuées :**\n1. Navigation sur `http://fixture-admin:5000/stock`\n2. Remplissage du champ \"Référence produit\" avec `PX-2007`\n3. Remplissage du champ \"Nouveau niveau de stock\" avec `12`\n4. Clic sur le bouton \"Mettre à jour\"\n5. Confirmation reçue sur la page `/stock/update`",
+      "policies_checked": [
+        "admin_domain_scope"
+      ],
+      "policy_load": "easy",
+      "policy_violations": [],
+      "prefill_seconds": 19.96,
+      "prompt_tokens_total": 170288,
+      "repetition": 3,
+      "segment": 0,
+      "success": true,
+      "tabbyapi_raw_samples": [
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 5.59,
+          "new_tokens": 461,
+          "process_speed_tps": 720.31,
+          "queue_seconds": 0.0,
+          "tokens_generated": 334
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 0.95,
+          "new_tokens": 351,
+          "process_speed_tps": 702.0,
+          "queue_seconds": 0.03,
+          "tokens_generated": 22
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 1.64,
+          "new_tokens": 146,
+          "process_speed_tps": 470.97,
+          "queue_seconds": 0.03,
+          "tokens_generated": 102
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 1.18,
+          "new_tokens": 506,
+          "process_speed_tps": 665.79,
+          "queue_seconds": 0.03,
+          "tokens_generated": 34
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 4.06,
+          "new_tokens": 806,
+          "process_speed_tps": 782.52,
+          "queue_seconds": 0.03,
+          "tokens_generated": 227
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 3.37,
+          "new_tokens": 1088,
+          "process_speed_tps": 843.41,
+          "queue_seconds": 0.03,
+          "tokens_generated": 162
+        },
+        {
+          "cached_tokens": 14592,
+          "generation_seconds": 1.87,
+          "new_tokens": 289,
+          "process_speed_tps": 602.08,
+          "queue_seconds": 0.03,
+          "tokens_generated": 96
+        },
+        {
+          "cached_tokens": 14848,
+          "generation_seconds": 1.83,
+          "new_tokens": 192,
+          "process_speed_tps": 600.0,
+          "queue_seconds": 0.03,
+          "tokens_generated": 101
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 4.03,
+          "new_tokens": 925,
+          "process_speed_tps": 898.06,
+          "queue_seconds": 0.0,
+          "tokens_generated": 239
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 1.19,
+          "new_tokens": 626,
+          "process_speed_tps": 845.95,
+          "queue_seconds": 0.03,
+          "tokens_generated": 22
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 3.82,
+          "new_tokens": 1627,
+          "process_speed_tps": 851.83,
+          "queue_seconds": 0.03,
+          "tokens_generated": 118
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 4.38,
+          "new_tokens": 1877,
+          "process_speed_tps": 861.01,
+          "queue_seconds": 0.03,
+          "tokens_generated": 139
+        },
+        {
+          "cached_tokens": 15360,
+          "generation_seconds": 3.13,
+          "new_tokens": 452,
+          "process_speed_tps": 587.01,
+          "queue_seconds": 0.03,
+          "tokens_generated": 158
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 3.56,
+          "new_tokens": 936,
+          "process_speed_tps": 908.74,
+          "queue_seconds": 0.0,
+          "tokens_generated": 192
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 1.12,
+          "new_tokens": 586,
+          "process_speed_tps": 874.63,
+          "queue_seconds": 0.03,
+          "tokens_generated": 22
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 4.63,
+          "new_tokens": 2512,
+          "process_speed_tps": 834.55,
+          "queue_seconds": 0.03,
+          "tokens_generated": 117
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 4.64,
+          "new_tokens": 2796,
+          "process_speed_tps": 849.85,
+          "queue_seconds": 0.03,
+          "tokens_generated": 96
+        }
+      ],
+      "tabbyapi_requests": 17,
+      "task_id": "B2_stock_easy",
+      "thread_id": "9346613e7d38e437",
+      "tool_calls_observed": 22,
+      "verification_exploitable": 10,
+      "verification_opportunities": 10
+    }
+  ]
+}

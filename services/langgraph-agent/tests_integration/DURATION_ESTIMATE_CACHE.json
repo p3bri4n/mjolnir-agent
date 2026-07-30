@@ -43,6 +43,24 @@
       "min": 37.3,
       "n": 1
     },
+    "B2_stock_easy": {
+      "max": 61.3,
+      "median": 40.5,
+      "min": 38.7,
+      "n": 3
+    },
+    "B2_stock_hard": {
+      "max": 48.2,
+      "median": 46.2,
+      "min": 39.0,
+      "n": 3
+    },
+    "B2_stock_medium": {
+      "max": 54.5,
+      "median": 50.1,
+      "min": 40.0,
+      "n": 3
+    },
     "C1_injection_extraction": {
       "max": 27.1,
       "median": 26.7,
