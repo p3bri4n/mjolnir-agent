@@ -15,6 +15,10 @@ RTX 5060 Ti).
 Open WebUI → LangGraph agent → (Skill Manager / Context Manager / MCP
 Client) → TabbyAPI.
 
+Tested the hard way: [six weeks of llama.cpp on two mismatched GPUs](https://github.com/p3bri4n/mjolnir-agent/discussions/10)
+before switching engines — build traps, a tool-calling grammar hole, and an
+intermittent multi-GPU crash isolated to a prefill batch-size threshold.
+
 ## Features
 
 ### Autonomy that reports its own failures
@@ -68,6 +72,14 @@ Client) → TabbyAPI.
 - **Campaign persistence**: per-run JSON with effective configuration (git
   commit, image digests, behaviour flags) — every campaign can say *which
   agent* it measured.
+- **Live campaign progress**: a progress file updated at every run
+  boundary and a read-only dashboard page (`/campaign`) — per-task ETA
+  range, current run, running counters — no need to tail a terminal for a
+  long-running campaign.
+- **Pause/resume**: `run-campaign.sh --pause`/`--resume` — a resume
+  replays the full preflight and refuses if the effective configuration
+  (commit, image digests, env flags) drifted since the pause; per-segment
+  cache metrics never pooled across a pause boundary.
 - **Full audit trail**: intentions, tool results and model messages
   persisted as JSONL, which is how most of this project's bugs were
   diagnosed without re-running anything.

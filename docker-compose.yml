@@ -137,6 +137,7 @@ services:
       - AUTO_APPROVAL_STREAK_LIMIT=${AUTO_APPROVAL_STREAK_LIMIT:-6}
       - AUTO_APPROVED_TOOLS=${AUTO_APPROVED_TOOLS:-}
       - APPROVAL_RULES_PATH=${APPROVAL_RULES_PATH:-}
+      - NEVER_GRANTABLE_TOOLS_EXTRA=${NEVER_GRANTABLE_TOOLS_EXTRA:-}
       - BROWSER_TOOL_OUTPUT_MAX_CHARS=${BROWSER_TOOL_OUTPUT_MAX_CHARS:-8000}
       - AFFORDANCE_THRESHOLD=${AFFORDANCE_THRESHOLD:-60}
       - FABRICATION_LIMIT=${FABRICATION_LIMIT:-5}
@@ -182,6 +183,15 @@ services:
       # runtime nvidia (voir bloc "deploy" commenté plus bas, à décommenter
       # ensemble avec cette variable).
       - ENABLE_GPU_STATS=${ENABLE_GPU_STATS:-false}
+      # Live campaign progress (docs/briefs/B2-campaign-control.md, Part
+      # 1.3) : le dashboard LIT le fichier que le harnais écrit, aucun
+      # canal HTTP entre les deux services (principe de conception du
+      # brief) — d'où le montage plutôt qu'un appel réseau.
+      - CAMPAIGNS_DIR=/campaigns
+      - DURATION_ESTIMATE_CACHE_PATH=/duration-estimates.json
+    volumes:
+      - ./docs/campaigns:/campaigns:ro
+      - ./services/langgraph-agent/tests_integration/DURATION_ESTIMATE_CACHE.json:/duration-estimates.json:ro
     ports:
       - "${DASHBOARD_PORT:-8090}:8090"
     healthcheck:

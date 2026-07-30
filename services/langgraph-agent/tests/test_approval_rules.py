@@ -137,6 +137,17 @@ def test_never_grantable_tools_stay_sensitive_despite_session_grant(tool_name):
     assert policy.effective_tier(tool_name, {}, session_grants=[tool_name]) == policy.TIER_SENSITIVE
 
 
+def test_never_grantable_tools_extra_blocks_relaxation(monkeypatch):
+    """NEVER_GRANTABLE_TOOLS_EXTRA (docs/briefs/B3-benchmark-v2.md, famille
+    B) : un outil ajouté par ce mécanisme doit se comporter EXACTEMENT
+    comme les deux outils du set de base — jamais assoupli par un grant,
+    même si un autre outil (hors de l'ensemble étendu) reste assouplissable."""
+    monkeypatch.setattr(policy, "NEVER_GRANTABLE_TOOLS", policy.NEVER_GRANTABLE_TOOLS | {"browser_click"})
+    assert policy.effective_tier("browser_click", {}, session_grants=["browser_click"]) == policy.TIER_SENSITIVE
+    # Contrôle : un autre outil TIER_SENSITIVE non ajouté reste assouplissable.
+    assert policy.effective_tier("browser_navigate", {}, session_grants=["browser_navigate"]) == policy.TIER_REVERSIBLE
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # Test d'intégration : routage réel dans le graphe
 # ─────────────────────────────────────────────────────────────────────────

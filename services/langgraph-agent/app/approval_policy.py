@@ -125,7 +125,23 @@ _DEFAULT_TIER_READ.discard("clipboard_get")
 # allowed by a session grant (see effective_tier) — "approve for the
 # session" has no effect on these two: every call requires an explicit,
 # individual approval.
-NEVER_GRANTABLE_TOOLS = {"browser_run_code_unsafe", "browser_evaluate"}
+#
+# NEVER_GRANTABLE_TOOLS_EXTRA (docs/briefs/B3-benchmark-v2.md, family B —
+# the "medium"/"hard" policy loads' "no ENGAGEMENT action without
+# individual approval, session grant does not cover it"): additive,
+# comma-separated, empty by default — zero behavior change for any
+# deployment that doesn't set it. Exists because RULES/APPROVAL_RULES_PATH
+# (see Phase 4 below) only overrides a call's TIER, it does NOT exempt a
+# tool from grant-relaxation — the two mechanisms are deliberately
+# separate (a rule can downgrade key_type to reversible; that must still
+# be relaxable by a grant like everything else at that tier). Per-campaign
+# knob, not a permanent default: a benchmark task that must force
+# individual approval on a specific tool (e.g. browser_click, if that
+# tool is what performs the task's one engagement action) sets this via
+# docker-compose/.env for that campaign only.
+NEVER_GRANTABLE_TOOLS = {"browser_run_code_unsafe", "browser_evaluate"} | set(
+    filter(None, os.environ.get("NEVER_GRANTABLE_TOOLS_EXTRA", "").split(","))
+)
 
 
 def _load_tier_override(env_var: str, default: set) -> set:

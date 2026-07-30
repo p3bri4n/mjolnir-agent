@@ -1,7 +1,7 @@
 # Runbook — rebuild/restart commands
 
 Consolidated from mentions already scattered across README.md/docs/architecture
-(restructuring effort, see docs/briefs/restructuration-et-anglais.md,
+(restructuring effort, see docs/briefs/archive/A4-restructuration-et-anglais.md,
 phase 3) — no content rewrite, just a single entry point for these
 commands rather than having them scattered around.
 
@@ -24,3 +24,26 @@ commands rather than having them scattered around.
   (`qdrant-data`, `open-webui-data`) — **`docker compose down -v`**
   deletes them; never type it without explicitly meaning to (see
   docs/architecture/observability.md, Data persistence).
+
+## Pausing/resuming a campaign (docs/briefs/B2-campaign-control.md, Part 2)
+
+Resource release is the OPERATOR's business, never the harness's — the
+running pytest process only writes a sentinel-triggered pause state, it
+never touches Docker itself.
+
+1. In another terminal (while a campaign launched via
+   `scripts/run-campaign.sh` is running): `scripts/run-campaign.sh --pause
+   <campaign-id>` — drops a sentinel file, read at the NEXT run boundary
+   (a run itself is never interrupted mid-flight).
+2. Once the running harness has acknowledged the pause (`paused: true` in
+   `docs/campaigns/<campaign-id>.progress.json`), release the GPU:
+   `docker compose stop tabbyapi playwright-mcp fixture-catalog
+   fixture-docs fixture-hr-app` — or pass `--release` to the `--pause`
+   call above and let it wait for the confirmation and run this for you.
+3. To resume later: bring the stopped services back
+   (`docker compose up -d`), then `scripts/run-campaign.sh --resume
+   <campaign-id>` — replays the FULL preflight and refuses if the
+   effective config (commit, image digests, env flags) has drifted since
+   the campaign started (diff printed, nothing runs). A resume more than
+   7 days after the pause (`CAMPAIGN_RESUME_STALENESS_DAYS`) prints a
+   warning, not a refusal — real sites may have moved since.

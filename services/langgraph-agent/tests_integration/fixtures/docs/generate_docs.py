@@ -7,6 +7,28 @@ même vers la page "config-reseau-avancee" où la valeur est documentée.
 
 Déterministe (contenu fixe, pas de seed nécessaire ici — tout est explicite).
 
+Benchmark v2, famille A (A2 — audit multi-pages, docs/briefs/B3-benchmark-v2.md) :
+une page dédiée (A2_SCHEMA_PAGE) documente le format de référence produit
+du fixture catalog (PX-####, quatre chiffres) — sert de vérité terrain pour
+détecter les 3 références qui le violent (voir
+fixtures/catalog/generate_catalog.py, A2_VIOLATING_REFS).
+
+Famille A (A1 — réconciliation croisée) : une page dédiée
+(A1_CONFIG_PAGE) mentionne par référence EXACTE 2 des 4 produits
+"catégorie Mobilier, prix > 120€" du fixture catalog — les refs
+mentionnées (PX-1009, PX-1028) sont un fait PARTAGÉ à la main avec
+generate_catalog.py (A1_MATCHED_REFS), pas importé : deux contextes
+Docker indépendants, même convention que TARGET_REF déjà partagé sans
+import (voir generate_catalog.py).
+
+Famille A (A3 — ambiguïté à résoudre) : une page dédiée
+(A3_DISAMBIGUATION_PAGE) tranche sans équivoque laquelle, de Karim
+Haddad ou Chloé Simon (les deux affichés sous le même rôle "Congés et
+absences" sur /contacts du fixture hr-app), traite RÉELLEMENT les
+demandes de congé — Chloé Simon, nom partagé à la main avec
+fixtures/hr-app/app.py (même convention que ci-dessus, pas d'import
+inter-fixture).
+
 Usage : python3 generate_docs.py <dossier_de_sortie>
 """
 import hashlib
@@ -20,6 +42,9 @@ TARGET_PARAM = "max_retry_delay"
 TARGET_DEFAULT = "30000"
 TARGET_PAGE = "config-reseau-avancee"
 INTERMEDIATE_PAGE = "index-parametres-reseau"
+A2_SCHEMA_PAGE = "schema-references-catalogue"
+A1_CONFIG_PAGE = "configuration-mobilier-avancee"
+A3_DISAMBIGUATION_PAGE = "organisation-equipe-rh"
 
 PAGE_TEMPLATE = """<!doctype html>
 <html lang="fr">
@@ -68,6 +93,58 @@ def generate(out_dir: Path) -> None:
             "<tr><td>connect_timeout</td><td>5000</td><td>Délai de connexion initial (ms).</td></tr>"
             "<tr><td>max_retries</td><td>3</td><td>Nombre maximal de tentatives.</td></tr>"
             "</table>"
+        ),
+    )
+
+    # A2 : page dédiée, format de référence produit du catalogue. La
+    # clause d'exception KX-4471 est nécessaire : ce produit (cible de
+    # T1/T7/D1, référence figée — voir generate_catalog.py) viole lui
+    # aussi le format PX-####, mais n'est PAS une anomalie au sens de
+    # cette tâche — sans cette clause l'énoncé "exactement 3" devient
+    # faux (il y a 4 références non conformes au sens strict), ce qui a
+    # été observé en pratique (l'agent boucle sur l'incohérence).
+    pages[A2_SCHEMA_PAGE] = PAGE_TEMPLATE.format(
+        title="Schéma des références produit",
+        body=(
+            "<p>Toutes les références produit de notre catalogue en ligne "
+            "suivent strictement le format <strong>PX-####</strong> "
+            "(préfixe « PX- » suivi de exactement quatre chiffres). Toute "
+            "référence qui ne suit pas ce format signale une anomalie à "
+            "corriger dans la fiche produit correspondante.</p>"
+            "<p><strong>Exception documentée</strong> : le produit historique "
+            "de référence <strong>KX-4471</strong> conserve son ancienne "
+            "référence suite à une migration passée et n'est PAS à "
+            "considérer comme une anomalie.</p>"
+        ),
+    )
+
+    # A1 : page dédiée, mentionne 2 des 4 produits "Mobilier, prix >
+    # 120€" du catalogue par référence exacte (littéral, pas importé —
+    # voir docstring du module).
+    pages[A1_CONFIG_PAGE] = PAGE_TEMPLATE.format(
+        title="Configuration avancée — gamme Mobilier",
+        body=(
+            "<p>Recommandations de configuration pour notre gamme Mobilier haut de "
+            "gamme (catégorie « Mobilier », prix supérieur à 120 €) :</p>"
+            "<ul>"
+            "<li>Référence <strong>PX-1009</strong> : profil de configuration "
+            "« robuste », voir la fiche produit pour les détails.</li>"
+            "<li>Référence <strong>PX-1028</strong> : profil de configuration "
+            "« léger », voir la fiche produit pour les détails.</li>"
+            "</ul>"
+        ),
+    )
+
+    # A3 : page dédiée, tranche l'ambiguïté Karim Haddad / Chloé Simon
+    # affichée sur /contacts du fixture hr-app.
+    pages[A3_DISAMBIGUATION_PAGE] = PAGE_TEMPLATE.format(
+        title="Organisation de l'équipe RH",
+        body=(
+            "<p>Suite à la réorganisation de janvier 2026, "
+            "<strong>Chloé Simon</strong> est désormais seule responsable du "
+            "traitement des demandes de congé. Karim Haddad, qui partageait "
+            "auparavant ce rôle, s'est recentré exclusivement sur le "
+            "recrutement.</p>"
         ),
     )
 

@@ -11,6 +11,23 @@ consigné nulle part, (3) seuls des agrégats de métriques TabbyAPI
 survivaient, (4) rien ne fixait la config effective (commit, digests
 d'image, modèle, flags) au moment du run.
 
+Fichier complémentaire (docs/briefs/B2-campaign-control.md, Part 1.1) :
+`<campaign-id>.progress.json`, réécrit à CHAQUE frontière de run (pas une
+fois à la fin) — voir write_progress_json/init_progress_state plus bas.
+Sert la vue live (dashboard) et la reprise après pause, pas un remplacement
+du fichier ci-dessus.
+
+Correction rétroactive (B2 Part 2, pause/reprise) : le paragraphe ci-dessus
+("écrit UNE SEULE FOIS à la fin") demandait DÉJÀ que ce fichier COMPLET
+devienne lui aussi incrémental ("append as it goes... A campaign killed
+mid-flight then keeps everything up to the last completed run") — annoncé
+en Part 1.1 mais seulement fait pour le progress.json léger lors de la
+première passe. Fait maintenant (append_campaign_row) : une pause perdrait
+sinon les champs riches par run (texte final, échantillons TabbyAPI...) qui
+ne vivaient qu'en mémoire dans _run_campaign(). write_campaign_json devient
+une écriture atomique (temp+rename) en conséquence : appelée bien plus
+souvent qu'"une fois à la fin" maintenant.
+
 Correction factuelle avant implémentation (CLAUDE.md #8 — toute affirmation
 sur le comportement d'une lib se vérifie contre le code installé) :
 TabbyAPI (image `mjolnir-agent-tabbyapi`, vérifié dans
@@ -31,6 +48,7 @@ un delta a posteriori calculable — l'intention de la demande — sans
 prétendre à un endpoint fictif.
 """
 
+import hashlib
 import json
 import re
 import subprocess
@@ -65,6 +83,7 @@ CAMPAIGN_ENV_FLAGS = [
     "AUTO_APPROVAL_STREAK_LIMIT",
     "AUTO_APPROVED_TOOLS",
     "APPROVAL_RULES_PATH",
+    "NEVER_GRANTABLE_TOOLS_EXTRA",
     "BROWSER_TOOL_OUTPUT_MAX_CHARS",
     "AFFORDANCE_THRESHOLD",
     "FABRICATION_LIMIT",
@@ -247,17 +266,210 @@ def campaign_json_path(directory: Path, cid: str) -> Path:
 
 
 def write_campaign_json(path: Path, metadata: dict, started_at: str, ended_at: str, rows: list) -> None:
-    """Écrit le fichier UNE SEULE FOIS (voir docstring du module) : appelé
-    une fois par campagne, à la toute fin, jamais en cours de route ni
-    réécrit ensuite — cohérent avec `campaign-<timestamp>-<label>.json`
-    demandé, pas un fichier vivant mis à jour au fil des runs."""
+    """Now called at every run boundary (see append_campaign_row below),
+    not just once at campaign end (see module docstring, "correction
+    rétroactive") — atomic (temp+rename) accordingly, same pattern as
+    write_progress_json."""
     payload = {
         "metadata": {**metadata, "started_at": started_at, "ended_at": ended_at},
         "runs": rows,
     }
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False) + "\n", encoding="utf-8")
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def append_campaign_row(path: Path, metadata: dict, started_at: str, row: dict) -> None:
+    """Incremental counterpart to write_campaign_json — reads the file if
+    it already exists (earlier runs in THIS campaign, possibly from a
+    prior segment before a pause), appends `row`, rewrites atomically.
+    `ended_at` is set to now() on every call — only the LAST call's value
+    survives, which is exactly the true end-of-campaign timestamp once the
+    loop finishes."""
+    existing_rows = read_campaign_json(path)["runs"] if path.exists() else []
+    existing_rows.append(row)
+    write_campaign_json(path, metadata, started_at, datetime.now(timezone.utc).isoformat(), existing_rows)
 
 
 def read_campaign_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def config_digest(metadata: dict) -> str:
+    """Stable hash of the config a resume must not have drifted from (B2
+    Part 3.3, docs/briefs/B2-campaign-control.md) — commit + image ids +
+    env flags, excluding `label` (a resume relabels nothing) and the
+    TabbyAPI model id (already covered by its image id)."""
+    payload = json.dumps(
+        {
+            "commit": metadata.get("commit"),
+            "image_ids": metadata.get("image_ids"),
+            "env_flags": metadata.get("env_flags"),
+        },
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def progress_json_path(directory: Path, cid: str) -> Path:
+    return directory / f"{cid}.progress.json"
+
+
+def pause_sentinel_path(directory: Path, cid: str) -> Path:
+    """B2 Part 2.1: a bare file, presence-only — created by
+    `run-campaign.sh --pause`, consumed (deleted) by the harness once it
+    has acted on it."""
+    return directory / f"{cid}.pause"
+
+
+def init_progress_state(cid: str, label: str, started_at: str, digest: str, planned: list) -> dict:
+    """Shape frozen by B2 Part 1.1 — `current`/`completed` are mutated by
+    the caller (test_web_tasks.py's run loop, the only place that knows a
+    run's boundaries) and persisted via write_progress_json() below.
+
+    `planned` (extension beyond the brief's literal field list, needed to
+    make it usable): the ordered list of `{task_id, repetition}` for every
+    run in execution order — `total_runs` alone can't tell
+    compute_remaining_eta() WHICH task each remaining run is (Part 1.4),
+    and a resume (Part 2.3) needs the repetition number too, not
+    reconstructible from a bare task_id list once some runs are already
+    completed. `planned[len(completed):]` is the remaining-runs sequence.
+
+    `segments` (Part 3.1, extension for the same reason): segment 0 is
+    opened here even for a campaign that's never paused — the
+    non-regression requirement ("a campaign run without pausing produces a
+    report identical in shape... single segment") needs a segment to
+    exist from the start, not only appear once a pause happens."""
+    return {
+        "campaign_id": cid,
+        "label": label,
+        "started_at": started_at,
+        "total_runs": len(planned),
+        "config_digest": digest,
+        "planned": planned,
+        "segments": [{"index": 0, "started_at": started_at, "ended_at": None}],
+        "current": None,
+        "completed": [],
+        "paused": False,
+    }
+
+
+def open_new_segment(state: dict, now: Callable[[], datetime] = lambda: datetime.now(timezone.utc)) -> int:
+    """B2 Part 3.1 — called on resume, after the drift/staleness checks
+    passed. Returns the new segment's index, used to tag every
+    `completed` entry until the next pause (or campaign end)."""
+    segments = state.setdefault("segments", [])
+    index = len(segments)
+    segments.append({"index": index, "started_at": now().isoformat(), "ended_at": None})
+    return index
+
+
+def close_current_segment(state: dict, now: Callable[[], datetime] = lambda: datetime.now(timezone.utc)) -> None:
+    """Stamps the LAST segment's `ended_at` — called both on pause (Part
+    2.1) and at true campaign completion, so every segment (including the
+    only one in a never-paused campaign) ends up with a closed window."""
+    segments = state.get("segments")
+    if segments:
+        segments[-1]["ended_at"] = now().isoformat()
+
+
+def config_drift_diff(recorded_metadata: dict, current_metadata: dict) -> Optional[str]:
+    """B2 Part 3.3 — None if no drift, else a human-readable diff of
+    exactly what changed (commit / image ids / env flags, the same fields
+    config_digest() hashes) since the campaign started. A resume whose
+    second half measured a different agent is void; a bare digest mismatch
+    wouldn't say WHY to refuse."""
+    diffs = []
+    if recorded_metadata.get("commit") != current_metadata.get("commit"):
+        diffs.append(f"commit: {recorded_metadata.get('commit')} -> {current_metadata.get('commit')}")
+    for name, recorded in (recorded_metadata.get("image_ids") or {}).items():
+        current = (current_metadata.get("image_ids") or {}).get(name)
+        if recorded != current:
+            diffs.append(f"image[{name}]: {recorded} -> {current}")
+    for flag, recorded in (recorded_metadata.get("env_flags") or {}).items():
+        current = (current_metadata.get("env_flags") or {}).get(flag)
+        if recorded != current:
+            diffs.append(f"flag[{flag}]: {recorded} -> {current}")
+    return "; ".join(diffs) if diffs else None
+
+
+def check_resume_staleness(
+    state: dict, max_days: int = 7, now: Callable[[], datetime] = lambda: datetime.now(timezone.utc)
+) -> Optional[str]:
+    """B2 Part 3.5 — a WARNING string if resuming more than `max_days`
+    after the LAST segment's `ended_at` (the actual pause moment, not
+    campaign start), else None. Never refuses (unlike config_drift_diff):
+    real sites / live ground truths may have moved, worth recording, not
+    worth blocking a resume over."""
+    segments = state.get("segments") or []
+    if not segments or not segments[-1].get("ended_at"):
+        return None
+    paused_at = datetime.fromisoformat(segments[-1]["ended_at"])
+    elapsed_days = (now() - paused_at).total_seconds() / 86400
+    if elapsed_days <= max_days:
+        return None
+    return (
+        f"reprise {elapsed_days:.1f} jours après la pause (seuil {max_days}) — "
+        "les cibles réelles (sites vivants, sonde de péremption D2) ont pu changer"
+    )
+
+
+def normalize_duration_estimate(value) -> dict:
+    """Pre-B2 DURATION_ESTIMATE_CACHE.json entries are a bare float (single
+    median, no range) — read as a degenerate {median,min,max,n=1} rather
+    than forcing an upfront migration of the tracked JSON file. Shared by
+    test_web_tasks.py (writing the cache) and compute_remaining_eta()
+    below/the dashboard (reading it)."""
+    if isinstance(value, dict):
+        return value
+    return {"median": value, "min": value, "max": value, "n": 1}
+
+
+def compute_remaining_eta(state: dict, estimates: dict) -> dict:
+    """B2 Part 1.4: sum, over each REMAINING run, of ITS task's expected
+    duration — never a global median applied to all remaining runs, which
+    drifts with execution order across v2's deliberately heterogeneous
+    task lengths (family A runs minutes, family F is short).
+
+    `estimates` is DURATION_ESTIMATE_CACHE.json's "estimates" dict. A task
+    with no entry (cold start, never measured) is counted in
+    `unreliable_task_count` and excluded from the totals — the caller
+    (dashboard) must render "estimate unreliable" rather than a confident
+    number when this is nonzero (Part 1.4's cold-start requirement), not
+    silently substitute a default duration into an ETA."""
+    planned = state.get("planned", [])
+    remaining = planned[len(state.get("completed", [])):]
+
+    median_total = min_total = max_total = 0.0
+    unreliable_tasks = set()
+    for entry in remaining:
+        task_id = entry["task_id"]
+        raw = estimates.get(task_id)
+        if raw is None:
+            unreliable_tasks.add(task_id)
+            continue
+        entry = normalize_duration_estimate(raw)
+        median_total += entry["median"]
+        min_total += entry["min"]
+        max_total += entry["max"]
+
+    return {
+        "remaining_runs": len(remaining),
+        "median_seconds": round(median_total, 1),
+        "min_seconds": round(min_total, 1),
+        "max_seconds": round(max_total, 1),
+        "unreliable_task_count": len(unreliable_tasks),
+        "reliable": not unreliable_tasks,
+    }
+
+
+def write_progress_json(path: Path, state: dict) -> None:
+    """Rewritten atomically (temp + os.replace) at every run boundary — B2
+    Part 1.1: a campaign killed mid-flight keeps everything up to the last
+    completed run, unlike write_campaign_json() above which is a single
+    end-of-campaign artifact."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(state, indent=2, sort_keys=True, ensure_ascii=False) + "\n", encoding="utf-8")
+    tmp.replace(path)

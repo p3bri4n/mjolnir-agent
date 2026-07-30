@@ -9,6 +9,21 @@ référence — l'un et l'autre ne sont visibles que sur la fiche produit
 individuelle, pour forcer une navigation ciblée plutôt qu'une lecture de la
 liste). Un seul produit porte la référence KX-4471, page 2 de la liste.
 
+Benchmark v2, famille A (A2 — audit multi-pages, docs/briefs/B3-benchmark-v2.md) :
+3 références supplémentaires (A2_VIOLATING_REFS ci-dessous) violent
+délibérément le format documenté PX-#### (voir la page dédiée du fixture
+docs) — vérité terrain exportée, jamais dupliquée à la main côté harnais.
+
+Famille A (A1 — réconciliation croisée) : champ "category" ajouté à
+chaque produit. 4 index fixes (A1_QUALIFYING_INDICES) reçoivent
+catégorie=A1_CATEGORY et un prix > A1_PRICE_THRESHOLD par construction —
+aucun AUTRE produit ne peut porter cette catégorie (tirée dans le reste
+des catégories), donc "catégorie X et prix > seuil" désigne exactement
+ces 4 produits, sans ambiguïté. A1_MATCHED_REFS (sous-ensemble de 2)
+est le SEUL fait partagé à la main avec le fixture docs (deux contextes
+Docker indépendants, pas d'import inter-générateur — même convention que
+TARGET_REF/A2_VIOLATING_REFS, déjà partagés ainsi avec test_web_tasks.py).
+
 Échelle réduite délibérément (voir docs/history.md, recalibrage T1) : une version
 initiale à 120 produits/12 pages rendait la recherche exhaustive du pire cas
 (ouvrir chaque fiche jusqu'à trouver la référence) incompatible avec
@@ -41,10 +56,40 @@ TARGET_REF = "KX-4471"
 TARGET_INDEX = 14  # 1-indexé, page 2 (produits 11-20)
 TARGET_PRICE = "84.90"
 
+# A2 : 3 références qui violent le format documenté PX-#### (quatre
+# chiffres), à des index fixes distincts de TARGET_INDEX — une par page
+# du catalogue (5 -> page 1, 18 -> page 2, 27 -> page 3).
+A2_VIOLATING_REFS = {
+    5: "PX-77",
+    18: "REF-1023",
+    27: "PX-102750",
+}
+
+# A1 : catégorie + seuil de prix, et les 4 produits qui les satisfient par
+# construction (référence par défaut PX-100{i}, jamais surchargée — voir
+# _reference ci-dessous, ces index ne sont ni TARGET_INDEX ni dans
+# A2_VIOLATING_REFS).
+CATEGORIES = ["Mobilier", "Éclairage", "Rangement"]
+A1_CATEGORY = "Mobilier"
+A1_PRICE_THRESHOLD = 120.00
+A1_QUALIFYING_PRICES = {
+    2: "145.50",
+    9: "199.00",
+    21: "162.75",
+    28: "128.90",
+}
+A1_QUALIFYING_INDICES = set(A1_QUALIFYING_PRICES)
+# Sous-ensemble de 2 (sur les 4 qualifiants) mentionné sur la page de
+# configuration du fixture docs — vérité terrain de la tâche A1 (l'autre
+# moitié qualifie par catégorie/prix mais N'EST PAS mentionnée en doc).
+A1_MATCHED_REFS = {"PX-1009", "PX-1028"}
+
 
 def _reference(i: int) -> str:
     if i == TARGET_INDEX:
         return TARGET_REF
+    if i in A2_VIOLATING_REFS:
+        return A2_VIOLATING_REFS[i]
     # références plausibles mais jamais égales à TARGET_REF par construction
     return f"PX-{1000 + i}"
 
@@ -53,9 +98,19 @@ def _product_name(rng: random.Random, i: int) -> str:
     return f"{rng.choice(ADJECTIFS)} {rng.choice(NOMS)} #{i}"
 
 
+def _category(rng_category: random.Random, i: int) -> str:
+    if i in A1_QUALIFYING_INDICES:
+        return A1_CATEGORY
+    # A1_CATEGORY jamais tirée ici : aucun autre produit ne peut donc
+    # accidentellement rejoindre l'ensemble qualifiant de A1.
+    return rng_category.choice([c for c in CATEGORIES if c != A1_CATEGORY])
+
+
 def _price(rng: random.Random, i: int) -> str:
     if i == TARGET_INDEX:
         return TARGET_PRICE
+    if i in A1_QUALIFYING_PRICES:
+        return A1_QUALIFYING_PRICES[i]
     return f"{rng.uniform(9.90, 199.90):.2f}"
 
 
@@ -86,6 +141,7 @@ PRODUCT_TEMPLATE = """<!doctype html>
 <dl>
 <dt>Référence</dt><dd id="reference">{reference}</dd>
 <dt>Prix</dt><dd id="price">{price} €</dd>
+<dt>Catégorie</dt><dd id="category">{category}</dd>
 <dt>Stock</dt><dd id="stock">{stock}</dd>
 </dl>
 <a href="/catalog/page-{page}.html">Retour à la liste</a>
@@ -96,6 +152,7 @@ PRODUCT_TEMPLATE = """<!doctype html>
 
 def generate(out_dir: Path) -> None:
     rng = random.Random(SEED)
+    rng_category = random.Random(SEED + 1)  # flux dédié, ne perturbe pas nom/prix/stock
     out_dir.mkdir(parents=True, exist_ok=True)
     products = []
     for i in range(1, N_PRODUCTS + 1):
@@ -105,6 +162,7 @@ def generate(out_dir: Path) -> None:
                 "name": _product_name(rng, i),
                 "reference": _reference(i),
                 "price": _price(rng, i),
+                "category": _category(rng_category, i),
                 "stock": _stock(rng, i),
                 "page": (i - 1) // PER_PAGE + 1,
             }
@@ -113,7 +171,7 @@ def generate(out_dir: Path) -> None:
     for p in products:
         html = PRODUCT_TEMPLATE.format(
             name=p["name"], reference=p["reference"], price=p["price"],
-            stock=p["stock"], page=p["page"],
+            category=p["category"], stock=p["stock"], page=p["page"],
         )
         (out_dir / f"product-{p['i']}.html").write_text(html, encoding="utf-8")
 

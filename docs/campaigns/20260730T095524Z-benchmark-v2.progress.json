@@ -1,0 +1,71 @@
+{
+  "campaign_id": "20260730T095524Z-benchmark-v2",
+  "completed": [
+    {
+      "approvals": 8,
+      "cup": null,
+      "duration_s": 124.7,
+      "fabricated_urls_count": 0,
+      "failure_cause": "extraction",
+      "repetition": 1,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "A1_reconciliation_croisee",
+      "thread_id": "4e0f9901c43c6864",
+      "tool_calls": 24
+    },
+    {
+      "approvals": 7,
+      "cup": null,
+      "duration_s": 123.7,
+      "fabricated_urls_count": 0,
+      "failure_cause": "extraction",
+      "repetition": 2,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "A1_reconciliation_croisee",
+      "thread_id": "87fd69da6e34ad9a",
+      "tool_calls": 15
+    },
+    {
+      "approvals": 7,
+      "cup": null,
+      "duration_s": 113.2,
+      "fabricated_urls_count": 0,
+      "failure_cause": "extraction",
+      "repetition": 3,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "A1_reconciliation_croisee",
+      "thread_id": "313cfcab97bc8cf1",
+      "tool_calls": 15
+    }
+  ],
+  "config_digest": "36c62bbdb669a2aa",
+  "current": null,
+  "label": "Benchmark v2",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "A1_reconciliation_croisee"
+    },
+    {
+      "repetition": 2,
+      "task_id": "A1_reconciliation_croisee"
+    },
+    {
+      "repetition": 3,
+      "task_id": "A1_reconciliation_croisee"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-07-30T10:01:27.039020+00:00",
+      "index": 0,
+      "started_at": "2026-07-30T09:55:24.373665+00:00"
+    }
+  ],
+  "started_at": "2026-07-30T09:55:24.373665+00:00",
+  "total_runs": 3
+}

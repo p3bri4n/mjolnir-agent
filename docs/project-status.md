@@ -123,3 +123,100 @@ Not started (security tiers by action nature, consolidation — see
 ## Deferred effort: Mjolnir folder (second model)
 
 Not started — see `PLAN.md`.
+
+## Campaign control (`docs/briefs/archive/A6-campaign-control.md`)
+
+Tooling effort, outside PLAN.md's phase numbering. **Closed, both parts
+delivered**: live progress (incremental `progress.json`, per-task ETA
+range, read-only dashboard page) and pause/resume (sentinel-triggered
+pause, `--resume` with drift refusal and staleness warning, segment
+tracking) — see docs/history.md, "B2.1 — CAMPAIGN LIVE PROGRESS" and
+"B2.2 — PAUSE/RESUME + SEGMENT VALIDITY RULES". Not verified end-to-end
+against a real live campaign (unit-level only) — flagged as a follow-up
+in the B2.2 history entry.
+
+## Benchmark v2 (`docs/briefs/B3-benchmark-v2.md`)
+
+Design validated at checkpoint 2026-07-30 (22 tasks, 6 families, CuP
+headline metric).
+
+**Slice 1 (family F, regression core) delivered and smoke-verified
+live**: `tests_integration/test_web_tasks_v2.py`, T3/T5/T6/T10 reused
+verbatim from v1 by import (identity-checked), `run-campaign.sh --suite
+v2` — see docs/history.md, "B3 SLICE 1 — BENCHMARK V2, FAMILY F". Live
+smoke (2026-07-29, n=1/task): 4/4 passed.
+
+**Slice 2 (family B, intent α only) delivered and fully smoke-verified
+live at all 3 loads**: leave-request task at 3 policy loads
+(easy/medium/hard), CuP = task success AND no policy violated (read from
+the real audit log). New `NEVER_GRANTABLE_TOOLS_EXTRA` env var
+(`app/approval_policy.py`) needed to make medium/hard's policy
+enforceable at all — see docs/history.md, "B3 SLICE 2 — BENCHMARK V2,
+FAMILY B, INTENT α ONLY" and its follow-up entry. Live smokes
+(2026-07-29, n=1/load): easy 1/1 (`cup: true`); medium+hard 2/2
+(`cup: true` both, cross-checked against the raw audit log's `tier`
+field, not just the harness report) — first medium/hard attempt looked
+like a policy-mechanism bug but was a stale Docker image
+(`--force-recreate` without a prior `build`), documented as a caught
+operational trap. B-β (stock update, admin view) deferred: needs an
+entirely new fixture app, none exists.
+
+**Slice 3 (family D, honesty) delivered and smoke-verified live**: D1/D2
+wrap v1's T7/T11 ("heir of", not "verbatim" — reused by calling v1's
+functions under new v2 task_ids), D2's live ground-truth fetch kept lazy
+(`_family_d_tasks()`, never at import) — see docs/history.md, "B3 SLICE
+3 — BENCHMARK V2, FAMILY D (HONESTY)". Live smoke (2026-07-30, n=1/task):
+2/2 passed (D1: no invented price; D2: correct live version found).
+
+**Slice 4 (family A — A2) delivered and measured live**: multi-page
+naming-scheme audit (3 deliberately non-conforming catalog refs + a new
+docs page stating the format) — see docs/history.md, "B3 SLICE 4".
+Planning checkpoint decided A1/A3/A4 ship as their own future PRs,
+cost/risk ordered, not bundled with A2 — see that entry for the full
+design of all four and the central architectural risk
+(`verify_action`/multi-page aggregation) it resolves by reading
+`app/graph.py` directly. Two real bugs caught by live smoking (a ground-
+truth inconsistency with the frozen `KX-4471` ref, then an assertion
+overcorrection) — both fixed, documented in the same entry. **Live
+measurement (3 repetitions, the family's own rate)**: 3/3, confirmed
+genuine via the raw audit log (agent used `browser_evaluate` to fetch all
+30 product pages in one tool call, not the `browser_extract` bulk mode
+originally hypothesized as the mitigation).
+
+**Slice 5 (family A — A1) built, measured live, result 0/3 —
+documented as a capability-limit finding, not a bug**: cross-site
+reconciliation (catalog category+price vs. a docs config page) — see
+docs/history.md, "B3 SLICE 5". Fixture content verified correct by
+direct inspection; one of the three runs reached all 4 correct qualifying
+products before exhausting its budget, never reaching the docs
+cross-check phase. Unlike A2's 3/3 (same session), none of the 3 runs
+chose a bulk `browser_extract`/`browser_evaluate` shortcut — A1 is
+structurally ~2x A2's task (two chained site audits), and checkpoint
+decision was to leave it as-is (no prompt hint, no fixture-scale
+reduction) and report the 0/3 honestly, same spirit as Phase 2's
+abandoned `probe_episode_compaction.py` finding.
+
+**Slice 6 (family A — A3) delivered and measured live**: ambiguity to
+resolve (hr-app `/contacts` shows two RH candidates under the same role
+label, docs disambiguates) — see docs/history.md, "B3 SLICE 6". First v2
+task with a third outcome beyond success/failure (`outcome`:
+correct/safe_deferral/wrong, row-schema extension gated to A3 only,
+every other family untouched). Same overcorrection bug as A2/KX-4471 hit
+and fixed the same way (a correct answer legitimately naming the
+excluded alternative must not be penalized). **Live measurement (3
+repetitions)**: 3/3, all `outcome=correct`.
+
+**Slice 7 (family A — A4) delivered, family A now fully built**: A4 is a
+GUIDED cross-site workflow (explicit numbered steps, not an open audit —
+design choice made after A1's 0/3) — see docs/history.md, "B3 SLICE 7".
+A 9-step extension aiming for the brief's 60-message coverage target was
+tried and reverted (reproducibly 0/3, hit `MAX_TOOL_ITERATIONS`, a
+measured/frozen budget); checkpoint decision kept the working 7-step
+version (19-41 messages, short of 60) and accepted the shortfall as
+documented rather than force it — same trade-off Phase 2 already made
+for v1's compaction coverage. **Live measurement**: 3/3 (first smoke) +
+2/3 (final measurement after revert) = 5/6 across two windows. A4's
+secondary judge (tokens/task, compaction on vs off) remains a future,
+separate live A/B campaign.
+
+Families C, E and B-β not started.

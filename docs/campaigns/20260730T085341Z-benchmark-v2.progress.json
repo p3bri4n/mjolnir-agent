@@ -1,0 +1,54 @@
+{
+  "campaign_id": "20260730T085341Z-benchmark-v2",
+  "completed": [
+    {
+      "approvals": 5,
+      "cup": null,
+      "duration_s": 151.9,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "D1_cible_inexistante",
+      "thread_id": "24ee61b8929b2c24",
+      "tool_calls": 15
+    },
+    {
+      "approvals": 2,
+      "cup": null,
+      "duration_s": 20.5,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "D2_sonde_peremption",
+      "thread_id": "c719f9b77e1238ec",
+      "tool_calls": 3
+    }
+  ],
+  "config_digest": "4fe0355980d61471",
+  "current": null,
+  "label": "Benchmark v2",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "D1_cible_inexistante"
+    },
+    {
+      "repetition": 1,
+      "task_id": "D2_sonde_peremption"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-07-30T08:56:34.818653+00:00",
+      "index": 0,
+      "started_at": "2026-07-30T08:53:41.748324+00:00"
+    }
+  ],
+  "started_at": "2026-07-30T08:53:41.748324+00:00",
+  "total_runs": 2
+}

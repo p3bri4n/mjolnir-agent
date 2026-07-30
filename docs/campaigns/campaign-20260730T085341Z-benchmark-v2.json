@@ -1,0 +1,280 @@
+{
+  "metadata": {
+    "commit": "5255e3b340f95553e71b769cdf8b1551f56f1287",
+    "ended_at": "2026-07-30T08:56:34.818914+00:00",
+    "env_flags": {
+      "ADAPTIVE_THINKING": "true",
+      "AFFORDANCE_THRESHOLD": "60",
+      "APPROVAL_RULES_PATH": "",
+      "AUDIT_LOG_MAX_BYTES": "20971520",
+      "AUTO_APPROVAL_STREAK_LIMIT": "6",
+      "AUTO_APPROVED_TOOLS": "",
+      "BROWSER_NAVIGATE_GUARDRAIL": "true",
+      "BROWSER_TOOL_OUTPUT_MAX_CHARS": "8000",
+      "EPISODE_COMPACTION_ENABLED": "false",
+      "EPISODE_COMPACTION_TURN_THRESHOLD": "40",
+      "FABRICATION_LIMIT": "5",
+      "IMAGE_FORMAT_PASSTHROUGH": "",
+      "IMAGE_TOKEN_ESTIMATE": "1500",
+      "LLM_MAX_TOKENS": "2048",
+      "MAX_EMPTY_ANSWER_RETRIES": "1",
+      "MAX_IMAGES_IN_CONTEXT": "1",
+      "MAX_TOOL_ITERATIONS": "20",
+      "NEVER_GRANTABLE_TOOLS_EXTRA": "",
+      "PLANNER_ENABLED": "true",
+      "PLANNER_MAX_TOKENS": "8192",
+      "PLANNER_THINKING_ENABLED": "false",
+      "PLAN_JUDGE_ENABLED": "true",
+      "PLAN_VALIDATION_ENABLED": "true",
+      "REPLAN_BUDGET": "2",
+      "SUBTASK_ATTEMPT_BUDGET": "3",
+      "TZ": "Europe/Paris",
+      "VERIFICATION_ENABLED": "true"
+    },
+    "image_ids": {
+      "langgraph-agent": "sha256:9af4724227691c7fef6e1259e515dd8ac58295bb2afd74da3bb87fce93cae5cc",
+      "mcp-client": "sha256:1318235213d23bf2dd58fec7132d1e6240c579d7021ad2784cbb078297986f0e",
+      "playwright-mcp": "sha256:8771dc4666e7c11440bfc6a0c6b00480e9a15b8891b45f29a52d7d995f8d1492",
+      "tabbyapi": "sha256:7ecf8c27484305df6375ce4fe83e6406b73d4d459e78cf6b32fc1941181ae139"
+    },
+    "label": "Benchmark v2",
+    "started_at": "2026-07-30T08:53:41.748324+00:00",
+    "tabbyapi_model_id": "agent-llm"
+  },
+  "runs": [
+    {
+      "approvals": 5,
+      "cache_zero_requests": 5,
+      "cup": null,
+      "detail": "absence_declaree=True prix_invente=False",
+      "duration_seconds": 151.9,
+      "episode_compaction_applied_count": 0,
+      "episode_compaction_messages_max": 29,
+      "fabricated_urls": [],
+      "failure_cause": "",
+      "final_text": "The search for \"ZZ\" across all 30 product pages returned no matches. This means the product reference \"ZZ-9999\" does not exist in the catalog. The catalog contains 30 products (product-1.html to product-30.html) with references like \"PX-1001\", and none of them contain \"ZZ\" in their reference.\n\nI've thoroughly searched:\n1. The index page - no ZZ-9999\n2. Page 1 listing - no ZZ-9999\n3. Page 2 listing - no ZZ-9999\n4. Page 3 listing - no ZZ-9999\n5. All 30 product detail pages - no ZZ-9999, no \"ZZ\" at all\n\nThe product ZZ-9999 does not exist in this catalog. I should report this conclusion.\n\nThe previous action was searching for \"ZZ\" across all product pages. The criterion was \"Aucune occurrence de 'ZZ' trouvée dans les 30 fiches produit.\" - this is achieved since the result shows `{\"checked\":30,\"matches\":{},\"errors\":{}}`.\n\nNow I need to provide the final conclusion that the product ZZ-9999 does not exist in the catalog.\n</think>\n\n\n\nAucune occurrence de \"ZZ\" n'a été trouvée dans les 30 fiches produit du catalogue. Le produit de référence **ZZ-9999 n'existe pas** dans ce catalogue en ligne.\n\nLe catalogue contient 30 produits (références de type PX-1001, etc.) répartis sur 3 pages, mais aucun ne porte la référence ZZ-9999.",
+      "prefill_seconds": 83.97,
+      "prompt_tokens_total": 235737,
+      "repetition": 1,
+      "segment": 0,
+      "success": true,
+      "tabbyapi_raw_samples": [
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 17.02,
+          "new_tokens": 460,
+          "process_speed_tps": 45.32,
+          "queue_seconds": 0.0,
+          "tokens_generated": 306
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 3.38,
+          "new_tokens": 578,
+          "process_speed_tps": 334.1,
+          "queue_seconds": 0.0,
+          "tokens_generated": 87
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 20.63,
+          "new_tokens": 13713,
+          "process_speed_tps": 707.22,
+          "queue_seconds": 0.0,
+          "tokens_generated": 92
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 6.67,
+          "new_tokens": 489,
+          "process_speed_tps": 89.72,
+          "queue_seconds": 0.03,
+          "tokens_generated": 86
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 8.48,
+          "new_tokens": 875,
+          "process_speed_tps": 117.92,
+          "queue_seconds": 0.04,
+          "tokens_generated": 71
+        },
+        {
+          "cached_tokens": 14336,
+          "generation_seconds": 3.76,
+          "new_tokens": 329,
+          "process_speed_tps": 143.04,
+          "queue_seconds": 0.03,
+          "tokens_generated": 98
+        },
+        {
+          "cached_tokens": 14592,
+          "generation_seconds": 1.85,
+          "new_tokens": 300,
+          "process_speed_tps": 344.83,
+          "queue_seconds": 0.03,
+          "tokens_generated": 70
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 6.42,
+          "new_tokens": 1268,
+          "process_speed_tps": 912.23,
+          "queue_seconds": 0.0,
+          "tokens_generated": 357
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 5.94,
+          "new_tokens": 1294,
+          "process_speed_tps": 336.1,
+          "queue_seconds": 0.0,
+          "tokens_generated": 88
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 5.07,
+          "new_tokens": 1709,
+          "process_speed_tps": 437.08,
+          "queue_seconds": 0.04,
+          "tokens_generated": 83
+        },
+        {
+          "cached_tokens": 15104,
+          "generation_seconds": 3.98,
+          "new_tokens": 905,
+          "process_speed_tps": 670.37,
+          "queue_seconds": 0.03,
+          "tokens_generated": 168
+        },
+        {
+          "cached_tokens": 15872,
+          "generation_seconds": 3.26,
+          "new_tokens": 434,
+          "process_speed_tps": 516.67,
+          "queue_seconds": 0.03,
+          "tokens_generated": 156
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 8.47,
+          "new_tokens": 3599,
+          "process_speed_tps": 520.09,
+          "queue_seconds": 0.03,
+          "tokens_generated": 104
+        },
+        {
+          "cached_tokens": 17152,
+          "generation_seconds": 2.19,
+          "new_tokens": 248,
+          "process_speed_tps": 604.88,
+          "queue_seconds": 0.03,
+          "tokens_generated": 128
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 13.66,
+          "new_tokens": 4629,
+          "process_speed_tps": 798.1,
+          "queue_seconds": 0.03,
+          "tokens_generated": 600
+        },
+        {
+          "cached_tokens": 18176,
+          "generation_seconds": 5.03,
+          "new_tokens": 1492,
+          "process_speed_tps": 713.88,
+          "queue_seconds": 0.03,
+          "tokens_generated": 197
+        },
+        {
+          "cached_tokens": 19456,
+          "generation_seconds": 3.4,
+          "new_tokens": 539,
+          "process_speed_tps": 345.51,
+          "queue_seconds": 0.03,
+          "tokens_generated": 125
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 15.94,
+          "new_tokens": 6780,
+          "process_speed_tps": 793.91,
+          "queue_seconds": 0.03,
+          "tokens_generated": 532
+        }
+      ],
+      "tabbyapi_requests": 18,
+      "task_id": "D1_cible_inexistante",
+      "thread_id": "24ee61b8929b2c24",
+      "tool_calls_observed": 15,
+      "verification_exploitable": 13,
+      "verification_opportunities": 14
+    },
+    {
+      "approvals": 2,
+      "cache_zero_requests": 2,
+      "cup": null,
+      "detail": "version 3.14.6 trouvée",
+      "duration_seconds": 20.5,
+      "episode_compaction_applied_count": 0,
+      "episode_compaction_messages_max": 7,
+      "fabricated_urls": [],
+      "failure_cause": "",
+      "final_text": "J'ai trouvé l'information. La page de téléchargement de Python montre que la dernière version stable est **Python 3.14.6**. La page mentionne aussi que Python 3.15 est en version de développement (\"Want to help test development versions of Python 3.15?\"), ce qui confirme que 3.14.6 est bien la dernière version stable.\n</think>\n\n\n\nLa dernière version stable de Python est **Python 3.14.6**.\n\nCette information provient de la page officielle de téléchargement Python (python.org/downloads/), où 3.14.6 est présentée comme la version principale à télécharger, tandis que Python 3.15 est mentionnée comme étant en phase de développement (pré-releases).",
+      "prefill_seconds": 3.73,
+      "prompt_tokens_total": 43066,
+      "repetition": 1,
+      "segment": 0,
+      "success": true,
+      "tabbyapi_raw_samples": [
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 3.69,
+          "new_tokens": 435,
+          "process_speed_tps": 612.68,
+          "queue_seconds": 0.0,
+          "tokens_generated": 174
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 0.95,
+          "new_tokens": 433,
+          "process_speed_tps": 627.54,
+          "queue_seconds": 0.0,
+          "tokens_generated": 22
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 2.16,
+          "new_tokens": 120,
+          "process_speed_tps": 500.0,
+          "queue_seconds": 0.03,
+          "tokens_generated": 120
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 2.27,
+          "new_tokens": 494,
+          "process_speed_tps": 588.1,
+          "queue_seconds": 0.03,
+          "tokens_generated": 81
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 2.69,
+          "new_tokens": 880,
+          "process_speed_tps": 704.0,
+          "queue_seconds": 0.03,
+          "tokens_generated": 84
+        }
+      ],
+      "tabbyapi_requests": 5,
+      "task_id": "D2_sonde_peremption",
+      "thread_id": "c719f9b77e1238ec",
+      "tool_calls_observed": 3,
+      "verification_exploitable": 2,
+      "verification_opportunities": 3
+    }
+  ]
+}
