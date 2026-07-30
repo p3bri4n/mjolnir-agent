@@ -143,6 +143,106 @@ def test_evaluate_policies_hard_load_reports_all_violations(monkeypatch):
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# Family B, intent β (stock update, admin view) — new dedicated
+# fixture-admin, its own host/scope distinct from fixture-hr-app.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_family_b_beta_task_ids():
+    assert v2.FAMILY_B_BETA_TASK_IDS == ["B2_stock_easy", "B2_stock_medium", "B2_stock_hard"]
+    assert [t[0] for t in v2.FAMILY_B_BETA_TASKS] == v2.FAMILY_B_BETA_TASK_IDS
+
+
+def test_family_b_beta_prompt_identical_across_loads():
+    # Brief: "Only the policy load varies between tiers — the task is
+    # word-for-word identical."
+    prompts = {prompt for _, prompt, _ in v2.FAMILY_B_BETA_TASKS}
+    assert len(prompts) == 1
+
+
+def test_family_b_beta_defaults_to_three_repetitions():
+    assert v2._repetitions_for_task("B2_stock_easy") == v2.N_REPETITIONS_V2_DEFAULT
+
+
+def test_family_b_beta_policies_escalate_by_load():
+    easy = set(v2.FAMILY_B_BETA_POLICIES["B2_stock_easy"])
+    medium = set(v2.FAMILY_B_BETA_POLICIES["B2_stock_medium"])
+    hard = set(v2.FAMILY_B_BETA_POLICIES["B2_stock_hard"])
+    assert easy < medium < hard
+
+
+def test_known_urls_by_task_v2_has_b2_entries():
+    for task_id in v2.FAMILY_B_BETA_TASK_IDS:
+        assert task_id in v2.ALL_KNOWN_URLS_BY_TASK
+        urls = v2.ALL_KNOWN_URLS_BY_TASK[task_id]()
+        assert any(u.endswith("/stock") for u in urls)
+
+
+def test_policy_admin_domain_scope_passes_within_scope():
+    entries = [_entry("browser_navigate", url=f"{v2.ADMIN_APP_URL}/stock")]
+    ok, detail = v2._policy_admin_domain_scope(entries)
+    assert ok is True
+    assert detail == ""
+
+
+def test_policy_admin_domain_scope_fails_outside_scope():
+    entries = [_entry("browser_navigate", url="http://fixture-hr-app:5000/leave-form")]
+    ok, detail = v2._policy_admin_domain_scope(entries)
+    assert ok is False
+    assert "fixture-hr-app" in detail
+
+
+def test_evaluate_policies_covers_family_b_beta_tasks(monkeypatch):
+    monkeypatch.setattr(v2, "_audit_entries", lambda tid: [])
+    result = v2._evaluate_policies("B2_stock_easy", "thread-x")
+    assert result["policies_checked"] == ["admin_domain_scope"]
+    assert result["policy_violations"] == []
+
+
+def _stock_submission():
+    return {"product_reference": v2._B_BETA_PRODUCT_REF, "new_stock": v2._B_BETA_NEW_STOCK}
+
+
+def test_assert_b_beta_passes_when_submission_matches_expected(monkeypatch, tmp_path):
+    f = tmp_path / "stock_updates.json"
+    f.write_text(json.dumps([_stock_submission()]), encoding="utf-8")
+    monkeypatch.setattr(v2, "ADMIN_STOCK_FILE", f)
+    ok, _ = v2._assert_b_beta("", "")
+    assert ok is True
+
+
+def test_assert_b_beta_fails_when_stock_value_is_wrong(monkeypatch, tmp_path):
+    f = tmp_path / "stock_updates.json"
+    submission = _stock_submission()
+    submission["new_stock"] = 999
+    f.write_text(json.dumps([submission]), encoding="utf-8")
+    monkeypatch.setattr(v2, "ADMIN_STOCK_FILE", f)
+    ok, detail = v2._assert_b_beta("", "")
+    assert ok is False
+    assert "999" in detail
+
+
+def test_assert_b_beta_fails_when_file_absent(monkeypatch, tmp_path):
+    monkeypatch.setattr(v2, "ADMIN_STOCK_FILE", tmp_path / "missing.json")
+    ok, detail = v2._assert_b_beta("", "")
+    assert ok is False
+    assert "absent" in detail
+
+
+def test_purge_admin_stock_file_removes_existing_file(monkeypatch, tmp_path):
+    f = tmp_path / "stock_updates.json"
+    f.write_text(json.dumps([_stock_submission()]), encoding="utf-8")
+    monkeypatch.setattr(v2, "ADMIN_STOCK_FILE", f)
+    v2._purge_admin_stock_file()
+    assert not f.exists()
+
+
+def test_purge_admin_stock_file_no_op_when_absent(monkeypatch, tmp_path):
+    monkeypatch.setattr(v2, "ADMIN_STOCK_FILE", tmp_path / "missing.json")
+    v2._purge_admin_stock_file()  # must not raise
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # Family D (honesty) — "heir of" v1 T7/T11, not "verbatim"
 #
 # D2 wraps _t11_task(), a REAL live HTTP fetch (python.org) — only

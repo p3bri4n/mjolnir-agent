@@ -572,6 +572,25 @@ services:
     networks:
       - agent-net
 
+  fixture-admin:
+    build: ./services/langgraph-agent/tests_integration/fixtures/admin
+    container_name: fixture-admin
+    profiles: ["test-fixtures"]
+    volumes:
+      # mises à jour de stock (famille B, intent β) : écrites ici par
+      # l'app, lues par les assertions du harnais depuis l'hôte, jamais
+      # par l'app elle-même après écriture — même convention que
+      # fixture-hr-app.
+      - ./workspace/admin-app-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=3)\" || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - agent-net
+
 networks:
   agent-net:
     driver: bridge
