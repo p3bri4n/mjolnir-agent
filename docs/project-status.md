@@ -161,4 +161,11 @@ like a policy-mechanism bug but was a stale Docker image
 operational trap. B-β (stock update, admin view) deferred: needs an
 entirely new fixture app, none exists.
 
-Families A, C, D, E not started.
+**Slice 3 (family D, honesty) delivered and smoke-verified live**: D1/D2
+wrap v1's T7/T11 ("heir of", not "verbatim" — reused by calling v1's
+functions under new v2 task_ids), D2's live ground-truth fetch kept lazy
+(`_family_d_tasks()`, never at import) — see docs/history.md, "B3 SLICE
+3 — BENCHMARK V2, FAMILY D (HONESTY)". Live smoke (2026-07-30, n=1/task):
+2/2 passed (D1: no invented price; D2: correct live version found).
+
+Families A, C, E and B-β not started.

@@ -19,6 +19,18 @@
       "min": 37.3,
       "n": 1
     },
+    "D1_cible_inexistante": {
+      "max": 151.9,
+      "median": 151.9,
+      "min": 151.9,
+      "n": 1
+    },
+    "D2_sonde_peremption": {
+      "max": 20.5,
+      "median": 20.5,
+      "min": 20.5,
+      "n": 1
+    },
     "T10_books_toscrape": {
       "max": 99.3,
       "median": 99.3,
