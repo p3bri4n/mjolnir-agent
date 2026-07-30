@@ -550,6 +550,13 @@ services:
     networks:
       - agent-net
 
+  fixture-perception:
+    build: ./services/langgraph-agent/tests_integration/fixtures/perception
+    container_name: fixture-perception
+    profiles: ["test-fixtures"]
+    networks:
+      - agent-net
+
   fixture-hr-app:
     build: ./services/langgraph-agent/tests_integration/fixtures/hr-app
     container_name: fixture-hr-app

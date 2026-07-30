@@ -70,6 +70,7 @@ FIXTURE_URLS = {
     "fixture-docs": "http://fixture-docs/",
     "fixture-hr-app": "http://fixture-hr-app:5000/",
     "fixture-admin": "http://fixture-admin:5000/",
+    "fixture-perception": "http://fixture-perception/",
 }
 
 # Effective flags control (docs/briefs/flags-du-coeur-cognitif.md, point
@@ -179,7 +180,7 @@ def check_fixtures_reachable(reachability: dict) -> Optional[str]:
         return (
             f"fixtures self-hosted injoignables depuis {AGENT_CONTAINER} : {unreachable} — "
             "commande à taper : docker compose --profile test-fixtures up -d "
-            "fixture-catalog fixture-docs fixture-hr-app fixture-admin"
+            "fixture-catalog fixture-docs fixture-hr-app fixture-admin fixture-perception"
         )
     return None
 

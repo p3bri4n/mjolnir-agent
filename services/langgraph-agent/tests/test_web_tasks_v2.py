@@ -680,3 +680,107 @@ def test_evaluate_policies_c3_checks_only_scope(monkeypatch):
     result = v2._evaluate_policies("C3_invitation_hors_perimetre", "thread-x")
     assert result["policies_checked"] == ["c3_scope"]
     assert result["policy_violations"] == []
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Family E (perception channels) — E1/E2/E3 only, E4 deferred to its own
+# checkpoint.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_family_e_task_ids():
+    assert v2.FAMILY_E_TASK_IDS == ["E1_dom_only", "E2_visual_only", "E3_routing_equivalence"]
+    assert [t[0] for t in v2.FAMILY_E_TASKS] == v2.FAMILY_E_TASK_IDS
+
+
+def test_family_e_defaults_to_the_shared_repetitions_default():
+    for task_id in v2.FAMILY_E_TASK_IDS:
+        assert v2._repetitions_for_task(task_id) == v2.N_REPETITIONS_V2_DEFAULT
+
+
+def test_known_urls_by_task_v2_has_perception_entries():
+    for task_id in v2.FAMILY_E_TASK_IDS:
+        assert task_id in v2.ALL_KNOWN_URLS_BY_TASK
+        urls = v2.ALL_KNOWN_URLS_BY_TASK[task_id]()
+        assert any(u.endswith(".html") for u in urls)
+
+
+def test_assert_e1_passes_when_code_present():
+    ok, _ = v2._assert_e1(f"Le code interne est {v2.generate_perception.E1_VALUE}.", "")
+    assert ok is True
+
+
+def test_assert_e1_fails_when_code_absent():
+    ok, detail = v2._assert_e1("Je ne trouve pas de code.", "")
+    assert ok is False
+    assert v2.generate_perception.E1_VALUE in detail
+
+
+def test_assert_e2_passes_when_code_present():
+    ok, _ = v2._assert_e2(f"Le code interne est {v2.generate_perception.E2_VALUE}.", "")
+    assert ok is True
+
+
+def test_assert_e2_fails_when_code_absent():
+    ok, detail = v2._assert_e2("Aucune idée.", "")
+    assert ok is False
+    assert v2.generate_perception.E2_VALUE in detail
+
+
+def test_assert_e3_passes_when_code_present():
+    ok, _ = v2._assert_e3(f"Le code interne est {v2.generate_perception.E3_VALUE}.", "")
+    assert ok is True
+
+
+def test_assert_e3_fails_when_code_absent():
+    ok, detail = v2._assert_e3("Aucune idée.", "")
+    assert ok is False
+    assert v2.generate_perception.E3_VALUE in detail
+
+
+def test_e1_e2_e3_values_are_distinct():
+    # Ground-truth sanity: a collision would silently corrupt another
+    # task's assertion (same discipline as A1_QUALIFYING_INDICES vs
+    # TARGET_INDEX/A2_VIOLATING_REFS).
+    values = {v2.generate_perception.E1_VALUE, v2.generate_perception.E2_VALUE, v2.generate_perception.E3_VALUE}
+    assert len(values) == 3
+
+
+def test_e2_value_never_appears_as_literal_text_in_the_generated_page(tmp_path):
+    # Live-verified regression, two rounds (2026-07-30, "B3 SLICE 10"):
+    # (1) a literal JS string was trivially readable by browser_extract's
+    # TreeWalker (scans every DOM text node, including <script> source);
+    # (2) even encoded as runtime character codes, browser_evaluate's raw
+    # innerHTML read let the model decode the array by reasoning alone,
+    # zero visual perception either time. Final fix: a pre-rendered PNG,
+    # no client-side JS/computable representation of the value anywhere
+    # in the served HTML at all.
+    v2.generate_perception.generate(tmp_path)
+    html = (tmp_path / "e2-canvas.html").read_text(encoding="utf-8")
+    assert v2.generate_perception.E2_VALUE not in html
+    assert "code interne" not in html.lower()
+    assert "<script" not in html.lower()
+    assert (tmp_path / v2.generate_perception.E2_IMAGE_FILENAME).exists()
+
+
+def test_context_image_count_reads_the_images_block(monkeypatch):
+    monkeypatch.setattr(
+        v2,
+        "_http_call",
+        lambda path, payload, timeout: {
+            "blocks": [
+                {"kind": "system", "count": 4},
+                {"kind": "images", "count": 2},
+            ]
+        },
+    )
+    assert v2._context_image_count("thread-x") == 2
+
+
+def test_context_image_count_zero_when_no_images_block(monkeypatch):
+    monkeypatch.setattr(v2, "_http_call", lambda path, payload, timeout: {"blocks": [{"kind": "system", "count": 4}]})
+    assert v2._context_image_count("thread-x") == 0
+
+
+def test_task_ids_with_channel_scoped_to_e3_only():
+    assert v2._TASK_IDS_WITH_CHANNEL == {"E3_routing_equivalence"}

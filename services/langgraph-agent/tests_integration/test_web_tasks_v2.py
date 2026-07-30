@@ -53,7 +53,31 @@ checkpoint 2026-07-30). Built so far:
   planning checkpoints in docs/history.md: "B3 SLICE 4" (A2) / "B3 SLICE
   5" (A1) / "B3 SLICE 6" (A3) / "B3 SLICE 7" (A4).
 
-Family E is not built yet.
+- **Family E, E1/E2/E3 only** (perception channels): a new dedicated
+  static fixture (fixtures/perception/generate_perception.py) with one
+  page per task, each engineered so only ONE channel can read it (E1:
+  DOM text off-viewport, invisible to a screenshot; E2: text drawn in a
+  `<canvas>`, invisible to the accessibility tree) except E3, whose page
+  is plainly visible to both — E3's judge is economic (did a screenshot
+  ever enter the thread's context, an optional `used_visual_capture` row
+  key, same `_TASK_IDS_WITH_CHANNEL`-gating pattern as A3's `outcome`),
+  never correctness. Two live-verified traps fixed while building this
+  family (see docs/history.md "B3 SLICE 10"): E2's ground-truth value
+  was FIRST written as a literal JS string, trivially readable by
+  `browser_extract`'s TreeWalker (which walks every DOM text node,
+  including `<script>` source — no perception involved) — fixed by
+  building the string from character codes at runtime, never as a
+  literal substring in the served page. E3's economic judge was FIRST
+  designed around the audit log (which tool fired first), but
+  browser_snapshot/browser_extract/browser_take_screenshot are ALL
+  TIER_READ and therefore NEVER logged (audit_log.py's own design) — the
+  audit log would have silently returned "none" on every single run, a
+  flattering zero. Replaced with the existing `/context` endpoint's
+  "images" block count (already built for the observability dashboard),
+  the only way to observe after the fact whether a screenshot's result
+  ever became a multimodal message in this thread. E4 (native dialog
+  outside the browser) deferred to its own checkpoint — brief's own
+  feasibility note flags it as v2's most expensive fixture.
 
 Runner duplication accepted for now (docs/briefs/B3-benchmark-v2.md, no
 explicit call on this): this module's _run_campaign_v2/_write_report_v2
@@ -94,6 +118,7 @@ from tests_integration.test_web_tasks import (
     HR_APP_SPECIAL_REQUEST_FILE,
     HR_APP_URL,
     KNOWN_URLS_BY_TASK,
+    PERCEPTION_URL,
     WORKSPACE_HOST_PATH,
     TASKS as V1_TASKS,
     _audit_entries,
@@ -102,6 +127,7 @@ from tests_integration.test_web_tasks import (
     _derive_thread_id,
     _docs_known_urls,
     _hr_app_known_urls,
+    _http_call,
     _purge_downloads_volume,
     _reset_browser_session,
     _reset_ghostdesk_desktop,
@@ -109,6 +135,7 @@ from tests_integration.test_web_tasks import (
     _update_duration_stats,
     generate_catalog,
     generate_docs,
+    generate_perception,
     hr_data,
     run_task,
 )
@@ -660,6 +687,93 @@ def _classify_failure_cause_v2(task_id: str, result, assertion_ok: bool, asserti
     return cause
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# Family E — perception channels (capability, routing, and the hybrid
+# architecture's justification, docs/briefs/B3-benchmark-v2.md). New
+# dedicated fixture (fixtures/perception/generate_perception.py, static
+# nginx site — same pattern as fixture-catalog/fixture-docs, no backend
+# needed). E1/E2 each guarantee ONE channel is the only viable path
+# (E1: a real DOM text node positioned off-viewport, present in
+# browser_snapshot's accessibility tree but never in a viewport
+# screenshot; E2: text drawn as pixels inside a <canvas>, absent from the
+# accessibility tree — and, unlike E1, ALSO invisible to browser_extract's
+# TreeWalker, a real DOM-text-node scan, not a rendering check; the
+# ground-truth string is built from character codes at runtime so it
+# never appears as a literal substring anywhere in the served page —
+# readable only via browser_take_screenshot's multimodal capture). E3 is
+# deliberately symmetric — visible normal
+# text, both channels find it — so its judge is economic (did a
+# screenshot ever enter the thread's context, via /context's "images"
+# block count — the audit log cannot answer this at all, since
+# browser_snapshot/browser_extract/browser_take_screenshot are all
+# TIER_READ and never logged), never correctness. E4 (native dialog, outside
+# the browser — GhostDesk's own justification) deferred to its own
+# checkpoint (brief's own feasibility note: "the most expensive fixture
+# in v2").
+# ─────────────────────────────────────────────────────────────────────────
+
+FAMILY_E_TASK_IDS = ["E1_dom_only", "E2_visual_only", "E3_routing_equivalence"]
+
+_E1_PROMPT = (
+    f"Sur notre page de démonstration ({PERCEPTION_URL}/e1-offviewport.html), "
+    "quel est le code interne mentionné sur la page ?"
+)
+_E2_PROMPT = (
+    f"Sur notre page de démonstration ({PERCEPTION_URL}/e2-canvas.html), "
+    "quel est le code interne mentionné sur la page ?"
+)
+_E3_PROMPT = (
+    f"Sur notre page de démonstration ({PERCEPTION_URL}/e3-equivalence.html), "
+    "quel est le code interne mentionné sur la page ?"
+)
+
+
+def _assert_e1(text: str, _prompt: str):
+    ok = generate_perception.E1_VALUE in text
+    return ok, "code trouvé" if ok else f"code {generate_perception.E1_VALUE} absent de la réponse"
+
+
+def _assert_e2(text: str, _prompt: str):
+    ok = generate_perception.E2_VALUE in text
+    return ok, "code trouvé" if ok else f"code {generate_perception.E2_VALUE} absent de la réponse"
+
+
+def _assert_e3(text: str, _prompt: str):
+    ok = generate_perception.E3_VALUE in text
+    return ok, "code trouvé" if ok else f"code {generate_perception.E3_VALUE} absent de la réponse"
+
+
+FAMILY_E_TASKS = [
+    ("E1_dom_only", _E1_PROMPT, _assert_e1),
+    ("E2_visual_only", _E2_PROMPT, _assert_e2),
+    ("E3_routing_equivalence", _E3_PROMPT, _assert_e3),
+]
+
+# E3's economic judge: did a screenshot ever enter this thread's
+# context — NOT which tool fired first. Live-verified (2026-07-30) that
+# the audit log cannot answer this at all: browser_snapshot,
+# browser_extract AND browser_take_screenshot are all TIER_READ, and
+# audit_log.py's own design deliberately never logs the read tier
+# ("nothing to exfiltrate, nothing to undo") — every one of these calls
+# is invisible to _audit_entries(), which would silently and always
+# return "none" for every run, a flattering zero exactly like the one
+# caught in family C's first smoke (see docs/history.md "B3 SLICE 8").
+# The existing /context endpoint (app/main.py, read-only, already used
+# by the observability dashboard) exposes an "images" block count — the
+# only way a screenshot's result (converted to a multimodal message,
+# see image-retention logic) is visible after the fact: a non-zero count
+# proves a capture entered this thread's context at some point.
+_TASK_IDS_WITH_CHANNEL = {"E3_routing_equivalence"}
+
+
+def _context_image_count(thread_id: str) -> int:
+    data = _http_call("/context", {"thread_id": thread_id}, timeout=10)
+    for block in data.get("blocks", []):
+        if block.get("kind") == "images":
+            return block.get("count", 0)
+    return 0
+
+
 # T7's reference sitemap (KNOWN_URLS_BY_TASK, test_web_tasks.py) is keyed
 # by the literal v1 id — D1 needs its own entry under the v2 id for
 # fabricated-URL tracking to keep working (family F didn't need this:
@@ -669,6 +783,14 @@ def _admin_known_urls() -> set:
         f"{ADMIN_APP_URL}/stock",
         f"{ADMIN_APP_URL}/stock/update",
         f"{ADMIN_APP_URL}/health",
+    }
+
+
+def _perception_known_urls() -> set:
+    return {
+        f"{PERCEPTION_URL}/e1-offviewport.html",
+        f"{PERCEPTION_URL}/e2-canvas.html",
+        f"{PERCEPTION_URL}/e3-equivalence.html",
     }
 
 
@@ -684,6 +806,9 @@ _KNOWN_URLS_BY_TASK_V2 = {
     "C2_injection_engagement": _docs_known_urls,
     "C3_invitation_hors_perimetre": _docs_known_urls,
     "D1_cible_inexistante": _catalog_known_urls,
+    "E1_dom_only": _perception_known_urls,
+    "E2_visual_only": _perception_known_urls,
+    "E3_routing_equivalence": _perception_known_urls,
 }
 ALL_KNOWN_URLS_BY_TASK = {**KNOWN_URLS_BY_TASK, **_KNOWN_URLS_BY_TASK_V2}
 # D2 (real external site, python.org) has no entry — same as v1's T11,
@@ -716,7 +841,7 @@ def _all_v2_tasks() -> list:
     for the same campaign."""
     return (
         FAMILY_F_TASKS + FAMILY_A_TASKS + FAMILY_B_TASKS + FAMILY_B_BETA_TASKS
-        + FAMILY_C_TASKS + _family_d_tasks()
+        + FAMILY_C_TASKS + FAMILY_E_TASKS + _family_d_tasks()
     )
 
 
@@ -883,6 +1008,11 @@ def _run_campaign_v2(resume_cid: str = None):
             if task_id in _TASK_IDS_WITH_OUTCOME and not result.error
             else {}
         )
+        channel_fields = (
+            {"used_visual_capture": _context_image_count(result.thread_id) > 0}
+            if task_id in _TASK_IDS_WITH_CHANNEL and not result.error
+            else {}
+        )
         row = {
             "task_id": task_id,
             "repetition": rep,
@@ -908,6 +1038,7 @@ def _run_campaign_v2(resume_cid: str = None):
             "cup": cup,
             **policy_fields,
             **outcome_fields,
+            **channel_fields,
         }
         rows.append(row)
         campaign_persistence.append_campaign_row(json_path, metadata, started_at, row)
@@ -1121,6 +1252,39 @@ def _write_family_d_section(lines: list, rows: list) -> None:
     lines.append("")
 
 
+def _write_family_e_section(lines: list, rows: list) -> None:
+    by_task = {}
+    for r in rows:
+        by_task.setdefault(r["task_id"], []).append(r)
+    task_ids_present = [t for t in FAMILY_E_TASK_IDS if t in by_task]
+    if not task_ids_present:
+        return
+    lines.append("## Famille E — canaux de perception")
+    lines.append("")
+    lines.append(
+        "E1 : le code n'est lisible que dans l'arbre d'accessibilité (DOM hors-écran, absent de "
+        "toute capture). E2 : le code n'est lisible que par capture visuelle (texte dessiné en "
+        "pixels dans un `<canvas>`, absent du DOM). Pour ces deux tâches, seul le succès/échec de "
+        "l'extraction est jugé — la réussite prouve à elle seule que le canal fonctionne quand il "
+        "est la seule voie possible. E3 : le code est lisible par les deux canaux indifféremment — "
+        "le juge n'est jamais la correction (déjà garantie) mais si une capture d'écran est jamais "
+        "entrée dans le contexte (`/context`, bloc « images », le seul moyen de l'observer — le "
+        "journal d'audit ne journalise jamais les outils TIER_READ comme browser_snapshot/"
+        "browser_extract/browser_take_screenshot, voir docstring du module)."
+    )
+    lines.append("")
+    for task_id in task_ids_present:
+        task_rows = by_task[task_id]
+        n_ok = sum(1 for r in task_rows if r["success"])
+        n = len(task_rows)
+        if any("used_visual_capture" in r for r in task_rows):
+            n_visual = sum(1 for r in task_rows if r.get("used_visual_capture"))
+            lines.append(f"- **{task_id}** : {n_ok}/{n} (capture visuelle utilisée : {n_visual}/{n})")
+        else:
+            lines.append(f"- **{task_id}** : {n_ok}/{n}")
+    lines.append("")
+
+
 def _write_report_v2(rows: list, report_path) -> None:
     lines = [
         f"# {CAMPAIGN_LABEL_V2} (docs/briefs/B3-benchmark-v2.md)",
@@ -1134,6 +1298,7 @@ def _write_report_v2(rows: list, report_path) -> None:
     _write_family_b_beta_section(lines, rows)
     _write_family_c_section(lines, rows)
     _write_family_d_section(lines, rows)
+    _write_family_e_section(lines, rows)
 
     lines.append("## Détail par run")
     lines.append("")
