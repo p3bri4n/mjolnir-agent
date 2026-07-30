@@ -15,6 +15,10 @@ RTX 5060 Ti).
 Open WebUI → LangGraph agent → (Skill Manager / Context Manager / MCP
 Client) → TabbyAPI.
 
+Tested the hard way: [six weeks of llama.cpp on two mismatched GPUs](https://github.com/p3bri4n/mjolnir-agent/discussions/10)
+before switching engines — build traps, a tool-calling grammar hole, and an
+intermittent multi-GPU crash isolated to a prefill batch-size threshold.
+
 ## Features
 
 ### Autonomy that reports its own failures
