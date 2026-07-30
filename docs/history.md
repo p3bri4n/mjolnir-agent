@@ -2910,3 +2910,80 @@ correctly blocked a first attempt on unreachable `test-fixtures`
 (`fixture-catalog`/`fixture-docs`/`fixture-hr-app` not started) before
 any run executed — the guardrail added after the 14/33 invalid run
 working as intended, not a new finding.
+
+## B3 SLICE 4 — BENCHMARK V2, FAMILY A SLICE 1 (A2 ONLY, LONG HORIZON)
+
+Planning checkpoint (2026-07-30, plan mode): family A ("long horizon",
+docs/briefs/B3-benchmark-v2.md) is architecturally different from B/D —
+needs NEW fixture content in all three self-hosted apps, not just new
+prompts against existing pages. Central risk identified by reading
+`app/graph.py` directly (CLAUDE.md #8) rather than trusting the Phase 2
+closure note at face value: the abandoned `probe_episode_compaction.py`
+(docs/briefs/archive/A3-discipline-contexte.md) hit `verify_action`'s
+inability to confirm a criterion requiring aggregation across many
+separate `browser_navigate` turns. Re-reading `verify_action` confirmed
+it makes no LLM call of its own post "latency fix" (parses a self-reported
+`constat_precedent` on the SAME turn that already saw the previous tool
+result) — hypothesis: a single bulk `browser_extract`/`browser_evaluate`
+call collapses the multi-turn aggregation problem. **Sequencing decided**:
+4 separate PRs, cost/risk order A2 → A1 → A3 → A4, not one bundled PR —
+the four tasks are not "one nature of change" (A3 needs a row-schema
+change, A4 needs new HR-app backend + its own live A/B campaign).
+
+**A2 built** (multi-page naming-scheme audit, cheapest slice): 3
+deliberately non-conforming catalog references
+(`generate_catalog.A2_VIOLATING_REFS`, indices 5/18/27, one per catalog
+page) + a new docs page stating the format explicitly
+(`generate_docs.A2_SCHEMA_PAGE`). Task/assertion added to
+`test_web_tasks_v2.py` (`FAMILY_A_TASKS`, `_assert_a2`, substring-based
+like `_assert_t3`/`_assert_t7`), wired into `_all_v2_tasks()`,
+`_write_family_a_section`, `ALL_KNOWN_URLS_BY_TASK` (A2 is the first v2
+task to navigate BOTH fixtures, needed a union of `_catalog_known_urls`/
+`_docs_known_urls`), and `run-campaign.sh --suite v2`.
+
+**Two real bugs caught by live smoking, not by unit tests** (both fixed
+before this slice was considered done):
+1. **Ground-truth inconsistency**: `KX-4471` (T1/T7/D1's frozen target
+   ref, cannot be changed) ALSO violates the PX-#### format by
+   construction — the first live smoke's "exactly 3" premise was
+   therefore false (4 refs actually violate the format), and the agent
+   visibly looped in genuine confusion trying to reconcile 4 findings
+   with a "3" instruction, never producing a clean final answer. The
+   run still scored a PASS — a false positive, since `_assert_a2`'s
+   substring check happened to find the 3 expected refs buried in the
+   confused, incomplete text. Fixed at the fixture level: `generate_docs.py`'s
+   `A2_SCHEMA_PAGE` now documents `KX-4471` as an explicit, named
+   exception ("produit historique... n'est PAS à considérer comme une
+   anomalie").
+2. **Overcorrection**: an assertion guard added defensively against bug 1
+   (fail if `KX-4471` appears anywhere in the answer) then produced a
+   FALSE NEGATIVE on the very next run, whose answer was fully correct
+   and legitimately cited `KX-4471` as the documented exception. Reverted
+   — the guard was unnecessary once the ground truth itself was fixed.
+
+**Live measurement (2026-07-30, `run-campaign.sh --suite v2 --tasks
+A2_schema_references --reps 3`, the family's own repetition rate, not a
+1-rep smoke)**: **3/3**, confirmed genuine by reading the raw audit log
+per thread — all three runs used `browser_evaluate` to run a single
+`fetch()`-based JS loop across all 30 product pages in ONE tool call,
+never `browser_navigate`-per-product and never `browser_extract`'s bulk
+`urls` mode as originally hypothesized. Same underlying mitigation
+principle held (single-turn aggregation avoiding the multi-turn trap that
+killed the original probe) via a tool the planning checkpoint hadn't
+anticipated. Two single-rep smokes taken along the way (before the reps=3
+measurement, while iterating on the two bugs above) failed differently:
+the agent chose page-by-page `browser_navigate` without ever opening a
+single product page nor calling `browser_extract`/`browser_evaluate`,
+exhausting its budget on list pages alone (which show name+link only, by
+the fixture's own design) — genuine single-run variance, not a harness
+bug; not incorporated into the 3/3 figure above (measured strictly after
+both fixture bugs were fixed, in one continuous 3-rep run).
+
+Verified: 368/368 full `tests/` suite (8 new: task-id/prompt/repetition-
+default/known-urls/assertion tests for A2, including a regression test
+for bug 2 above — a correct answer citing KX-4471 as the exception must
+pass, not fail).
+`docs/campaigns/2026-07-30_campaign-v2_adhoc-113835.md`. A1/A3/A4 remain
+design-only (planning checkpoint content, not yet built) — see the brief
+for their full design and the risk notes on A4 in particular
+(`_PLAN_SUBTASKS_MAX=8` vs. 20 dependent steps).

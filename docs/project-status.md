@@ -168,4 +168,20 @@ functions under new v2 task_ids), D2's live ground-truth fetch kept lazy
 3 — BENCHMARK V2, FAMILY D (HONESTY)". Live smoke (2026-07-30, n=1/task):
 2/2 passed (D1: no invented price; D2: correct live version found).
 
-Families A, C, E and B-β not started.
+**Slice 4 (family A, slice 1 — A2 only) delivered and measured live**:
+multi-page naming-scheme audit (3 deliberately non-conforming catalog
+refs + a new docs page stating the format) — see docs/history.md, "B3
+SLICE 4". Planning checkpoint decided A1/A3/A4 ship as their own future
+PRs, cost/risk ordered (A1 → A3 → A4), not bundled with A2 — see that
+entry for the full design of all four and the central architectural risk
+(`verify_action`/multi-page aggregation) it resolves by reading
+`app/graph.py` directly. Two real bugs caught by live smoking (a ground-
+truth inconsistency with the frozen `KX-4471` ref, then an assertion
+overcorrection) — both fixed, documented in the same entry. **Live
+measurement (2026-07-30, 3 repetitions, the family's own rate — not a
+1-rep smoke)**: 3/3, confirmed genuine via the raw audit log (agent used
+`browser_evaluate` to fetch all 30 product pages in one tool call, not
+the `browser_extract` bulk mode originally hypothesized as the
+mitigation).
+
+Families A1/A3/A4, C, E and B-β not started.
