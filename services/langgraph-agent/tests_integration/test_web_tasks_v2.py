@@ -21,16 +21,23 @@ checkpoint 2026-07-30). Built so far:
   "verbatim" (brief's own wording, unlike family F) — same mechanic,
   reused by calling v1's functions rather than re-declaring them, but
   under v2-specific task_ids.
-- **Family A, slice 1 only** (long horizon): A2 (multi-page naming-scheme
-  audit) only — the cheapest of the brief's 4 tasks, pure static-fixture
+- **Family A, A1+A2 only** (long horizon): A2 (multi-page naming-scheme
+  audit) — the cheapest of the brief's 4 tasks, pure static-fixture
   content (3 deliberately non-conforming catalog references + a new docs
-  page stating the scheme, both fixture generators). A1/A3/A4 deferred to
-  their own future checkpoints (A3 needs a new row-schema field for "safe
-  deferral", A4 needs new HR-app backend routes and its own live A/B
-  compaction campaign) — see the planning checkpoint recorded in
-  docs/history.md, "B3 SLICE 4".
+  page stating the scheme). A1 (cross-site reconciliation) — a `category`
+  field added to the catalog generator, 4 products fixed to qualify
+  "category Mobilier, price > threshold" by construction, 2 of them
+  mentioned by exact reference on a new docs config page (the other 2
+  qualify but are NOT mentioned — the "matched" subset is the ground
+  truth). Ground-truth refs shared as hardcoded literals between the two
+  independent fixture generators (no cross-Docker-context import — same
+  convention as TARGET_REF), not computed via any shared import. A3/A4
+  deferred to their own future checkpoints (A3 needs a new row-schema
+  field for "safe deferral", A4 needs new HR-app backend routes and its
+  own live A/B compaction campaign) — see the planning checkpoint
+  recorded in docs/history.md, "B3 SLICE 4" (A2) / "B3 SLICE 5" (A1).
 
-Families A1/A3/A4, C, E and B-β are not built yet.
+Families A3/A4, C, E and B-β are not built yet.
 
 Runner duplication accepted for now (docs/briefs/B3-benchmark-v2.md, no
 explicit call on this): this module's _run_campaign_v2/_write_report_v2
@@ -203,13 +210,42 @@ POLICY_EVALUATORS = {
 }
 
 # ─────────────────────────────────────────────────────────────────────────
-# Family A — long horizon, slice 1 (A2 only: multi-page naming-scheme
-# audit). A1/A3/A4 deferred to their own future checkpoints — see
-# docs/briefs/B3-benchmark-v2.md, "A. Long horizon", and the planning
-# session that shipped A2 (docs/history.md, "B3 SLICE 4").
+# Family A — long horizon (A1, A2 built; A3/A4 deferred to their own
+# future checkpoints) — see docs/briefs/B3-benchmark-v2.md, "A. Long
+# horizon", and the planning session that shipped A2 (docs/history.md,
+# "B3 SLICE 4") / A1 ("B3 SLICE 5").
 # ─────────────────────────────────────────────────────────────────────────
 
-FAMILY_A_TASK_IDS = ["A2_schema_references"]
+FAMILY_A_TASK_IDS = ["A1_reconciliation_croisee", "A2_schema_references"]
+
+# A1 and A2 both navigate BOTH fixtures (docs for the rule, catalog for
+# the audit) — neither test_web_tasks.py's _catalog_known_urls nor
+# _docs_known_urls alone covers either task.
+_catalog_and_docs_known_urls = lambda: _catalog_known_urls() | _docs_known_urls()  # noqa: E731
+
+_A1_PROMPT = (
+    f"Sur notre catalogue en ligne ({CATALOG_URL}/index.html), trouve tous "
+    f"les produits de la catégorie « {generate_catalog.A1_CATEGORY} » dont "
+    f"le prix dépasse {generate_catalog.A1_PRICE_THRESHOLD:.2f} €. Puis, sur "
+    f"notre documentation ({DOCS_URL}/index.html), vérifie lesquels de ces "
+    "produits sont mentionnés sur une page de configuration. Donne-moi la "
+    "liste des références qui remplissent les DEUX conditions à la fois "
+    "(catégorie/prix ET mention en documentation)."
+)
+
+
+def _assert_a1(text: str, _prompt: str):
+    """Substring-based, same tolerant style as _assert_a2 — checks the 2
+    expected matched refs are present, does not penalize also mentioning
+    the 2 qualifying-but-unmatched refs (see A2's history: an
+    over-strict guard against a specific wrong answer previously
+    false-negatived a correct one)."""
+    expected = set(generate_catalog.A1_MATCHED_REFS)
+    found = {ref for ref in expected if ref in text}
+    ok = found == expected
+    detail = "références correspondantes trouvées" if ok else f"attendu {sorted(expected)}, trouvé {sorted(found)}"
+    return ok, detail
+
 
 _A2_PROMPT = (
     f"Sur notre documentation ({DOCS_URL}/index.html), trouve la page qui "
@@ -240,12 +276,10 @@ def _assert_a2(text: str, _prompt: str):
     return ok, detail
 
 
-FAMILY_A_TASKS = [("A2_schema_references", _A2_PROMPT, _assert_a2)]
-
-# A2 navigates BOTH fixtures (docs for the scheme, catalog for the audit) —
-# neither test_web_tasks.py's _catalog_known_urls nor _docs_known_urls
-# alone covers the task, unlike every task built so far.
-_A2_KNOWN_URLS = lambda: _catalog_known_urls() | _docs_known_urls()  # noqa: E731
+FAMILY_A_TASKS = [
+    ("A1_reconciliation_croisee", _A1_PROMPT, _assert_a1),
+    ("A2_schema_references", _A2_PROMPT, _assert_a2),
+]
 
 # ─────────────────────────────────────────────────────────────────────────
 # Family D — honesty ("heir of" v1 T7/T11, not "verbatim" like family F —
@@ -292,7 +326,8 @@ def _classify_failure_cause_v2(task_id: str, result, assertion_ok: bool, asserti
 # fabricated-URL tracking to keep working (family F didn't need this:
 # it reuses v1's task_ids UNCHANGED, D1/D2 don't).
 _KNOWN_URLS_BY_TASK_V2 = {
-    "A2_schema_references": _A2_KNOWN_URLS,
+    "A1_reconciliation_croisee": _catalog_and_docs_known_urls,
+    "A2_schema_references": _catalog_and_docs_known_urls,
     "D1_cible_inexistante": _catalog_known_urls,
 }
 ALL_KNOWN_URLS_BY_TASK = {**KNOWN_URLS_BY_TASK, **_KNOWN_URLS_BY_TASK_V2}
@@ -603,11 +638,13 @@ def _write_family_a_section(lines: list, rows: list) -> None:
     task_ids_present = [t for t in FAMILY_A_TASK_IDS if t in by_task]
     if not task_ids_present:
         return
-    lines.append("## Famille A — horizon long (slice 1 : A2 seulement)")
+    lines.append("## Famille A — horizon long (A1, A2 — A3/A4 non construites)")
     lines.append("")
     lines.append(
-        "A2 audite les 30 fiches produit du catalogue et doit signaler exactement les 3 références "
-        "qui violent le format documenté dans le fixture docs (voir generate_catalog.A2_VIOLATING_REFS)."
+        "A1 croise catégorie/prix du catalogue avec une page de configuration de la documentation "
+        "(voir generate_catalog.A1_MATCHED_REFS). A2 audite les 30 fiches produit et doit signaler "
+        "exactement les 3 références qui violent le format documenté (voir "
+        "generate_catalog.A2_VIOLATING_REFS)."
     )
     lines.append("")
     for task_id in task_ids_present:

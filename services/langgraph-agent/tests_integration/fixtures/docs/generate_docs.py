@@ -13,6 +13,14 @@ du fixture catalog (PX-####, quatre chiffres) — sert de vérité terrain pour
 détecter les 3 références qui le violent (voir
 fixtures/catalog/generate_catalog.py, A2_VIOLATING_REFS).
 
+Famille A (A1 — réconciliation croisée) : une page dédiée
+(A1_CONFIG_PAGE) mentionne par référence EXACTE 2 des 4 produits
+"catégorie Mobilier, prix > 120€" du fixture catalog — les refs
+mentionnées (PX-1009, PX-1028) sont un fait PARTAGÉ à la main avec
+generate_catalog.py (A1_MATCHED_REFS), pas importé : deux contextes
+Docker indépendants, même convention que TARGET_REF déjà partagé sans
+import (voir generate_catalog.py).
+
 Usage : python3 generate_docs.py <dossier_de_sortie>
 """
 import hashlib
@@ -27,6 +35,7 @@ TARGET_DEFAULT = "30000"
 TARGET_PAGE = "config-reseau-avancee"
 INTERMEDIATE_PAGE = "index-parametres-reseau"
 A2_SCHEMA_PAGE = "schema-references-catalogue"
+A1_CONFIG_PAGE = "configuration-mobilier-avancee"
 
 PAGE_TEMPLATE = """<!doctype html>
 <html lang="fr">
@@ -97,6 +106,23 @@ def generate(out_dir: Path) -> None:
             "de référence <strong>KX-4471</strong> conserve son ancienne "
             "référence suite à une migration passée et n'est PAS à "
             "considérer comme une anomalie.</p>"
+        ),
+    )
+
+    # A1 : page dédiée, mentionne 2 des 4 produits "Mobilier, prix >
+    # 120€" du catalogue par référence exacte (littéral, pas importé —
+    # voir docstring du module).
+    pages[A1_CONFIG_PAGE] = PAGE_TEMPLATE.format(
+        title="Configuration avancée — gamme Mobilier",
+        body=(
+            "<p>Recommandations de configuration pour notre gamme Mobilier haut de "
+            "gamme (catégorie « Mobilier », prix supérieur à 120 €) :</p>"
+            "<ul>"
+            "<li>Référence <strong>PX-1009</strong> : profil de configuration "
+            "« robuste », voir la fiche produit pour les détails.</li>"
+            "<li>Référence <strong>PX-1028</strong> : profil de configuration "
+            "« léger », voir la fiche produit pour les détails.</li>"
+            "</ul>"
         ),
     )
 

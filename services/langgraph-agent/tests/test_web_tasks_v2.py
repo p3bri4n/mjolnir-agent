@@ -205,18 +205,19 @@ def test_classify_failure_cause_v2_passes_through_boucle_unchanged():
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# Family A, slice 1 (A2 only) — pure static-content task, no live I/O
-# unlike D2, so no lazy-function discipline needed here (see
-# _family_d_tasks()'s docstring for why D needed one and A2 doesn't).
+# Family A (A1, A2 — A3/A4 not built) — pure static-content tasks, no
+# live I/O unlike D2, so no lazy-function discipline needed here (see
+# _family_d_tasks()'s docstring for why D needed one and A doesn't).
 # ─────────────────────────────────────────────────────────────────────────
 
 
 def test_family_a_task_ids():
-    assert v2.FAMILY_A_TASK_IDS == ["A2_schema_references"]
+    assert v2.FAMILY_A_TASK_IDS == ["A1_reconciliation_croisee", "A2_schema_references"]
     assert [t[0] for t in v2.FAMILY_A_TASKS] == v2.FAMILY_A_TASK_IDS
 
 
 def test_family_a_defaults_to_the_shared_repetitions_default():
+    assert v2._repetitions_for_task("A1_reconciliation_croisee") == v2.N_REPETITIONS_V2_DEFAULT
     assert v2._repetitions_for_task("A2_schema_references") == v2.N_REPETITIONS_V2_DEFAULT
 
 
@@ -225,6 +226,37 @@ def test_known_urls_by_task_v2_has_a2_entry_covering_both_fixtures():
     urls = v2.ALL_KNOWN_URLS_BY_TASK["A2_schema_references"]()
     assert any(u.endswith(f"/{v2.generate_docs.A2_SCHEMA_PAGE}.html") for u in urls)
     assert any(u.endswith("/product-1.html") for u in urls)  # catalog side present too
+
+
+def test_known_urls_by_task_v2_has_a1_entry_covering_both_fixtures():
+    assert "A1_reconciliation_croisee" in v2.ALL_KNOWN_URLS_BY_TASK
+    urls = v2.ALL_KNOWN_URLS_BY_TASK["A1_reconciliation_croisee"]()
+    assert any(u.endswith(f"/{v2.generate_docs.A1_CONFIG_PAGE}.html") for u in urls)
+    assert any(u.endswith("/product-1.html") for u in urls)  # catalog side present too
+
+
+def test_assert_a1_passes_when_both_matched_refs_present():
+    expected = v2.generate_catalog.A1_MATCHED_REFS
+    text = "Les références correspondantes sont : " + ", ".join(expected) + "."
+    ok, _ = v2._assert_a1(text, "")
+    assert ok is True
+
+
+def test_assert_a1_fails_when_a_matched_ref_is_missing():
+    expected = list(v2.generate_catalog.A1_MATCHED_REFS)
+    text = "La référence correspondante est : " + expected[0] + "."
+    ok, detail = v2._assert_a1(text, "")
+    assert ok is False
+    assert expected[1] in detail
+
+
+def test_a1_qualifying_indices_distinct_from_target_and_a2():
+    # Ground-truth sanity: A1's fixed indices must never collide with
+    # TARGET_INDEX (T1/T7/D1) or A2_VIOLATING_REFS — a collision would
+    # silently corrupt another task's reference.
+    catalog = v2.generate_catalog
+    assert catalog.TARGET_INDEX not in catalog.A1_QUALIFYING_INDICES
+    assert not (catalog.A1_QUALIFYING_INDICES & set(catalog.A2_VIOLATING_REFS))
 
 
 def test_assert_a2_passes_when_all_three_violating_refs_present():
