@@ -13,6 +13,12 @@
       "min": 90.5,
       "n": 3
     },
+    "A3_contact_conges": {
+      "max": 86.9,
+      "median": 48.0,
+      "min": 40.7,
+      "n": 3
+    },
     "B1_conge_easy": {
       "max": 36.3,
       "median": 36.3,

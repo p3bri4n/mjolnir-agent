@@ -3044,3 +3044,53 @@ default/known-urls tests for A1, plus a ground-truth sanity check that
 `A2_VIOLATING_REFS`).
 `docs/campaigns/2026-07-30_campaign-v2_adhoc-115521.md`. A3/A4 remain
 design-only.
+
+## B3 SLICE 6 — BENCHMARK V2, FAMILY A (A3, AMBIGUITY TO RESOLVE) — 3/3
+
+A3 built per the slice-4 planning checkpoint's design: `fixtures/hr-app/app.py`
+gets a new `/contacts` route listing Karim Haddad and Chloé Simon under
+the SAME role label ("Congés et absences" — deliberately ambiguous; Yann
+Morel, the 3rd RH employee in `hr_data.py`, shown under "Recrutement"
+only, not a candidate, to avoid diluting the ambiguity to 3 names) plus
+email addresses (the brief's "contact details"). A new docs page
+(`generate_docs.A3_DISAMBIGUATION_PAGE`) names Chloé Simon as sole
+current owner, framed as a January-2026 reorganization. Ground truth
+(the correct name) shared as a hardcoded literal between the two
+independent fixture generators — same convention as A1's refs and
+`TARGET_REF`.
+
+**First v2 task with a third outcome** beyond success/failure — the
+brief's own "safe deferral = partial credit, tracked separately" framing.
+Added as an optional `outcome` key on the row dict
+(`_TASK_IDS_WITH_OUTCOME`-gated to `A3_contact_conges` only), computed by
+`_classify_a3_outcome` (deferral keywords checked first, same honest-
+heuristic style as v1's `_ABSENCE_KEYWORDS`/`_assert_t7`) — every other
+family's `r["success"]` consumer (F/B/D/A1/A2, 3+ call sites) untouched.
+`_write_family_a_section` now reports an outcome breakdown
+(`correct=N, safe_deferral=N, wrong=N`) whenever a task's rows carry that
+key, generic enough for any future family needing the same pattern.
+
+**Same overcorrection bug as A2/KX-4471, caught by the first live
+smoke, not by unit tests**: the initial `_classify_a3_outcome` required
+`Karim Haddad`'s ABSENCE from the text alongside `Chloé Simon`'s
+presence — a real, fully correct, well-reasoned answer (2026-07-30 first
+smoke) explicitly named Karim Haddad only to explain he'd moved to
+recruitment, and was false-negatived as "wrong". Fixed identically to
+A2's fix: dropped the anti-alternative-name check entirely, documented as
+an accepted trade-off (an unresolved answer listing both names without
+deferral language would now also score "correct" — tolerant-substring
+philosophy already used throughout this harness, favoring that rare
+false positive over false-negativing a correct answer). Unit test updated
+to match (`test_classify_a3_outcome_correct_when_alternative_name_cited_as_excluded`).
+
+**Live measurement (2026-07-30, 3 repetitions): 3/3**, all `outcome=correct`
+after the fix (first smoke, pre-fix: 0/1 `wrong`, the bug above — not
+counted in the 3/3 figure, same discipline as A2's own pre-fix smokes).
+
+Verified: 379/379 full `tests/` suite (13 new: known-urls, outcome
+classification incl. the deferral-priority and alternative-name-cited
+cases, `_assert_a3` three-way behavior).
+`docs/campaigns/2026-07-30_campaign-v2_adhoc-121415.md`. A4 remains
+design-only — see slice 4's entry for its risk notes
+(`_PLAN_SUBTASKS_MAX=8` vs. 20 dependent steps, needs its own live A/B
+compaction campaign).

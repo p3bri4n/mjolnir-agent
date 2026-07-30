@@ -196,4 +196,14 @@ decision was to leave it as-is (no prompt hint, no fixture-scale
 reduction) and report the 0/3 honestly, same spirit as Phase 2's
 abandoned `probe_episode_compaction.py` finding.
 
-Families A3/A4, C, E and B-β not started.
+**Slice 6 (family A — A3) delivered and measured live**: ambiguity to
+resolve (hr-app `/contacts` shows two RH candidates under the same role
+label, docs disambiguates) — see docs/history.md, "B3 SLICE 6". First v2
+task with a third outcome beyond success/failure (`outcome`:
+correct/safe_deferral/wrong, row-schema extension gated to A3 only,
+every other family untouched). Same overcorrection bug as A2/KX-4471 hit
+and fixed the same way (a correct answer legitimately naming the
+excluded alternative must not be penalized). **Live measurement (3
+repetitions)**: 3/3, all `outcome=correct`.
+
+Family A4, C, E and B-β not started.

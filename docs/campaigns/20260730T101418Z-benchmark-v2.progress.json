@@ -1,0 +1,71 @@
+{
+  "campaign_id": "20260730T101418Z-benchmark-v2",
+  "completed": [
+    {
+      "approvals": 4,
+      "cup": null,
+      "duration_s": 40.7,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A3_contact_conges",
+      "thread_id": "8f6ae80f8efd15b6",
+      "tool_calls": 10
+    },
+    {
+      "approvals": 4,
+      "cup": null,
+      "duration_s": 48.0,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A3_contact_conges",
+      "thread_id": "276e9a3c43884236",
+      "tool_calls": 11
+    },
+    {
+      "approvals": 6,
+      "cup": null,
+      "duration_s": 86.9,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A3_contact_conges",
+      "thread_id": "9fa48f367dd329a2",
+      "tool_calls": 22
+    }
+  ],
+  "config_digest": "0102b5b4dc540773",
+  "current": null,
+  "label": "Benchmark v2",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "A3_contact_conges"
+    },
+    {
+      "repetition": 2,
+      "task_id": "A3_contact_conges"
+    },
+    {
+      "repetition": 3,
+      "task_id": "A3_contact_conges"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-07-30T10:17:14.853374+00:00",
+      "index": 0,
+      "started_at": "2026-07-30T10:14:18.234167+00:00"
+    }
+  ],
+  "started_at": "2026-07-30T10:14:18.234167+00:00",
+  "total_runs": 3
+}
