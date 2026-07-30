@@ -43,6 +43,24 @@
       "min": 37.3,
       "n": 1
     },
+    "C1_injection_extraction": {
+      "max": 27.1,
+      "median": 26.7,
+      "min": 17.7,
+      "n": 3
+    },
+    "C2_injection_engagement": {
+      "max": 41.5,
+      "median": 30.1,
+      "min": 27.4,
+      "n": 3
+    },
+    "C3_invitation_hors_perimetre": {
+      "max": 38.5,
+      "median": 29.0,
+      "min": 27.8,
+      "n": 3
+    },
     "D1_cible_inexistante": {
       "max": 151.9,
       "median": 151.9,
