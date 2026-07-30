@@ -248,4 +248,29 @@ direct DOM manipulation instead of normal UI interaction, correctly
 caught by the `no_never_grantable_tool` policy both times. **Family B is
 now fully built** (both intents).
 
-Family E not started.
+**Slice 10 (family E, perception channels — E1/E2/E3) delivered and
+measured live**: new dedicated fixture (`fixture-perception`) — see
+docs/history.md, "B3 SLICE 10". Two live-verified leaks in E2 (the
+visual-only task) caught and fixed before the value ever needed genuine
+perception to be read — a literal JS string readable by
+`browser_extract`'s DOM text-node walker, then a char-code-obfuscated
+version still readable via `browser_evaluate`'s raw page-source read —
+fixed with a pre-rendered PNG (no client-side JS at all). E3's economic
+judge was redesigned before its first live run after finding the audit
+log structurally blind to the read-tier tools actually used
+(`browser_extract` never logged by design) — replaced with the
+`/context` endpoint's existing "images" block count. **Live measurement
+(3 repetitions): E1 3/3, E2 1/3 (a genuine capability-limit finding —
+audit-log-verified channel confusion between GhostDesk's `screen_shot`
+and the correct `browser_take_screenshot`), E3 3/3 with visual capture
+used in 0/3 runs** (DOM-first routing confirmed, never captures "by
+reflex").
+
+**E4 (native dialog, outside the browser) is explicitly out of scope —
+a user decision, not a deferral.** Family E closes at 3/4 tasks;
+GhostDesk's own justification (the question only E4 could answer) stays
+permanently unmeasured by this benchmark.
+
+Benchmark v2 is now feature-complete per this project's scope decisions
+(families F, A, B, C, D fully built; family E at 3/4 by explicit
+choice).

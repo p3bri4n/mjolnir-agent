@@ -91,6 +91,24 @@
       "min": 20.5,
       "n": 1
     },
+    "E1_dom_only": {
+      "max": 16.4,
+      "median": 9.8,
+      "min": 9.8,
+      "n": 3
+    },
+    "E2_visual_only": {
+      "max": 141.5,
+      "median": 41.0,
+      "min": 34.0,
+      "n": 3
+    },
+    "E3_routing_equivalence": {
+      "max": 15.7,
+      "median": 11.1,
+      "min": 10.3,
+      "n": 3
+    },
     "T10_books_toscrape": {
       "max": 99.3,
       "median": 99.3,

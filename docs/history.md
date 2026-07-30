@@ -3290,3 +3290,93 @@ intent α)**:
 `docs/campaigns/2026-07-30_campaign-v2_b2-mesure-medium-hard.md`.
 **Family B is now fully built** (both intents). Remaining: family E not
 started.
+
+## B3 SLICE 10 — BENCHMARK V2, FAMILY E (PERCEPTION CHANNELS, E1/E2/E3) — E4 OUT OF SCOPE BY EXPLICIT DECISION
+
+New dedicated static fixture (`fixtures/perception/generate_perception.py`,
+`fixture-perception` in docker-compose.yml — same nginx pattern as
+fixture-catalog/fixture-docs, no backend). E1: a real DOM text node
+positioned off-viewport (present in `browser_snapshot`'s accessibility
+tree, absent from any viewport screenshot). E2: a value only visual
+perception can reveal. E3: value equally reachable via either channel —
+judge is economic (did a screenshot ever enter the thread's context),
+never correctness.
+
+**Two live-verified leaks caught and fixed while building E2, neither
+involving any actual visual perception**:
+1. First version wrote the ground-truth value as a literal JS string
+   inside a `<canvas>`-drawing `<script>` tag. `browser_extract`
+   (mcp-client, TIER_READ) walks EVERY DOM text node of `document.body`
+   via `TreeWalker(SHOW_TEXT)` — this includes a `<script>` tag's own
+   source text (a real DOM text node, never rendered but still walked),
+   so the value leaked straight off the page source with zero
+   perception involved. First live smoke: 3/3 on all of E1/E2/E3 in
+   ~10-15s each — suspiciously fast and uniform for tasks meant to
+   differ in difficulty, which is what prompted the audit-log dig below.
+2. Fixed by obfuscating the value as runtime character codes
+   (`String.fromCharCode`) built inside the script — still leaked:
+   `browser_evaluate("() => document.documentElement.innerHTML")`
+   returned the raw page source (char-code array included), and the
+   model decoded it by reasoning alone, still without ever perceiving a
+   pixel. Second smoke: E2 took visibly longer (38s vs 11s) and used a
+   longer tool chain ending in `browser_evaluate`, prompting a second
+   audit-log check that caught this.
+3. **Final fix**: the value is pre-rendered to a static PNG at fixture
+   BUILD time (Pillow, version pinned to match
+   `langgraph-agent/requirements.txt`'s existing `10.4.0`), served via
+   `<img src="e2-code.png" alt="">` — no client-side JS, no computable
+   representation of the value anywhere in the served HTML/script at
+   all, only the rendered pixels reveal it. `alt=""` deliberately empty
+   (a real alt text would put the value back in the accessibility tree,
+   exactly what E2 must exclude).
+
+**E3's economic judge was also redesigned before its first live run**:
+originally planned to read the audit log for "which of
+`browser_snapshot`/`browser_take_screenshot` fired first" — live-checked
+against a real audit dump and found structurally broken:
+`browser_extract` (the tool the model actually reaches for first almost
+every time, per its own tool description: "pour trouver une valeur
+précise... utilise CET outil") is TIER_READ and therefore NEVER logged
+(`audit_log.py`'s own deliberate design: "nothing to exfiltrate, nothing
+to undo") — an audit-log-based judge would have returned "none" on
+every single run, a flattering zero in the same family as the one caught
+in family C's first smoke (see "B3 SLICE 8"). Replaced with the
+existing `/context` endpoint's "images" block count (already built for
+the observability dashboard, `app/main.py`) — the only way to observe
+after the fact whether a screenshot's result ever became a multimodal
+message in this thread, a more accurate economic proxy than tool
+identity anyway (ties directly to the token cost the brief cares about).
+
+**Live measurement (2026-07-30, 3 repetitions)**:
+
+- **E1_dom_only: 3/3.**
+- **E2_visual_only: 1/3** — a genuine capability-limit finding, not a
+  bug (same spirit as A1's 0/3, docs/history.md "B3 SLICE 5"): audit-log-
+  verified that run #1 called `screen_shot` (GhostDesk's OWN desktop
+  capture) instead of `browser_take_screenshot` (the correct in-browser
+  capture) — a real channel-routing confusion, not a random failure. Run
+  #2 eventually tried the correct tool but only after exhausting most of
+  its budget on `screen_shot`/repeated `browser_evaluate`/file-writing
+  detours, and still failed. Run #3 used the correct sequence
+  (`browser_extract` → `browser_snapshot` → `browser_extract` →
+  `browser_take_screenshot`) and succeeded cleanly.
+- **E3_routing_equivalence: 3/3, visual capture used in 0/3 runs** —
+  every run resolved the value via the cheap DOM path
+  (`browser_extract`/`browser_snapshot`) alone, consistent with the
+  project's own routing directive ("Playwright primary for web,
+  GhostDesk as fallback") and never reaching for a capture "by reflex."
+
+`docs/campaigns/2026-07-30_campaign-v2_family-e-mesure.md`. 14 new unit
+tests (`tests/test_web_tasks_v2.py`, including a regression test
+asserting `E2_VALUE` never appears as literal text in the generated
+page and that no `<script>` tag is served on that page at all) — full
+suite 434/434.
+
+**E4 (native dialog, outside the browser) is explicitly OUT OF SCOPE —
+a user decision, not a deferral**: unlike the brief's own "may be
+deferred to v2.1" framing, the call here was to not build it at all.
+Family E therefore closes at 3/4 tasks; GhostDesk's own justification
+(the question E4 alone was meant to answer) stays permanently
+unmeasured by this benchmark, and that absence should be read as a
+scope decision, not an oversight, in any future reading of this
+project's coverage.
