@@ -7,6 +7,12 @@ même vers la page "config-reseau-avancee" où la valeur est documentée.
 
 Déterministe (contenu fixe, pas de seed nécessaire ici — tout est explicite).
 
+Benchmark v2, famille A (A2 — audit multi-pages, docs/briefs/B3-benchmark-v2.md) :
+une page dédiée (A2_SCHEMA_PAGE) documente le format de référence produit
+du fixture catalog (PX-####, quatre chiffres) — sert de vérité terrain pour
+détecter les 3 références qui le violent (voir
+fixtures/catalog/generate_catalog.py, A2_VIOLATING_REFS).
+
 Usage : python3 generate_docs.py <dossier_de_sortie>
 """
 import hashlib
@@ -20,6 +26,7 @@ TARGET_PARAM = "max_retry_delay"
 TARGET_DEFAULT = "30000"
 TARGET_PAGE = "config-reseau-avancee"
 INTERMEDIATE_PAGE = "index-parametres-reseau"
+A2_SCHEMA_PAGE = "schema-references-catalogue"
 
 PAGE_TEMPLATE = """<!doctype html>
 <html lang="fr">
@@ -68,6 +75,28 @@ def generate(out_dir: Path) -> None:
             "<tr><td>connect_timeout</td><td>5000</td><td>Délai de connexion initial (ms).</td></tr>"
             "<tr><td>max_retries</td><td>3</td><td>Nombre maximal de tentatives.</td></tr>"
             "</table>"
+        ),
+    )
+
+    # A2 : page dédiée, format de référence produit du catalogue. La
+    # clause d'exception KX-4471 est nécessaire : ce produit (cible de
+    # T1/T7/D1, référence figée — voir generate_catalog.py) viole lui
+    # aussi le format PX-####, mais n'est PAS une anomalie au sens de
+    # cette tâche — sans cette clause l'énoncé "exactement 3" devient
+    # faux (il y a 4 références non conformes au sens strict), ce qui a
+    # été observé en pratique (l'agent boucle sur l'incohérence).
+    pages[A2_SCHEMA_PAGE] = PAGE_TEMPLATE.format(
+        title="Schéma des références produit",
+        body=(
+            "<p>Toutes les références produit de notre catalogue en ligne "
+            "suivent strictement le format <strong>PX-####</strong> "
+            "(préfixe « PX- » suivi de exactement quatre chiffres). Toute "
+            "référence qui ne suit pas ce format signale une anomalie à "
+            "corriger dans la fiche produit correspondante.</p>"
+            "<p><strong>Exception documentée</strong> : le produit historique "
+            "de référence <strong>KX-4471</strong> conserve son ancienne "
+            "référence suite à une migration passée et n'est PAS à "
+            "considérer comme une anomalie.</p>"
         ),
     )
 

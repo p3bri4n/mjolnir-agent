@@ -266,6 +266,7 @@ def _docs_known_urls() -> set:
     urls |= {f"{DOCS_URL}/section-{n}.html" for n in range(1, generate_docs.N_FILLER_PAGES + 1)}
     urls.add(f"{DOCS_URL}/{generate_docs.INTERMEDIATE_PAGE}.html")
     urls.add(f"{DOCS_URL}/{generate_docs.TARGET_PAGE}.html")
+    urls.add(f"{DOCS_URL}/{generate_docs.A2_SCHEMA_PAGE}.html")
     return urls
 
 

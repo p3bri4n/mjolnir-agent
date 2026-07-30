@@ -9,6 +9,11 @@ référence — l'un et l'autre ne sont visibles que sur la fiche produit
 individuelle, pour forcer une navigation ciblée plutôt qu'une lecture de la
 liste). Un seul produit porte la référence KX-4471, page 2 de la liste.
 
+Benchmark v2, famille A (A2 — audit multi-pages, docs/briefs/B3-benchmark-v2.md) :
+3 références supplémentaires (A2_VIOLATING_REFS ci-dessous) violent
+délibérément le format documenté PX-#### (voir la page dédiée du fixture
+docs) — vérité terrain exportée, jamais dupliquée à la main côté harnais.
+
 Échelle réduite délibérément (voir docs/history.md, recalibrage T1) : une version
 initiale à 120 produits/12 pages rendait la recherche exhaustive du pire cas
 (ouvrir chaque fiche jusqu'à trouver la référence) incompatible avec
@@ -41,10 +46,21 @@ TARGET_REF = "KX-4471"
 TARGET_INDEX = 14  # 1-indexé, page 2 (produits 11-20)
 TARGET_PRICE = "84.90"
 
+# A2 : 3 références qui violent le format documenté PX-#### (quatre
+# chiffres), à des index fixes distincts de TARGET_INDEX — une par page
+# du catalogue (5 -> page 1, 18 -> page 2, 27 -> page 3).
+A2_VIOLATING_REFS = {
+    5: "PX-77",
+    18: "REF-1023",
+    27: "PX-102750",
+}
+
 
 def _reference(i: int) -> str:
     if i == TARGET_INDEX:
         return TARGET_REF
+    if i in A2_VIOLATING_REFS:
+        return A2_VIOLATING_REFS[i]
     # références plausibles mais jamais égales à TARGET_REF par construction
     return f"PX-{1000 + i}"
 

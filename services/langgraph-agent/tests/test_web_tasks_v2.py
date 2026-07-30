@@ -202,3 +202,55 @@ def test_classify_failure_cause_v2_leaves_other_tasks_unaffected():
 def test_classify_failure_cause_v2_passes_through_boucle_unchanged():
     cause = v2._classify_failure_cause_v2("D1_cible_inexistante", _fake_result("boucle"), False, "x")
     assert cause.startswith("boucle")  # never overridden to "hallucination"
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Family A, slice 1 (A2 only) — pure static-content task, no live I/O
+# unlike D2, so no lazy-function discipline needed here (see
+# _family_d_tasks()'s docstring for why D needed one and A2 doesn't).
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_family_a_task_ids():
+    assert v2.FAMILY_A_TASK_IDS == ["A2_schema_references"]
+    assert [t[0] for t in v2.FAMILY_A_TASKS] == v2.FAMILY_A_TASK_IDS
+
+
+def test_family_a_defaults_to_the_shared_repetitions_default():
+    assert v2._repetitions_for_task("A2_schema_references") == v2.N_REPETITIONS_V2_DEFAULT
+
+
+def test_known_urls_by_task_v2_has_a2_entry_covering_both_fixtures():
+    assert "A2_schema_references" in v2.ALL_KNOWN_URLS_BY_TASK
+    urls = v2.ALL_KNOWN_URLS_BY_TASK["A2_schema_references"]()
+    assert any(u.endswith(f"/{v2.generate_docs.A2_SCHEMA_PAGE}.html") for u in urls)
+    assert any(u.endswith("/product-1.html") for u in urls)  # catalog side present too
+
+
+def test_assert_a2_passes_when_all_three_violating_refs_present():
+    expected = v2.generate_catalog.A2_VIOLATING_REFS.values()
+    text = "Les références non conformes sont : " + ", ".join(expected) + "."
+    ok, _ = v2._assert_a2(text, "")
+    assert ok is True
+
+
+def test_assert_a2_fails_when_a_violating_ref_is_missing():
+    expected = list(v2.generate_catalog.A2_VIOLATING_REFS.values())
+    text = "Les références non conformes sont : " + ", ".join(expected[:-1]) + "."
+    ok, detail = v2._assert_a2(text, "")
+    assert ok is False
+    assert expected[-1] in detail
+
+
+def test_assert_a2_passes_when_target_ref_correctly_cited_as_exception():
+    # KX-4471 also violates PX-#### by construction — a CORRECT answer
+    # legitimately cites it as the documented exception (see
+    # generate_docs.A2_SCHEMA_PAGE); merely mentioning it must not fail
+    # the assertion, only the presence of the 3 expected refs matters.
+    expected = v2.generate_catalog.A2_VIOLATING_REFS.values()
+    text = (
+        "Les 3 références non conformes sont : " + ", ".join(expected) + ". "
+        "KX-4471 est l'exception documentée, pas une anomalie."
+    )
+    ok, _ = v2._assert_a2(text, "")
+    assert ok is True

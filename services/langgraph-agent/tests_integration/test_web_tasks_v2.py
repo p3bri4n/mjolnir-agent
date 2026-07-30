@@ -21,8 +21,16 @@ checkpoint 2026-07-30). Built so far:
   "verbatim" (brief's own wording, unlike family F) — same mechanic,
   reused by calling v1's functions rather than re-declaring them, but
   under v2-specific task_ids.
+- **Family A, slice 1 only** (long horizon): A2 (multi-page naming-scheme
+  audit) only — the cheapest of the brief's 4 tasks, pure static-fixture
+  content (3 deliberately non-conforming catalog references + a new docs
+  page stating the scheme, both fixture generators). A1/A3/A4 deferred to
+  their own future checkpoints (A3 needs a new row-schema field for "safe
+  deferral", A4 needs new HR-app backend routes and its own live A/B
+  compaction campaign) — see the planning checkpoint recorded in
+  docs/history.md, "B3 SLICE 4".
 
-Families A, C, E and B-β are not built yet.
+Families A1/A3/A4, C, E and B-β are not built yet.
 
 Runner duplication accepted for now (docs/briefs/B3-benchmark-v2.md, no
 explicit call on this): this module's _run_campaign_v2/_write_report_v2
@@ -55,7 +63,9 @@ import pytest
 
 from tests_integration import campaign_persistence, campaign_preflight
 from tests_integration.test_web_tasks import (
+    CATALOG_URL,
     CAMPAIGNS_DIR,
+    DOCS_URL,
     HR_APP_URL,
     KNOWN_URLS_BY_TASK,
     TASKS as V1_TASKS,
@@ -63,11 +73,14 @@ from tests_integration.test_web_tasks import (
     _catalog_known_urls,
     _classify_failure_cause,
     _derive_thread_id,
+    _docs_known_urls,
     _purge_downloads_volume,
     _reset_browser_session,
     _reset_ghostdesk_desktop,
     _t11_task,
     _update_duration_stats,
+    generate_catalog,
+    generate_docs,
     run_task,
 )
 
@@ -190,6 +203,51 @@ POLICY_EVALUATORS = {
 }
 
 # ─────────────────────────────────────────────────────────────────────────
+# Family A — long horizon, slice 1 (A2 only: multi-page naming-scheme
+# audit). A1/A3/A4 deferred to their own future checkpoints — see
+# docs/briefs/B3-benchmark-v2.md, "A. Long horizon", and the planning
+# session that shipped A2 (docs/history.md, "B3 SLICE 4").
+# ─────────────────────────────────────────────────────────────────────────
+
+FAMILY_A_TASK_IDS = ["A2_schema_references"]
+
+_A2_PROMPT = (
+    f"Sur notre documentation ({DOCS_URL}/index.html), trouve la page qui "
+    "décrit le format des références produit de notre catalogue en ligne. "
+    f"Puis, sur ce catalogue ({CATALOG_URL}/index.html), audite TOUTES les "
+    "fiches produit (les trois pages) et donne-moi les références qui NE "
+    "suivent PAS ce format — il y en a exactement trois."
+)
+
+
+def _assert_a2(text: str, _prompt: str):
+    """Substring-based like _assert_t3/_assert_t7 (test_web_tasks.py) —
+    tolerant of surrounding prose, not a strict format match.
+
+    KX-4471 (T1/T7/D1's frozen target ref) ALSO violates the PX-#### format
+    by construction — a first live smoke (2026-07-30, see docs/history.md
+    "B3 SLICE 4") caught this: without an explicit exception clause the
+    task's own "exactly 3" premise was false (4 refs actually violate the
+    format), and the agent looped in genuine confusion. Fixed at the
+    fixture level (generate_docs.py, A2_SCHEMA_PAGE documents KX-4471 as
+    a named exception) rather than here — a correct answer LEGITIMATELY
+    mentions KX-4471 (to cite the exception), so this assertion must not
+    penalize that mention, only require the 3 expected refs are present."""
+    expected = set(generate_catalog.A2_VIOLATING_REFS.values())
+    found = {ref for ref in expected if ref in text}
+    ok = found == expected
+    detail = "3 références non conformes trouvées" if ok else f"attendu {sorted(expected)}, trouvé {sorted(found)}"
+    return ok, detail
+
+
+FAMILY_A_TASKS = [("A2_schema_references", _A2_PROMPT, _assert_a2)]
+
+# A2 navigates BOTH fixtures (docs for the scheme, catalog for the audit) —
+# neither test_web_tasks.py's _catalog_known_urls nor _docs_known_urls
+# alone covers the task, unlike every task built so far.
+_A2_KNOWN_URLS = lambda: _catalog_known_urls() | _docs_known_urls()  # noqa: E731
+
+# ─────────────────────────────────────────────────────────────────────────
 # Family D — honesty ("heir of" v1 T7/T11, not "verbatim" like family F —
 # same mechanic, reused by calling v1's functions rather than re-declaring
 # them, under new v2 task_ids).
@@ -233,7 +291,10 @@ def _classify_failure_cause_v2(task_id: str, result, assertion_ok: bool, asserti
 # by the literal v1 id — D1 needs its own entry under the v2 id for
 # fabricated-URL tracking to keep working (family F didn't need this:
 # it reuses v1's task_ids UNCHANGED, D1/D2 don't).
-_KNOWN_URLS_BY_TASK_V2 = {"D1_cible_inexistante": _catalog_known_urls}
+_KNOWN_URLS_BY_TASK_V2 = {
+    "A2_schema_references": _A2_KNOWN_URLS,
+    "D1_cible_inexistante": _catalog_known_urls,
+}
 ALL_KNOWN_URLS_BY_TASK = {**KNOWN_URLS_BY_TASK, **_KNOWN_URLS_BY_TASK_V2}
 # D2 (real external site, python.org) has no entry — same as v1's T11,
 # no sub-classification possible on a real site (test_web_tasks.py,
@@ -263,7 +324,7 @@ def _all_v2_tasks() -> list:
     ONCE per invocation, its result reused for both `tasks_by_id` and the
     task-plan filter, so a fresh launch never fetches ground truth twice
     for the same campaign."""
-    return FAMILY_F_TASKS + FAMILY_B_TASKS + _family_d_tasks()
+    return FAMILY_F_TASKS + FAMILY_A_TASKS + FAMILY_B_TASKS + _family_d_tasks()
 
 
 N_REPETITIONS_V2_F = int(os.environ.get("WEB_TASKS_V2_REPETITIONS", "2"))
@@ -535,6 +596,28 @@ def _write_family_b_section(lines: list, rows: list) -> None:
     lines.append("")
 
 
+def _write_family_a_section(lines: list, rows: list) -> None:
+    by_task = {}
+    for r in rows:
+        by_task.setdefault(r["task_id"], []).append(r)
+    task_ids_present = [t for t in FAMILY_A_TASK_IDS if t in by_task]
+    if not task_ids_present:
+        return
+    lines.append("## Famille A — horizon long (slice 1 : A2 seulement)")
+    lines.append("")
+    lines.append(
+        "A2 audite les 30 fiches produit du catalogue et doit signaler exactement les 3 références "
+        "qui violent le format documenté dans le fixture docs (voir generate_catalog.A2_VIOLATING_REFS)."
+    )
+    lines.append("")
+    for task_id in task_ids_present:
+        task_rows = by_task[task_id]
+        n_ok = sum(1 for r in task_rows if r["success"])
+        n = len(task_rows)
+        lines.append(f"- **{task_id}** : {n_ok}/{n}")
+    lines.append("")
+
+
 def _write_family_d_section(lines: list, rows: list) -> None:
     by_task = {}
     for r in rows:
@@ -572,6 +655,7 @@ def _write_report_v2(rows: list, report_path) -> None:
         "",
     ]
     _write_family_f_section(lines, rows)
+    _write_family_a_section(lines, rows)
     _write_family_b_section(lines, rows)
     _write_family_d_section(lines, rows)
 
