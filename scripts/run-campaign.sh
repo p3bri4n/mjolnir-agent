@@ -165,19 +165,20 @@ ALL_TASK_IDS=(T1_extraction_paginee T2_formulaire_conge T3_tableau_dynamique
 REPS_LIST=()
 
 if [[ "$SUITE" == "v2" ]]; then
-  # Familles F + B (docs/briefs/B3-benchmark-v2.md) — garder en
-  # synchronisation manuelle avec ALL_V2_TASKS, test_web_tasks_v2.py.
-  # Répétitions PAR FAMILLE (2 pour F, 3 pour B) sauf --reps explicite,
-  # qui écrase les deux défauts uniformément (smoke rapide).
+  # Familles F + B + D (docs/briefs/B3-benchmark-v2.md) — garder en
+  # synchronisation manuelle avec _all_v2_tasks(), test_web_tasks_v2.py.
+  # Répétitions PAR FAMILLE (2 pour F, 3 pour tout le reste) sauf --reps
+  # explicite, qui écrase les deux défauts uniformément (smoke rapide).
   REPS_F=2
-  REPS_B=3
+  REPS_DEFAULT=3
   if [[ -n "$REPS" ]]; then
     REPS_F="$REPS"
-    REPS_B="$REPS"
+    REPS_DEFAULT="$REPS"
   fi
   ALL_TASK_IDS=(T3_tableau_dynamique T5_telechargement_calcul T6_session_authentifiee T10_books_toscrape
-    B1_conge_easy B1_conge_medium B1_conge_hard)
-  REPS_LIST=("$REPS_F" "$REPS_F" "$REPS_F" "$REPS_F" "$REPS_B" "$REPS_B" "$REPS_B")
+    B1_conge_easy B1_conge_medium B1_conge_hard D1_cible_inexistante D2_sonde_peremption)
+  REPS_LIST=("$REPS_F" "$REPS_F" "$REPS_F" "$REPS_F"
+    "$REPS_DEFAULT" "$REPS_DEFAULT" "$REPS_DEFAULT" "$REPS_DEFAULT" "$REPS_DEFAULT")
 else
   for _ in "${ALL_TASK_IDS[@]}"; do REPS_LIST+=("$REPS"); done
 fi

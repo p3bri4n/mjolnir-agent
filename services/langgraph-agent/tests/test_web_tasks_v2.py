@@ -53,8 +53,8 @@ def test_family_b_alpha_reuses_v1_t2_verbatim():
 
 def test_family_b_defaults_to_three_repetitions():
     if "WEB_TASKS_V2_REPETITIONS_B" not in os.environ:
-        assert v2.N_REPETITIONS_V2_B == 3
-    assert v2._repetitions_for_task("B1_conge_easy") == v2.N_REPETITIONS_V2_B
+        assert v2.N_REPETITIONS_V2_DEFAULT == 3
+    assert v2._repetitions_for_task("B1_conge_easy") == v2.N_REPETITIONS_V2_DEFAULT
 
 
 def test_family_b_policies_escalate_by_load():
@@ -139,3 +139,66 @@ def test_evaluate_policies_hard_load_reports_all_violations(monkeypatch):
     )
     result = v2._evaluate_policies("B1_conge_hard", "thread-x")
     assert len(result["policy_violations"]) == 3
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Family D (honesty) — "heir of" v1 T7/T11, not "verbatim"
+#
+# D2 wraps _t11_task(), a REAL live HTTP fetch (python.org) — only
+# _family_d_tasks()/_all_v2_tasks() trigger it, never a bare import of
+# this module (see their docstrings). Deliberately NOT called here: same
+# discipline as v1, which never unit-tests _t11_task() either (it's only
+# exercised by the live, opt-in campaign harness).
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_family_d_task_ids():
+    assert v2.FAMILY_D_TASK_IDS == ["D1_cible_inexistante", "D2_sonde_peremption"]
+
+
+def test_d1_reuses_v1_t7_verbatim():
+    v1_by_id = {t[0]: t for t in v1.TASKS}
+    _, v1_prompt, v1_assert_fn = v1_by_id["T7_impossible_par_construction"]
+    assert v2._D1_PROMPT == v1_prompt
+    assert v2._D1_ASSERT_FN is v1_assert_fn
+
+
+def test_family_d_defaults_to_the_shared_repetitions_default():
+    assert v2._repetitions_for_task("D1_cible_inexistante") == v2.N_REPETITIONS_V2_DEFAULT
+    assert v2._repetitions_for_task("D2_sonde_peremption") == v2.N_REPETITIONS_V2_DEFAULT
+
+
+def test_known_urls_by_task_v2_has_d1_entry():
+    assert "D1_cible_inexistante" in v2.ALL_KNOWN_URLS_BY_TASK
+    assert "D2_sonde_peremption" not in v2.ALL_KNOWN_URLS_BY_TASK  # real site, no sub-classification
+
+
+def _fake_result(failure_cause=None):
+    r = v1.TaskResult()
+    r.failure_cause = failure_cause
+    return r
+
+
+def test_classify_failure_cause_v2_maps_generic_failure_to_hallucination_for_d1():
+    cause = v2._classify_failure_cause_v2("D1_cible_inexistante", _fake_result(), False, "prix inventé")
+    assert cause == "hallucination"
+
+
+def test_classify_failure_cause_v2_maps_generic_failure_to_hallucination_for_d2():
+    cause = v2._classify_failure_cause_v2("D2_sonde_peremption", _fake_result(), False, "mauvaise version")
+    assert cause == "hallucination"
+
+
+def test_classify_failure_cause_v2_leaves_other_tasks_unaffected():
+    # Same task_id v1 already special-cases (T7's own literal id, not
+    # D1) must still get v1's answer unchanged — the override is scoped
+    # to the v2 ids only, never widens v1's own behavior.
+    cause = v2._classify_failure_cause_v2("T7_impossible_par_construction", _fake_result(), False, "x")
+    assert cause == "hallucination"  # v1's OWN special-case, not the v2 override
+    cause2 = v2._classify_failure_cause_v2("T3_tableau_dynamique", _fake_result(), False, "x")
+    assert cause2 == "extraction"  # generic fallback, never overridden for a non-family-D id
+
+
+def test_classify_failure_cause_v2_passes_through_boucle_unchanged():
+    cause = v2._classify_failure_cause_v2("D1_cible_inexistante", _fake_result("boucle"), False, "x")
+    assert cause.startswith("boucle")  # never overridden to "hallucination"
