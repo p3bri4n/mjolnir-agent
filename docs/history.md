@@ -3700,3 +3700,29 @@ sans être traitée : `browser_snapshot`/`browser_take_screenshot` ne sont
 PAS TIER_READ (`app/approval_policy.py`) malgré `type: "readOnly"` côté
 Playwright MCP — à traiter avec le reste du travail de tiers
 (`docs/briefs/B5-security-hardening.md`), pas ici.
+
+## TIER `browser_snapshot`/`browser_take_screenshot` — CORRIGÉ, SMOKE RESTREINT VERT
+
+Suite à la sonde de faisabilité canal visuel : `browser_snapshot`/
+`browser_take_screenshot` passés TIER_READ (`app/approval_policy.py`),
+alignés sur leur propre déclaration `readOnly` côté Playwright — même
+mouvement que `browser_extract`/`browser_inspect`. Les tiers étant un
+comportement mesuré (CLAUDE.md), traité en 3 temps plutôt qu'en aveugle :
+code + tests unitaires (438/438, un test de `test_campaign_preflight.py`
+mis à jour — son exemple d'outil "absent d'EXPECTED_TOOLS" utilisait
+justement `browser_snapshot`, devenu caduc), puis un smoke restreint (une
+tâche, T1, un run) plutôt qu'une campagne complète de comparaison.
+
+**Résultat du smoke** : 1/1 réussi, aucune régression. Vérifié
+directement dans l'audit log brut (pas seulement le rapport agrégé) :
+tous les appels `browser_snapshot` du run (plus d'une dizaine, catalogue
+paginé sur 3 pages) sont désormais totalement absents du journal —
+"auto, silencieux" comme `browser_extract` — alors que
+`browser_navigate`/`browser_click` restent journalisés avec
+`tier: reversible`. Aucune pause d'approbation observée pour
+`browser_snapshot` sur ce run. Voir `docs/resolved-bugs.md` #45.
+
+Pas de campagne de comparaison friction/tool_calls lancée (hors
+périmètre demandé — smoke restreint uniquement, per checkpoint) : à
+faire lors d'une prochaine mesure officielle si une comparaison
+chiffrée est nécessaire.

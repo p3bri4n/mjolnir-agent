@@ -116,7 +116,12 @@
       "n": 1
     },
     "T11_sonde_peremption": 20.6,
-    "T1_extraction_paginee": 43.2,
+    "T1_extraction_paginee": {
+      "max": 102.1,
+      "median": 102.1,
+      "min": 102.1,
+      "n": 1
+    },
     "T2_formulaire_conge": 32.8,
     "T3_tableau_dynamique": {
       "max": 34.4,

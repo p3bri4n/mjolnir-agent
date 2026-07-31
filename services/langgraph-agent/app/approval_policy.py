@@ -67,6 +67,18 @@ _DEFAULT_TIER_READ = {
     # form's real attributes" no longer has to go through browser_evaluate
     # (TIER_SENSITIVE/NEVER_GRANTABLE).
     "browser_inspect",
+    # Pure observation, no side effect (2026-07-31, found while probing
+    # visual-channel feasibility, docs/architecture/visual-channel-
+    # feasibility.md): both declared `type: "readOnly"` by the official
+    # Playwright MCP server itself (verified against the installed
+    # mcp/playwright:latest schema, CLAUDE.md #8), yet defaulted to
+    # TIER_SENSITIVE — an approval pause for looking at a page, not
+    # acting on it. Same reasoning as browser_extract/browser_inspect
+    # above. Approval tiers are measured behavior (CLAUDE.md): this
+    # change needs its own restricted smoke before any campaign compares
+    # against it — see docs/resolved-bugs.md for that smoke's result.
+    "browser_snapshot",
+    "browser_take_screenshot",
     "clipboard_get",  # a "read" in tool terms, but stays TIER_SENSITIVE: see override below
     "run_command",
     "read_file",

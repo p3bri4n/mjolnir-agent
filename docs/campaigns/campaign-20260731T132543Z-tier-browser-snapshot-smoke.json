@@ -1,0 +1,230 @@
+{
+  "metadata": {
+    "commit": "86f07c171f7e71c5c27b748aab69752d6e6aed03",
+    "ended_at": "2026-07-31T13:27:25.995706+00:00",
+    "env_flags": {
+      "ADAPTIVE_THINKING": "true",
+      "AFFORDANCE_THRESHOLD": "60",
+      "APPROVAL_RULES_PATH": "",
+      "AUDIT_LOG_MAX_BYTES": "20971520",
+      "AUTO_APPROVAL_STREAK_LIMIT": "6",
+      "AUTO_APPROVED_TOOLS": "",
+      "BROWSER_NAVIGATE_GUARDRAIL": "true",
+      "BROWSER_TOOL_OUTPUT_MAX_CHARS": "8000",
+      "EPISODE_COMPACTION_ENABLED": "false",
+      "EPISODE_COMPACTION_TURN_THRESHOLD": "40",
+      "FABRICATION_LIMIT": "5",
+      "IMAGE_FORMAT_PASSTHROUGH": "",
+      "IMAGE_TOKEN_ESTIMATE": "1500",
+      "LLM_MAX_TOKENS": "2048",
+      "MAX_EMPTY_ANSWER_RETRIES": "1",
+      "MAX_IMAGES_IN_CONTEXT": "1",
+      "MAX_TOOL_ITERATIONS": "20",
+      "NEVER_GRANTABLE_TOOLS_EXTRA": "",
+      "PLANNER_ENABLED": "true",
+      "PLANNER_MAX_TOKENS": "8192",
+      "PLANNER_THINKING_ENABLED": "false",
+      "PLAN_JUDGE_ENABLED": "true",
+      "PLAN_VALIDATION_ENABLED": "true",
+      "REPLAN_BUDGET": "2",
+      "SUBTASK_ATTEMPT_BUDGET": "3",
+      "TZ": "Europe/Paris",
+      "VERIFICATION_ENABLED": "true"
+    },
+    "image_ids": {
+      "langgraph-agent": "sha256:4ed5427fa7d94135db9f91026e69f4fe482d9119bce88438fe001cbb0b0c7ddd",
+      "mcp-client": "sha256:7880501585def272fa952d5767a7933392137cda6d38553007a2dd164ab29203",
+      "playwright-mcp": "sha256:8771dc4666e7c11440bfc6a0c6b00480e9a15b8891b45f29a52d7d995f8d1492",
+      "tabbyapi": "sha256:7ecf8c27484305df6375ce4fe83e6406b73d4d459e78cf6b32fc1941181ae139"
+    },
+    "label": "tier-browser-snapshot-smoke",
+    "started_at": "2026-07-31T13:25:43.532422+00:00",
+    "tabbyapi_model_id": "agent-llm"
+  },
+  "runs": [
+    {
+      "approvals": 5,
+      "cache_zero_requests": 4,
+      "detail": "prix 84.90 trouvé",
+      "duration_seconds": 102.1,
+      "episode_compaction_applied_count": 0,
+      "episode_compaction_messages_max": 29,
+      "fabricated_urls": [],
+      "failure_cause": "",
+      "final_text": "J'ai trouvé toutes les informations :\n- Référence : KX-4471\n- Prix : 84.90 €\n- Catégorie : Rangement\n- Stock : 5\n\nLe prix du produit KX-4471 est de 84.90 €.\n</think>\n\n\n\nLe produit de référence **KX-4471** est un **Robuste Thermos #14** (catégorie Rangement) et son prix est de **84,90 €**.",
+      "prefill_seconds": 45.61,
+      "prompt_tokens_total": 243716,
+      "repetition": 1,
+      "segment": 0,
+      "success": true,
+      "tabbyapi_raw_samples": [
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 3.38,
+          "new_tokens": 462,
+          "process_speed_tps": 710.77,
+          "queue_seconds": 0.0,
+          "tokens_generated": 204
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 1.0,
+          "new_tokens": 487,
+          "process_speed_tps": 760.94,
+          "queue_seconds": 0.0,
+          "tokens_generated": 26
+        },
+        {
+          "cached_tokens": 12288,
+          "generation_seconds": 3.65,
+          "new_tokens": 1768,
+          "process_speed_tps": 866.67,
+          "queue_seconds": 0.03,
+          "tokens_generated": 96
+        },
+        {
+          "cached_tokens": 13824,
+          "generation_seconds": 1.91,
+          "new_tokens": 580,
+          "process_speed_tps": 716.05,
+          "queue_seconds": 0.03,
+          "tokens_generated": 79
+        },
+        {
+          "cached_tokens": 13824,
+          "generation_seconds": 2.84,
+          "new_tokens": 964,
+          "process_speed_tps": 753.12,
+          "queue_seconds": 0.03,
+          "tokens_generated": 84
+        },
+        {
+          "cached_tokens": 14592,
+          "generation_seconds": 2.4,
+          "new_tokens": 431,
+          "process_speed_tps": 598.61,
+          "queue_seconds": 0.03,
+          "tokens_generated": 112
+        },
+        {
+          "cached_tokens": 14848,
+          "generation_seconds": 2.17,
+          "new_tokens": 419,
+          "process_speed_tps": 581.94,
+          "queue_seconds": 0.03,
+          "tokens_generated": 104
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 2.89,
+          "new_tokens": 1267,
+          "process_speed_tps": 1005.56,
+          "queue_seconds": 0.0,
+          "tokens_generated": 117
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 4.12,
+          "new_tokens": 829,
+          "process_speed_tps": 952.87,
+          "queue_seconds": 0.03,
+          "tokens_generated": 181
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 8.2,
+          "new_tokens": 1381,
+          "process_speed_tps": 1022.96,
+          "queue_seconds": 0.0,
+          "tokens_generated": 507
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 1.38,
+          "new_tokens": 1092,
+          "process_speed_tps": 1001.83,
+          "queue_seconds": 0.03,
+          "tokens_generated": 22
+        },
+        {
+          "cached_tokens": 13824,
+          "generation_seconds": 3.88,
+          "new_tokens": 1859,
+          "process_speed_tps": 864.65,
+          "queue_seconds": 0.03,
+          "tokens_generated": 106
+        },
+        {
+          "cached_tokens": 15616,
+          "generation_seconds": 4.75,
+          "new_tokens": 830,
+          "process_speed_tps": 768.52,
+          "queue_seconds": 0.03,
+          "tokens_generated": 214
+        },
+        {
+          "cached_tokens": 16384,
+          "generation_seconds": 2.09,
+          "new_tokens": 407,
+          "process_speed_tps": 557.53,
+          "queue_seconds": 0.03,
+          "tokens_generated": 83
+        },
+        {
+          "cached_tokens": 13824,
+          "generation_seconds": 7.05,
+          "new_tokens": 3763,
+          "process_speed_tps": 865.06,
+          "queue_seconds": 0.03,
+          "tokens_generated": 164
+        },
+        {
+          "cached_tokens": 13824,
+          "generation_seconds": 5.33,
+          "new_tokens": 4045,
+          "process_speed_tps": 866.17,
+          "queue_seconds": 0.03,
+          "tokens_generated": 46
+        },
+        {
+          "cached_tokens": 13824,
+          "generation_seconds": 13.61,
+          "new_tokens": 4764,
+          "process_speed_tps": 852.24,
+          "queue_seconds": 0.03,
+          "tokens_generated": 603
+        },
+        {
+          "cached_tokens": 13824,
+          "generation_seconds": 8.96,
+          "new_tokens": 6318,
+          "process_speed_tps": 871.45,
+          "queue_seconds": 0.03,
+          "tokens_generated": 121
+        },
+        {
+          "cached_tokens": 13824,
+          "generation_seconds": 8.62,
+          "new_tokens": 6490,
+          "process_speed_tps": 859.6,
+          "queue_seconds": 0.03,
+          "tokens_generated": 77
+        },
+        {
+          "cached_tokens": 20224,
+          "generation_seconds": 2.26,
+          "new_tokens": 504,
+          "process_speed_tps": 622.22,
+          "queue_seconds": 0.03,
+          "tokens_generated": 87
+        }
+      ],
+      "tabbyapi_requests": 20,
+      "task_id": "T1_extraction_paginee",
+      "thread_id": "75aa18cbd66f69e5",
+      "tool_calls_observed": 10,
+      "verification_exploitable": 11,
+      "verification_opportunities": 11
+    }
+  ]
+}
