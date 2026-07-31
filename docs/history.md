@@ -3726,3 +3726,31 @@ Pas de campagne de comparaison friction/tool_calls lancée (hors
 périmètre demandé — smoke restreint uniquement, per checkpoint) : à
 faire lors d'une prochaine mesure officielle si une comparaison
 chiffrée est nécessaire.
+
+## `session_grants` REMIS À ZÉRO PAR TOUR — TRANCHÉ ET CORRIGÉ
+
+Question laissée ouverte lors du chantier benchmark v2 ("A4 / COMPACTION
+— TARGETED MULTI-TURN EXERCISE BUILT (HORS GEL)" ci-dessus), reprise à
+la demande de l'utilisateur. Le champ `session_grants` porte son propre
+commentaire ("for the rest of the thread") et le README publie la même
+promesse ("reversible writes are covered by a session grant") — mais
+`_resolve_run` (`app/main.py`) le remettait à `[]` sur chaque nouveau
+tour, comme les champs génuinement par-tour (`tool_iterations`, `plan`).
+Contradiction entre le code et deux textes qui documentent le
+comportement voulu : traité comme un bug, pas comme une décision à
+prendre.
+
+**Correctif** : clé retirée de `run_input` — une mise à jour d'état
+partielle, l'absence de la clé laisse la valeur déjà persistée intacte.
+`plan_grant`/`plan_grant_session` INCHANGÉS (scope documenté "within the
+same task", à raison). Nouveau test unitaire (échoue sans le correctif,
+passe avec), suite complète 439/439.
+
+**Smoke restreint (2 tours, live)** : premier essai trompeur — le script
+de smoke avait accordé "pour la session" à une pause de PLAN au lieu de
+la pause d'OUTIL `browser_navigate` (deux mécanismes distincts,
+`plan_grant` vs `session_grants` — confusion du script, pas du
+correctif). Script corrigé, deuxième essai concluant : le tour 2
+n'a plus jamais redemandé d'approbation pour `browser_navigate` malgré
+son usage pour un second produit — seule une pause de plan (attendue,
+nouvelle tâche) est apparue. Voir `docs/resolved-bugs.md` #46.

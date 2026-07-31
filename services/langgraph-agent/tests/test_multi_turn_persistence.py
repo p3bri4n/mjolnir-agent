@@ -311,3 +311,95 @@ async def test_approve_append_convention_across_consecutive_approval_turns():
         # seul (human, AI) : 4 + 4 + 2 = 10, jamais de contenu réinjecté.
         assert len(snapshot.values["messages"]) == 10
         assert third.json()["choices"][0]["message"]["content"] == "Troisieme reponse."
+
+
+@pytest.mark.asyncio
+async def test_session_grant_persists_across_a_new_top_level_turn():
+    """Trouvé en réglant la question `session_grants` (2026-07-31, voir
+    docs/resolved-bugs.md) : le champ portait déjà le commentaire "for
+    the rest of the thread" (app/graph.py) et le README annonce "reversible
+    writes are covered by a session grant" — mais `_resolve_run`
+    réinitialisait `session_grants` à `[]` sur CHAQUE nouveau tour de haut
+    niveau, contredisant les deux. Un grant obtenu au tour 1 doit donc
+    éviter une nouvelle pause d'approbation au tour 2 pour le MÊME outil,
+    pas seulement au sein du même tour."""
+    import app.graph as g
+    import app.main as main_mod
+
+    with respx.mock(assert_all_called=False) as mock:
+        mock.post("http://fake-context-manager/retrieve").mock(
+            return_value=httpx.Response(200, json={"results": []})
+        )
+        mock.post("http://fake-skill-manager/match").mock(
+            return_value=httpx.Response(200, json={"skill": None})
+        )
+        mock.post("http://fake-mcp-client/call").mock(
+            return_value=httpx.Response(200, json={"content": [{"type": "text", "text": "42"}]})
+        )
+        mock.get("http://fake-mcp-client/tools/schema").mock(
+            return_value=httpx.Response(200, json={"tools": []})
+        )
+        route = mock.post("http://fake-vllm/v1/chat/completions")
+        route.side_effect = [
+            _sse_response(tool_call_response("browser_navigate", "call_1", '{"url": "http://a.example"}')),
+            _sse_response(text_response(["Premiere", " reponse."])),
+            _sse_response(tool_call_response("browser_navigate", "call_2", '{"url": "http://b.example"}')),
+            _sse_response(text_response(["Deuxieme", " reponse."])),
+        ]
+
+        g.agent_graph = g.build_graph()
+        main_mod.agent_graph = g.agent_graph
+
+        transport = httpx.ASGITransport(app=main_mod.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            first = await client.post(
+                "/v1/chat/completions",
+                json={"model": "agent-llm", "messages": [{"role": "user", "content": "Question un ?"}], "stream": False},
+            )
+            approval_text = first.json()["choices"][0]["message"]["content"]
+
+            # "approuver pour la session" : accorde browser_navigate pour
+            # le reste du THREAD (_parse_approval_reply), pas juste ce tour.
+            second = await client.post(
+                "/v1/chat/completions",
+                json={
+                    "model": "agent-llm",
+                    "messages": [
+                        {"role": "user", "content": "Question un ?"},
+                        {"role": "assistant", "content": approval_text},
+                        {"role": "user", "content": "approuver pour la session"},
+                    ],
+                    "stream": False,
+                },
+            )
+            final1 = second.json()["choices"][0]["message"]["content"]
+            assert final1 == "Premiere reponse."
+
+            # Nouveau tour de haut niveau : browser_navigate est réappelé
+            # sur un tout autre outil_call — avec le grant persistant, ceci
+            # doit filer directement à la réponse finale, sans nouvelle
+            # pause d'approbation.
+            third = await client.post(
+                "/v1/chat/completions",
+                json={
+                    "model": "agent-llm",
+                    "messages": [
+                        {"role": "user", "content": "Question un ?"},
+                        {"role": "assistant", "content": approval_text},
+                        {"role": "user", "content": "approuver pour la session"},
+                        {"role": "assistant", "content": final1},
+                        {"role": "user", "content": "Question deux ?"},
+                    ],
+                    "stream": False,
+                },
+            )
+
+        final2 = third.json()["choices"][0]["message"]["content"]
+        assert final2 == "Deuxieme reponse."
+        assert "Approbation" not in final2
+
+        thread_id = main_mod._derive_thread_id(
+            [type("M", (), {"role": "user", "content": "Question un ?"})()]
+        )
+        snapshot = await g.agent_graph.aget_state({"configurable": {"thread_id": thread_id}})
+        assert "browser_navigate" in (snapshot.values.get("session_grants") or [])

@@ -309,7 +309,16 @@ async def _resolve_run(request: ChatCompletionRequest):
         "think_opened": False,
         "think_closed": False,
         "auto_approval_streak": 0,
-        "session_grants": [],
+        # session_grants is DELIBERATELY absent here (2026-07-31, see
+        # docs/resolved-bugs.md "session_grants remis à zéro par tour") —
+        # every other field on this dict resets per top-level turn, but a
+        # session grant is documented (AgentState.session_grants,
+        # README's "reversible writes are covered by a session grant")
+        # to last the rest of the THREAD, not one turn. Omitting the key
+        # from a partial state update leaves the checkpointer's existing
+        # value untouched; a brand-new thread naturally reads back []
+        # via the state.get("session_grants") or [] pattern used
+        # everywhere it's consumed (app/graph.py).
         "grant_session": False,
         "empty_answer_retries": 0,
         "slash_command_image_shown": False,
