@@ -651,3 +651,179 @@ def test_stabilization_wait_disabled_via_zero_seconds(monkeypatch):
 
     assert resp.status_code == 200
     assert calls == [("browser_navigate", {"url": "https://exemple.com"})]
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Normalisation ref= (2026-07-31, voir docs/resolved-bugs.md "défaut ref=
+# browser_fill_form") : le modèle recopie souvent l'annotation "[ref=e7]"
+# de browser_snapshot telle quelle comme valeur de `target`, alors que
+# Playwright n'accepte que le jeton nu ("e7") — "ref=e7" est alors
+# interprété comme un moteur de sélecteur inconnu ("ref") et échoue à
+# 100% (mesuré sur l'historique complet des appels browser_fill_form).
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_normalize_ref_value_strips_ref_prefix():
+    import app.main as main_mod
+
+    assert main_mod._normalize_ref_value("ref=e7") == "e7"
+    assert main_mod._normalize_ref_value("ref=f2e7") == "f2e7"
+
+
+def test_normalize_ref_value_leaves_other_forms_untouched():
+    import app.main as main_mod
+
+    assert main_mod._normalize_ref_value("e7") == "e7"
+    assert main_mod._normalize_ref_value("input[name='username']") == "input[name='username']"
+    assert main_mod._normalize_ref_value("ref=not-a-ref") == "ref=not-a-ref"
+    assert main_mod._normalize_ref_value(None) is None
+
+
+def test_normalize_ref_targets_covers_nested_fill_form_fields():
+    """browser_fill_form porte ses targets dans un tableau `fields` — la
+    normalisation doit s'y appliquer sans traitement spécial à ce nom
+    d'outil (couvre tout outil futur avec la même forme imbriquée)."""
+    import app.main as main_mod
+
+    arguments = {
+        "fields": [
+            {"target": "ref=e7", "name": "Référence produit", "type": "textbox", "value": "PX-2007"},
+            {"target": "ref=e9", "name": "Nouveau niveau de stock", "type": "textbox", "value": "12"},
+        ]
+    }
+    normalized = main_mod._normalize_ref_targets(arguments)
+    assert normalized["fields"][0]["target"] == "e7"
+    assert normalized["fields"][1]["target"] == "e9"
+    # les autres clés (name, value...) ne sont jamais touchées
+    assert normalized["fields"][0]["value"] == "PX-2007"
+
+
+def test_normalize_ref_targets_covers_drag_start_end_target():
+    import app.main as main_mod
+
+    normalized = main_mod._normalize_ref_targets({"startTarget": "ref=e3", "endTarget": "ref=e5"})
+    assert normalized == {"startTarget": "e3", "endTarget": "e5"}
+
+
+def test_call_tool_normalizes_ref_target_before_dispatch(monkeypatch):
+    """Bout en bout via /call : browser_click envoyé avec "ref=e1" doit
+    atteindre le serveur MCP réel sous la forme nue "e1"."""
+    import app.main as main_mod
+
+    main_mod._tool_registry.clear()
+    _register_fake_browser_tool(main_mod, "browser_click", ["target"])
+    calls = _patch_run_on_server_recording(main_mod, monkeypatch)
+
+    resp = _client().post("/call", json={"tool": "browser_click", "arguments": {"target": "ref=e1"}})
+
+    assert resp.status_code == 200
+    assert calls[0] == ("browser_click", {"target": "e1"})
+
+
+def test_call_tool_normalizes_nested_fill_form_targets_before_dispatch(monkeypatch):
+    import app.main as main_mod
+
+    main_mod._tool_registry.clear()
+    _register_fake_browser_tool(main_mod, "browser_fill_form", ["fields"])
+    calls = _patch_run_on_server_recording(main_mod, monkeypatch)
+
+    resp = _client().post(
+        "/call",
+        json={
+            "tool": "browser_fill_form",
+            "arguments": {
+                "fields": [{"target": "ref=e7", "name": "Référence produit", "type": "textbox", "value": "PX-2007"}]
+            },
+        },
+    )
+
+    assert resp.status_code == 200
+    assert calls[0][1]["fields"][0]["target"] == "e7"
+
+
+def test_call_tool_rewrites_unknown_ref_engine_error_into_friendly_message(monkeypatch):
+    """Filet pour toute forme non normalisée en amont : le message brut de
+    Playwright ("Unknown engine...") est remplacé par une redirection
+    exploitable par le modèle, jamais un blocage sec."""
+    import app.main as main_mod
+    from mcp.types import TextContent
+
+    main_mod._tool_registry.clear()
+    _register_fake_browser_tool(main_mod, "browser_click", ["target"])
+
+    class _ErrorSession:
+        async def call_tool(self, name, arguments):
+            class _Result:
+                content = [TextContent(type="text", text='Error: browserBackend.callTool: Unknown engine "ref" while parsing selector ref=e7')]
+
+            return _Result()
+
+    async def fake_run_on_server(server_name, action):
+        return await action(_ErrorSession())
+
+    monkeypatch.setattr(main_mod, "_run_on_server", fake_run_on_server)
+
+    resp = _client().post("/call", json={"tool": "browser_click", "arguments": {"target": "ref=e7"}})
+
+    assert resp.status_code == 200
+    assert resp.json()["content"][0]["text"] == main_mod._FRIENDLY_REF_ERROR
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# browser_inspect (2026-07-31, voir docs/resolved-bugs.md "défaut ref=
+# browser_fill_form") : capacité de fond manquante identifiée en creusant
+# la brèche B-β hard — le repli légitime d'introspection DOM passait par
+# browser_evaluate (NEVER_GRANTABLE) faute d'alternative TIER_READ. Même
+# mouvement que browser_extract : template JS FIXE, jamais de code fourni
+# par le modèle.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_build_inspect_call_without_target_scans_all_form_fields():
+    import app.main as main_mod
+
+    tool, args = main_mod._build_inspect_call()
+    assert tool == "browser_evaluate"
+    assert args == {"function": main_mod._BROWSER_INSPECT_JS_ALL}
+
+
+def test_build_inspect_call_with_target_normalizes_ref_and_scopes_evaluate():
+    import app.main as main_mod
+
+    tool, args = main_mod._build_inspect_call("ref=e7", "champ référence produit")
+    assert tool == "browser_evaluate"
+    assert args == {
+        "function": main_mod._BROWSER_INSPECT_JS_SINGLE,
+        "target": "e7",
+        "element": "champ référence produit",
+    }
+
+
+def test_browser_inspect_is_registered_when_browser_server_present(browser_evaluate_echo_server):
+    resp = _client().get("/tools/schema")
+    names = {t["function"]["name"] for t in resp.json()["tools"]}
+    assert "browser_inspect" in names
+
+
+def test_browser_inspect_dispatches_to_browser_evaluate_with_fixed_template(browser_evaluate_echo_server):
+    """Le serveur de test renvoie tel quel le JS reçu — vérifie le
+    dispatch SANS dépendre d'un vrai navigateur."""
+    import app.main as main_mod
+
+    resp = _client().post("/call", json={"tool": "browser_inspect", "arguments": {}})
+    assert resp.status_code == 200
+    text = resp.json()["content"][0]["text"]
+    assert text == main_mod._BROWSER_INSPECT_JS_ALL
+
+
+def test_browser_inspect_with_target_dispatches_single_element_template(browser_evaluate_echo_server):
+    """Le serveur de test-écho ne renvoie que `function` (voir
+    browser_evaluate_echo_server.py) : cette limite du fixture suffit à
+    vérifier le template choisi, pas la normalisation de `target` (déjà
+    couverte par test_build_inspect_call_with_target_normalizes_ref_...)."""
+    import app.main as main_mod
+
+    resp = _client().post("/call", json={"tool": "browser_inspect", "arguments": {"target": "ref=e7"}})
+    assert resp.status_code == 200
+    text = resp.json()["content"][0]["text"]
+    assert text == main_mod._BROWSER_INSPECT_JS_SINGLE

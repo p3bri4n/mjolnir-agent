@@ -59,6 +59,14 @@ _DEFAULT_TIER_READ = {
     # services/mcp-client/app/main.py, _build_extract_function: FIXED JS
     # template, query interpolated via json.dumps).
     "browser_extract",
+    # DOM introspection when a ref/selector doesn't resolve (B-β hard
+    # finding, docs/resolved-bugs.md "défaut ref= browser_fill_form"):
+    # same movement as browser_extract above — a FIXED JS template
+    # (services/mcp-client/app/main.py, _build_inspect_call), never
+    # model-supplied code, so the legitimate fallback for "what are this
+    # form's real attributes" no longer has to go through browser_evaluate
+    # (TIER_SENSITIVE/NEVER_GRANTABLE).
+    "browser_inspect",
     "clipboard_get",  # a "read" in tool terms, but stays TIER_SENSITIVE: see override below
     "run_command",
     "read_file",

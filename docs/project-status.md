@@ -274,3 +274,42 @@ permanently unmeasured by this benchmark.
 Benchmark v2 is now feature-complete per this project's scope decisions
 (families F, A, B, C, D fully built; family E at 3/4 by explicit
 choice).
+
+**Post-measure follow-up** (see docs/history.md, "BENCHMARK V2 — POST-
+MEASURE FOLLOW-UP"): B-β hard's CuP 1/3 traced to a real root cause, not
+BULK_CHECK_DIRECTIVE (hypothesis falsified by archives) — a `target`
+format defect in `mcp-client`'s ref= handling, present since 2026-07-22
+across every fixture, fixed generically (`_normalize_ref_targets`) plus a
+new TIER_READ `browser_inspect` tool. Three archives-only notes recorded
+in `docs/benchmark-v2.md` (new file): what CuP actually measures (agent
+intention, not deployed safety), A4's compaction-coverage judge (flag
+never enabled on any A4 run — flattering zero, and even the raw
+message-count proxy shows 0/3 final runs crossing the compaction
+threshold), and family C's 9/9 baseline (no progression margin left for
+the security plan's Phase 2-4 — scoped to v2.1, fixtures stay frozen).
+
+**A4/compaction closed** (see docs/history.md): full-fleet distribution
+(101 threads, only 4 reach the 40-message threshold, all family A4):
+neither unreachable nor representative. Building the requested "long
+task" exercise surfaced a hard ceiling (`MAX_TOOL_ITERATIONS=20` caps a
+single task at ~40-42 messages) — redesigned as multi-turn threads
+instead, which in turn surfaced and fixed a real `/approve` bug
+(owui_message_count desync for any non-Open-WebUI multi-turn client, see
+docs/resolved-bugs.md #44). Final live measurement (3 reps × 2 threads,
+flag off then on): **negative result, not a non-result this time** —
+flag on nearly doubles tool_calls/tokens, 6/6 runs hit
+`MAX_TOOL_ITERATIONS`, dependent-turn success drops from 4/6 to 0/6,
+despite real compaction coverage (19-26 applied/run, no flattering
+zero). `EPISODE_COMPACTION_ENABLED` stays `false`.
+
+**Visual-channel feasibility probe delivered** (preliminary to GhostDesk
+removal, `docs/architecture/visual-channel-feasibility.md`): 8
+content-rendering patterns checked directly (no agent loop) across
+`browser_snapshot`/`browser_extract`/screenshot+OCR. Canvas, WebGL,
+image, and native-PDF-viewer content are unreadable by any DOM channel
+but fully readable via `browser_take_screenshot` (Playwright's own tool,
+unrelated to GhostDesk); cross-origin iframes and open shadow DOM are
+covered by `browser_snapshot` already. **Conclusion: GhostDesk removal
+would lose nothing tested here** — its only unique capability
+(out-of-browser interaction) is E4's territory, already out of scope by
+explicit user decision.

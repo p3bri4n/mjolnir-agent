@@ -56,6 +56,14 @@
       in `docs/briefs/` and committed before the first line. A closed
       effort gets a status header (result, deviations from the brief) and
       moves to `docs/briefs/archive/`.
+    - a live smoke precedes any final measurement of a family or
+      mechanism: validated empirically across five smokes, five bugs
+      caught before the measurement they preceded would have counted —
+      a stale Docker image, a missing root route, two fixture leaks, and
+      a judge blind to the audit log (see docs/history.md for each). A
+      sixth: the multi-turn compaction exercise's own live smoke caught a
+      real `/approve` bookkeeping defect (docs/resolved-bugs.md #44)
+      before the measurement it fed into.
 
     Full rationale: `docs/methodology.md` — read once, not every session.
 

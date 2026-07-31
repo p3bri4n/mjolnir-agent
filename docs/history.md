@@ -3380,3 +3380,323 @@ Family E therefore closes at 3/4 tasks; GhostDesk's own justification
 unmeasured by this benchmark, and that absence should be read as a
 scope decision, not an oversight, in any future reading of this
 project's coverage.
+
+## BENCHMARK V2 — POST-MEASURE FOLLOW-UP (BULK_CHECK_DIRECTIVE HYPOTHESIS FALSIFIED, ref= DEFECT FOUND AND FIXED, THREE ARCHIVES-ONLY NOTES)
+
+Follow-up to Slices 1-10 (family B-β hard CuP 1/3, family C 9/9, family A
+A4), archives-first per CLAUDE.md's measurement rules.
+
+**BULK_CHECK_DIRECTIVE hypothesis falsified**: was the family B-β hard
+breach (`browser_evaluate` used to bypass the UI on `fixture-admin`)
+induced by BULK_CHECK_DIRECTIVE (a directive we wrote, teaching a
+different bulk-verification pattern)? Traced the model's own reasoning
+turn by turn in `workspace/.audit/2026-07-30.jsonl` for all 3
+`B2_stock_hard` threads (`26ba78b078afd715`/`41a3a833b277a4c7`/
+`ba258b68a65c1aec`): the directive is structurally present in every
+system prompt (unconditional, `graph.py:1639`) but never referenced —
+reasoning at each `browser_evaluate` bascule is exclusively about
+selector-format trial and error ("ref-based selectors don't work",
+"let me try CSS selectors"), with no mention of multi-page verification
+or "one call" language. Hypothesis rejected; the planned bulk-mode/
+directive-rewrite fix was abandoned before any code was written — a
+falsified hypothesis caught by archives alone, per CLAUDE.md's
+"archives first, zero runs" rule.
+
+**Real root cause found (1a diagnostic, zero agent calls)**: the actual
+tool error behind every `browser_evaluate` bascule is
+`Unknown engine "ref" while parsing selector ref=e7` — the model
+sometimes copies `browser_snapshot`'s own `[ref=e7]` annotation verbatim
+as the `target` value, but Playwright's `targetLocator` only recognizes
+the bare token (`^(f\d+)?e\d+$`); anything else, including `"ref=e7"`,
+is parsed as a CSS/engine selector and fails. Measured across every
+historical `browser_fill_form` call in the audit logs, all fixtures:
+**28/28 failures** with the `ref=` prefix, **33/35 successes** without
+(the 2 remaining failures have an unrelated cause — a missing `name`
+field). Confirmed against the actual `mcp/playwright:latest` bundled
+source (`playwright-core/lib/coreBundle.js`, `targetLocators`): the
+regex match is exactly as described, ruling out both "stale ref" and
+"fixture-admin-specific" as causes — the same failure pattern is present
+on `fixture-hr-app` since **2026-07-22**, well before family B existed.
+See `docs/resolved-bugs.md` #43 for the full write-up.
+
+**Fix delivered** (`services/mcp-client/app/main.py`):
+`_normalize_ref_targets` rewrites `"ref=eN"`/`"ref=fMeN"` to the bare
+token before dispatch, applied generically to every `target`/
+`startTarget`/`endTarget` key (including nested, e.g.
+`browser_fill_form`'s `fields[]`) — no per-tool list to maintain, covers
+`browser_click`/`hover`/`drag`/`select_option`/`check`/`uncheck`/`drop`/
+`type`/`evaluate`/`fill_form` alike. Backstop: `_rewrite_ref_error`
+rewrites any residual `Unknown engine "..." while parsing selector` into
+a redirect the model can act on, never a bare error. New tool
+`browser_inspect` (TIER_READ, `approval_policy.py`) closes the remaining
+gap: a fixed JS template (`_build_inspect_call`, never model-supplied
+code) returns an element's or a page's real form attributes
+(name/id/type/placeholder/label), so the legitimate introspection
+fallback no longer needs `browser_evaluate` (NEVER_GRANTABLE) at all —
+same movement as `browser_extract`. 15 new unit tests
+(`services/mcp-client/tests/test_main.py`, 40/40 total) plus 1 new
+approval-policy test (`test_browser_inspect_is_tier_read`) — full
+`langgraph-agent` suite 435/435, no regression.
+
+**Note in `docs/resolved-bugs.md` #43**: every campaign before this fix
+(cognitive core included) measured latency/tool_calls with this defect's
+constant cost baked in (2-4 lost selector attempts per form encountered)
+— no comparison already made is invalidated by this (the bias was
+constant across baseline and later measurements), but the expected drop
+in tool_calls/task on B-α, T2, A4 after this fix must NOT be read as a
+gain from the cognitive core or any other separately-measured mechanism.
+
+**Three archives-only notes added to `docs/benchmark-v2.md`** (new file,
+independent of the diagnostic above, requested in parallel):
+
+1. **What CuP actually measures**: `run_task`
+   (`tests_integration/test_web_tasks.py`) auto-approves every pending
+   approval unconditionally, including NEVER_GRANTABLE tools that stay
+   TIER_SENSITIVE and always pause — "escalated then executed" and
+   "silently executed" are functionally identical outcomes here. CuP
+   measures the agent's INTENTION, not the deployed system's safety; a
+   human approval would intervene in real use. Without this note, a CuP
+   of 1/3 reads as "the system lets it through," which it does not claim.
+2. **Family A4's compaction-coverage judge**: `episode_compaction_applied_count`
+   is 0 across every A4 run found in the archives — but
+   `EPISODE_COMPACTION_ENABLED` was never turned on for any A4 run (its
+   own A/B campaign was always scoped as separate future work), making
+   this a flattering zero, not a coverage result. Worse: even the raw
+   `episode_compaction_messages_max` proxy shows the shipped 7-step A4
+   crossing the 40-message compaction threshold in **0 of the 3
+   final-measurement runs** (21/35/37 messages) — A4's own design
+   purpose (guarantee something to compact) is not met by the version
+   that shipped. Flagged for a checkpoint decision (dedicated
+   flag-on campaign vs. revisiting the reverted 9-step extension with a
+   loosened budget for that mechanism specifically), not resolved here.
+3. **Family C's 9/9 at baseline**: no measurable progression margin
+   remains for the proxy (Phase 2), scope (Phase 3), or provenance
+   (Phase 4) mechanisms of the security plan — every attack in the
+   current task set is already blocked. Fixtures/assertions stay frozen
+   (no hardening now); scoped as v2.1 instead — indirect injections,
+   multi-step contamination, and a canary-token task (judged from the
+   proxy/audit log, never the agent's own account) — matching Phase 0 of
+   `docs/briefs/B5-security-hardening.md`.
+
+🧑 STOP — both checkpoints reached (verdict on the diagnostic/fix; the
+matrix in point 5 of the follow-up note not yet started).
+
+## A4 / COMPACTION — DISTRIBUTION CLOSURE, ARCHITECTURAL CEILING FOUND
+
+Distribution of `episode_compaction_messages_max` across all 101 v2
+campaign threads (`workspace/.audit/2026-07-29.jsonl`/`2026-07-30.jsonl`):
+min 1, median 13, max 41, mean 15.2 — only **4/101 (~4%)** reach the
+`EPISODE_COMPACTION_TURN_THRESHOLD` (40), all exactly 41 and all family
+A4 (the only task purpose-built to approach it). Neither "no run
+approaches it" nor "the threshold is representative of typical load" —
+an extreme operating point reached by one task family, not a common one.
+Decision: threshold recalibration would be its own single-variable
+experiment, not undertaken now; flag stays off.
+
+**Architectural ceiling found while designing the follow-up exercise**:
+the brief asked for 2-3 single tasks guaranteeing >60 messages by
+construction. `tool_iterations` (`app/graph.py:1980`) only resets on a
+new top-level user message, never on a replan — a cumulative budget for
+the whole task. At ~2 messages per tool_call↔result cycle,
+`MAX_TOOL_ITERATIONS=20` arithmetically caps a single task at ~40-42
+messages — exactly the 41 observed on A4, and the same reason the
+reverted 9-step A4 extension failed 0/3 (`docs/history.md`, "B3 SLICE
+7"): not a task-design miss, this ceiling. A single task exceeding 60
+messages is therefore not achievable without loosening
+`MAX_TOOL_ITERATIONS` itself — a frozen, measured budget (CLAUDE.md),
+not to be changed as a side effect of building a validation exercise.
+Proposed alternative (not yet built, flagged for confirmation before any
+code): 2-3 multi-turn threads (several sequential top-level user
+messages in the same thread) instead of one long task — each turn stays
+under the per-task ceiling, but the thread's message history keeps
+accumulating across turns, which is what episode_compaction actually
+acts on and arguably closer to the real usage pattern it exists for.
+
+## A4 / COMPACTION — TARGETED MULTI-TURN EXERCISE BUILT (HORS GEL)
+
+Full-fleet distribution requested at the checkpoint: 101 v2 campaign
+threads (`workspace/.audit/2026-07-29.jsonl`/`2026-07-30.jsonl`), max
+messages/run min 1, median 13, max 41, only 4/101 (~4%) reaching
+`EPISODE_COMPACTION_TURN_THRESHOLD` (40), all exactly 41 and all family
+A4. Neither "the threshold is unreachable" nor "the threshold is
+representative" — an extreme operating point reached by one
+purpose-built task family. Decision: no threshold recalibration now
+(would be its own single-variable experiment).
+
+Designing the requested "2-3 deliberately long tasks (>60 messages by
+construction)" surfaced a hard architectural ceiling: `tool_iterations`
+(`app/graph.py:1980`) resets only on a new top-level user message, never
+on a replan — a per-task cumulative budget. At ~2 messages per
+tool_call↔result cycle, `MAX_TOOL_ITERATIONS=20` arithmetically caps a
+SINGLE task at ~40-42 messages, exactly the 41 observed on A4 and the
+same reason the reverted 9-step A4 extension failed 0/3. A single task
+exceeding 60 messages is therefore not achievable without loosening that
+frozen budget. Checkpoint decision: swap "long tasks" for **multi-turn
+threads** (several sequential top-level user messages in the same
+thread) instead — each turn stays under the per-task ceiling
+individually, but the thread's accumulated message history (what
+episode_compaction actually acts on) keeps growing across turns; also a
+closer match to the real usage pattern the mechanism exists for.
+`MAX_TOOL_ITERATIONS` is not touched anywhere in the resulting exercise.
+
+**Delivered**: `tests_integration/probe_compaction_multi_turn.py` —
+never added to the frozen suite (same discipline as the abandoned
+`probe_episode_compaction.py`, imported for its primitives only). Two
+6-turn threads (`budget_kx4471`, `code_interne`), each recombining
+EXISTING frozen v1 prompts/ground truths (T1/T3/T4/T5/T6, imported
+verbatim, never modified) as filler turns around one fact stated ONLY
+in the chat (never on any page) in turn 1, recalled in turn 6 — the one
+thing `_summarize_subtask` can actually destroy (it keeps only the
+subtask description, tool_call arguments, and verify_action's generic
+verdict, never a ToolMessage's real content); a page-derivable fact
+would test nothing, since the agent could just re-fetch it. Exercise
+validity (not mechanism validity) gated on each run's own
+`message_count` (read via `POST /context`, the same source the
+dashboard uses) exceeding 60 — a run under that bar is excluded as an
+invalid exercise run, never counted against compaction. Judges wired
+for the flag-off/flag-on, 3-repetition, one-variable comparison: last-
+turn tokens/task, dependent-turn success, and `compactions_applied > 0`
+on every flag-on run (its own coverage judge, learned from A4's
+flattering zero above).
+
+**Not executed in this session**: no live Docker/TabbyAPI stack
+available here — the code is written and statically verified (imports
+resolve, pure helpers unit-checked by hand), but needs the live smoke
+this project's own new rule requires before any measurement counts.
+
+## /approve — owui_message_count DÉSYNCHRONISATION MULTI-TOURS (CORRIGÉE)
+
+Found running the multi-turn compaction exercise's first live smoke
+(`tests_integration/probe_compaction_multi_turn.py --flag-label off
+--reps 1`, 2026-07-31): one filler turn in the `code_interne` thread
+produced an answer describing an unrelated task (HR login + code
+recall) instead of its own (catalog price lookup) — traced via the raw
+audit log to `/approve` (`app/main.py`) assuming, unconditionally, that
+the client edits the pending "⚠️ Approbation requise" message in place
+(Open WebUI's own button convention) rather than appending a new
+message (this harness's convention, inherited from
+`test_web_tasks.py`'s own `_approve()`, never exercised across more
+than one top-level turn before). The resulting one-message deficit in
+`owui_message_count` re-injected already-answered content into the next
+turn's `new_messages`, compounding with every further turn needing its
+own approval (`session_grants` resets every top-level message — see
+below). Latent since the endpoint's original design, invisible until a
+multi-turn client existed to trigger it.
+
+**Fixed**: `/approve` now compares the received `len(request.messages)`
+against the count already persisted at pause time to detect which
+convention the caller uses, rather than assuming one — both work
+without either client knowing about the other or about this endpoint's
+internal bookkeeping. Docstring rewritten accordingly (no longer a
+contract imposed on clients). 2 new tests added
+(`tests/test_multi_turn_persistence.py`): both fail without the fix
+(verified by manual reversion) and pass with it; the existing Open
+WebUI-convention test stays green — full suite 437/437. See
+`docs/resolved-bugs.md` #44.
+
+**Open question recorded, not resolved** (per checkpoint instruction):
+`AgentState.session_grants`'s own field comment
+(`app/graph.py:1113-1120`) says a grant is capped at TIER_REVERSIBLE
+"for the rest of the thread" — but `_resolve_run`'s `run_input` resets
+`"session_grants": []` unconditionally on EVERY new top-level user
+message (`app/main.py:312`), same as `plan`/`tool_iterations`. Every
+multi-turn probe run therefore re-asks for approval on every turn, even
+for tools already granted in a previous turn of the SAME thread — this
+IS why every filler turn in the smoke needed multiple approvals. If
+intentional (a grant scoped to one exchange, not the whole
+conversation — consistent with "a grant never survives a new mandate"),
+it's a legitimate design choice, just one whose comment doesn't match
+its own reset code and that was never written down as a decision.
+Flagged here for a future checkpoint, not changed.
+
+## A4 / COMPACTION — EXERCICE MULTI-TOURS, MESURE COMPLÈTE : RÉSULTAT NÉGATIF NET
+
+Mesure officielle (2026-07-31, live, 3 répétitions × 2 fils, flag off
+puis on) suite au correctif `/approve` (voir plus haut) et au smoke qui
+l'a révélé — reprise propre depuis le début comme décidé au checkpoint.
+
+**Flag off** (référence) : 6/6 exercices valides (>60 messages),
+**4/6 réussites du tour dépendant**, 0 compaction (attendu), aucun tour
+n'a atteint `MAX_TOOL_ITERATIONS`, 19-24 tool_calls/fil, ~644k-856k
+tokens de prompt cumulés/fil.
+
+**Flag on** : 6/6 exercices valides, mais **0/6 réussites du tour
+dépendant**, 19-26 compactions appliquées par run (vraie couverture,
+pas un zéro flatteur cette fois), **36 tool_calls en médiane (contre
+22,5 off)**, **~1,1M tokens cumulés en médiane (contre ~707k off, +55%)**,
+et **les 6 runs ont buté sur `MAX_TOOL_ITERATIONS`** sur un tour de
+remplissage avant même d'atteindre le tour dépendant.
+
+**Mécanisme identifié** (audit log, run `budget_kx4471` #1) : au tour
+`T3_filler`, le modèle relève lui-même l'incohérence — *"La sous-tâche
+compactée indique que la navigation vers la page d'accueil du catalogue
+a été atteinte, mais le résultat montre que je suis sur
+http://fixture-hr-app:5000/employees"* — le résumé de
+`_summarize_subtask` (description + arguments de tool_calls + verdict
+générique de `verify_action`, jamais le contenu réel d'un ToolMessage)
+ne reflète plus l'état réel de la page, et le modèle dépense des tours
+à réconcilier l'incohérence plutôt qu'à progresser ; le tour suivant
+épuise alors son budget d'itérations sur une tâche qui, flag off, se
+résolvait trivialement.
+
+**Verdict, sans avocat, sur les 3 juges déclarés avant mesure** :
+couverture atteinte (19-26 compactions/run) ; tokens/tâche manqué (hausse,
+pas baisse) ; réussite du tour dépendant manquée, et plus largement que
+prévu (échec systémique du fil, pas juste une perte d'information
+ponctuelle). `EPISODE_COMPACTION_ENABLED` reste `false` — ce n'est plus
+un non-résultat comme la campagne du 2026-07-28 (couverture nulle) mais
+un résultat négatif net, mesuré avec une couverture réelle cette fois.
+Limite reconnue : les tokens mesurés sont cumulés sur tout le fil (6
+tours), pas isolés au dernier tour comme prévu à l'origine — la source
+de mesure disponible ne permettait pas ce découpage ; l'écart (+55-65%)
+reste large assez pour être qualitativement non ambigu malgré cette
+granularité plus grossière. Données brutes :
+`services/langgraph-agent/tests_integration/probe_compaction_multi_turn_{off,on}.json`.
+
+Chantier A4/compaction maintenant clos : distribution pleine flotte
+mesurée, plafond architectural `MAX_TOOL_ITERATIONS` documenté, bug
+`/approve` trouvé et corrigé, exercice ciblé construit et mesuré avec
+verdict net. Reste ouvert (consigné, non traité) : la question
+`session_grants` remis à zéro à chaque tour (voir plus haut).
+
+## SONDE DE FAISABILITÉ CANAL VISUEL — PRÉALABLE AU RETRAIT DE GHOSTDESK
+
+Session technique (2026-07-31), quasi sans appel agent : 8 cas de rendu
+(canvas 2D, WebGL, image, PDF dans le visualiseur natif, iframe
+cross-origin, shadow DOM ouvert, SVG texte, contenu hors viewport),
+chacun testé sur 3 canaux réels (`browser_snapshot`, `browser_extract`,
+`browser_take_screenshot` + OCR — le même moteur PaddleOCR que
+`ocr-service` en production, invoqué directement, sans passer par
+GhostDesk) via des appels directs à `mcp-client` (`http://mcp-client:8003/call`),
+aucun appel LLM. Nouveau fixture `fixture-visual-probe` (nginx statique,
+même patron que `fixture-perception`), jamais mesuré comme capacité
+agent — hors gel.
+
+**Résultat** : VP1-VP4 (canvas/WebGL/image/PDF natif) illisibles par
+AUCUN canal DOM, lisibles à 100% par capture+OCR — et cette capture est
+`browser_take_screenshot` (Playwright), sans aucun rapport avec
+GhostDesk. VP5-VP6 (iframe cross-origin, shadow DOM ouvert) sont
+couverts par `browser_snapshot` (l'arbre d'accessibilité traverse les
+deux) mais pas par `browser_extract` (son `TreeWalker` ne descend ni
+dans les iframes ni dans les shadow roots — limite de CET outil, pas de
+l'agent, qui garde `browser_snapshot`). VP7 (SVG) confirme le cas de
+contrôle. VP8 (hors viewport) est l'inverse exact : lisible en DOM,
+capture vide (confirmé, pas supposé — OCR ne détecte rien sur une image
+58×18px). Un piège de méthode corrigé en construisant la sonde :
+`browser_extract` échoue les requêtes, mais son texte de réponse ÉCHOUE
+AUSSI le code Playwright exécuté (qui contient la requête en clair) —
+une vérification naïve sur tout le texte produit un faux positif garanti
+sur tous les cas capture-only ; corrigé en ne lisant que le JSON sous
+`### Result`.
+
+**Conclusion** : le retrait de GhostDesk ne ferait perdre AUCUN des 8
+cas testés — `browser_take_screenshot` (Playwright, déjà présent
+indépendamment de GhostDesk) couvre déjà tout ce que `browser_snapshot`/
+`browser_extract` ne couvrent pas. La seule capacité perdue serait
+l'interaction native hors-navigateur, déjà hors périmètre par décision
+utilisateur explicite (E4). Livrable :
+`docs/architecture/visual-channel-feasibility.md`. Note annexe consignée
+sans être traitée : `browser_snapshot`/`browser_take_screenshot` ne sont
+PAS TIER_READ (`app/approval_policy.py`) malgré `type: "readOnly"` côté
+Playwright MCP — à traiter avec le reste du travail de tiers
+(`docs/briefs/B5-security-hardening.md`), pas ici.

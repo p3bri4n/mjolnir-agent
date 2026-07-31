@@ -24,6 +24,7 @@ container.
 import asyncio
 import json
 import os
+import re
 from contextlib import AsyncExitStack
 
 from fastapi import FastAPI, HTTPException
@@ -271,6 +272,153 @@ _BROWSER_EXTRACT_TOOL = {
     },
 }
 
+# ref= NORMALIZATION (2026-07-31, see docs/resolved-bugs.md "défaut ref=
+# browser_fill_form", live since 2026-07-22 across every fixture): the
+# official Playwright MCP's targetLocator treats a `target` string as an
+# aria-ref ONLY if it matches ^(f\d+)?e\d+$ (bare "e7", optionally
+# "f2e7") — anything else is parsed as a CSS/engine selector. The model
+# routinely copies the annotation verbatim from browser_snapshot's own
+# output ("[ref=e7]"), producing "ref=e7", which Playwright's selector
+# parser reads as an unknown engine named "ref" and rejects outright
+# (100% failure rate measured across every historical browser_fill_form
+# call using this form). Normalizing here — before dispatch — fixes the
+# defect at the mechanism, for every current and future tool that carries
+# a target/startTarget/endTarget (click, hover, drag, fill_form's nested
+# fields, select_option, evaluate's element-scoped form...), without a
+# per-tool list to keep in sync.
+_REF_TARGET_KEYS = {"target", "startTarget", "endTarget"}
+_REF_PREFIX_RE = re.compile(r"^ref=((?:f\d+)?e\d+)$")
+
+
+def _normalize_ref_value(value):
+    if isinstance(value, str):
+        match = _REF_PREFIX_RE.match(value)
+        if match:
+            return match.group(1)
+    return value
+
+
+def _normalize_ref_targets(obj):
+    """Recursively rewrites "ref=eN"-style values found under
+    target/startTarget/endTarget keys to the bare "eN" token Playwright
+    expects. Walks nested dicts/lists so browser_fill_form's `fields`
+    array is covered by the same pass, no special-casing needed."""
+    if isinstance(obj, dict):
+        return {
+            key: (_normalize_ref_value(value) if key in _REF_TARGET_KEYS else _normalize_ref_targets(value))
+            for key, value in obj.items()
+        }
+    if isinstance(obj, list):
+        return [_normalize_ref_targets(item) for item in obj]
+    return obj
+
+
+# Filet pour toute forme non reconnue par la normalisation ci-dessus
+# (ex. casse différente, préfixe inattendu) : rediriger vers la bonne
+# syntaxe plutôt que renvoyer le message d'erreur brut de Playwright, qui
+# ne dit pas au modèle comment se corriger.
+_UNKNOWN_REF_ENGINE_RE = re.compile(r'Unknown engine "\w+" while parsing selector')
+
+_FRIENDLY_REF_ERROR = (
+    "Erreur : référence invalide. Utilise le jeton nu du dernier "
+    "browser_snapshot (ex. \"e7\", sans le préfixe \"ref=\") ou un "
+    "sélecteur CSS (ex. \"input[name='...']\")."
+)
+
+
+def _rewrite_ref_error(content_blocks):
+    for block in content_blocks:
+        text = getattr(block, "text", None)
+        if text and _UNKNOWN_REF_ENGINE_RE.search(text):
+            block.text = _FRIENDLY_REF_ERROR
+    return content_blocks
+
+
+# CAPACITÉ D'INTROSPECTION MANQUANTE (même diagnostic que ci-dessus,
+# 2026-07-31) : une fois le défaut ref= corrigé, le repli légitime du
+# modèle face à un sélecteur qu'il ignore encore reste l'introspection du
+# DOM — jusqu'ici seulement possible via browser_evaluate (TIER_SENSITIVE,
+# NEVER_GRANTABLE, code arbitraire), cause directe de la brèche B-β hard
+# (docs/campaigns/2026-07-30_campaign-v2_b2-mesure-medium-hard.md). Même
+# mouvement que browser_extract : un template JS FIXE (jamais de code
+# fourni par le modèle), tier LECTURE. Cible un élément précis (target,
+# résolu par browser_evaluate lui-même comme locator) ou, à défaut,
+# recense tous les champs de formulaire de la page.
+_BROWSER_INSPECT_JS_SINGLE = """(el) => {
+  const label = el.labels && el.labels[0] ? el.labels[0].textContent.trim() : null;
+  return JSON.stringify({
+    tag: el.tagName.toLowerCase(),
+    type: el.type || null,
+    name: el.name || null,
+    id: el.id || null,
+    placeholder: el.placeholder || null,
+    label: label,
+  });
+}"""
+
+_BROWSER_INSPECT_JS_ALL = """() => {
+  const els = document.querySelectorAll('input, select, textarea, button');
+  const attrs = Array.from(els).map((el) => {
+    const label = el.labels && el.labels[0] ? el.labels[0].textContent.trim() : null;
+    return {
+      tag: el.tagName.toLowerCase(),
+      type: el.type || null,
+      name: el.name || null,
+      id: el.id || null,
+      placeholder: el.placeholder || null,
+      label: label,
+    };
+  });
+  return JSON.stringify(attrs);
+}"""
+
+
+def _build_inspect_call(target: str = None, element: str = None) -> tuple[str, dict]:
+    """Pure function (testable with no real MCP server): returns the
+    (tool, arguments) pair to dispatch to browser_evaluate — element-scoped
+    template if `target` is given (normalized the same way as every other
+    ref-bearing argument), page-wide form scan otherwise."""
+    if target:
+        normalized = _normalize_ref_value(target)
+        return "browser_evaluate", {
+            "function": _BROWSER_INSPECT_JS_SINGLE,
+            "target": normalized,
+            "element": element or "élément à inspecter",
+        }
+    return "browser_evaluate", {"function": _BROWSER_INSPECT_JS_ALL}
+
+
+_BROWSER_INSPECT_TOOL = {
+    "server": "browser",  # dispatched internally to browser_evaluate, see call_tool()
+    "description": (
+        "Renvoie les attributs RÉELS des champs d'un formulaire (name, id, "
+        "type, placeholder, label associé) — utilise cet outil quand un "
+        "sélecteur (ref ou description) ne fonctionne pas sur browser_click/"
+        "browser_fill_form/browser_type, avant d'en essayer un autre. Sans "
+        "`target`, recense tous les champs de la page ; avec `target` (une "
+        "ref de browser_snapshot ou un sélecteur CSS), détaille cet élément "
+        "précis. Ne prend jamais de code."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "target": {
+                "type": "string",
+                "description": (
+                    "Optionnel : ref du dernier browser_snapshot (ex. \"e7\") ou "
+                    "sélecteur CSS de l'élément à inspecter. Omis : recense tous "
+                    "les champs de formulaire de la page."
+                ),
+            },
+            "element": {
+                "type": "string",
+                "description": "Optionnel : description humaine de l'élément ciblé par `target`.",
+            },
+        },
+        "additionalProperties": False,
+    },
+}
+
 app = FastAPI(title="MCP Client")
 
 # registry {tool_name: {"server", "description", "inputSchema"}}, lazily
@@ -373,6 +521,7 @@ async def _refresh_registry():
     # refresh, which only ever sees the real servers.
     if "browser" in SERVERS:
         _tool_registry["browser_extract"] = _BROWSER_EXTRACT_TOOL
+        _tool_registry["browser_inspect"] = _BROWSER_INSPECT_TOOL
 
 
 class CallRequest(BaseModel):
@@ -466,22 +615,27 @@ async def call_tool(request: CallRequest):
     if not tool_info:
         raise HTTPException(status_code=404, detail=f"Outil inconnu : {request.tool}")
 
+    arguments = _normalize_ref_targets(request.arguments)
+
     if request.tool == "browser_extract":
         # Dispatched internally to browser_evaluate with a FIXED JS
         # template (see _build_extract_function): the model never
         # supplies code, only the text to search for (and, in bulk mode,
         # the list of URLs to check).
-        js_function = _build_extract_function(request.arguments.get("query", ""), request.arguments.get("urls"))
+        js_function = _build_extract_function(arguments.get("query", ""), arguments.get("urls"))
         result = await _run_on_server(
             "browser", lambda s: s.call_tool("browser_evaluate", {"function": js_function})
         )
         return {"content": [block.model_dump() for block in result.content]}
 
-    result = await _run_on_server(
-        tool_info["server"], lambda s: s.call_tool(request.tool, request.arguments)
-    )
+    if request.tool == "browser_inspect":
+        eval_tool, eval_args = _build_inspect_call(arguments.get("target"), arguments.get("element"))
+        result = await _run_on_server("browser", lambda s: s.call_tool(eval_tool, eval_args))
+        return {"content": [block.model_dump() for block in _rewrite_ref_error(result.content)]}
+
+    result = await _run_on_server(tool_info["server"], lambda s: s.call_tool(request.tool, arguments))
     if request.tool in _STABILIZE_AFTER_TOOLS and BROWSER_STABILIZE_WAIT_SECONDS > 0:
         await _run_on_server(
             "browser", lambda s: s.call_tool("browser_wait_for", {"time": BROWSER_STABILIZE_WAIT_SECONDS})
         )
-    return {"content": [block.model_dump() for block in result.content]}
+    return {"content": [block.model_dump() for block in _rewrite_ref_error(result.content)]}

@@ -628,15 +628,23 @@ async def approve(request: ApprovalDecisionRequest):
     decision (UI button), without going through the "approuver"/
     "refuser" text message _resolve_run normally expects.
 
-    owui_message_count bookkeeping (see _resolve_run): unlike the text
-    flow, where the user's "approuver" message AND the final answer both
-    get added to the Open WebUI history (hence the +1 on the already
-    present count), this button only edits the existing "⚠️ Approbation
-    requise" message IN PLACE with the final answer (see the provided
-    Open WebUI Action function) — no new message is added. The count
-    therefore stays the one already seen, with no +1, or it would
-    desynchronize the next normal turn's `request.messages[already_seen:]`
-    split and lose the first message the user sends afterward.
+    owui_message_count bookkeeping (see _resolve_run) auto-detects which
+    of two client conventions sent `request.messages`, rather than
+    assuming one (2026-07-31 fix, see docs/resolved-bugs.md): Open WebUI's
+    own Action button edits the existing "⚠️ Approbation requise" message
+    IN PLACE with the final answer — its `messages` therefore already
+    includes a placeholder for this turn, matching the count stored at
+    pause time (`_resolve_run`'s own `+1`), with no further growth to
+    anticipate. A programmatic client that instead APPENDS a brand new
+    assistant message once this call resolves (no in-place edit) sends
+    `messages` one shorter than that stored count — anticipate its
+    upcoming growth instead, or the next turn's
+    `request.messages[already_seen:]` split would re-inject this turn's
+    already-answered content as if it were new. Both conventions are
+    detected from `len(request.messages)` alone, compared against the
+    count already persisted for this thread — neither client needs to
+    know about the other, and neither needs to know this endpoint's
+    internal bookkeeping at all.
     """
     # See the recursion_limit note in _resolve_run: this endpoint also
     # resumes a graph execution (ainvoke below), so it's subject to the
@@ -651,7 +659,18 @@ async def approve(request: ApprovalDecisionRequest):
     if not snapshot.next:
         raise HTTPException(status_code=409, detail="Aucune approbation en attente pour ce thread.")
 
-    owui_message_count = len(request.messages)
+    received_count = len(request.messages)
+    stored_count = snapshot.values.get("owui_message_count") if snapshot.values else None
+    if stored_count is not None and received_count == stored_count - 1:
+        # No placeholder included: this client will append exactly one
+        # new message after this call resolves (see docstring) —
+        # anticipate that growth now.
+        owui_message_count = received_count + 1
+    else:
+        # Placeholder already included (edited in place afterward, or an
+        # unexpected count we fall back to trusting as-is): no further
+        # growth expected.
+        owui_message_count = received_count
     # Same plan-vs-tool distinction as in _resolve_run (Iteration 3, see
     # the comment there) — real bug found under real conditions during
     # the Iteration 3 live campaign: this endpoint used to
