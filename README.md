@@ -19,6 +19,8 @@ Tested the hard way: [six weeks of llama.cpp on two mismatched GPUs](https://git
 before switching engines — build traps, a tool-calling grammar hole, and an
 intermittent multi-GPU crash isolated to a prefill batch-size threshold.
 
+Scores went from 16/33 to 30/33 over eleven campaigns — [docs/notes/agent-benchmarking.md](https://github.com/p3bri4n/mjolnir-agent/discussions/12). 
+
 ## Features
 
 ### Autonomy that reports its own failures

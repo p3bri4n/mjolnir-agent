@@ -1,0 +1,332 @@
+[
+  {
+    "thread": "budget_kx4471",
+    "flag": "on",
+    "rep": 1,
+    "exercise_valid": true,
+    "message_count": 93,
+    "dependent_success": false,
+    "dependent_detail": "infra",
+    "any_turn_hit_iteration_limit": true,
+    "messages_max": 93,
+    "compactions_applied": 21,
+    "tool_calls_observed": 37,
+    "prefill_seconds": 318.12,
+    "prompt_tokens_total": 1107222,
+    "cache_zero_requests": 13,
+    "tabbyapi_requests": 61,
+    "turns": [
+      {
+        "label": "T1_plus_budget",
+        "failure_cause": null,
+        "approvals": 6,
+        "final_text": "J'ai trouvé le prix du produit KX-4471 : 84,90 €. L'utilisateur m'a dit de retenir son budget de 180 euros pour plus tard. Je vais lui donner la réponse.\n</think>\n\n\n\nLe produit référence **KX-4471** (Robuste Thermos #14) est disponible à **84,90 €**.\n\nCela reste bien dans ton budget interne de 180 €. Je retiens ce montant — n'hésite pas à me le rappeler à la fin de notre échange."
+      },
+      {
+        "label": "T4_filler",
+        "failure_cause": null,
+        "approvals": 3,
+        "final_text": "J'ai trouvé la valeur par défaut de max_retry_delay : 30000 ms. Elle est documentée sur la page \"Configuration réseau avancée\" (config-reseau-avancee.html).\n</think>\n\n\n\nLa valeur par défaut du paramètre **max_retry_delay** est **30 000** (millisecondes). Elle est documentée sur la page **« Configuration réseau avancée »** (`config-reseau-avancee.html`)."
+      },
+      {
+        "label": "T3_filler",
+        "failure_cause": null,
+        "approvals": 3,
+        "final_text": "La sous-tâche compactée indique que la navigation vers la page d'accueil du catalogue a été atteinte, mais le résultat montre que je suis sur http://fixture-hr-app:5000/employees avec la liste des employés. Je dois trouver le 3e salaire le plus élevé du département Ingénierie.\n\nRegardons les employés du département Ingénierie et leurs salaires :\n- Sophie Bernard : 61000\n- Antoine Leroy : 58000\n- Léa Fontaine : 55000\n- Julien Faure : 52000\n- Paul Renard : 49500\n- Thomas Girard : 47000\n\nTriés par salaire décroissant :\n1. Sophie Bernard : 61000\n2. Antoine Leroy : 58000\n3. Léa Fontaine : 55000\n\nLe 3e salaire le plus élevé est Léa Fontaine avec 55000.\n\nJe peux aussi utiliser le filtre par département et le tri par salaire pour vérifier. Mais les données sont déjà visibles. Je vais répondre directement.\n</think>\n\n\n\nSur la page des employés, les membres du département **Ingénierie** et leurs salaires sont :\n\n| Rang | Nom | Salaire |\n|------|-----|---------|\n| 1er | Sophie Bernard | 61 000 |\n| 2e | Antoine Leroy | 58 000 |\n| **3e** | **Léa Fontaine** | **55 000** |\n| 4e | Julien Faure | 52 000 |\n| 5e | Paul Renard | 49 500 |\n| 6e | Thomas Girard | 47 000 |\n\nLe **3e salaire le plus élevé** du département Ingénierie appartient à **Léa Fontaine** (55 000 €)."
+      },
+      {
+        "label": "T5_filler",
+        "failure_cause": null,
+        "approvals": 2,
+        "final_text": "L'utilisateur me demande d'exporter le CSV des employés et de calculer la masse salariale totale du département Ventes. Le fichier CSV a déjà été lu et contient les données.\n\nJe dois identifier les employés du département \"Ventes\" et additionner leurs salaires :\n\n- Camille Roux, Ventes, 38000\n- Élise Petit, Ventes, 44500\n- Marion Dubois, Ventes, 36000\n- Inès Marchand, Ventes, 41000\n- Victor Perrin, Ventes, 39500\n\nTotal = 38000 + 44500 + 36000 + 41000 + 39500 = 199000\n\nJe vais répondre avec ce calcul.\n</think>\n\n\n\nLe CSV a été exporté avec succès. Voici les employés du département **Ventes** et leurs salaires :\n\n| Nom | Salaire |\n|-----|---------|\n| Camille Roux | 38 000 € |\n| Élise Petit | 44 500 € |\n| Marion Dubois | 36 000 € |\n| Inès Marchand | 41 000 € |\n| Victor Perrin | 39 500 € |\n\n**Masse salariale totale du département Ventes : 199 000 €**"
+      },
+      {
+        "label": "T6_filler",
+        "failure_cause": "boucle",
+        "approvals": 6,
+        "final_text": "⚠️ Limite d'itérations d'outils atteinte pour cette tâche avant d'avoir pu exécuter : `browser_navigate`({'constat_precedent': 'atteint', 'url': 'http://fixture-hr-app:5000/login'}). Envoie un nouveau message pour relancer une tâche fraîche."
+      },
+      {
+        "label": "dependent_recall",
+        "failure_cause": "infra",
+        "approvals": 1,
+        "final_text": "⚠️ Erreur interne pendant la génération, réessayez."
+      }
+    ]
+  },
+  {
+    "thread": "budget_kx4471",
+    "flag": "on",
+    "rep": 2,
+    "exercise_valid": true,
+    "message_count": 94,
+    "dependent_success": false,
+    "dependent_detail": "infra",
+    "any_turn_hit_iteration_limit": true,
+    "messages_max": 94,
+    "compactions_applied": 21,
+    "tool_calls_observed": 38,
+    "prefill_seconds": 258.74,
+    "prompt_tokens_total": 1086706,
+    "cache_zero_requests": 10,
+    "tabbyapi_requests": 63,
+    "turns": [
+      {
+        "label": "T1_plus_budget",
+        "failure_cause": null,
+        "approvals": 7,
+        "final_text": "Je n'ai pas pu terminer la tâche avec le budget de tentatives/replanifications disponible.\nÉtat atteint :\n- [échoué] Naviguer vers la page d'accueil du catalogue pour vérifier la présence d'une barre de recherche ou d'un index. — critère non atteint (constat intégré au tour)\n- [à faire] Si une barre de recherche est trouvée, utiliser la recherche pour trouver la référence KX-4471. Sinon, naviguer vers la page 3 du catalogue pour continuer l'exploration séquentielle.\n- [à faire] Analyser le contenu de la page actuelle (résultat de recherche ou page 3) pour identifier si le produit KX-4471 est présent.\n- [à faire] Si le produit KX-4471 est trouvé, cliquer sur le lien du produit pour accéder à sa page de détails.\n- [à faire] Extraire le prix du produit KX-4471 depuis sa page de détails.\n- [à faire] Si le produit n'est pas trouvé sur la page actuelle, naviguer vers la page suivante du catalogue et répéter l'analyse jusqu'à trouver le produit ou épuiser les pages.\n- [à faire] Une fois le prix trouvé, le communiquer à l'utilisateur en rappelant le budget interne de 180 euros."
+      },
+      {
+        "label": "T4_filler",
+        "failure_cause": null,
+        "approvals": 3,
+        "final_text": "J'ai trouvé l'information. La valeur par défaut de max_retry_delay est 30000 (ms). Elle est documentée sur la page \"Configuration réseau avancée\" (config-reseau-avancee.html).\n</think>\n\n\n\nJ'ai trouvé l'information :\n\n- **Valeur par défaut de `max_retry_delay`** : **30000** (millisecondes, soit 30 secondes)\n- **Page de documentation** : **Configuration réseau avancée** (`config-reseau-avancee.html`)\n\nLe paramètre est décrit comme le « Délai maximal (ms) avant nouvelle tentative après échec réseau »."
+      },
+      {
+        "label": "T3_filler",
+        "failure_cause": null,
+        "approvals": 3,
+        "final_text": "Je dois trouver le 3e salaire le plus élevé du département Ingénierie. Regardons les employés du département Ingénierie et leurs salaires :\n\n1. Sophie Bernard - 61000\n2. Antoine Leroy - 58000\n3. Léa Fontaine - 55000\n4. Julien Faure - 52000\n5. Paul Renard - 49500\n6. Thomas Girard - 47000\n\nLe 3e salaire le plus élevé est donc Léa Fontaine avec 55000.\n\nJe peux aussi filtrer par département Ingénierie et trier par salaire décroissant pour confirmer.\n</think>\n\n\n\nSur la page, je peux voir les employés du département **Ingénierie** et leurs salaires :\n\n| Rang | Nom | Salaire |\n|------|-----|---------|\n| 1er | Sophie Bernard | 61 000 |\n| 2e | Antoine Leroy | 58 000 |\n| **3e** | **Léa Fontaine** | **55 000** |\n| 4e | Julien Faure | 52 000 |\n| 5e | Paul Renard | 49 500 |\n| 6e | Thomas Girard | 47 000 |\n\nLe **3e salaire le plus élevé** du département Ingénierie appartient à **Léa Fontaine** (55 000)."
+      },
+      {
+        "label": "T5_filler",
+        "failure_cause": null,
+        "approvals": 2,
+        "final_text": "L'utilisateur me demande d'exporter le CSV des employés et de calculer la masse salariale totale du département Ventes.\n\nJ'ai déjà le contenu du CSV dans le résultat de l'outil. Je vais analyser les données pour trouver les employés du département Ventes et additionner leurs salaires.\n\nEmployés du département Ventes :\n- Camille Roux : 38000\n- Élise Petit : 44500\n- Marion Dubois : 36000\n- Inès Marchand : 41000\n- Victor Perrin : 39500\n\nTotal = 38000 + 44500 + 36000 + 41000 + 39500 = 199000\n\nJe vais répondre avec ce calcul.\n</think>\n\n\n\nLe CSV a été exporté avec succès. Voici les employés du département **Ventes** et leurs salaires :\n\n| Nom | Salaire |\n|-----|---------|\n| Camille Roux | 38 000 |\n| Élise Petit | 44 500 |\n| Marion Dubois | 36 000 |\n| Inès Marchand | 41 000 |\n| Victor Perrin | 39 500 |\n\n**Masse salariale totale du département Ventes : 199 000 €**"
+      },
+      {
+        "label": "T6_filler",
+        "failure_cause": "boucle",
+        "approvals": 6,
+        "final_text": "⚠️ Limite d'itérations d'outils atteinte pour cette tâche avant d'avoir pu exécuter : `browser_navigate`({'constat_precedent': 'atteint', 'url': 'http://fixture-hr-app:5000/login'}). Envoie un nouveau message pour relancer une tâche fraîche."
+      },
+      {
+        "label": "dependent_recall",
+        "failure_cause": "infra",
+        "approvals": 1,
+        "final_text": "⚠️ Erreur interne pendant la génération, réessayez."
+      }
+    ]
+  },
+  {
+    "thread": "budget_kx4471",
+    "flag": "on",
+    "rep": 3,
+    "exercise_valid": true,
+    "message_count": 97,
+    "dependent_success": false,
+    "dependent_detail": "infra",
+    "any_turn_hit_iteration_limit": true,
+    "messages_max": 97,
+    "compactions_applied": 22,
+    "tool_calls_observed": 37,
+    "prefill_seconds": 276.08,
+    "prompt_tokens_total": 1176859,
+    "cache_zero_requests": 9,
+    "tabbyapi_requests": 60,
+    "turns": [
+      {
+        "label": "T1_plus_budget",
+        "failure_cause": null,
+        "approvals": 4,
+        "final_text": "J'ai trouvé le prix du produit KX-4471 : 84,90 €. Je vais maintenant informer l'utilisateur.\n</think>\n\n\n\nJ'ai trouvé le produit ! Le produit de référence **KX-4471** (Robuste Thermos #14) est vendu **84,90 €** sur le catalogue en ligne."
+      },
+      {
+        "label": "T4_filler",
+        "failure_cause": null,
+        "approvals": 3,
+        "final_text": "Les sous-tâches compactées indiquent que j'ai déjà navigué vers la documentation et trouvé l'information sur max_retry_delay. Le résultat indique que le critère est atteint. Je dois maintenant répondre à la question de l'utilisateur avec les informations trouvées.\n\nD'après les sous-tâches compactées, il semble que j'ai trouvé la valeur par défaut de max_retry_delay sur la page \"config-reseau-a\" de la documentation. Je dois maintenant fournir cette information à l'utilisateur.\n</think>\n\n\n\nD'après la documentation, la valeur par défaut du paramètre **max_retry_delay** est de **30 secondes**, documentée sur la page **Configuration réseau** (http://fixture-docs/docs/config-reseau-a.html)."
+      },
+      {
+        "label": "T3_filler",
+        "failure_cause": null,
+        "approvals": 3,
+        "final_text": "Je dois trouver le 3e salaire le plus élevé du département Ingénierie.\n\nListe des employés du département Ingénierie avec leurs salaires :\n1. Sophie Bernard - 61000\n2. Antoine Leroy - 58000\n3. Léa Fontaine - 55000\n4. Julien Faure - 52000\n5. Paul Renard - 49500\n6. Thomas Girard - 47000\n\nLe 3e salaire le plus élevé est Léa Fontaine avec 55000.\n</think>\n\n\n\nD'après la liste des employés, voici les salaires du département **Ingénierie** triés par ordre décroissant :\n\n1. Sophie Bernard — 61 000 €\n2. Antoine Leroy — 58 000 €\n3. **Léa Fontaine — 55 000 €**\n4. Julien Faure — 52 000 €\n5. Paul Renard — 49 500 €\n6. Thomas Girard — 47 000 €\n\nLe 3e salaire le plus élevé du département Ingénierie appartient à **Léa Fontaine** (55 000 €)."
+      },
+      {
+        "label": "T5_filler",
+        "failure_cause": null,
+        "approvals": 2,
+        "final_text": "Le fichier CSV a été lu avec succès. Je dois maintenant calculer la masse salariale totale du département \"Ventes\".\n\nLes employés du département Ventes sont :\n- Camille Roux : 38000\n- Élise Petit : 44500\n- Marion Dubois : 36000\n- Inès Marchand : 41000\n- Victor Perrin : 39500\n\nTotal = 38000 + 44500 + 36000 + 41000 + 39500 = 199000\n\nJe vais répondre avec ce calcul.\n</think>\n\n\n\nD'après le CSV exporté, les employés du département **Ventes** et leurs salaires sont :\n\n| Nom | Salaire |\n|-----|---------|\n| Camille Roux | 38 000 € |\n| Élise Petit | 44 500 € |\n| Marion Dubois | 36 000 € |\n| Inès Marchand | 41 000 € |\n| Victor Perrin | 39 500 € |\n\nLa **masse salariale totale du département Ventes** est donc de **199 000 €**."
+      },
+      {
+        "label": "T6_filler",
+        "failure_cause": "boucle",
+        "approvals": 6,
+        "final_text": "⚠️ Limite d'itérations d'outils atteinte pour cette tâche avant d'avoir pu exécuter : `browser_navigate`({'url': 'http://fixture-hr-app:5000/login', 'constat_precedent': 'atteint'}). Envoie un nouveau message pour relancer une tâche fraîche."
+      },
+      {
+        "label": "dependent_recall",
+        "failure_cause": "infra",
+        "approvals": 1,
+        "final_text": "⚠️ Erreur interne pendant la génération, réessayez."
+      }
+    ]
+  },
+  {
+    "thread": "code_interne",
+    "flag": "on",
+    "rep": 1,
+    "exercise_valid": true,
+    "message_count": 97,
+    "dependent_success": false,
+    "dependent_detail": "infra",
+    "any_turn_hit_iteration_limit": true,
+    "messages_max": 97,
+    "compactions_applied": 26,
+    "tool_calls_observed": 34,
+    "prefill_seconds": 277.79,
+    "prompt_tokens_total": 1135067,
+    "cache_zero_requests": 8,
+    "tabbyapi_requests": 65,
+    "turns": [
+      {
+        "label": "T6_plus_code",
+        "failure_cause": null,
+        "approvals": 5,
+        "final_text": "The page clearly shows \"Demandes en attente : 3\" and I can count the rows with \"en attente\" status:\n1. Julien Faure - en attente\n2. Sophie Bernard - en attente\n3. Thomas Girard - en attente\n\nSo there are 3 leave requests in \"en attente\" status.\n</think>\n\n\n\nLa page affiche clairement **3 demandes de congé en statut \"en attente\"** :\n\n1. **Julien Faure** — en attente\n2. **Sophie Bernard** — en attente\n3. **Thomas Girard** — en attente\n\nLe compteur en haut de la page confirme : « Demandes en attente : 3 »."
+      },
+      {
+        "label": "T5_filler",
+        "failure_cause": null,
+        "approvals": 2,
+        "final_text": "I need to find all employees in the \"Ventes\" department and sum their salaries:\n\n- Camille Roux, Ventes, 38000\n- Élise Petit, Ventes, 44500\n- Marion Dubois, Ventes, 36000\n- Inès Marchand, Ventes, 41000\n- Victor Perrin, Ventes, 39500\n\nTotal = 38000 + 44500 + 36000 + 41000 + 39500 = 199000\n</think>\n\n\n\nLe fichier CSV a été téléchargé avec succès. Voici les employés du département **Ventes** :\n\n| Employé | Salaire |\n|---|---|\n| Camille Roux | 38 000 € |\n| Élise Petit | 44 500 € |\n| Marion Dubois | 36 000 € |\n| Inès Marchand | 41 000 € |\n| Victor Perrin | 39 500 € |\n\nLa **masse salariale totale du département Ventes** est de **199 000 €**."
+      },
+      {
+        "label": "T1_filler",
+        "failure_cause": null,
+        "approvals": 7,
+        "final_text": "Les sous-tâches compactées montrent que j'ai déjà navigué vers la page de connexion, rempli le formulaire, et identifié le nombre de demandes de congé en attente. Maintenant je dois communiquer le résultat final en rappelant le nom de code ROUGE-12 et le nombre de demandes de congé en attente.\n\nD'après les sous-tâches compactées, il semble que j'ai déjà trouvé le nombre de demandes de congé en attente. Je dois maintenant communiquer ce résultat.\n\nLe nom de code de cette session est ROUGE-12.\n\n\n**Nom de code de la session : ROUGE-12**\n\nAprès connexion à l'application RH avec l'identifiant \"rh.manager\" et le mot de passe \"Conges2026!\", j'ai identifié **3 demandes de congé en statut \"en attente\"** sur la page \"Suivi des congés\"."
+      },
+      {
+        "label": "T4_filler",
+        "failure_cause": "boucle",
+        "approvals": 6,
+        "final_text": "⚠️ Limite d'itérations d'outils atteinte pour cette tâche avant d'avoir pu exécuter : `browser_snapshot`({'constat_precedent': 'atteint'}). Envoie un nouveau message pour relancer une tâche fraîche."
+      },
+      {
+        "label": "T3_filler",
+        "failure_cause": "infra",
+        "approvals": 1,
+        "final_text": "⚠️ Erreur interne pendant la génération, réessayez."
+      },
+      {
+        "label": "dependent_recall",
+        "failure_cause": "infra",
+        "approvals": 0,
+        "final_text": "⚠️ Erreur interne pendant la génération, réessayez."
+      }
+    ]
+  },
+  {
+    "thread": "code_interne",
+    "flag": "on",
+    "rep": 2,
+    "exercise_valid": true,
+    "message_count": 87,
+    "dependent_success": false,
+    "dependent_detail": "infra",
+    "any_turn_hit_iteration_limit": true,
+    "messages_max": 87,
+    "compactions_applied": 19,
+    "tool_calls_observed": 31,
+    "prefill_seconds": 206.31,
+    "prompt_tokens_total": 886531,
+    "cache_zero_requests": 16,
+    "tabbyapi_requests": 61,
+    "turns": [
+      {
+        "label": "T6_plus_code",
+        "failure_cause": null,
+        "approvals": 5,
+        "final_text": "The page clearly shows \"Demandes en attente : 3\" and I can count 3 requests with status \"en attente\":\n1. Julien Faure - en attente\n2. Sophie Bernard - en attente\n3. Thomas Girard - en attente\n\nThe answer is 3. The session code is ROUGE-12.\n</think>\n\n\n\nIl y a **3 demandes de congé en statut \"en attente\"** :\n\n1. **Julien Faure** — en attente\n2. **Sophie Bernard** — en attente\n3. **Thomas Girard** — en attente\n\nLa page affiche d'ailleurs directement le résumé : « Demandes en attente : 3 »."
+      },
+      {
+        "label": "T5_filler",
+        "failure_cause": null,
+        "approvals": 2,
+        "final_text": "Now I need to find all employees in the \"Ventes\" department and sum their salaries:\n\n- Camille Roux, Ventes, 38000\n- Élise Petit, Ventes, 44500\n- Marion Dubois, Ventes, 36000\n- Inès Marchand, Ventes, 41000\n- Victor Perrin, Ventes, 39500\n\nTotal = 38000 + 44500 + 36000 + 41000 + 39500 = 199000\n</think>\n\n\n\nLe fichier CSV a été téléchargé avec succès. Voici les employés du département **Ventes** :\n\n| Employé | Salaire |\n|---|---|\n| Camille Roux | 38 000 € |\n| Élise Petit | 44 500 € |\n| Marion Dubois | 36 000 € |\n| Inès Marchand | 41 000 € |\n| Victor Perrin | 39 500 € |\n\nLa **masse salariale totale du département Ventes** est de **199 000 €**."
+      },
+      {
+        "label": "T1_filler",
+        "failure_cause": null,
+        "approvals": 6,
+        "final_text": "Je n'ai pas pu terminer la tâche avec le budget de tentatives/replanifications disponible.\nÉtat atteint :\n- [échoué] Naviguer vers l'URL de connexion de l'application RH : http://fixture-hr-app:5000/login — critère non atteint (constat intégré au tour)\n- [à faire] Remplir le formulaire de connexion avec l'identifiant 'rh.manager' et le mot de passe 'Conges2026!' puis soumettre le formulaire.\n- [à faire] Identifier et compter le nombre de demandes de congé ayant le statut 'en attente' sur la page actuelle.\n- [à faire] Communiquer le résultat final en rappelant le nom de code ROUGE-12 et le nombre de demandes en attente."
+      },
+      {
+        "label": "T4_filler",
+        "failure_cause": "boucle",
+        "approvals": 6,
+        "final_text": "⚠️ Limite d'itérations d'outils atteinte pour cette tâche avant d'avoir pu exécuter : `browser_navigate`({'url': 'http://fixture-docs/docs/index.html', 'constat_precedent': 'atteint'}). Envoie un nouveau message pour relancer une tâche fraîche."
+      },
+      {
+        "label": "T3_filler",
+        "failure_cause": "infra",
+        "approvals": 2,
+        "final_text": "⚠️ Erreur interne pendant la génération, réessayez."
+      },
+      {
+        "label": "dependent_recall",
+        "failure_cause": "infra",
+        "approvals": 0,
+        "final_text": "⚠️ Erreur interne pendant la génération, réessayez."
+      }
+    ]
+  },
+  {
+    "thread": "code_interne",
+    "flag": "on",
+    "rep": 3,
+    "exercise_valid": true,
+    "message_count": 91,
+    "dependent_success": false,
+    "dependent_detail": "infra",
+    "any_turn_hit_iteration_limit": true,
+    "messages_max": 91,
+    "compactions_applied": 21,
+    "tool_calls_observed": 35,
+    "prefill_seconds": 224.37,
+    "prompt_tokens_total": 955814,
+    "cache_zero_requests": 8,
+    "tabbyapi_requests": 56,
+    "turns": [
+      {
+        "label": "T6_plus_code",
+        "failure_cause": null,
+        "approvals": 5,
+        "final_text": "The page clearly shows \"Demandes en attente : 3\" in paragraph [ref=e10]. The table confirms this with 3 rows having \"en attente\" status: Julien Faure, Sophie Bernard, and Thomas Girard.\n\nThe user also asked me to remember the session code \"ROUGE-12\".\n\nThe previous action was taking a snapshot to see the leave requests. The criterion was \"Le nombre exact de demandes en attente est identifié et extrait.\" - yes, I can see \"Demandes en attente : 3\" clearly displayed on the page.\n\nLet me report the result.\n</think>\n\n\n\nParfait ! La page affiche clairement **3 demandes de congé en statut \"en attente\"** :\n\n1. **Julien Faure** — en attente\n2. **Sophie Bernard** — en attente\n3. **Thomas Girard** — en attente\n\nLe compteur en haut de la page confirme : *\"Demandes en attente : 3\"*.\n\nEt je note bien le nom de code de cette session : **ROUGE-12**."
+      },
+      {
+        "label": "T5_filler",
+        "failure_cause": null,
+        "approvals": 2,
+        "final_text": "Now I need to extract all employees from the \"Ventes\" department and sum their salaries. Let me identify them:\n\n- Camille Roux, Ventes, 38000\n- Élise Petit, Ventes, 44500\n- Marion Dubois, Ventes, 36000\n- Inès Marchand, Ventes, 41000\n- Victor Perrin, Ventes, 39500\n\nTotal = 38000 + 44500 + 36000 + 41000 + 39500 = 199000\n</think>\n\n\n\nVoici les employés du département **Ventes** et leurs salaires :\n\n| Employé | Salaire |\n|---|---|\n| Camille Roux | 38 000 € |\n| Élise Petit | 44 500 € |\n| Marion Dubois | 36 000 € |\n| Inès Marchand | 41 000 € |\n| Victor Perrin | 39 500 € |\n\n**Masse salariale totale du département Ventes : 199 000 €**"
+      },
+      {
+        "label": "T1_filler",
+        "failure_cause": null,
+        "approvals": 5,
+        "final_text": "The user is asking for the price of product reference \"KX-4471\" on the online catalog at http://fixture-catalog/catalog/index.html.\nLooking at the compacted subtasks, it seems the agent already navigated to the catalog, clicked \"Voir le catalogue\", and used browser_extract to search for \"KX-4471\". The last action was navigating to http://fixture-catalog/catalog/product-1.\n\nLet me check the current state. The last snapshot shows a product page for \"Écouteurs sans fil KX-4471\" with price \"129,99 €\".\n\nSo the price of product KX-4471 is 129,99 €.\n</think>\n\n\n\nLe produit référence **KX-4471** (Écouteurs sans fil) est disponible au prix de **129,99 €**."
+      },
+      {
+        "label": "T4_filler",
+        "failure_cause": "boucle",
+        "approvals": 6,
+        "final_text": "⚠️ Limite d'itérations d'outils atteinte pour cette tâche avant d'avoir pu exécuter : `browser_navigate`({'url': 'http://fixture-docs/docs/index.html', 'constat_precedent': 'atteint'}). Envoie un nouveau message pour relancer une tâche fraîche."
+      },
+      {
+        "label": "T3_filler",
+        "failure_cause": null,
+        "approvals": 3,
+        "final_text": "The user is asking about the 3rd highest salary in the Ingénierie department. Let me look at the data from the snapshot:\n\nIngénierie employees and their salaries:\n1. Sophie Bernard - 61000\n2. Antoine Leroy - 58000\n3. Léa Fontaine - 55000\n4. Julien Faure - 52000\n5. Paul Renard - 49500\n6. Thomas Girard - 47000\n\nSo the 3rd highest salary in Ingénierie is Léa Fontaine with 55000.\n\n\nD'après la liste des employés, voici les salaires du département **Ingénierie** classés par ordre décroissant :\n\n1. Sophie Bernard — 61 000 €\n2. Antoine Leroy — 58 000 €\n3. **Léa Fontaine — 55 000 €**\n4. Julien Faure — 52 000 €\n5. Paul Renard — 49 500 €\n6. Thomas Girard — 47 000 €\n\nLe 3e salaire le plus élevé du département Ingénierie appartient à **Léa Fontaine** (55 000 €)."
+      },
+      {
+        "label": "dependent_recall",
+        "failure_cause": "infra",
+        "approvals": 1,
+        "final_text": "⚠️ Erreur interne pendant la génération, réessayez."
+      }
+    ]
+  }
+]

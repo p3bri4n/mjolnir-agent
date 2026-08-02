@@ -1,0 +1,274 @@
+{
+  "metadata": {
+    "commit": "06018ec106f3544796e31ef9ebae541002ad8b63",
+    "ended_at": "2026-07-30T16:38:26.028244+00:00",
+    "env_flags": {
+      "ADAPTIVE_THINKING": "true",
+      "AFFORDANCE_THRESHOLD": "60",
+      "APPROVAL_RULES_PATH": "",
+      "AUDIT_LOG_MAX_BYTES": "20971520",
+      "AUTO_APPROVAL_STREAK_LIMIT": "6",
+      "AUTO_APPROVED_TOOLS": "",
+      "BROWSER_NAVIGATE_GUARDRAIL": "true",
+      "BROWSER_TOOL_OUTPUT_MAX_CHARS": "8000",
+      "EPISODE_COMPACTION_ENABLED": "false",
+      "EPISODE_COMPACTION_TURN_THRESHOLD": "40",
+      "FABRICATION_LIMIT": "5",
+      "IMAGE_FORMAT_PASSTHROUGH": "",
+      "IMAGE_TOKEN_ESTIMATE": "1500",
+      "LLM_MAX_TOKENS": "2048",
+      "MAX_EMPTY_ANSWER_RETRIES": "1",
+      "MAX_IMAGES_IN_CONTEXT": "1",
+      "MAX_TOOL_ITERATIONS": "20",
+      "NEVER_GRANTABLE_TOOLS_EXTRA": "",
+      "PLANNER_ENABLED": "true",
+      "PLANNER_MAX_TOKENS": "8192",
+      "PLANNER_THINKING_ENABLED": "false",
+      "PLAN_JUDGE_ENABLED": "true",
+      "PLAN_VALIDATION_ENABLED": "true",
+      "REPLAN_BUDGET": "2",
+      "SUBTASK_ATTEMPT_BUDGET": "3",
+      "TZ": "Europe/Paris",
+      "VERIFICATION_ENABLED": "true"
+    },
+    "image_ids": {
+      "langgraph-agent": "sha256:7bcfc33c246456f7f4b15de555d0e8c76fb76aa8728a8982c7b4a88139f29d30",
+      "mcp-client": "sha256:1318235213d23bf2dd58fec7132d1e6240c579d7021ad2784cbb078297986f0e",
+      "playwright-mcp": "sha256:8771dc4666e7c11440bfc6a0c6b00480e9a15b8891b45f29a52d7d995f8d1492",
+      "tabbyapi": "sha256:7ecf8c27484305df6375ce4fe83e6406b73d4d459e78cf6b32fc1941181ae139"
+    },
+    "label": "smoke-family-e-v2",
+    "started_at": "2026-07-30T16:37:25.835662+00:00",
+    "tabbyapi_model_id": "agent-llm"
+  },
+  "runs": [
+    {
+      "approvals": 2,
+      "cache_zero_requests": 1,
+      "cup": null,
+      "detail": "code trouvé",
+      "duration_seconds": 11.4,
+      "episode_compaction_applied_count": 0,
+      "episode_compaction_messages_max": 5,
+      "fabricated_urls": [],
+      "failure_cause": "",
+      "final_text": "J'ai trouvé le code interne sur la page. Le code interne mentionné est **ZK-3391**.\n\nL'action précédente a atteint son objectif - j'ai navigué vers la page et extrait le code interne. Le texte de la page contient bien le code interne mentionné.\n</think>\n\n\n\nLe code interne mentionné sur la page de démonstration est **ZK-3391**.\n\n",
+      "prefill_seconds": 1.94,
+      "prompt_tokens_total": 28670,
+      "repetition": 1,
+      "segment": 0,
+      "success": true,
+      "tabbyapi_raw_samples": [
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 2.42,
+          "new_tokens": 457,
+          "process_speed_tps": 714.06,
+          "queue_seconds": 0.0,
+          "tokens_generated": 141
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 0.72,
+          "new_tokens": 176,
+          "process_speed_tps": 651.85,
+          "queue_seconds": 0.03,
+          "tokens_generated": 22
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 1.55,
+          "new_tokens": 142,
+          "process_speed_tps": 507.14,
+          "queue_seconds": 0.03,
+          "tokens_generated": 94
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 2.02,
+          "new_tokens": 503,
+          "process_speed_tps": 670.67,
+          "queue_seconds": 0.03,
+          "tokens_generated": 89
+        }
+      ],
+      "tabbyapi_requests": 4,
+      "task_id": "E1_dom_only",
+      "thread_id": "fb0aaccbfc385109",
+      "tool_calls_observed": 3,
+      "verification_exploitable": 2,
+      "verification_opportunities": 2
+    },
+    {
+      "approvals": 6,
+      "cache_zero_requests": 2,
+      "cup": null,
+      "detail": "code trouvé",
+      "duration_seconds": 38.1,
+      "episode_compaction_applied_count": 0,
+      "episode_compaction_messages_max": 13,
+      "fabricated_urls": [],
+      "failure_cause": "",
+      "final_text": "I found the code in the HTML source. The JavaScript has an array of character codes:\n\n`var codes = [67, 111, 100, 101, 32, 105, 110, 116, 101, 114, 110, 101, 32, 58, 32, 90, 75, 45, 51, 51, 57, 50];`\n\nLet me decode this:\n- 67 = C\n- 111 = o\n- 100 = d\n- 101 = e\n- 32 = (space)\n- 105 = i\n- 110 = n\n- 116 = t\n- 101 = e\n- 114 = r\n- 110 = n\n- 101 = e\n- 32 = (space)\n- 58 = :\n- 32 = (space)\n- 90 = Z\n- 75 = K\n- 45 = -\n- 51 = 3\n- 51 = 3\n- 57 = 9\n- 50 = 2\n\nSo the text is: \"Code interne : ZK-3392\"\n\nThe internal code is **ZK-3392**.\n</think>\n\n\n\nJ'ai trouvé le code interne dans le code source de la page. Le script JavaScript contient un tableau de codes ASCII qui est décodé et affiché sur le canvas :\n\n```javascript\nvar codes = [67, 111, 100, 101, 32, 105, 110, 116, 101, 114, 110, 101, 32, 58, 32, 90, 75, 45, 51, 51, 57, 50];\n```\n\nCe qui se décode en : **\"Code interne : ZK-3392\"**\n\nLe code interne mentionné sur la page est donc **ZK-3392**.\n\n",
+      "prefill_seconds": 8.97,
+      "prompt_tokens_total": 104019,
+      "repetition": 1,
+      "segment": 0,
+      "success": true,
+      "tabbyapi_raw_samples": [
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 2.96,
+          "new_tokens": 943,
+          "process_speed_tps": 760.48,
+          "queue_seconds": 0.03,
+          "tokens_generated": 118
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 2.26,
+          "new_tokens": 459,
+          "process_speed_tps": 717.19,
+          "queue_seconds": 0.0,
+          "tokens_generated": 124
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 0.78,
+          "new_tokens": 192,
+          "process_speed_tps": 685.71,
+          "queue_seconds": 0.03,
+          "tokens_generated": 22
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 1.38,
+          "new_tokens": 144,
+          "process_speed_tps": 514.29,
+          "queue_seconds": 0.03,
+          "tokens_generated": 86
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 1.64,
+          "new_tokens": 497,
+          "process_speed_tps": 653.95,
+          "queue_seconds": 0.03,
+          "tokens_generated": 61
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 2.81,
+          "new_tokens": 867,
+          "process_speed_tps": 767.26,
+          "queue_seconds": 0.03,
+          "tokens_generated": 105
+        },
+        {
+          "cached_tokens": 14336,
+          "generation_seconds": 3.46,
+          "new_tokens": 340,
+          "process_speed_tps": 576.27,
+          "queue_seconds": 0.03,
+          "tokens_generated": 178
+        },
+        {
+          "cached_tokens": 14592,
+          "generation_seconds": 1.86,
+          "new_tokens": 382,
+          "process_speed_tps": 596.88,
+          "queue_seconds": 0.03,
+          "tokens_generated": 78
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 2.52,
+          "new_tokens": 761,
+          "process_speed_tps": 905.95,
+          "queue_seconds": 0.0,
+          "tokens_generated": 92
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 2.74,
+          "new_tokens": 294,
+          "process_speed_tps": 683.72,
+          "queue_seconds": 0.03,
+          "tokens_generated": 100
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 4.22,
+          "new_tokens": 1860,
+          "process_speed_tps": 869.16,
+          "queue_seconds": 0.03,
+          "tokens_generated": 120
+        }
+      ],
+      "tabbyapi_requests": 11,
+      "task_id": "E2_visual_only",
+      "thread_id": "e9cf9ffd0bfdd8ff",
+      "tool_calls_observed": 10,
+      "verification_exploitable": 6,
+      "verification_opportunities": 6
+    },
+    {
+      "approvals": 2,
+      "cache_zero_requests": 1,
+      "cup": null,
+      "detail": "code trouvé",
+      "duration_seconds": 9.5,
+      "episode_compaction_applied_count": 0,
+      "episode_compaction_messages_max": 5,
+      "fabricated_urls": [],
+      "failure_cause": "",
+      "final_text": "Le code interne mentionné sur la page est **ZK-3393**.\n</think>\n\n\n\nLe code interne mentionné sur la page de démonstration est **ZK-3393**.",
+      "prefill_seconds": 1.96,
+      "prompt_tokens_total": 28662,
+      "repetition": 1,
+      "segment": 0,
+      "success": true,
+      "tabbyapi_raw_samples": [
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 2.16,
+          "new_tokens": 457,
+          "process_speed_tps": 714.06,
+          "queue_seconds": 0.0,
+          "tokens_generated": 110
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 0.73,
+          "new_tokens": 176,
+          "process_speed_tps": 628.57,
+          "queue_seconds": 0.03,
+          "tokens_generated": 22
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 1.44,
+          "new_tokens": 142,
+          "process_speed_tps": 507.14,
+          "queue_seconds": 0.03,
+          "tokens_generated": 86
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 1.69,
+          "new_tokens": 495,
+          "process_speed_tps": 651.32,
+          "queue_seconds": 0.03,
+          "tokens_generated": 61
+        }
+      ],
+      "tabbyapi_requests": 4,
+      "task_id": "E3_routing_equivalence",
+      "thread_id": "822816cc4f672e8f",
+      "tool_calls_observed": 3,
+      "used_visual_capture": false,
+      "verification_exploitable": 1,
+      "verification_opportunities": 2
+    }
+  ]
+}

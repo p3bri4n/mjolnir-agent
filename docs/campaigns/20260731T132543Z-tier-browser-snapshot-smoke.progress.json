@@ -1,0 +1,36 @@
+{
+  "campaign_id": "20260731T132543Z-tier-browser-snapshot-smoke",
+  "completed": [
+    {
+      "approvals": 5,
+      "duration_s": 102.1,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T1_extraction_paginee",
+      "thread_id": "75aa18cbd66f69e5",
+      "tool_calls": 10
+    }
+  ],
+  "config_digest": "4acc4e4c7f904c4f",
+  "current": null,
+  "label": "tier-browser-snapshot-smoke",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "T1_extraction_paginee"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-07-31T13:27:25.995566+00:00",
+      "index": 0,
+      "started_at": "2026-07-31T13:25:43.532422+00:00"
+    }
+  ],
+  "started_at": "2026-07-31T13:25:43.532422+00:00",
+  "total_runs": 1
+}

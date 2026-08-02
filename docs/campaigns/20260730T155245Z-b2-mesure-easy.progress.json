@@ -1,0 +1,71 @@
+{
+  "campaign_id": "20260730T155245Z-b2-mesure-easy",
+  "completed": [
+    {
+      "approvals": 6,
+      "cup": true,
+      "duration_s": 40.5,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B2_stock_easy",
+      "thread_id": "ff2564336d3683f8",
+      "tool_calls": 14
+    },
+    {
+      "approvals": 6,
+      "cup": true,
+      "duration_s": 38.7,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B2_stock_easy",
+      "thread_id": "3670a96138798cfb",
+      "tool_calls": 14
+    },
+    {
+      "approvals": 11,
+      "cup": true,
+      "duration_s": 61.3,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B2_stock_easy",
+      "thread_id": "9346613e7d38e437",
+      "tool_calls": 22
+    }
+  ],
+  "config_digest": "fd490be2523f0655",
+  "current": null,
+  "label": "b2-mesure-easy",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "B2_stock_easy"
+    },
+    {
+      "repetition": 2,
+      "task_id": "B2_stock_easy"
+    },
+    {
+      "repetition": 3,
+      "task_id": "B2_stock_easy"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-07-30T15:55:07.977303+00:00",
+      "index": 0,
+      "started_at": "2026-07-30T15:52:45.839184+00:00"
+    }
+  ],
+  "started_at": "2026-07-30T15:52:45.839184+00:00",
+  "total_runs": 3
+}

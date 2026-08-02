@@ -550,6 +550,23 @@ services:
     networks:
       - agent-net
 
+  fixture-perception:
+    build: ./services/langgraph-agent/tests_integration/fixtures/perception
+    container_name: fixture-perception
+    profiles: ["test-fixtures"]
+    networks:
+      - agent-net
+
+  # Sonde de faisabilité canal visuel (docs/briefs/B5-security-hardening.md,
+  # préalable au retrait de GhostDesk) : session technique, jamais mesurée
+  # comme capacité agent — voir docs/architecture/visual-channel-feasibility.md.
+  fixture-visual-probe:
+    build: ./services/langgraph-agent/tests_integration/fixtures/visual-probe
+    container_name: fixture-visual-probe
+    profiles: ["test-fixtures"]
+    networks:
+      - agent-net
+
   fixture-hr-app:
     build: ./services/langgraph-agent/tests_integration/fixtures/hr-app
     container_name: fixture-hr-app
@@ -563,6 +580,25 @@ services:
       # lues par les assertions du harnais depuis l'hôte, jamais par l'app
       # elle-même après écriture.
       - ./workspace/hr-app-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=3)\" || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - agent-net
+
+  fixture-admin:
+    build: ./services/langgraph-agent/tests_integration/fixtures/admin
+    container_name: fixture-admin
+    profiles: ["test-fixtures"]
+    volumes:
+      # mises à jour de stock (famille B, intent β) : écrites ici par
+      # l'app, lues par les assertions du harnais depuis l'hôte, jamais
+      # par l'app elle-même après écriture — même convention que
+      # fixture-hr-app.
+      - ./workspace/admin-app-data:/data
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=3)\" || exit 1"]
       interval: 5s

@@ -14,17 +14,22 @@ from tests_integration import campaign_preflight as preflight
 
 
 def test_check_tools_schema_ok_when_synced_and_complete():
-    tools = preflight.EXPECTED_TOOLS | {"browser_extract", "browser_snapshot"}
+    tools = preflight.EXPECTED_TOOLS | {"browser_extract", "browser_hover"}
     assert preflight.check_tools_schema(tools, tools) is None
 
 
 def test_check_tools_schema_flags_desync_between_agent_and_mcp_client():
+    # browser_hover : outil réel du serveur Playwright officiel, absent
+    # d'EXPECTED_TOOLS (browser_snapshot y est entré le 2026-07-31,
+    # passé TIER_READ — voir docs/resolved-bugs.md — ce qui rendait cet
+    # exemple caduc : union avec un élément déjà présent = no-op, plus de
+    # désynchronisation à détecter).
     agent_tools = preflight.EXPECTED_TOOLS
-    mcp_tools = preflight.EXPECTED_TOOLS | {"browser_snapshot"}
+    mcp_tools = preflight.EXPECTED_TOOLS | {"browser_hover"}
     error = preflight.check_tools_schema(agent_tools, mcp_tools)
     assert error is not None
     assert "désynchronisé" in error
-    assert "browser_snapshot" in error
+    assert "browser_hover" in error
     assert "docker compose restart langgraph-agent" in error
 
 

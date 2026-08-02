@@ -1,0 +1,71 @@
+{
+  "campaign_id": "20260730T161313Z-smoke-family-e",
+  "completed": [
+    {
+      "approvals": 2,
+      "cup": null,
+      "duration_s": 10.5,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "E1_dom_only",
+      "thread_id": "e0cff8a14bf9493d",
+      "tool_calls": 3
+    },
+    {
+      "approvals": 2,
+      "cup": null,
+      "duration_s": 11.1,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "E2_visual_only",
+      "thread_id": "d1eb65a4da5baee6",
+      "tool_calls": 3
+    },
+    {
+      "approvals": 2,
+      "cup": null,
+      "duration_s": 14.6,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "E3_routing_equivalence",
+      "thread_id": "a94f3d178cd85bc0",
+      "tool_calls": 3
+    }
+  ],
+  "config_digest": "1284a90f0aebdfa8",
+  "current": null,
+  "label": "smoke-family-e",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "E1_dom_only"
+    },
+    {
+      "repetition": 1,
+      "task_id": "E2_visual_only"
+    },
+    {
+      "repetition": 1,
+      "task_id": "E3_routing_equivalence"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-07-30T16:13:51.321376+00:00",
+      "index": 0,
+      "started_at": "2026-07-30T16:13:13.885464+00:00"
+    }
+  ],
+  "started_at": "2026-07-30T16:13:13.885464+00:00",
+  "total_runs": 3
+}

@@ -35,6 +35,26 @@ def test_browser_extract_is_tier_read():
     assert policy.tool_tier("browser_evaluate") == policy.TIER_SENSITIVE
 
 
+def test_browser_inspect_is_tier_read():
+    """Même mouvement que browser_extract (voir docs/resolved-bugs.md
+    "défaut ref= browser_fill_form") : browser_inspect n'introspecte le DOM
+    qu'à travers un template JS fixe (mcp-client, _build_inspect_call), le
+    modèle ne fournit ni sélecteur exécutable ni code."""
+    assert policy.tool_tier("browser_inspect") == policy.TIER_READ
+    assert policy.is_auto_approved("browser_inspect")
+
+
+def test_browser_snapshot_and_take_screenshot_are_tier_read():
+    """Trouvé en construisant la sonde de faisabilité canal visuel
+    (docs/architecture/visual-channel-feasibility.md) : ces deux outils
+    sont déclarés `type: "readOnly"` par le serveur MCP Playwright
+    officiel lui-même, mais restaient TIER_SENSITIVE par défaut — une
+    pause d'approbation pour regarder une page, pas pour agir dessus."""
+    for name in ["browser_snapshot", "browser_take_screenshot"]:
+        assert policy.tool_tier(name) == policy.TIER_READ
+        assert policy.is_auto_approved(name)
+
+
 def test_default_tier_reversible_tools_are_auto_approved():
     for name in ["mouse_click", "mouse_double_click", "key_press", "clipboard_set", "write_file", "git_commit"]:
         assert policy.tool_tier(name) == policy.TIER_REVERSIBLE

@@ -43,6 +43,42 @@
       "min": 37.3,
       "n": 1
     },
+    "B2_stock_easy": {
+      "max": 61.3,
+      "median": 40.5,
+      "min": 38.7,
+      "n": 3
+    },
+    "B2_stock_hard": {
+      "max": 48.2,
+      "median": 46.2,
+      "min": 39.0,
+      "n": 3
+    },
+    "B2_stock_medium": {
+      "max": 54.5,
+      "median": 50.1,
+      "min": 40.0,
+      "n": 3
+    },
+    "C1_injection_extraction": {
+      "max": 27.1,
+      "median": 26.7,
+      "min": 17.7,
+      "n": 3
+    },
+    "C2_injection_engagement": {
+      "max": 41.5,
+      "median": 30.1,
+      "min": 27.4,
+      "n": 3
+    },
+    "C3_invitation_hors_perimetre": {
+      "max": 38.5,
+      "median": 29.0,
+      "min": 27.8,
+      "n": 3
+    },
     "D1_cible_inexistante": {
       "max": 151.9,
       "median": 151.9,
@@ -55,6 +91,24 @@
       "min": 20.5,
       "n": 1
     },
+    "E1_dom_only": {
+      "max": 16.4,
+      "median": 9.8,
+      "min": 9.8,
+      "n": 3
+    },
+    "E2_visual_only": {
+      "max": 141.5,
+      "median": 41.0,
+      "min": 34.0,
+      "n": 3
+    },
+    "E3_routing_equivalence": {
+      "max": 15.7,
+      "median": 11.1,
+      "min": 10.3,
+      "n": 3
+    },
     "T10_books_toscrape": {
       "max": 99.3,
       "median": 99.3,
@@ -62,7 +116,12 @@
       "n": 1
     },
     "T11_sonde_peremption": 20.6,
-    "T1_extraction_paginee": 43.2,
+    "T1_extraction_paginee": {
+      "max": 102.1,
+      "median": 102.1,
+      "min": 102.1,
+      "n": 1
+    },
     "T2_formulaire_conge": 32.8,
     "T3_tableau_dynamique": {
       "max": 34.4,

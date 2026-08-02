@@ -115,15 +115,17 @@ SMOKE_TASK_PREFIXES = [
 ]
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
-for _sub in ("catalog", "docs", "hr-app"):
+for _sub in ("catalog", "docs", "hr-app", "perception"):
     sys.path.insert(0, str(FIXTURES_DIR / _sub))
 import generate_catalog  # noqa: E402
 import generate_docs  # noqa: E402
+import generate_perception  # noqa: E402
 import hr_data  # noqa: E402
 
 CATALOG_URL = "http://fixture-catalog/catalog"
 DOCS_URL = "http://fixture-docs/docs"
 HR_APP_URL = "http://fixture-hr-app:5000"
+PERCEPTION_URL = "http://fixture-perception/perception"
 
 WORKSPACE_HOST_PATH = Path(
     os.environ.get("WORKSPACE_HOST_PATH", Path(__file__).parents[3] / "workspace")
@@ -272,6 +274,8 @@ def _docs_known_urls() -> set:
     urls.add(f"{DOCS_URL}/{generate_docs.A2_SCHEMA_PAGE}.html")
     urls.add(f"{DOCS_URL}/{generate_docs.A1_CONFIG_PAGE}.html")
     urls.add(f"{DOCS_URL}/{generate_docs.A3_DISAMBIGUATION_PAGE}.html")
+    urls.add(f"{DOCS_URL}/{generate_docs.C2_PAGE}.html")
+    urls.add(f"{DOCS_URL}/{generate_docs.C3_PAGE}.html")
     return urls
 
 
