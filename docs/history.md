@@ -3791,3 +3791,40 @@ quasi nuls (3 et 2 appels), cohérent avec la confusion `screen_shot` vs
 faible fréquence mais **chemin de téléchargement (T5) déjà identifié
 comme structurant** dans le brief — pas un candidat au retrait sur la
 seule base de la fréquence. 🧑 Checkpoint validé par l'utilisateur.
+
+## EFFORT 1.2 — RETRAIT GIT/TERMINAL/DESKTOP/OCR DU SCHÉMA D'OUTILS
+
+Voir `docs/briefs/update-plan.md`, effort 1.2. Périmètre validé par
+l'utilisateur : git et terminal retirés intégralement (registre
+`mcp-client`, conteneurs, code, tests, doc — `services/mcp-terminal/`
+supprimé) ; desktop (GhostDesk) et ocr retirés du SCHÉMA d'outils
+exposé au modèle mais conteneurs/code laissés en l'état (ocr-service en
+dépend encore en interne pour l'instant), en réserve pour le
+rebranchement de l'effort 3 (OCR en capacité du graphe).
+
+**Couplage technique déclaré au checkpoint** : `GROUNDING_DIRECTIVE`
+(`app/graph.py`), comportement mesuré nommé dans `CLAUDE.md`,
+instruisait le modèle d'appeler `find_text` (OCR) avant de cliquer —
+outil disparu, directive donc caduque de fait. Retirée avec juge dédié :
+zéro appel à un outil supprimé + pas de régression sur les tâches de
+clic DOM, mesurés dans le même smoke que 1.2 plutôt que sur une
+campagne séparée (couplage annoncé avant mesure, un juge par mécanisme).
+
+**Suite de tests** : 430/430 (langgraph-agent) + 36/36 (mcp-client)
+après mise à jour de tous les tests référençant un outil supprimé
+(remplacés par un outil survivant de même tier — voir commits). Aucun
+test d'ocr-service touché (code conservé intact).
+
+**Smoke live** (2026-08-03, `post-effort1.2-smoke`, T1/T3/T7 x1,
+stack reconstruite) : **3/3 réussis**, couverture des constats 91,7%,
+aucune cause d'échec. Journal d'audit vérifié (source complète
+`log_message`, pas le journal filtré par tier) : **zéro appel à un
+outil supprimé** sur l'ensemble des threads de la journée. Schéma
+d'outils réel mesuré via le tokenizer local sur `GET /tools/schema` :
+**6 047 tokens / 36 outils, contre 10 979 tokens / 65 outils avant
+l'effort — -44,9 %**, conforme à la prédiction de l'effort 1.1.
+`EXPECTED_TOOLS` (`campaign_preflight.py`) s'est auto-ajusté sans
+retouche (dérivé de `approval_policy.py`).
+
+GhostDesk/ocr-service restent déployés (décision utilisateur), dormants
+jusqu'au rebranchement de l'effort 3.

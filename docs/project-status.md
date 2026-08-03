@@ -313,3 +313,15 @@ covered by `browser_snapshot` already. **Conclusion: GhostDesk removal
 would lose nothing tested here** — its only unique capability
 (out-of-browser interaction) is E4's territory, already out of scope by
 explicit user decision.
+
+## Consolidated plan (`docs/briefs/update-plan.md`) — effort 1
+
+**Effort 1.1 (tool-schema weight audit) and 1.2 (removal) delivered.**
+git/terminal removed entirely (`services/mcp-terminal/` deleted);
+desktop(GhostDesk)/ocr removed from the tool schema only, containers
+kept running for effort 3's future rework. `GROUNDING_DIRECTIVE`
+removed (coupled measured-behavior change, judge declared and passed).
+Real schema weight: 10 979 → 6 047 tokens (-44.9%), confirmed live
+(smoke `post-effort1.2-smoke`, T1/T3/T7, 3/3, zero calls to a removed
+tool). See docs/history.md for the full measurement and campaign.
+Effort 1.3 (parallel run execution) not started.
