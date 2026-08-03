@@ -1,11 +1,10 @@
 """
 MCP Client: LangGraph Agent's single entry point to the MCP servers.
 
-The official mcp/* images (filesystem, git, playwright) and the locally
-built mcp-terminal image communicate over STDIO. This service therefore
-spawns them on demand, via `docker run -i --rm ...` on the Docker socket
-mounted from the host, rather than treating them as persistent network
-servers.
+The official mcp/filesystem image communicates over STDIO: this service
+spawns it on demand, via `docker run -i --rm ...` on the Docker socket
+mounted from the host, rather than treating it as a persistent network
+server.
 
 ⚠️ Mounting /var/run/docker.sock into a container is equivalent to giving
 it root access on the host (the container can launch any other
@@ -14,11 +13,17 @@ socket proxy alternative (e.g. tecnativa/docker-socket-proxy) that
 restricts allowed operations (only `create`/`start`/`attach` on
 whitelisted images), rather than exposing the raw socket.
 
-GhostDesk (the "desktop" server) is different from the others: it's a
-persistent, stateful HTTP server (virtual desktop, VNC session), not a
-one-off process. It runs continuously as its own docker-compose service,
-and mcp-client connects to it over Streamable HTTP instead of spawning a
-container.
+"browser" (Playwright) is different: it's a persistent HTTP server (see
+docker-compose.yml's `playwright-mcp` service), and mcp-client connects
+to it over Streamable HTTP instead of spawning a container.
+
+git/terminal/desktop(GhostDesk)/ocr were removed from this registry
+(docs/briefs/update-plan.md effort 1.2, docs/history.md): schema-weight
+audit found desktop+git+ocr+terminal cost 44.9% of the tool schema for
+1.6% of real usage across 67 v2 campaign threads. ocr-service and
+GhostDesk stay deployed (docker-compose.yml) for effort 3's future
+graph-capability rework — just no longer reachable through this
+registry.
 """
 
 import asyncio
@@ -57,21 +62,10 @@ SERVERS = {
             ],
         ),
     },
-    "git": {
-        "transport": "stdio",
-        "params": StdioServerParameters(
-            command="docker",
-            args=[
-                "run", "-i", "--rm",
-                "-v", f"{WORKSPACE_HOST_PATH}:/workspace",
-                os.environ.get("MCP_GIT_IMAGE", "mcp/git:latest"),
-            ],
-        ),
-    },
     "browser": {
-        # Unlike the other stdio servers above, "browser" is a persistent
-        # HTTP server (like "desktop"/"ocr" below): an ephemeral spawn
-        # (`docker run --rm` per call) would restart a brand-new browser
+        # Unlike "filesystem" above, "browser" is a persistent HTTP
+        # server: an ephemeral spawn (`docker run --rm` per call) would
+        # restart a brand-new browser
         # on EVERY tool call, with no state continuity between
         # `browser_navigate` and the next call — see docs/resolved-bugs.md.
         # The official mcp/playwright image supports a native HTTP server
@@ -88,43 +82,6 @@ SERVERS = {
         # need to keep a session open across calls, see
         # `_get_persistent_session` below.
         "persistent_session": True,
-    },
-    "terminal": {
-        "transport": "stdio",
-        "params": StdioServerParameters(
-            command="docker",
-            args=[
-                "run", "-i", "--rm",
-                "--read-only", "--tmpfs", "/tmp:rw,nosuid,nodev",
-                "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
-                "-v", f"{WORKSPACE_HOST_PATH}:/workspace",
-                os.environ.get("MCP_TERMINAL_IMAGE", "mcp-terminal:local"),
-            ],
-        ),
-    },
-    "desktop": {
-        "transport": "http",
-        "url": os.environ.get("MCP_GHOSTDESK_URL", "http://ghostdesk:3000/mcp"),
-        "token": os.environ.get("GHOSTDESK_AUTH_TOKEN", ""),
-        # Without this header, GhostDesk expects coordinates in native
-        # screen pixels (1280x1024 here); Qwen models natively reason in
-        # a normalized 0-1000 coordinate space, so their clicks land
-        # completely off target (documented by GhostDesk). Frontier
-        # models (Claude, GPT-4o) work natively in screen pixels and
-        # don't need it — hence the env var rather than a fixed value, to
-        # clear if the served model changes.
-        "model_space": os.environ.get("GHOSTDESK_MODEL_SPACE", "1000"),
-    },
-    "ocr": {
-        # Like "desktop" above: persistent HTTP server (ocr-service), not
-        # an on-demand spawned container. No GhostDesk-Model-Space header
-        # here: ocr-service already converts its own coordinates to the
-        # 0-1000 space before responding (OCR_COORD_SPACE, see
-        # services/ocr-service/app/coords.py), this header only makes
-        # sense for calls addressed directly to GhostDesk.
-        "transport": "http",
-        "url": os.environ.get("MCP_OCR_URL", "http://ocr-service:8004/mcp"),
-        "token": os.environ.get("OCR_AUTH_TOKEN", ""),
     },
 }
 
@@ -440,8 +397,6 @@ def _http_headers(server: dict) -> dict:
     headers = {}
     if server.get("token"):
         headers["Authorization"] = f"Bearer {server['token']}"
-    if server.get("model_space"):
-        headers["GhostDesk-Model-Space"] = server["model_space"]
     return headers
 
 

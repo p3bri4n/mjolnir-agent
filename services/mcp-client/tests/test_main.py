@@ -66,39 +66,6 @@ def echo_http_server():
         proc.wait(timeout=5)
 
 
-@pytest.fixture
-def echo_http_server_with_model_space():
-    """Comme echo_http_server, mais exige en plus GhostDesk-Model-Space: '1000'."""
-    port = _free_port()
-    token = "secret-token"
-    model_space = "1000"
-    proc = subprocess.Popen(
-        [sys.executable, str(TEST_HTTP_SERVER_PATH), str(port), token, model_space]
-    )
-    try:
-        _wait_for_port(port)
-        yield {"url": f"http://127.0.0.1:{port}/mcp", "token": token, "model_space": model_space}
-    finally:
-        proc.terminate()
-        proc.wait(timeout=5)
-
-
-@pytest.fixture
-def echo_http_server_rejecting_model_space_header():
-    """Comme echo_http_server, mais échoue si un header GhostDesk-Model-Space est reçu."""
-    port = _free_port()
-    token = "secret-token"
-    proc = subprocess.Popen(
-        [sys.executable, str(TEST_HTTP_SERVER_PATH), str(port), token, ""]
-    )
-    try:
-        _wait_for_port(port)
-        yield {"url": f"http://127.0.0.1:{port}/mcp", "token": token}
-    finally:
-        proc.terminate()
-        proc.wait(timeout=5)
-
-
 def _client():
     import app.main as main_mod
     return TestClient(main_mod.app)
@@ -157,7 +124,7 @@ def test_call_unknown_tool_returns_404():
 def test_http_server_list_and_call_with_valid_token(echo_http_server):
     import app.main as main_mod
 
-    main_mod.SERVERS["desktop"] = {
+    main_mod.SERVERS["http_example"] = {
         "transport": "http",
         "url": echo_http_server["url"],
         "token": echo_http_server["token"],
@@ -165,50 +132,7 @@ def test_http_server_list_and_call_with_valid_token(echo_http_server):
 
     resp = _client().get("/tools")
     assert resp.status_code == 200
-    assert resp.json()["tools"]["echo"] == "desktop"
-
-    resp = _client().post("/call", json={"tool": "echo", "arguments": {"message": "bonjour"}})
-    assert resp.status_code == 200
-    assert resp.json()["content"][0]["text"] == "echo: bonjour"
-
-
-def test_http_server_sends_model_space_header(echo_http_server_with_model_space):
-    """
-    Nécessaire aux modèles Qwen (voir GHOSTDESK_MODEL_SPACE dans app/main.py) :
-    sans ce header, GhostDesk interprète les coordonnées de clic en pixels
-    écran natifs au lieu du repère normalisé 0-1000 utilisé par ces modèles,
-    et les clics atterrissent à côté de leur cible.
-    """
-    import app.main as main_mod
-
-    main_mod.SERVERS["desktop"] = {
-        "transport": "http",
-        "url": echo_http_server_with_model_space["url"],
-        "token": echo_http_server_with_model_space["token"],
-        "model_space": echo_http_server_with_model_space["model_space"],
-    }
-
-    resp = _client().post("/call", json={"tool": "echo", "arguments": {"message": "bonjour"}})
-    assert resp.status_code == 200
-    assert resp.json()["content"][0]["text"] == "echo: bonjour"
-
-
-def test_http_server_omits_model_space_header_when_unset(echo_http_server_rejecting_model_space_header):
-    """
-    GHOSTDESK_MODEL_SPACE="" (modèle frontière travaillant nativement en
-    pixels écran, ex. Claude/GPT-4o) : le header ne doit JAMAIS être envoyé,
-    pas seulement être absent de la config par défaut — server["model_space"]
-    falsy (chaîne vide) doit empêcher tout ajout du header, voir
-    _run_on_server dans app/main.py.
-    """
-    import app.main as main_mod
-
-    main_mod.SERVERS["desktop"] = {
-        "transport": "http",
-        "url": echo_http_server_rejecting_model_space_header["url"],
-        "token": echo_http_server_rejecting_model_space_header["token"],
-        "model_space": "",
-    }
+    assert resp.json()["tools"]["echo"] == "http_example"
 
     resp = _client().post("/call", json={"tool": "echo", "arguments": {"message": "bonjour"}})
     assert resp.status_code == 200
@@ -219,54 +143,7 @@ def test_http_server_wrong_token_fails(echo_http_server):
     import app.main as main_mod
 
     main_mod.SERVERS = {
-        "desktop": {
-            "transport": "http",
-            "url": echo_http_server["url"],
-            "token": "mauvais-token",
-        },
-    }
-
-    resp = _client().get("/tools")
-    assert resp.status_code == 200
-    assert resp.json()["tools"] == {}
-
-
-def test_ocr_server_schema_exposed_and_callable(echo_http_server):
-    """
-    Le serveur "ocr" (services/ocr-service, find_text/read_screen) suit le
-    même mécanisme que "desktop"/GhostDesk : connexion HTTP persistante
-    plutôt qu'un conteneur spawné à la demande. Le faux serveur echo tient
-    lieu d'ocr-service ici : ce test vérifie le câblage générique de
-    mcp-client (registre, schéma, appel), pas la logique OCR elle-même
-    (couverte par la suite de tests d'ocr-service).
-    """
-    import app.main as main_mod
-
-    main_mod.SERVERS["ocr"] = {
-        "transport": "http",
-        "url": echo_http_server["url"],
-        "token": echo_http_server["token"],
-    }
-
-    resp = _client().get("/tools")
-    assert resp.status_code == 200
-    assert resp.json()["tools"]["echo"] == "ocr"
-
-    resp = _client().get("/tools/schema")
-    assert resp.status_code == 200
-    names = [t["function"]["name"] for t in resp.json()["tools"]]
-    assert "echo" in names
-
-    resp = _client().post("/call", json={"tool": "echo", "arguments": {"message": "bonjour"}})
-    assert resp.status_code == 200
-    assert resp.json()["content"][0]["text"] == "echo: bonjour"
-
-
-def test_ocr_server_wrong_token_fails(echo_http_server):
-    import app.main as main_mod
-
-    main_mod.SERVERS = {
-        "ocr": {
+        "http_example": {
             "transport": "http",
             "url": echo_http_server["url"],
             "token": "mauvais-token",
@@ -334,7 +211,7 @@ def test_ephemeral_server_opens_new_session_per_call(monkeypatch):
     import app.main as main_mod
 
     main_mod.SERVERS = {
-        "desktop": {"transport": "http", "url": "http://unused", "token": ""},
+        "http_example": {"transport": "http", "url": "http://unused", "token": ""},
     }
     calls = _patch_open_session(main_mod, monkeypatch)
 
@@ -342,8 +219,8 @@ def test_ephemeral_server_opens_new_session_per_call(monkeypatch):
         return session.id
 
     async def run():
-        first = await main_mod._run_on_server("desktop", action)
-        second = await main_mod._run_on_server("desktop", action)
+        first = await main_mod._run_on_server("http_example", action)
+        second = await main_mod._run_on_server("http_example", action)
         return first, second
 
     first, second = asyncio.run(run())
