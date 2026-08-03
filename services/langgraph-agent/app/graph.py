@@ -31,9 +31,9 @@ Flow:
 
 Human supervision: by default, every tool call is subject to approval
 (see require_approval/reject_tools below), except for tools classified as
-"read" or "reversible" tier by app/approval_policy.py (GhostDesk
-mouse/screenshot, filesystem/git reads, by default — see that module for
-the tier detail). The graph is therefore compiled with a checkpointer
+"read" or "reversible" tier by app/approval_policy.py (browser/filesystem
+reads and writes, by default — see that module for the tier detail). The
+graph is therefore compiled with a checkpointer
 (MemorySaver, in-memory) so it can suspend then resume execution — at the
 cost of losing pending approvals if the service restarts (acceptable for
 local use, see README).
@@ -388,7 +388,7 @@ def _truncate_browser_result(result: dict, max_chars: int, objective: str = "") 
         new_content.append(block)
     return {**result, "content": new_content}
 
-# Format sent to the LLM for tool image results (GhostDesk screen_shot,
+# Format sent to the LLM for tool image results (browser_take_screenshot,
 # native WebP format): empty (the default) always re-encodes to PNG — the
 # default backend (TabbyAPI/ExLlamaV3, see README section Inference
 # backend) is not known to decode WebP natively (to be verified
@@ -404,9 +404,9 @@ IMAGE_FORMAT_PASSTHROUGH = os.environ.get("IMAGE_FORMAT_PASSTHROUGH", "").lower(
 # "approve" turns (tool_iterations only starts back at 0 on a brand-new
 # user message, see _resolve_run in app/main.py) — an old default of 5
 # used to run out after barely 2-3 approval round-trips, before even
-# reaching the auto-approved GhostDesk loop (capture/click) which alone
-# consumes 2 iterations per gesture. Overflow reported explicitly to the
-# user rather than silently (see _current_answer, app/main.py).
+# reaching a long auto-approved read/reversible tool loop. Overflow
+# reported explicitly to the user rather than silently (see
+# _current_answer, app/main.py).
 MAX_TOOL_ITERATIONS = int(os.environ.get("MAX_TOOL_ITERATIONS", "20"))
 
 # Approval policy by reversibility tier (see app/approval_policy.py): a
@@ -418,23 +418,21 @@ MAX_TOOL_ITERATIONS = int(os.environ.get("MAX_TOOL_ITERATIONS", "20"))
 
 # Number of consecutive auto-approved turns tolerated before forcing a
 # pass through require_approval anyway, even if all the turn's tool_calls
-# remain auto-approved ("read"/"reversible" tier) — the guardrail against
-# a virtual keyboard: a single click is harmless, but a SEQUENCE of clicks
-# could compose full text input via an on-screen virtual keyboard,
-# effectively bypassing the key_type/key_press ("sensitive" tier)
-# exclusion. Without a cap, a long click sequence could ultimately type
-# any text without a human ever validating anything. Reset to 0 on every
+# remain auto-approved ("read"/"reversible" tier) — defense in depth
+# against a long unsupervised streak composing an unintended outcome
+# through many individually-harmless auto-approved steps, never fully
+# reviewed by a human. Reset to 0 on every
 # real pass through require_approval (see this function below), not just
 # at the start of a new task — unlike tool_iterations, which measures a
 # total budget rather than a number of consecutive turns WITHOUT human
 # supervision.
 AUTO_APPROVAL_STREAK_LIMIT = int(os.environ.get("AUTO_APPROVAL_STREAK_LIMIT", "6"))
 
-# Image retention in the history submitted to the LLM: every GhostDesk
-# screenshot (screen_shot) adds a multimodal message costly in visual
-# tokens (see _split_image_blocks); on a repeated capture/click loop,
+# Image retention in the history submitted to the LLM: every
+# browser_take_screenshot capture adds a multimodal message costly in
+# visual tokens (see _split_image_blocks); on a repeated capture loop,
 # keeping ALL of them ends up saturating the context for near-zero value
-# (only the most recent capture reflects the screen's current state).
+# (only the most recent capture reflects the current visual state).
 # Keeps only the last MAX_IMAGES_IN_CONTEXT images in what's sent to the
 # LLM; earlier ones are replaced by a placeholder text — only for THIS
 # call (see _apply_image_retention), never persisted in the graph's
@@ -520,23 +518,6 @@ PLAN_VALIDATION_CYCLES_MAX = 2
 # the most value.
 ADAPTIVE_THINKING = os.environ.get("ADAPTIVE_THINKING", "false").lower() == "true"
 NO_THINK_DIRECTIVE = "/no_think"
-
-# The served VLM (Qwen3.6 MoE) reasons well but localizes poorly: its
-# visual grounding (aiming at the right on-screen pixel for an element)
-# remains imprecise, with no dedicated OCR/UI-element detection (see
-# README, Known, accepted limitations). find_text/read_screen
-# (services/ocr-service, read tier — see approval_policy.py) compensate
-# with exact OCR coordinates. Transient instruction (never persisted in
-# the graph's state, same principle as NO_THINK_DIRECTIVE above) rather
-# than a per-turn system prompt change: stays identically valid across
-# the whole conversation. Kept in French: sent to the model, behavior not
-# documentation (CLAUDE.md rule #11).
-GROUNDING_DIRECTIVE = (
-    "Pour cliquer sur un élément contenant du texte, appelle d'abord "
-    "find_text pour obtenir ses coordonnées exactes plutôt que d'estimer "
-    "visuellement leur position — réserve l'estimation visuelle aux "
-    "éléments sans texte (icônes)."
-)
 
 # DOCUMENTED file-consumption path (Phase 1d-revised, see docs/history.md,
 # T5): a download triggered in the browser lands in a volume now shared
@@ -643,7 +624,7 @@ def _date_directive() -> str:
     never the time — preserves the ExLlamaV3 prefix cache (see
     docs/history.md, "chasing cache=0"): a value that only changes once a
     day, not on every turn or every second. Placed last in the static
-    system block (after GROUNDING_DIRECTIVE/DOWNLOAD_DIRECTIVE/
+    system block (after DOWNLOAD_DIRECTIVE/BULK_CHECK_DIRECTIVE/
     PEREMPTION_DIRECTIVE, before _verification_directive's per-turn
     verification instruction, which is even more volatile) — maximizes
     the length of the prefix that's actually stable from one turn to the
@@ -1288,8 +1269,8 @@ planner_llm = ChatOpenAI(
     extra_body={"enable_thinking": PLANNER_THINKING_ENABLED},
 )
 
-# Schema of the MCP tools (terminal/filesystem/git/browser/desktop-GhostDesk),
-# fetched from mcp-client and cached for the process's lifetime. Without
+# Schema of the MCP tools (filesystem/browser), fetched from mcp-client
+# and cached for the process's lifetime. Without
 # this bind_tools, the LLM has no knowledge that these tools exist and can
 # therefore never produce tool_calls, whatever model is served —
 # has_tool_calls()/require_approval() then stay dead code.
@@ -1628,7 +1609,8 @@ def describe_context(messages: list, pending_text: Optional[str] = None) -> list
 
     Empty `messages` (thread unknown to the checkpointer) -> all blocks at
     zero rather than still including the transient system prompt
-    (GROUNDING_DIRECTIVE): nothing has been composed yet for this thread.
+    (the transient directives below): nothing has been composed yet for
+    this thread.
     """
     if not messages:
         return [
@@ -1636,7 +1618,7 @@ def describe_context(messages: list, pending_text: Optional[str] = None) -> list
             for label, kind in _CONTEXT_BLOCK_SKELETON
         ]
 
-    system_parts = [GROUNDING_DIRECTIVE, DOWNLOAD_DIRECTIVE, BULK_CHECK_DIRECTIVE, PEREMPTION_DIRECTIVE]
+    system_parts = [DOWNLOAD_DIRECTIVE, BULK_CHECK_DIRECTIVE, PEREMPTION_DIRECTIVE]
     skills_parts = []
     history_parts = []
     image_count = 0
@@ -1794,8 +1776,8 @@ def _apply_adaptive_thinking(messages: list, session_grants) -> list:
     state, see _apply_image_retention for the same principle) when
     ADAPTIVE_THINKING is enabled AND the previous turn was fully
     auto-approved (same tier policy as has_tool_calls) — typically a
-    GhostDesk perception-action loop (capture -> click -> capture) where
-    Qwen3.6's extended reasoning costs more than it's worth. No injection
+    repeated read/reversible tool loop where Qwen3.6's extended reasoning
+    costs more than it's worth. No injection
     on a task's very first turn (no previous tool_calls) nor as soon as a
     sensitive tool was involved: reasoning has the most value there.
     """
@@ -1811,8 +1793,8 @@ def _apply_adaptive_thinking(messages: list, session_grants) -> list:
     if not all_auto_approved:
         return messages
     # Merged into the leading system message if there is one (real case:
-    # GROUNDING_DIRECTIVE, added by call_llm right before this call),
-    # otherwise inserted at position 0 — never at the end of the list:
+    # DOWNLOAD_DIRECTIVE and friends, added by call_llm right before this
+    # call), otherwise inserted at position 0 — never at the end of the list:
     # some backends (TabbyAPI/ExLlamaV3, Qwen3.6's strict Jinja template)
     # explicitly reject a second system message or one not at the head
     # ("TemplateError: System message must be at the beginning") —
@@ -1887,7 +1869,7 @@ async def call_llm(state: AgentState, config: dict) -> dict:
     messages_for_llm = [
         SystemMessage(
             content=(
-                f"{GROUNDING_DIRECTIVE}\n{DOWNLOAD_DIRECTIVE}{BULK_CHECK_DIRECTIVE}{PEREMPTION_DIRECTIVE}"
+                f"{DOWNLOAD_DIRECTIVE}{BULK_CHECK_DIRECTIVE}{PEREMPTION_DIRECTIVE}"
                 f"{_date_directive()}{_verification_directive(state)}"
             )
         )
@@ -1958,7 +1940,7 @@ async def call_llm(state: AgentState, config: dict) -> dict:
         # a turn on a visible AIMessage (see
         # AgentState.slash_command_image_shown) — without this reset, a
         # normal LLM turn that follows an image (e.g. vision on a
-        # model-decided screen_shot) would wrongly reuse main.py's image
+        # model-decided browser_take_screenshot) would wrongly reuse main.py's image
         # reconstruction, duplicating the image in its own already-correct
         # response.
         "slash_command_image_shown": False,
@@ -2035,8 +2017,8 @@ def _to_png_data_uri(data_b64: str, mime_type: str) -> str:
     """
     Always re-encodes to PNG before passing to the LLM. Ollama's image
     decoder (mtmd, llama.cpp side) explicitly fails on WebP ("Failed to
-    load image or audio file") — which happens to be GhostDesk's
-    screen_shot tool's default format. Converting here rather than
+    load image or audio file") — which happens to be
+    browser_take_screenshot's default format. Converting here rather than
     relying on the model to systematically request format="png" on every
     call. Default path (IMAGE_FORMAT_PASSTHROUGH not enabled) — see
     _to_image_data_uri for the direct WebP path.
@@ -2052,7 +2034,7 @@ def _to_png_data_uri(data_b64: str, mime_type: str) -> str:
 
 def _to_image_data_uri(data_b64: str, mime_type: str) -> str:
     """
-    IMAGE_FORMAT_PASSTHROUGH=webp: passes screen_shot's raw WebP through
+    IMAGE_FORMAT_PASSTHROUGH=webp: passes browser_take_screenshot's raw WebP through
     as-is (direct data URI, no Pillow decode/re-encode), relying on the
     native WebP decoding of the llama.cpp fork served by the alternative
     llama-server backend (see README, Inference backend section) — avoids
@@ -2601,8 +2583,9 @@ def _format_tool_result_as_text(result: dict) -> str:
     blocks = result.get("content", []) if isinstance(result, dict) else []
     if isinstance(blocks, str):
         # _split_image_blocks falls back to this text placeholder when
-        # ALL of the result's blocks were images (e.g. screen_shot alone)
-        # — this is already not a list of blocks, return it as-is rather
+        # ALL of the result's blocks were images (e.g.
+        # browser_take_screenshot alone) — this is already not a list of
+        # blocks, return it as-is rather
         # than iterating over its characters (none of which is a "text"
         # dict, so it would silently fall back to a JSON dump of the
         # whole dict).
@@ -2632,15 +2615,15 @@ async def prepare_slash_command(state: AgentState, config: dict) -> dict:
 
 def _route_slash_command_tier(state: AgentState) -> str:
     """
-    GUARDRAIL: a slash command on a TIER_SENSITIVE tool (e.g. key_type
-    with long text, clipboard_get) does NOT execute directly — it goes
-    through require_approval, exactly like a tool_calls decided by the
-    LLM. Explicitly typing the command only counts as approval for
+    GUARDRAIL: a slash command on a TIER_SENSITIVE tool (e.g.
+    browser_evaluate) does NOT execute directly — it goes through
+    require_approval, exactly like a tool_calls decided by the LLM.
+    Explicitly typing the command only counts as approval for
     TIER_READ/TIER_REVERSIBLE: the sensitive tier exists precisely to
     impose a separate confirmation before a potentially dangerous action
-    (free text typed into a terminal, clipboard exfiltration...) — a
-    total bypass would have voided this guarantee for any tool, including
-    ones never meant to be auto-approved.
+    (arbitrary JS execution in the page...) — a total bypass would have
+    voided this guarantee for any tool, including ones never meant to be
+    auto-approved.
     """
     last = state["messages"][-1]
     tool_call = last.tool_calls[0]
