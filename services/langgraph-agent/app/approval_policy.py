@@ -7,9 +7,8 @@ not) with three tiers, from least to most risky:
   TIER_READ       : auto, silent. Pure introspection or read-only —
                     nothing to exfiltrate, nothing to undo.
   TIER_REVERSIBLE : auto + logging (see Phase 2, audit log). Side
-                    effect, but reversible and confined (GhostDesk
-                    mouse/keyboard, filesystem writes under /workspace,
-                    local git...).
+                    effect, but reversible and confined (filesystem
+                    writes under /workspace).
   TIER_SENSITIVE  : human approval required. Free-text input, everything
                     else, AND any unknown tool — the default is ALWAYS
                     the most restrictive tier, never the reverse: a tool
@@ -39,19 +38,9 @@ TIER_SENSITIVE = "sensitive"
 _TIER_RANK = {TIER_READ: 0, TIER_REVERSIBLE: 1, TIER_SENSITIVE: 2}
 
 # Pure introspection (no side effect) and read-only: nothing to
-# exfiltrate, nothing to undo. Reuses the "read" subset of the old
-# AUTO_APPROVED_TOOLS (app_list, app_running, screen_shot, mouse_move) as
-# well as the read tools of the official filesystem/git MCP servers and
-# mcp-terminal's run_command (already a strict read-only whitelist, see
-# services/mcp-terminal/server.py).
+# exfiltrate, nothing to undo. Reuses the read tools of the official
+# filesystem MCP server plus the browser's own read-only tools.
 _DEFAULT_TIER_READ = {
-    "app_list",
-    "app_running",
-    "app_status",
-    "screen_shot",
-    "mouse_move",
-    "find_text",  # side OCR (ocr-service): pure read, no side effect
-    "read_screen",
     # Targeted location/extraction in the page (revised Phase 1d, see
     # docs/history.md "extraction fix"): pure read despite its internal
     # implementation via browser_evaluate (mcp-client) — the model only
@@ -79,8 +68,6 @@ _DEFAULT_TIER_READ = {
     # against it — see docs/resolved-bugs.md for that smoke's result.
     "browser_snapshot",
     "browser_take_screenshot",
-    "clipboard_get",  # a "read" in tool terms, but stays TIER_SENSITIVE: see override below
-    "run_command",
     "read_file",
     "read_multiple_files",
     "list_directory",
@@ -88,53 +75,16 @@ _DEFAULT_TIER_READ = {
     "search_files",
     "get_file_info",
     "list_allowed_directories",
-    # "git_branch" was removed from here (found and fixed during the
-    # Iteration 4 live probe, Phase 1 "cognitive core"): this name never
-    # corresponded to a real tool of the official git MCP server (12
-    # tools verified via GET /tools/schema, mcp-client AND langgraph-agent
-    # agreeing) — only "git_create_branch" (already in
-    # _DEFAULT_TIER_REVERSIBLE below) exists for branch management.
-    # Harmless in real usage (a tool never offered to the model is never
-    # called), but it threw off
-    # tests_integration/campaign_preflight.py:EXPECTED_TOOLS.
-    "git_status",
-    "git_diff_unstaged",
-    "git_diff_staged",
-    "git_diff",
-    "git_log",
-    "git_show",
 }
 
-# Reversible and confined side effect: GhostDesk mouse/keyboard (except
-# free-text input), filesystem writes under /workspace, non-destructive
-# local git operations.
+# Reversible and confined side effect: filesystem writes under
+# /workspace.
 _DEFAULT_TIER_REVERSIBLE = {
-    "mouse_click",
-    "mouse_double_click",
-    "mouse_drag",
-    "mouse_scroll",
-    "key_press",
-    "app_launch",
-    "clipboard_set",
     "write_file",
     "edit_file",
     "create_directory",
     "move_file",
-    "git_add",
-    "git_commit",
-    "git_create_branch",
-    "git_checkout",
-    "git_reset",
-    "git_init",
 }
-
-# clipboard_get deliberately excluded from the read tier despite its
-# name: it can exfiltrate sensitive data copied by the user (password,
-# token...), no less sensitive than clipboard_set (see README). Removed
-# here rather than never added above, so the _DEFAULT_TIER_READ list
-# stays readable as "everything that looks like reading" and this
-# exception jumps out on review.
-_DEFAULT_TIER_READ.discard("clipboard_get")
 
 # Never session-grantable (revised Phase 1d, see docs/history.md, T5):
 # arbitrary code execution in the page (unconstrained JS) — an
@@ -153,7 +103,7 @@ _DEFAULT_TIER_READ.discard("clipboard_get")
 # deployment that doesn't set it. Exists because RULES/APPROVAL_RULES_PATH
 # (see Phase 4 below) only overrides a call's TIER, it does NOT exempt a
 # tool from grant-relaxation — the two mechanisms are deliberately
-# separate (a rule can downgrade key_type to reversible; that must still
+# separate (a rule can downgrade a tool to reversible; that must still
 # be relaxable by a grant like everything else at that tier). Per-campaign
 # knob, not a permanent default: a benchmark task that must force
 # individual approval on a specific tool (e.g. browser_click, if that
@@ -265,17 +215,11 @@ def _matcher_any(args: dict) -> bool:
     return True
 
 
-def _matcher_key_type_short(args: dict) -> bool:
-    """key_type(len<50,no_newline): short input with no newline — benign
-    enough not to warrant approval on every keystroke, unlike long or
-    multi-line text (code drafting, a pasted script...), which stays
-    TIER_SENSITIVE by default (tool_tier)."""
-    text = args.get("text", "")
-    return len(text) < 50 and "\n" not in text
-
-
 def _matcher_command_prefix(prefixes):
-    """terminal commands by prefix, e.g. run_command(prefix:git status)."""
+    """A tool's free-text `command` argument matched by prefix, e.g.
+    tool_name(prefix:some_command). No default rule uses this matcher —
+    kept for APPROVAL_RULES_PATH overrides (a deployment-specific tool
+    with a command-like argument)."""
 
     def _match(args: dict) -> bool:
         command = args.get("command", "")
@@ -289,17 +233,13 @@ def _matcher_command_prefix(prefixes):
 # ("prefixes"), the others are used as-is.
 _MATCHER_REGISTRY = {
     "any": _matcher_any,
-    "key_type_short": _matcher_key_type_short,
     "command_prefix": _matcher_command_prefix,
 }
 
-# key_type(*) stays TIER_SENSITIVE by default: tool_tier("key_type")
-# already classifies it that way (absent from
-# TIER_READ_TOOLS/TIER_REVERSIBLE_TOOLS), so no need for an explicit
-# catch-all rule here — only the exception (short input) needs a rule.
-DEFAULT_RULES = [
-    Rule("key_type", _matcher_key_type_short, TIER_REVERSIBLE),
-]
+# No default argument rule needed today — kept as an empty list, refined
+# via APPROVAL_RULES_PATH for deployment-specific needs (see Phase 4
+# above).
+DEFAULT_RULES = []
 
 
 def _load_rules_from_yaml(path: str) -> list:
