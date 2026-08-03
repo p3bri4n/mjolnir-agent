@@ -366,8 +366,8 @@ services:
     # pas de port publié : uniquement accessible via le réseau interne (mcp-client)
 
   # --- GhostDesk : bureau virtuel complet piloté par l'agent ------
-  # ⚠️ Surface d'attaque bien plus large que mcp-terminal : SYS_ADMIN +
-  # exécution shell + contrôle GUI complet. Reste un serveur MCP HTTP
+  # ⚠️ Surface d'attaque large : SYS_ADMIN + exécution shell + contrôle
+  # GUI complet. Reste un serveur MCP HTTP
   # persistant avec état (pas un conteneur éphémère comme les autres) ;
   # voir avertissement détaillé et limites assumées dans le README.
   ghostdesk:

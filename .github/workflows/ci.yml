@@ -15,7 +15,6 @@ jobs:
           - skill-manager
           - context-manager
           - mcp-client
-          - mcp-terminal
           - ocr-service
           - dashboard
           - langgraph-agent
