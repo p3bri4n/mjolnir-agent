@@ -102,4 +102,3 @@ async def test_call_llm_system_message_includes_temporal_directives(mock_side_se
     system_content = sent_body["messages"][0]["content"]
     assert g.PEREMPTION_DIRECTIVE in system_content
     assert g._date_directive() in system_content
-    assert g.GROUNDING_DIRECTIVE in system_content

@@ -53,9 +53,15 @@ nature. Skipped by default; explicit opt-in:
     RUN_LIVE_LLM_TESTS=1 python -m pytest tests_integration/test_tool_calling_baseline.py -v
 
 Prerequisites identical to `test_semantic_drift.py`: `docker compose up`
-with langgraph-agent/mcp-client/llama-server active, GhostDesk virtual
-desktop with no application open (checked below, same reasons: a stray
-window would throw off the capture->click prompt's visual grounding).
+with langgraph-agent/mcp-client/llama-server active.
+
+⚠️ Stale (effort 1.2, docs/briefs/update-plan.md): PROMPTS below still
+targets GhostDesk desktop tools (calculator launch, capture->click) —
+those tools no longer exist in the schema (see docs/history.md). Kept
+as the frozen historical Phase-0 baseline record rather than rewritten,
+since changing the prompts would break BASELINE.md's comparability with
+its own past runs; not runnable against the current stack without a
+prompt redesign.
 
 Deliberately slowed cadence between runs (see `_wait_for_llama_health`
 and `BASELINE_PAUSE_SECONDS`): an early version of this harness, firing
@@ -89,7 +95,6 @@ pytestmark = pytest.mark.skipif(
 )
 
 AGENT_CONTAINER = os.environ.get("LANGGRAPH_AGENT_CONTAINER", "langgraph-agent")
-MCP_CLIENT_CONTAINER = os.environ.get("MCP_CLIENT_CONTAINER", "mcp-client")
 N_REPETITIONS = int(os.environ.get("BASELINE_REPETITIONS", "5"))
 # Fixed pause before each run, IN ADDITION to waiting for llama-server's
 # health (see module docstring): brings the cadence closer to normal
@@ -189,26 +194,6 @@ except Exception as e:
     )
 
 
-@pytest.fixture(scope="session", autouse=True)
-def _assert_desktop_is_clean_once():
-    script = """
-import json, urllib.request
-req = urllib.request.Request(
-    'http://localhost:8003/call',
-    data=json.dumps({"tool": "app_running", "arguments": {}}).encode(),
-    headers={'Content-Type': 'application/json'},
-)
-with urllib.request.urlopen(req, timeout=15) as r:
-    print(r.read().decode())
-"""
-    raw = _docker_exec_python(MCP_CLIENT_CONTAINER, script)
-    data = json.loads(raw)
-    if data.get("content", []):
-        pytest.fail(
-            "Bureau virtuel GhostDesk non vide avant le harnais de baseline "
-            f"(app_running a retourné {data['content']!r}) : ferme les "
-            "applications ouvertes manuellement via noVNC avant de relancer."
-        )
     yield
 
 

@@ -54,7 +54,7 @@ def test_plan_tier_read_for_read_tools():
 def test_plan_tier_reversible_when_worst_tool_is_reversible():
     import app.graph as g
 
-    plan = [_subtask(tools=["browser_extract"]), _subtask(tools=["mouse_click"])]
+    plan = [_subtask(tools=["browser_extract"]), _subtask(tools=["write_file"])]
     assert g._plan_tier(plan) == g.approval_policy.TIER_REVERSIBLE
 
 
@@ -114,7 +114,7 @@ def test_route_after_validation_requires_approval_for_reversible_tier_without_gr
     import app.graph as g
 
     monkeypatch.setattr(g, "PLAN_VALIDATION_ENABLED", True)
-    state = {"plan": [_subtask(tools=["mouse_click"])], "plan_validation_reasons": [], "plan_grant": False}
+    state = {"plan": [_subtask(tools=["write_file"])], "plan_validation_reasons": [], "plan_grant": False}
     assert g.route_after_validation(state) == "require_plan_approval"
 
 
@@ -122,7 +122,7 @@ def test_route_after_validation_call_llm_for_reversible_tier_with_grant(monkeypa
     import app.graph as g
 
     monkeypatch.setattr(g, "PLAN_VALIDATION_ENABLED", True)
-    state = {"plan": [_subtask(tools=["mouse_click"])], "plan_validation_reasons": [], "plan_grant": True}
+    state = {"plan": [_subtask(tools=["write_file"])], "plan_validation_reasons": [], "plan_grant": True}
     assert g.route_after_validation(state) == "call_llm"
 
 

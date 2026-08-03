@@ -97,10 +97,10 @@ CAMPAIGN_ENV_FLAGS = [
 
 # Conteneurs dont l'image effectivement tournante fait partie de la config
 # d'un run (README, "Arborescence") : les 3 services applicatifs propres à
-# ce dépôt + le backend d'inférence. playwright-mcp/ghostdesk/ocr-service
-# sont des images officielles non reconstruites par ce dépôt (voir README) :
-# leur ID d'image est quand même capturé (utile pour détecter un `:latest`
-# qui a bougé), juste jamais "construit localement" au sens preflight.
+# ce dépôt + le backend d'inférence. playwright-mcp est une image officielle
+# non reconstruite par ce dépôt (voir README) : son ID d'image est quand
+# même capturé (utile pour détecter un `:latest` qui a bougé), juste jamais
+# "construit localement" au sens preflight.
 CAMPAIGN_IMAGE_CONTAINERS = [
     "langgraph-agent",
     "mcp-client",

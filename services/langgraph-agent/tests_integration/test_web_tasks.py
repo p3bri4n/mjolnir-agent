@@ -730,31 +730,6 @@ def _purge_downloads_volume() -> None:
     )
 
 
-GHOSTDESK_CONTAINER = os.environ.get("GHOSTDESK_CONTAINER", "ghostdesk")
-
-
-def _reset_ghostdesk_desktop() -> None:
-    """
-    Cross-task isolation, second channel (see docs/history.md, T9
-    investigation): `app_launch` (GhostDesk) opens a REAL window on the
-    `ghostdesk` container's desktop, at the MACHINE scale, with no
-    relation whatsoever to the Playwright session already isolated by
-    `_reset_browser_session` nor to the current langgraph-agent thread.
-    Observed under real conditions: a Firefox launched by a T9 thread
-    hours earlier stayed open on insee.fr; a later T9 thread, blocked by
-    the anti-fabrication guardrail on browser_navigate, took a
-    `screen_shot` and read this leftover Firefox — a "success" that
-    proves nothing about the agent's ability to redo the task cold.
-    `pkill -f firefox` (best-effort, check=False) before EVERY repetition,
-    the same guarantee as the two resets already in place.
-    """
-    subprocess.run(
-        ["docker", "exec", GHOSTDESK_CONTAINER, "pkill", "-f", "firefox"],
-        check=False,
-        capture_output=True,
-    )
-
-
 def _reset_browser_session() -> None:
     """
     Cross-task isolation (revised Phase 1d, see docs/history.md
@@ -945,7 +920,6 @@ def _run_campaign(resume_cid: str = None):
 
         _purge_downloads_volume()
         _reset_browser_session()
-        _reset_ghostdesk_desktop()
         result = run_task(prompt)
         ok, detail = (False, result.error) if result.error else assert_fn(result.final_text, prompt)
         cause = _classify_failure_cause(task_id, result, ok, detail)
@@ -1360,7 +1334,6 @@ def test_t7_noise_baseline():
         # independent measurement).
         prompt = f"{base_prompt} (essai {uuid.uuid4().hex[:8]})"
         _reset_browser_session()
-        _reset_ghostdesk_desktop()
         result = run_task(prompt)
         ok, detail = (False, result.error) if result.error else assert_fn(result.final_text, prompt)
         rows.append(

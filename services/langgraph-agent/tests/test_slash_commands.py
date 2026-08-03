@@ -35,18 +35,18 @@ def mock_side_services():
                 200,
                 json={
                     "tools": [
-                        {"type": "function", "function": {"name": "app_list", "description": "", "parameters": {}}},
+                        {"type": "function", "function": {"name": "read_file", "description": "", "parameters": {}}},
                         {
                             "type": "function",
-                            "function": {"name": "mouse_click", "description": "", "parameters": {}},
+                            "function": {"name": "write_file", "description": "", "parameters": {}},
                         },
                         {
                             "type": "function",
-                            "function": {"name": "screen_shot", "description": "", "parameters": {}},
+                            "function": {"name": "browser_take_screenshot", "description": "", "parameters": {}},
                         },
                         {
                             "type": "function",
-                            "function": {"name": "key_type", "description": "", "parameters": {}},
+                            "function": {"name": "browser_evaluate", "description": "", "parameters": {}},
                         },
                     ]
                 },
@@ -99,12 +99,12 @@ async def test_slash_command_calls_tool_directly_without_llm(mock_side_services)
     )
     g.agent_graph = g.build_graph()
 
-    state = {"messages": [{"role": "user", "content": "/app_list"}], "tool_iterations": 0, "approved": None}
+    state = {"messages": [{"role": "user", "content": "/read_file"}], "tool_iterations": 0, "approved": None}
     result = await g.agent_graph.ainvoke(state, CONFIG)
 
     assert call_route.called
     assert not llm_route.called
-    assert json.loads(call_route.calls.last.request.content) == {"tool": "app_list", "arguments": {}}
+    assert json.loads(call_route.calls.last.request.content) == {"tool": "read_file", "arguments": {}}
     assert result["messages"][-1].content == "app1\napp2"
 
 
@@ -118,14 +118,14 @@ async def test_slash_command_with_arguments_sends_typed_values(mock_side_service
     g.agent_graph = g.build_graph()
 
     state = {
-        "messages": [{"role": "user", "content": "/mouse_click x=100 y=200"}],
+        "messages": [{"role": "user", "content": "/write_file path=/workspace/x.txt content=y"}],
         "tool_iterations": 0,
         "approved": None,
     }
     await g.agent_graph.ainvoke(state, CONFIG)
 
     sent = json.loads(call_route.calls.last.request.content)
-    assert sent == {"tool": "mouse_click", "arguments": {"x": 100, "y": 200}}
+    assert sent == {"tool": "write_file", "arguments": {"path": "/workspace/x.txt", "content": "y"}}
 
 
 @pytest.mark.asyncio
@@ -164,7 +164,7 @@ async def test_unknown_slash_like_message_falls_back_to_normal_flow(mock_side_se
 @pytest.mark.asyncio
 async def test_slash_command_image_only_result_persists_light_text_only(mock_side_services):
     """
-    Non-régression (bug réel signalé via Open WebUI) : /screen_shot (résultat
+    Non-régression (bug réel signalé via Open WebUI) : /browser_take_screenshot (résultat
     100% image, aucun bloc texte) affichait littéralement
     '{"content": "(voir image ci-dessous)"}' au lieu de l'image. Cause :
     _format_tool_result_as_text n'attendait qu'une LISTE de blocs dans
@@ -199,7 +199,7 @@ async def test_slash_command_image_only_result_persists_light_text_only(mock_sid
     )
     g.agent_graph = g.build_graph()
 
-    state = {"messages": [{"role": "user", "content": "/screen_shot"}], "tool_iterations": 0, "approved": None}
+    state = {"messages": [{"role": "user", "content": "/browser_take_screenshot"}], "tool_iterations": 0, "approved": None}
     result = await g.agent_graph.ainvoke(state, CONFIG)
 
     final = result["messages"][-1].content
@@ -217,10 +217,9 @@ async def test_slash_command_image_only_result_persists_light_text_only(mock_sid
 @pytest.mark.asyncio
 async def test_slash_command_on_sensitive_tool_pauses_for_approval(mock_side_services):
     """
-    GARDE-FOU : un outil TIER_SENSITIVE (key_type avec texte long) invoqué
-    via commande slash NE s'exécute PAS directement — il part par
-    require_approval comme un tool_calls normal du LLM, exactement comme
-    test_approval_rules.py::test_long_key_type_interrupts_in_graph.
+    GARDE-FOU : un outil TIER_SENSITIVE (browser_evaluate) invoqué via
+    commande slash NE s'exécute PAS directement — il part par
+    require_approval comme un tool_calls normal du LLM.
     """
     import app.graph as g
 
@@ -234,9 +233,8 @@ async def test_slash_command_on_sensitive_tool_pauses_for_approval(mock_side_ser
     )
     g.agent_graph = g.build_graph()
 
-    long_text = "Un texte de plus de cinquante caracteres pour rester sensible par defaut"
     state = {
-        "messages": [{"role": "user", "content": f'/key_type text="{long_text}"'}],
+        "messages": [{"role": "user", "content": '/browser_evaluate code="document.title"'}],
         "tool_iterations": 0,
         "approved": None,
     }
@@ -251,7 +249,7 @@ async def test_slash_command_on_sensitive_tool_pauses_for_approval(mock_side_ser
     await g.agent_graph.ainvoke(None, CONFIG)
     assert call_route.call_count == 1
     sent = json.loads(call_route.calls.last.request.content)
-    assert sent == {"tool": "key_type", "arguments": {"text": long_text}}
+    assert sent == {"tool": "browser_evaluate", "arguments": {"code": "document.title"}}
 
 
 @pytest.mark.asyncio
@@ -264,19 +262,19 @@ async def test_slash_command_audits_reversible_tool_but_not_read_tool(mock_side_
     )
     g.agent_graph = g.build_graph()
 
-    # mouse_click est TIER_REVERSIBLE par défaut (voir approval_policy.py) :
+    # write_file est TIER_REVERSIBLE par défaut (voir approval_policy.py) :
     # doit apparaître dans le journal d'audit même invoqué via slash-command.
     state = {
-        "messages": [{"role": "user", "content": "/mouse_click x=1 y=2"}],
+        "messages": [{"role": "user", "content": "/write_file path=/workspace/x.txt content=y"}],
         "tool_iterations": 0,
         "approved": None,
     }
     await g.agent_graph.ainvoke(state, CONFIG)
     entries = audit_log.read_entries(CONFIG["configurable"]["thread_id"])
-    assert any(e["tool"] == "mouse_click" for e in entries)
+    assert any(e["tool"] == "write_file" for e in entries)
 
-    # app_list est TIER_READ par défaut : jamais audité, tool-call ou slash-command.
-    state2 = {"messages": [{"role": "user", "content": "/app_list"}], "tool_iterations": 0, "approved": None}
+    # read_file est TIER_READ par défaut : jamais audité, tool-call ou slash-command.
+    state2 = {"messages": [{"role": "user", "content": "/read_file"}], "tool_iterations": 0, "approved": None}
     await g.agent_graph.ainvoke(state2, CONFIG)
     entries2 = audit_log.read_entries(CONFIG["configurable"]["thread_id"])
-    assert not any(e["tool"] == "app_list" for e in entries2)
+    assert not any(e["tool"] == "read_file" for e in entries2)

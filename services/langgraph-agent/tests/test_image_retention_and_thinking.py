@@ -138,8 +138,8 @@ def test_adaptive_thinking_injects_no_think_after_auto_approved_turn(monkeypatch
 
     monkeypatch.setattr(g, "ADAPTIVE_THINKING", True)
     messages = [
-        HumanMessage(content="Clique"),
-        _ai_with_tool_calls([{"name": "mouse_click", "args": {"x": 1, "y": 2}, "id": "1"}]),
+        HumanMessage(content="Écris"),
+        _ai_with_tool_calls([{"name": "write_file", "args": {"path": "/workspace/x.txt", "content": "y"}, "id": "1"}]),
         ToolMessage(content="ok", tool_call_id="1"),
     ]
 
@@ -228,7 +228,7 @@ def _webp_image_result():
 @pytest.mark.asyncio
 async def test_only_last_screenshot_reaches_the_llm_in_context(mock_side_services, monkeypatch):
     """
-    Deux captures d'écran successives (boucle auto-approuvée screen_shot) :
+    Deux captures d'écran successives (boucle auto-approuvée browser_take_screenshot) :
     seule la DERNIÈRE doit apparaître comme bloc image_url dans la requête
     envoyée au LLM pour le tour suivant, la première remplacée par le
     placeholder texte.
@@ -237,8 +237,8 @@ async def test_only_last_screenshot_reaches_the_llm_in_context(mock_side_service
 
     route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
     route.side_effect = [
-        _sse_response(tool_call_response("screen_shot", "call_1", "{}")),
-        _sse_response(tool_call_response("screen_shot", "call_2", "{}")),
+        _sse_response(tool_call_response("browser_take_screenshot", "call_1", "{}")),
+        _sse_response(tool_call_response("browser_take_screenshot", "call_2", "{}")),
         _sse_response(text_response(["Vu", "."])),
     ]
     mock_side_services.post("http://fake-mcp-client/call").mock(
@@ -277,7 +277,7 @@ async def test_webp_passthrough_reaches_the_llm_request_body(mock_side_services,
 
     route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
     route.side_effect = [
-        _sse_response(tool_call_response("screen_shot", "call_1", "{}")),
+        _sse_response(tool_call_response("browser_take_screenshot", "call_1", "{}")),
         _sse_response(text_response(["Vu", "."])),
     ]
     mock_side_services.post("http://fake-mcp-client/call").mock(
@@ -306,7 +306,7 @@ async def test_png_conversion_is_the_default_in_the_llm_request_body(mock_side_s
 
     route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
     route.side_effect = [
-        _sse_response(tool_call_response("screen_shot", "call_1", "{}")),
+        _sse_response(tool_call_response("browser_take_screenshot", "call_1", "{}")),
         _sse_response(text_response(["Vu", "."])),
     ]
     mock_side_services.post("http://fake-mcp-client/call").mock(
@@ -336,19 +336,20 @@ async def test_no_think_injected_in_llm_request_after_auto_approved_tool_call(mo
 
     route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
     route.side_effect = [
-        _sse_response(tool_call_response("mouse_click", "call_1", '{"x": 1, "y": 2}')),
-        _sse_response(text_response(["Cliqué", "."])),
+        _sse_response(tool_call_response("write_file", "call_1", '{"path": "/workspace/x.txt", "content": "y"}')),
+        _sse_response(text_response(["Écrit", "."])),
     ]
     mock_side_services.post("http://fake-mcp-client/call").mock(
         return_value=httpx.Response(200, json={"content": [{"type": "text", "text": "ok"}]})
     )
     g.agent_graph = g.build_graph()
 
-    state = {"messages": [{"role": "user", "content": "Clique là"}], "tool_iterations": 0, "approved": None}
+    state = {"messages": [{"role": "user", "content": "Écris ce fichier"}], "tool_iterations": 0, "approved": None}
     await g.agent_graph.ainvoke(state, CONFIG)
 
-    # Fusionné dans le message système de tête (GROUNDING_DIRECTIVE) plutôt
-    # qu'ajouté en fin de liste : voir docstring de _apply_adaptive_thinking.
+    # Fusionné dans le message système de tête (DOWNLOAD_DIRECTIVE et
+    # consorts) plutôt qu'ajouté en fin de liste : voir docstring de
+    # _apply_adaptive_thinking.
     second_request_body = json.loads(route.calls[1].request.content)
     head = second_request_body["messages"][0]
     assert head["role"] == "system"
@@ -363,15 +364,15 @@ async def test_no_think_not_injected_when_adaptive_thinking_disabled(mock_side_s
 
     route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
     route.side_effect = [
-        _sse_response(tool_call_response("mouse_click", "call_1", '{"x": 1, "y": 2}')),
-        _sse_response(text_response(["Cliqué", "."])),
+        _sse_response(tool_call_response("write_file", "call_1", '{"path": "/workspace/x.txt", "content": "y"}')),
+        _sse_response(text_response(["Écrit", "."])),
     ]
     mock_side_services.post("http://fake-mcp-client/call").mock(
         return_value=httpx.Response(200, json={"content": [{"type": "text", "text": "ok"}]})
     )
     g.agent_graph = g.build_graph()
 
-    state = {"messages": [{"role": "user", "content": "Clique là"}], "tool_iterations": 0, "approved": None}
+    state = {"messages": [{"role": "user", "content": "Écris ce fichier"}], "tool_iterations": 0, "approved": None}
     await g.agent_graph.ainvoke(state, CONFIG)
 
     second_request_body = json.loads(route.calls[1].request.content)

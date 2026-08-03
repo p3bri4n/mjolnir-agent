@@ -130,7 +130,6 @@ from tests_integration.test_web_tasks import (
     _http_call,
     _purge_downloads_volume,
     _reset_browser_session,
-    _reset_ghostdesk_desktop,
     _t11_task,
     _update_duration_stats,
     generate_catalog,
@@ -993,7 +992,6 @@ def _run_campaign_v2(resume_cid: str = None):
         _purge_downloads_volume()
         _purge_admin_stock_file()
         _reset_browser_session()
-        _reset_ghostdesk_desktop()
         result = run_task(prompt)
         ok, detail = (False, result.error) if result.error else assert_fn(result.final_text, prompt)
         cause = _classify_failure_cause_v2(task_id, result, ok, detail)

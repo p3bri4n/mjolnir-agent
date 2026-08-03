@@ -76,7 +76,6 @@ from tests_integration.test_web_tasks import (  # noqa: E402
     _is_approval_pending,
     _purge_downloads_volume,
     _reset_browser_session,
-    _reset_ghostdesk_desktop,
     hr_data,
 )
 
@@ -262,7 +261,6 @@ def run_one_thread(thread_name: str, rep: int, flag_label: str) -> dict:
 
     _purge_downloads_volume()
     _reset_browser_session()
-    _reset_ghostdesk_desktop()
 
     wall_start = datetime.now(timezone.utc)
     history: list = []

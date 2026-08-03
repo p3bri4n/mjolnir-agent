@@ -91,39 +91,36 @@ async def test_tool_call_pauses_for_approval_without_calling_mcp_client(mock_sid
 @pytest.mark.asyncio
 async def test_auto_approved_tool_skips_require_approval(mock_side_services):
     """
-    GhostDesk mouse/screenshot tools (AUTO_APPROVED_TOOLS) must execute
-    without going through require_approval: otherwise a model with poor
-    aim (vision/grounding limitation, see README) forces a human to
-    validate every single click.
+    Reversible-tier tools (write_file, filesystem) must execute without
+    going through require_approval.
     """
     import app.graph as g
 
     route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
     route.side_effect = [
-        _sse_response(tool_call_response("mouse_click", "call_1", '{"x": 100, "y": 200}')),
-        _sse_response(text_response(["Cliqué", "."])),
+        _sse_response(tool_call_response("write_file", "call_1", '{"path": "/workspace/x.txt", "content": "y"}')),
+        _sse_response(text_response(["Écrit", "."])),
     ]
     mcp_route = mock_side_services.post("http://fake-mcp-client/call").mock(
         return_value=httpx.Response(200, json={"content": [{"type": "text", "text": "ok"}]})
     )
     g.agent_graph = g.build_graph()
 
-    state = {"messages": [{"role": "user", "content": "Clique là"}], "tool_iterations": 0, "approved": None}
+    state = {"messages": [{"role": "user", "content": "Écris ce fichier"}], "tool_iterations": 0, "approved": None}
     result = await g.agent_graph.ainvoke(state, CONFIG)
 
     snapshot = await g.agent_graph.aget_state(CONFIG)
     assert snapshot.next == ()  # no pause: the turn ran to completion
     assert mcp_route.call_count == 1
-    assert result["messages"][-1].content == "Cliqué."
+    assert result["messages"][-1].content == "Écrit."
 
 
 @pytest.mark.asyncio
 async def test_all_tier_read_tools_skip_approval_silently(mock_side_services):
     """
     A turn where ALL tool_calls are tier 1 (pure read, e.g.
-    run_command/git_status on the MCP side) must execute without ever
-    going through require_approval — not just the historical
-    AUTO_APPROVED_TOOLS tools.
+    read_file/list_directory on the MCP side) must execute without ever
+    going through require_approval.
     """
     import app.graph as g
 
@@ -132,8 +129,8 @@ async def test_all_tier_read_tools_skip_approval_silently(mock_side_services):
         _sse_response(
             multi_tool_call_response(
                 [
-                    ("run_command", "call_1", '{"command": "pwd"}'),
-                    ("git_status", "call_2", "{}"),
+                    ("read_file", "call_1", '{"path": "/workspace/x.txt"}'),
+                    ("list_directory", "call_2", '{"path": "/workspace"}'),
                 ]
             )
         ),
@@ -151,34 +148,6 @@ async def test_all_tier_read_tools_skip_approval_silently(mock_side_services):
     assert snapshot.next == ()
     assert mcp_route.call_count == 2
     assert result["messages"][-1].content == "Terminé."
-
-
-@pytest.mark.asyncio
-async def test_find_text_skips_approval_silently(mock_side_services):
-    """
-    find_text (services/ocr-service, read tier — see approval_policy.py)
-    must execute without ever going through require_approval, like
-    screen_shot/run_command: pure read, no side effect.
-    """
-    import app.graph as g
-
-    route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
-    route.side_effect = [
-        _sse_response(tool_call_response("find_text", "call_1", '{"query": "Fichier"}')),
-        _sse_response(text_response(["Trouvé", "."])),
-    ]
-    mcp_route = mock_side_services.post("http://fake-mcp-client/call").mock(
-        return_value=httpx.Response(200, json={"content": [{"type": "text", "text": "[]"}]})
-    )
-    g.agent_graph = g.build_graph()
-
-    state = {"messages": [{"role": "user", "content": "Où est le menu Fichier ?"}], "tool_iterations": 0, "approved": None}
-    result = await g.agent_graph.ainvoke(state, CONFIG)
-
-    snapshot = await g.agent_graph.aget_state(CONFIG)
-    assert snapshot.next == ()  # no pause: no pass through require_approval
-    assert mcp_route.call_count == 1
-    assert result["messages"][-1].content == "Trouvé."
 
 
 @pytest.mark.asyncio
@@ -205,7 +174,7 @@ async def test_unknown_tool_requires_approval(mock_side_services):
 @pytest.mark.asyncio
 async def test_mixed_auto_and_manual_tools_still_requires_approval(mock_side_services):
     """
-    A turn that mixes an auto-approved tool (mouse_click) and a sensitive
+    A turn that mixes an auto-approved tool (read_file) and a sensitive
     tool (browser_navigate) must remain entirely subject to approval — no
     partial per-tool approval.
     """
@@ -215,7 +184,7 @@ async def test_mixed_auto_and_manual_tools_still_requires_approval(mock_side_ser
         return_value=_sse_response(
             multi_tool_call_response(
                 [
-                    ("mouse_click", "call_1", '{"x": 100, "y": 200}'),
+                    ("read_file", "call_1", '{"path": "/workspace/x.txt"}'),
                     ("browser_navigate", "call_2", '{"url": "http://example.com"}'),
                 ]
             )
@@ -226,7 +195,7 @@ async def test_mixed_auto_and_manual_tools_still_requires_approval(mock_side_ser
     )
     g.agent_graph = g.build_graph()
 
-    state = {"messages": [{"role": "user", "content": "Clique puis exécute pwd"}], "tool_iterations": 0, "approved": None}
+    state = {"messages": [{"role": "user", "content": "Lis le fichier puis navigue"}], "tool_iterations": 0, "approved": None}
     await g.agent_graph.ainvoke(state, CONFIG)
 
     snapshot = await g.agent_graph.aget_state(CONFIG)
@@ -237,9 +206,7 @@ async def test_mixed_auto_and_manual_tools_still_requires_approval(mock_side_ser
 @pytest.mark.asyncio
 async def test_auto_approval_streak_limit_forces_human_checkin(mock_side_services, monkeypatch):
     """
-    Guardrail against the virtual keyboard: a sequence of auto-approved
-    clicks could in theory compose any input with no human ever
-    validating anything. Past AUTO_APPROVAL_STREAK_LIMIT consecutive
+    Defense in depth: past AUTO_APPROVAL_STREAK_LIMIT consecutive
     auto-approved turns, the next turn must go back through
     require_approval even if it contains ONLY normally auto-approved
     tools.
@@ -250,19 +217,19 @@ async def test_auto_approval_streak_limit_forces_human_checkin(mock_side_service
 
     route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
     route.side_effect = [
-        _sse_response(tool_call_response("mouse_click", f"call_{i}", '{"x": 1, "y": 2}')) for i in range(3)
+        _sse_response(tool_call_response("read_file", f"call_{i}", '{"path": "/workspace/x.txt"}')) for i in range(3)
     ] + [_sse_response(text_response(["Terminé", "."]))]
     mcp_route = mock_side_services.post("http://fake-mcp-client/call").mock(
         return_value=httpx.Response(200, json={"content": [{"type": "text", "text": "ok"}]})
     )
     g.agent_graph = g.build_graph()
 
-    state = {"messages": [{"role": "user", "content": "Clique en boucle"}], "tool_iterations": 0, "approved": None}
+    state = {"messages": [{"role": "user", "content": "Relis en boucle"}], "tool_iterations": 0, "approved": None}
     await g.agent_graph.ainvoke(state, CONFIG)
 
     snapshot = await g.agent_graph.aget_state(CONFIG)
-    # 2 auto-approved turns executed (mouse_click, iterations 1 and 2),
-    # the 3rd is blocked in a pause despite mouse_click being in AUTO_APPROVED_TOOLS
+    # 2 auto-approved turns executed (read_file, iterations 1 and 2),
+    # the 3rd is blocked in a pause despite read_file being tier read
     assert snapshot.next == ("require_approval",)
     assert snapshot.values["auto_approval_streak"] == 2
     assert mcp_route.call_count == 2
@@ -281,40 +248,39 @@ async def test_auto_approval_streak_limit_forces_human_checkin(mock_side_service
 @pytest.mark.asyncio
 async def test_max_tool_iterations_ends_loop_with_pending_tool_calls(mock_side_services, monkeypatch):
     """
-    Non-regression: encountered in real usage with the auto-approved
-    GhostDesk loop (rapid-fire capture/click) — has_tool_calls forces the
-    graph to end as soon as tool_iterations reaches MAX_TOOL_ITERATIONS,
-    EVEN IF the model's last message still has a pending tool_calls.
-    Without a check on the caller side (see app/main.py), this tool_calls
-    is silently lost: the agent just seems to "stop" mid-task, with no
-    error or approval pause explaining it.
+    Non-regression: encountered in real usage with a rapid-fire
+    auto-approved read loop — has_tool_calls forces the graph to end as
+    soon as tool_iterations reaches MAX_TOOL_ITERATIONS, EVEN IF the
+    model's last message still has a pending tool_calls. Without a check
+    on the caller side (see app/main.py), this tool_calls is silently
+    lost: the agent just seems to "stop" mid-task, with no error or
+    approval pause explaining it.
     """
     import app.graph as g
 
     monkeypatch.setattr(g, "MAX_TOOL_ITERATIONS", 2)
 
     route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
-    # mouse_click is auto-approved (AUTO_APPROVED_TOOLS): the
-    # call_llm -> auto_call_tools loop never goes through a pause as long
-    # as the model keeps asking for more.
+    # read_file is tier read: the call_llm -> auto_call_tools loop never
+    # goes through a pause as long as the model keeps asking for more.
     route.side_effect = [
-        _sse_response(tool_call_response("mouse_click", f"call_{i}", '{"x": 1, "y": 2}')) for i in range(3)
+        _sse_response(tool_call_response("read_file", f"call_{i}", '{"path": "/workspace/x.txt"}')) for i in range(3)
     ]
     mock_side_services.post("http://fake-mcp-client/call").mock(
         return_value=httpx.Response(200, json={"content": [{"type": "text", "text": "ok"}]})
     )
     g.agent_graph = g.build_graph()
 
-    state = {"messages": [{"role": "user", "content": "Clique en boucle"}], "tool_iterations": 0, "approved": None}
+    state = {"messages": [{"role": "user", "content": "Relis en boucle"}], "tool_iterations": 0, "approved": None}
     result = await g.agent_graph.ainvoke(state, {**CONFIG, "recursion_limit": 50})
 
     snapshot = await g.agent_graph.aget_state(CONFIG)
     assert snapshot.next == ()  # the graph really did end, not paused
     assert snapshot.values["tool_iterations"] == 2
     last_message = result["messages"][-1]
-    # the 3rd tool_call (mouse_click number 2) was never executed or approved
+    # the 3rd tool_call (read_file number 2) was never executed or approved
     assert last_message.tool_calls
-    assert last_message.tool_calls[0]["name"] == "mouse_click"
+    assert last_message.tool_calls[0]["name"] == "read_file"
 
 
 @pytest.mark.asyncio
@@ -351,7 +317,7 @@ async def test_rejection_skips_mcp_client_and_synthesizes_refusal(mock_side_serv
 
     route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
     route.side_effect = [
-        _sse_response(tool_call_response("key_type", "call_1", '{"text": "un texte assez long pour rester sensible: rm -rf /"}')),
+        _sse_response(tool_call_response("browser_evaluate", "call_1", '{"code": "document.title"}')),
         _sse_response(text_response(["Compris", ", annulé."])),
     ]
     mcp_route = mock_side_services.post("http://fake-mcp-client/call").mock(
@@ -521,17 +487,18 @@ async def test_tool_schema_augmented_with_constat_when_verification_enabled(mock
 @pytest.mark.asyncio
 async def test_tool_image_result_becomes_multimodal_user_message(mock_side_services):
     """
-    Non-regression: a tool's raw result (e.g. GhostDesk's screen_shot,
-    MCP format {"type": "image", "data": <base64>, "mimeType": ...}) used
-    to be entirely json.dumps()'d into a ToolMessage, a role that only
-    supports OpenAI-compatible text — the model therefore received an
-    unreadable base64 blob, not an image, regardless of its vision
-    capabilities. call_tools must now extract the image blocks and
-    reinject them as a multimodal "user" message (image_url), the only
-    role that supports them. WebP (screen_shot's default format) must
-    additionally be re-converted to PNG: Ollama's image decoder
-    (mtmd/llama.cpp) explicitly fails on it ("Failed to load image or
-    audio file", verified under real conditions), PNG works.
+    Non-regression: a tool's raw result (e.g.
+    browser_take_screenshot, MCP format {"type": "image", "data":
+    <base64>, "mimeType": ...}) used to be entirely json.dumps()'d into a
+    ToolMessage, a role that only supports OpenAI-compatible text — the
+    model therefore received an unreadable base64 blob, not an image,
+    regardless of its vision capabilities. call_tools must now extract
+    the image blocks and reinject them as a multimodal "user" message
+    (image_url), the only role that supports them. WebP
+    (browser_take_screenshot's default format) must additionally be
+    re-converted to PNG: Ollama's image decoder (mtmd/llama.cpp)
+    explicitly fails on it ("Failed to load image or audio file",
+    verified under real conditions), PNG works.
     """
     import io
 
@@ -543,14 +510,14 @@ async def test_tool_image_result_becomes_multimodal_user_message(mock_side_servi
     Image.new("RGB", (2, 2), color="red").save(webp_buf, format="WEBP", lossless=True)
     webp_b64 = base64.b64encode(webp_buf.getvalue()).decode()
 
-    # screen_shot then a final text answer: a single tool round trip, so
-    # as not to depend on MAX_TOOL_ITERATIONS to end the loop (screen_shot
-    # is auto-approved, see AUTO_APPROVED_TOOLS — a fixed return_value
+    # browser_take_screenshot then a final text answer: a single tool
+    # round trip, so as not to depend on MAX_TOOL_ITERATIONS to end the
+    # loop (browser_take_screenshot is tier read — a fixed return_value
     # would therefore loop indefinitely until hitting LangGraph's internal
     # recursion_limit, unrelated to what's being tested here).
     route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
     route.side_effect = [
-        _sse_response(tool_call_response("screen_shot", "call_1", "{}")),
+        _sse_response(tool_call_response("browser_take_screenshot", "call_1", "{}")),
         _sse_response(text_response(["Capture", " prise."])),
     ]
     mock_side_services.post("http://fake-mcp-client/call").mock(

@@ -220,7 +220,7 @@ CONFIG = {"configurable": {"thread_id": "test-thread-plan-task"}}
 @pytest.mark.asyncio
 async def test_plan_task_runs_once_per_task_not_per_tool_loop_iteration(monkeypatch):
     """
-    Boucle d'outils auto-approuvée de 2 itérations (screen_shot x2 -> texte) :
+    Boucle d'outils auto-approuvée de 2 itérations (browser_take_screenshot x2 -> texte) :
     plan_task ne doit tourner qu'UNE fois, pas à chaque retour sur call_llm
     (voir AgentState.plan : calculé une fois, jamais reconstruit au sein
     d'une même tâche)."""
@@ -243,12 +243,12 @@ async def test_plan_task_runs_once_per_task_not_per_tool_loop_iteration(monkeypa
             httpx.Response(200, json=non_streaming_response(plan_json)),  # plan_task, 1 seule fois
             httpx.Response(
                 200,
-                content=tool_call_response("screen_shot", "call_1", "{}"),
+                content=tool_call_response("browser_take_screenshot", "call_1", "{}"),
                 headers={"content-type": "text/event-stream"},
             ),
             httpx.Response(
                 200,
-                content=tool_call_response("screen_shot", "call_2", "{}"),
+                content=tool_call_response("browser_take_screenshot", "call_2", "{}"),
                 headers={"content-type": "text/event-stream"},
             ),
             httpx.Response(
