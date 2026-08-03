@@ -3754,3 +3754,40 @@ correctif). Script corrigé, deuxième essai concluant : le tour 2
 n'a plus jamais redemandé d'approbation pour `browser_navigate` malgré
 son usage pour un second produit — seule une pause de plan (attendue,
 nouvelle tâche) est apparue. Voir `docs/resolved-bugs.md` #46.
+
+## EFFORT 1.1 — AUDIT DU POIDS DU SCHÉMA D'OUTILS PAR SERVEUR MCP (ARCHIVES + TOKENIZER, ZÉRO RUN)
+
+Voir `docs/briefs/update-plan.md`, effort 1.1. Mesure zéro-run : tokenizer
+réel de Qwen3.6 (`tokenizers`, `tokenizer.json` local, aucun appel LLM),
+pile MCP démarrée brièvement (mcp-client + serveurs, sans TabbyAPI) pour
+dumper `/tools/schema` et `/tools` (65 outils, 6 serveurs), puis arrêtée.
+Fréquence d'usage croisée avec les 67 threads réels de tous les
+campagnes v2 existants (familles A-F, `docs/campaigns/campaign-*.json`
+hors les trois reprises pures v1 33-tâches et le smoke tier-unique T1).
+
+**Piège de mesure évité** : `log_tool_call` (journal d'audit) exclut par
+construction les outils TIER_READ ("silencieux, rien à auditer") — les
+compter seuls aurait produit des zéros flatteurs pour git/ocr/terminal
+(quasi tous TIER_READ). Recoupé avec `log_message(role="assistant")`
+(`app/graph.py`), qui journalise TOUS les `tool_calls` demandés par le
+modèle sans filtre de tier — source utilisée pour les comptes ci-dessous
+(502 appels bruts, 489 sur les 6 serveurs MCP + 13 `report_and_act`,
+outil synthétique de vérification hors schéma MCP).
+
+| serveur | outils | tokens schéma | % schéma | appels réels | % appels |
+|---|---|---|---|---|---|
+| browser | 25 | 4 529 | 41,4 % | 481 | 98,4 % |
+| desktop (GhostDesk) | 14 | 3 482 | 31,8 % | 3 | 0,6 % |
+| filesystem | 11 | 1 491 | 13,6 % | 3 | 0,6 % |
+| git | 12 | 1 058 | 9,7 % | **0** | 0,0 % |
+| ocr | 2 | 271 | 2,5 % | 2 | 0,4 % |
+| terminal | 1 | 120 | 1,1 % | **0** | 0,0 % |
+
+**Constat** : desktop+git+ocr+terminal pèsent 44,9 % du schéma (4 931/
+10 951 tokens) pour 1,6 % de l'usage réel. git et terminal sont à zéro
+exact (mesure à couverture complète, pas un zéro flatteur). desktop/ocr
+quasi nuls (3 et 2 appels), cohérent avec la confusion `screen_shot` vs
+`browser_take_screenshot` déjà documentée en famille E2. filesystem :
+faible fréquence mais **chemin de téléchargement (T5) déjà identifié
+comme structurant** dans le brief — pas un candidat au retrait sur la
+seule base de la fréquence. 🧑 Checkpoint validé par l'utilisateur.
