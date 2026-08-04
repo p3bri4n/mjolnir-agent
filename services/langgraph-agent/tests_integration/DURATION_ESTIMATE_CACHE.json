@@ -117,16 +117,16 @@
     },
     "T11_sonde_peremption": 20.6,
     "T1_extraction_paginee": {
-      "max": 102.1,
-      "median": 102.1,
-      "min": 102.1,
+      "max": 120.6,
+      "median": 120.6,
+      "min": 120.6,
       "n": 1
     },
     "T2_formulaire_conge": 32.8,
     "T3_tableau_dynamique": {
-      "max": 34.4,
-      "median": 34.4,
-      "min": 34.4,
+      "max": 19.7,
+      "median": 19.7,
+      "min": 19.7,
       "n": 1
     },
     "T4_recherche_multi_sauts": 44.6,
@@ -142,7 +142,12 @@
       "min": 45.9,
       "n": 1
     },
-    "T7_impossible_par_construction": 123.3,
+    "T7_impossible_par_construction": {
+      "max": 103.9,
+      "median": 103.9,
+      "min": 103.9,
+      "n": 1
+    },
     "T8_wikipedia": 89.1,
     "T9_google_insee": 42.3
   }

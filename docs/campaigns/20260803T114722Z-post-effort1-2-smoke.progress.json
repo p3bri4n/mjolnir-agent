@@ -1,0 +1,68 @@
+{
+  "campaign_id": "20260803T114722Z-post-effort1-2-smoke",
+  "completed": [
+    {
+      "approvals": 6,
+      "duration_s": 120.6,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T1_extraction_paginee",
+      "thread_id": "a5e89997ba2e0309",
+      "tool_calls": 10
+    },
+    {
+      "approvals": 2,
+      "duration_s": 19.7,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T3_tableau_dynamique",
+      "thread_id": "9bb19b3ecafa037d",
+      "tool_calls": 3
+    },
+    {
+      "approvals": 6,
+      "duration_s": 103.9,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T7_impossible_par_construction",
+      "thread_id": "df62b329d2fa6baf",
+      "tool_calls": 11
+    }
+  ],
+  "config_digest": "f3e048c231d6355c",
+  "current": null,
+  "label": "post-effort1.2-smoke",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "T1_extraction_paginee"
+    },
+    {
+      "repetition": 1,
+      "task_id": "T3_tableau_dynamique"
+    },
+    {
+      "repetition": 1,
+      "task_id": "T7_impossible_par_construction"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-08-03T11:51:28.126807+00:00",
+      "index": 0,
+      "started_at": "2026-08-03T11:47:22.905504+00:00"
+    }
+  ],
+  "started_at": "2026-08-03T11:47:22.905504+00:00",
+  "total_runs": 3
+}
