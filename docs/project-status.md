@@ -324,4 +324,12 @@ removed (coupled measured-behavior change, judge declared and passed).
 Real schema weight: 10 979 → 6 047 tokens (-44.9%), confirmed live
 (smoke `post-effort1.2-smoke`, T1/T3/T7, 3/3, zero calls to a removed
 tool). See docs/history.md for the full measurement and campaign.
-Effort 1.3 (parallel run execution) not started.
+**Effort 1.3 (parallel run execution): deferred, quantified justification**
+(archives-only recompute, zero runs — see docs/history.md, "EFFORT 1.3").
+Expected gain ×2.2 (pessimistic) to ×3 (optimistic) holds, but
+implementation needs a per-worker-isolation architecture chantier
+(`mcp-client`'s `_persistent_sessions` and the three contamination resets
+are global, keyed by server name not caller — see
+`docs/architecture/mcp-client-concurrency.md`). Re-evaluate after efforts
+1.2 (delivered), 2, and 4.2 land, which reduce campaign duration via the
+numerator.

@@ -54,12 +54,38 @@ family F's T5) — verify before cutting. One variable, judged by median
 context, prefill time, and CuP non-regression. Do this *before* the
 ablation: every campaign after it is cheaper.
 
-**1.3 — Reopen parallel run execution.** Dismissed earlier when inference
-was the bottleneck; the median went from 145 s to 45 s since. Recompute
-the expected gain, and if it holds, implement with per-worker isolation
-(session reset, volume purge, distinct thread ids) — the isolation
-guarantees are non-negotiable, they are what four contamination incidents
-bought.
+**1.3 — Reopen parallel run execution. STATUS: deferred, quantified
+justification** (see `docs/history.md`, "EFFORT 1.3", archives-only
+recompute, zero runs). Dismissed earlier when inference was the
+bottleneck; the median went from 145.9 s to 45.0 s since — **not** from
+the TabbyAPI/dual-GPU migration as stated below previously, but from the
+`PLANNER_THINKING_ENABLED` fix (verified against `docs/history.md`'s own
+checkpoint campaign). Recomputed expected gain (33-task campaign, N=3
+workers, per-task time split ≈22.9s GPU-bound / ≈22s I/O-bound): **×2.2**
+pessimistic (TabbyAPI serializes inference) to **×3** optimistic
+(concurrent batching effective — unconfirmed, see below). The gain holds
+even pessimistically, but implementation is deferred: it requires
+per-worker isolation (session reset, volume purge, distinct thread ids)
+for **four** contamination incidents, not three — session #30, downloads
+volume #28/#29, GhostDesk desktop #42, and `_tools_schema_cache` #31
+(same "unscoped shared state" defect family) — the isolation guarantees
+are non-negotiable, they are what these four incidents bought. Verified
+against the installed TabbyAPI/ExLlamaV3 code (not the config doc, which
+turned out generic/outdated): `max_batch_size` defaults to 128 for
+standard-attention models, 4 for recurrent-state models
+(`backends/exllamav3/model.py`); Qwen3.6's hybrid `gated_delta_net`
+attention makes the 4-job branch plausible but unconfirmed without
+inspecting the loaded model's capabilities at runtime. A related
+architectural limitation was found and documented independent of this
+effort: `mcp-client`'s `_persistent_sessions` is keyed by server name
+only, not by caller (`docs/architecture/mcp-client-concurrency.md`) —
+already reproducible today by two concurrent real conversations, not
+just by parallel campaigns. Preferred fix path when this effort resumes:
+scope `_persistent_sessions` and the three resets by `worker_id` (cheaper
+than N container sets, also fixes the architectural limitation). Efforts
+1.2 (delivered), 2, and 4.2 below all reduce campaign duration via the
+numerator — re-measure median campaign duration after they land before
+resuming this chantier.
 
 🧑 Checkpoint on 1.1 before cutting anything.
 

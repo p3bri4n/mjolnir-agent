@@ -3828,3 +3828,77 @@ retouche (dérivé de `approval_policy.py`).
 
 GhostDesk/ocr-service restent déployés (décision utilisateur), dormants
 jusqu'au rebranchement de l'effort 3.
+
+## EFFORT 1.3 — RÉOUVERTURE DE L'EXÉCUTION PARALLÈLE DES CAMPAGNES (ARCHIVES + VÉRIFICATION CODE, ZÉRO RUN)
+
+Voir `docs/briefs/update-plan.md`, effort 1.3. Recalcul du gain attendu
+entièrement sur archives et lecture de code, aucune campagne relancée
+(règle de mesure "archives first, zero runs").
+
+**Attribution corrigée** : le brief attribue le gain de latence médiane
+145s→45s à la migration TabbyAPI/dual-GPU. Faux — vérifié dans ce fichier
+(campagne complète de checkpoint, 33 runs, ~34 min) : le gain 145,9s→45,0s
+est celui du correctif `PLANNER_THINKING_ENABLED` ("correctif latence
+2/2, thinking bridé"), pas du matériel. Confirmé stable sur deux
+campagnes suivantes (48,2s, 46,2s), donc le chiffre est réel — seule son
+attribution causale dans le brief était fausse.
+
+**Décomposition GPU/I-O** (même campagne, prefill total 757,4s / 33 runs) :
+≈ 22,9s/tâche côté GPU (TabbyAPI, prefill), le reste (≈ 22s/tâche) est
+round-trip outils (playwright-mcp/mcp-client), génération, attentes
+navigateur — à peu près moitié/moitié. C'est cette décomposition qui rend
+l'estimation de gain ci-dessous crédible.
+
+**Gain estimé (campagne 33 tâches, N=3 workers), deux scénarios** :
+- pessimiste (inférence TabbyAPI totalement sérialisée) : le temps GPU
+  reste séquentiel (33×22,9s ≈ 12,6 min) mais le reste s'enchevêtre entre
+  workers ((33/3)×22s ≈ 2,7 min) → ≈ 15,3 min vs 34 min actuelles, **×2,2**.
+- optimiste (batching concurrent effectif côté TabbyAPI) : gain proche
+  linéaire sur les 45s complètes → **×3**.
+
+**Continuous batching — vérifié contre le code, pas contre la doc**
+(`config_sample.yml` de `theroyallab/tabbyAPI`, branche `main`, mentionne
+32/4 par défaut selon l'architecture, mais ce commentaire s'est révélé
+générique/obsolète) : le code réel du backend
+(`backends/exllamav3/model.py`) calcule
+`default_mbs = 4 if self.model.caps.get("recurrent_states") else 128` —
+128 pour un transformer standard, 4 pour un modèle à états récurrents,
+pas 32. `services/tabbyapi/config.yml` ne surcharge pas `max_batch_size`
+→ le défaut du backend s'applique. Qwen3.6 utilise une attention hybride
+avec composante SSM (`gated_delta_net`, voir le commentaire de
+`services/tabbyapi/Dockerfile`), ce qui en fait un candidat plausible pour
+la branche `recurrent_states=4` — **non confirmé** : seule l'inspection
+des capacités réellement rapportées par le modèle chargé au runtime
+tranchera, ce qui demande de démarrer la pile (première étape à faire
+quand ce chantier reprend, pas résoluble sur archives).
+
+**4 incidents de contamination, pas 3** : le brief n'en cite que 3
+(session Playwright #30, volume downloads #28/#29, bureau GhostDesk #42).
+Un 4ᵉ relève de la même famille de défaut (état partagé non scopé par
+appelant) : `docs/resolved-bugs.md` #31, `_tools_schema_cache`
+(`app/graph.py`), cache process-lifetime jamais invalidé par un redémarrage
+partiel de la pile.
+
+**Limite architecturale trouvée, indépendante de la parallélisation** :
+`_persistent_sessions` (`services/mcp-client/app/main.py:390`) est un
+dict global keyé par NOM DE SERVEUR, pas par appelant, et les trois
+resets existants (`_reset_browser_session`, `_purge_downloads_volume`,
+`_reset_ghostdesk_desktop`) sont globaux et sériels — voir
+`docs/architecture/mcp-client-concurrency.md` (nouveau). Conséquence déjà
+vraie AUJOURD'HUI, sans aucune campagne parallèle : deux conversations
+Open WebUI simultanées, ou une campagne lancée pendant un usage
+interactif, reproduiraient #28/#29/#30 en temps réel — rien ne le
+documentait avant cette entrée.
+
+**DÉCISION** : parallélisme DIFFÉRÉ, pas abandonné. Le gain est établi
+(×2,2 pessimiste, ×3 optimiste) mais il coûte un chantier d'architecture
+(scoping par `worker_id` de `_persistent_sessions` et des trois resets —
+préféré à N jeux de conteneurs : moins coûteux en ressources, et résout
+aussi la limite architecturale ci-dessus). Les efforts 1.2 (livré), 2 et
+4.2 (`docs/briefs/update-plan.md`) réduisent tous la durée de campagne
+par le numérateur (moins/plus légers d'appels) ; re-mesurer la durée
+médiane de campagne après leur livraison — si elle reste rédhibitoire,
+ce chantier redevient candidat avec des chiffres à jour.
+
+Statut consigné dans `docs/briefs/update-plan.md`, effort 1.3 : « différé,
+justification chiffrée ».
