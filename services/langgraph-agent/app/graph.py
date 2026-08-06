@@ -1368,7 +1368,13 @@ async def _get_bound_llm() -> ChatOpenAI:
     if not schema:
         return llm.bind_tools(extra_tools) if extra_tools else llm
     if not VERIFICATION_ENABLED:
-        return llm.bind_tools(schema + extra_tools)
+        # extra_tools FIRST (correction 2/2, fifth-condition diagnostic,
+        # see docs/history.md "EFFORT 2" point 3): manage_plan previously
+        # sat last, after the full ~63-64 MCP/browser catalog — the one
+        # variable left untried after cause 3's fix (persistent plan
+        # section) still measured merged_plan_calls=0. No-op outside
+        # merged mode (extra_tools == [], list identity unchanged).
+        return llm.bind_tools(extra_tools + schema)
     # constat_precedent injected as a required parameter of EVERY real MCP
     # tool, plus report_and_act as the sole fallback (pure-text turn, no
     # action) — see above. Gated on VERIFICATION_ENABLED: without it, this
@@ -1946,43 +1952,64 @@ def _verification_directive(state: AgentState) -> str:
     )
 
 
+_PLAN_STATUS_MARKERS = {"fait": "[x]", "en_cours": "[>]", "a_faire": "[ ]"}
+
+
+def _render_plan(plan: list) -> list[dict]:
+    """
+    Plain index/description/success_criterion/status view of `plan` —
+    shared by _merged_plan_directive (rendered into the system prompt)
+    and the manage_plan tool response (reverberated to the model after
+    set_plan/complete_subtask), so both stay in sync by construction
+    instead of two independent renderings drifting apart.
+    """
+    return [
+        {
+            "index": i,
+            "description": st["description"],
+            "success_criterion": st["success_criterion"],
+            "status": st.get("status", "a_faire"),
+        }
+        for i, st in enumerate(plan)
+    ]
+
+
 def _merged_plan_directive(state: AgentState) -> str:
     """
-    Merged-planning mode's counterpart to _verification_directive above:
-    since PLANNING_MODE="merged" runs with VERIFICATION_ENABLED off (no
-    dedicated node ever narrates the active subtask), the model would
-    otherwise have no per-turn reminder of its own plan beyond its own
-    prior manage_plan tool call sitting in message history — an
-    information disadvantage unrelated to the actual question this mode
-    measures (cost, not information access). No-op outside merged mode
-    or before any plan exists (manage_plan not called yet).
+    Persistent PLAN section for merged-planning mode: the full subtask
+    list with status, not just the active one — an editable document for
+    manage_plan to operate on (the AgentOccam pattern this mode follows,
+    see docs/briefs/update-plan.md "2.1 addendum"), regenerated from
+    state every turn. Rendered even with an empty plan (a "nothing yet"
+    template) so the very first manage_plan call has a document to
+    compose into rather than acting on an instruction alone. No-op
+    outside merged mode (empty string, byte-for-byte unchanged
+    elsewhere).
+
+    Deliberately states the tool's purpose, not a command to use it now
+    or first: an explicit "your first action MUST be manage_plan, NEVER
+    call anything else before" wording was tried (docs/history.md,
+    EFFORT 2 point 3) and measured ineffective (merged_plan_calls stayed
+    0 even under that constraint) — and forcing it crosses the "don't
+    make manage_plan mandatory" rule regardless of outcome, since it
+    would measure obedience, not adoption.
     """
     if PLANNING_MODE != "merged":
         return ""
     plan = state.get("plan") or []
-    active_index = _active_subtask_index(plan)
-    if active_index is None:
-        # Strengthened after 3/3 live smokes (A2, A1, B1_conge_hard, see
-        # docs/history.md "EFFORT 2" point 3) showed merged_plan_calls=0
-        # even on turn 1 — the original softer "commence par... avant
-        # toute autre action" phrasing was never followed. Hard
-        # requirement, explicit "no other tool this turn" constraint
-        # (JAMAIS, same emphasis convention as PEREMPTION_DIRECTIVE
-        # above), not yet re-validated live.
+    if not plan:
         return (
-            "\nMode planification active, AUCUN plan pour l'instant : ta "
-            "TOUTE PREMIÈRE action sur cette tâche DOIT être manage_plan "
-            '(action="set_plan", 2 à 8 sous-tâches). N\'appelle JAMAIS un '
-            "autre outil avant d'avoir créé ce plan — pas même pour "
-            "observer la page."
+            "\n### PLAN (mode planification fusionnée)\n"
+            "Aucune sous-tâche pour l'instant — document modifiable via "
+            "l'outil manage_plan (set_plan pour le composer, "
+            "complete_subtask pour faire avancer la sous-tâche active une "
+            "fois le plan posé).\n"
         )
-    subtask = plan[active_index]
-    return (
-        f'\nSous-tâche en cours ({active_index}) : "{subtask["description"]}" — '
-        f'critère de succès : "{subtask["success_criterion"]}". Appelle '
-        "manage_plan (complete_subtask) une fois atteinte, ou set_plan si "
-        "elle est bloquée et doit être remplacée."
-    )
+    lines = ["\n### PLAN (mode planification fusionnée)"]
+    for st in _render_plan(plan):
+        marker = _PLAN_STATUS_MARKERS.get(st["status"], "[ ]")
+        lines.append(f'{marker} {st["index"]}. {st["description"]} — critère : "{st["success_criterion"]}"')
+    return "\n".join(lines) + "\n"
 
 
 async def call_llm(state: AgentState, config: dict) -> dict:
@@ -2009,15 +2036,19 @@ async def call_llm(state: AgentState, config: dict) -> dict:
     messages_for_llm = [
         SystemMessage(
             content=(
-                # _merged_plan_directive FIRST (empty string outside
+                # _merged_plan_directive LAST (empty string outside
                 # PLANNING_MODE="merged" — no effect on any other mode's
-                # prompt, byte-for-byte): primacy matters most for the
-                # very first, shortest turn (system + objective only,
-                # nothing else yet to compete for attention), which is
-                # exactly the turn 3/3 live smokes showed being ignored
-                # when this directive sat last instead.
-                f"{_merged_plan_directive(state)}{DOWNLOAD_DIRECTIVE}{BULK_CHECK_DIRECTIVE}{PEREMPTION_DIRECTIVE}"
-                f"{_date_directive()}{_verification_directive(state)}"
+                # prompt, byte-for-byte): it now renders the full plan
+                # state (changes every turn a subtask completes), so it
+                # sits after the static directives and the date to keep
+                # that prefix cacheable, same reasoning as
+                # _verification_directive's position (mutually exclusive
+                # with this mode, always "" here — see its docstring).
+                # An earlier version put it FIRST for primacy (see
+                # docs/history.md, EFFORT 2 point 3): superseded by the
+                # persistent-section redesign, not stacked with it.
+                f"{DOWNLOAD_DIRECTIVE}{BULK_CHECK_DIRECTIVE}{PEREMPTION_DIRECTIVE}"
+                f"{_date_directive()}{_verification_directive(state)}{_merged_plan_directive(state)}"
             )
         )
     ] + compacted_messages
@@ -2375,7 +2406,11 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
                         plan[0]["status"] = "en_cours"
                         subtask_message_start = [len(state["messages"])]
                         plan_changed = True
-                        response = {"ok": True, "subtask_count": len(plan)}
+                        # Full plan reverberated, not a bare {"ok": true}:
+                        # the model must see the outcome of its own edit
+                        # to make the tool usable next turn (same shape as
+                        # _render_plan's system-prompt rendering above).
+                        response = {"ok": True, "plan": _render_plan(plan)}
                 elif action == "complete_subtask":
                     idx = args.get("subtask_index")
                     if not isinstance(idx, int) or not (0 <= idx < len(plan)) or plan[idx].get("status") != "en_cours":
@@ -2386,7 +2421,7 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
                         if idx + 1 < len(plan):
                             plan[idx + 1]["status"] = "en_cours"
                         plan_changed = True
-                        response = {"ok": True}
+                        response = {"ok": True, "plan": _render_plan(plan)}
                     audit_log.log_message(
                         thread_id,
                         "merged_planning",
