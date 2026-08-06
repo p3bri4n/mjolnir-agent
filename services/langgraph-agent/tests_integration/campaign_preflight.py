@@ -96,6 +96,7 @@ EXPECTED_AGENT_FLAGS = {
     "REPLAN_BUDGET": "2",
     "PLAN_VALIDATION_ENABLED": "true",
     "PLAN_JUDGE_ENABLED": "true",
+    "PLANNING_MODE": "nodes",
     "ADAPTIVE_THINKING": "true",
     "MAX_IMAGES_IN_CONTEXT": "1",
     "IMAGE_FORMAT_PASSTHROUGH": "",
@@ -331,8 +332,17 @@ def _fetch_agent_env() -> dict:
     """Effective flags INSIDE the running langgraph-agent container — see
     check_agent_flags. Reuses campaign_persistence.collect_env_flags (the
     same `docker exec ... env` primitive as campaign serialization, see
-    campaign_persistence.py) rather than duplicating a variant here."""
-    return campaign_persistence.collect_env_flags(AGENT_CONTAINER, list(EXPECTED_AGENT_FLAGS))
+    campaign_persistence.py) rather than duplicating a variant here.
+
+    Queries `_expected_agent_flags()` (base + CAMPAIGN_EXPECTED_FLAGS_OVERRIDE),
+    not the base EXPECTED_AGENT_FLAGS alone: a key introduced purely via
+    the override (not already present in the base dict) would otherwise
+    never be fetched from the container and would silently always
+    compare against "" in check_agent_flags — every override use so far
+    only flipped existing keys, so this gap was latent until effort 2
+    point 3 (PLANNING_MODE) needed a genuinely new one.
+    """
+    return campaign_persistence.collect_env_flags(AGENT_CONTAINER, list(_expected_agent_flags()))
 
 
 def wait_for_llm_ready(

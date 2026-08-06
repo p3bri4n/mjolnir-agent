@@ -121,6 +121,43 @@ def test_check_agent_flags_treats_missing_key_as_empty_string():
     assert preflight.check_agent_flags(actual) is None, "APPROVAL_RULES_PATH attendu est déjà '' "
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# CAMPAIGN_EXPECTED_FLAGS_OVERRIDE (effort 2's ablation campaigns) — the
+# _fetch_agent_env fix (effort 2 point 3): a key introduced PURELY via the
+# override, not already present in the base EXPECTED_AGENT_FLAGS, must
+# still be fetched from the container. Every prior override use only
+# flipped an existing key's value, so this path was untested until
+# PLANNING_MODE (a genuinely new key) needed it.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_expected_agent_flags_merges_override(monkeypatch):
+    monkeypatch.setenv("CAMPAIGN_EXPECTED_FLAGS_OVERRIDE", '{"PLANNING_MODE": "merged", "PLANNER_ENABLED": "false"}')
+    merged = preflight._expected_agent_flags()
+    assert merged["PLANNING_MODE"] == "merged"
+    assert merged["PLANNER_ENABLED"] == "false"
+    # every other base key untouched
+    assert merged["VERIFICATION_ENABLED"] == preflight.EXPECTED_AGENT_FLAGS["VERIFICATION_ENABLED"]
+
+
+def test_fetch_agent_env_queries_override_only_keys(monkeypatch):
+    """Regression for the gap fixed in effort 2 point 3: before the fix,
+    _fetch_agent_env() queried list(EXPECTED_AGENT_FLAGS) (the base dict
+    only) — an override-introduced key not already in that base dict
+    would never be requested from the container, so check_agent_flags
+    would always compare it against "" regardless of the real value."""
+    monkeypatch.setenv("CAMPAIGN_EXPECTED_FLAGS_OVERRIDE", '{"PLANNING_MODE": "merged"}')
+    captured = {}
+
+    def fake_collect_env_flags(container, flags):
+        captured["flags"] = flags
+        return {}
+
+    monkeypatch.setattr(preflight.campaign_persistence, "collect_env_flags", fake_collect_env_flags)
+    preflight._fetch_agent_env()
+    assert "PLANNING_MODE" in captured["flags"]
+
+
 def test_run_preflight_checks_flags_before_schema_but_after_image_freshness():
     schema_calls = []
 
