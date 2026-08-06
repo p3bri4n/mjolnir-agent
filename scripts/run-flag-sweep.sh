@@ -35,10 +35,17 @@ cd "$PROJECT_DIR"
 # point 2/point 3): the discriminating-power subset (6 tasks, point 2) x
 # 3 configs — cfg1/cfg8 (the decisive pair from the first 8-config sweep)
 # plus cfg9, the 5th condition (merged planning, PLANNING_MODE="merged").
-# n=3 (point 3's stated minimum). REQUIRES a live smoke (n=1, 1-2 tasks)
-# BEFORE this full sweep — CLAUDE.md, "a live smoke precedes any final
-# measurement of a family or mechanism": merged planning is a brand-new
-# mechanism, never run live before.
+# n=3 (point 3's stated minimum).
+#
+# ON HOLD (2026-08-06, see docs/history.md "EFFORT 2", "Live smoke run by
+# the user"): 6 live smokes (scripts/point3-smoke.sh) all show
+# merged_plan_calls=0 — the model never calls manage_plan regardless of
+# task or directive strength (a strengthened, reordered-first directive
+# was tried and made no difference). Launching this sweep as-is would
+# measure cfg9 behaving as cfg1 under a different label, not test the
+# merged-planning hypothesis. Block below is left in its full, ready-to-
+# run state for whenever a redesign decision is made — do not launch
+# without first re-reading that history.md entry.
 # ─────────────────────────────────────────────────────────────────────────
 SUITE="v2"
 REPS="3"
