@@ -27,18 +27,32 @@ registry.
 """
 
 import asyncio
+import base64
+import io
 import json
 import os
 import re
 from contextlib import AsyncExitStack
+from pathlib import Path
+from typing import Optional
 
 from fastapi import FastAPI, HTTPException
+from PIL import Image
 from pydantic import BaseModel
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 
 WORKSPACE_HOST_PATH = os.environ.get("WORKSPACE_HOST_PATH", "./workspace")
+
+# Visual feedback (docs/briefs/campaign-visual-feedback.md, minimal subset,
+# see that file's "Status" section for the full design and the two
+# deviations from its literal text — thread_id keying, workspace/ path).
+# Off by default: overhead not yet measured (point 6 of the implementation
+# instruction) — flip only after a with/without smoke names a real number.
+CAMPAIGN_VISUAL_CAPTURE = os.environ.get("CAMPAIGN_VISUAL_CAPTURE", "false").lower() == "true"
+VISUAL_CAPTURE_DIR = Path(os.environ.get("VISUAL_CAPTURE_DIR", "/visual-capture"))
+VISUAL_CAPTURE_JPEG_QUALITY = 60
 
 SERVERS = {
     "filesystem": {
@@ -458,6 +472,52 @@ async def _close_persistent_sessions():
         await _drop_persistent_session(server_name)
 
 
+def _write_visual_capture(data_b64: str, thread_id: str) -> None:
+    """
+    Re-encodes to JPEG q60 regardless of the source format (Playwright's
+    own default is WebP, see app/graph.py's IMAGE_FORMAT_PASSTHROUGH
+    comment) — guarantees the target format without depending on
+    browser_take_screenshot's exact parameter support, which isn't
+    reliably introspectable ahead of the live image (verify against the
+    running playwright-mcp image if that ever needs tightening).
+    Atomic write (temp + os.replace, same directory/filesystem) so the
+    dashboard never serves a half-written file.
+    """
+    raw = base64.b64decode(data_b64)
+    img = Image.open(io.BytesIO(raw)).convert("RGB")
+    out_dir = VISUAL_CAPTURE_DIR / thread_id
+    out_dir.mkdir(parents=True, exist_ok=True)
+    tmp_path = out_dir / "latest.jpg.tmp"
+    final_path = out_dir / "latest.jpg"
+    img.save(tmp_path, format="JPEG", quality=VISUAL_CAPTURE_JPEG_QUALITY)
+    os.replace(tmp_path, final_path)
+
+
+async def _maybe_capture_visual(thread_id: Optional[str]) -> None:
+    """
+    Best-effort observability side channel (docs/briefs/
+    campaign-visual-feedback.md): fires an INTERNAL follow-up
+    browser_take_screenshot call on the same persistent "browser" session
+    (same precedent as the existing stabilization browser_wait_for call
+    below) and writes it straight to disk — never appended to any /call
+    response, never seen by langgraph-agent, structurally unable to reach
+    the model's context (see tests/test_main.py's non-negotiable test).
+    No-op when the flag is off or no thread_id was supplied (e.g. the
+    verification-snapshot helper in app/graph.py, which has no thread_id
+    in scope) — never allowed to fail the real tool call it rides along.
+    """
+    if not CAMPAIGN_VISUAL_CAPTURE or not thread_id:
+        return
+    try:
+        result = await _run_on_server("browser", lambda s: s.call_tool("browser_take_screenshot", {}))
+        for block in result.content:
+            if getattr(block, "type", None) == "image":
+                _write_visual_capture(block.data, thread_id)
+                break
+    except Exception:
+        pass
+
+
 async def _refresh_registry():
     for server_name in SERVERS:
         try:
@@ -482,6 +542,11 @@ async def _refresh_registry():
 class CallRequest(BaseModel):
     tool: str
     arguments: dict = {}
+    # Visual feedback (docs/briefs/campaign-visual-feedback.md): optional,
+    # only used to key _maybe_capture_visual's output directory — absent
+    # for callers that don't have one (e.g. app/graph.py's
+    # _fetch_verification_snapshot), which simply skips the capture.
+    thread_id: Optional[str] = None
 
 
 @app.get("/health")
@@ -581,11 +646,13 @@ async def call_tool(request: CallRequest):
         result = await _run_on_server(
             "browser", lambda s: s.call_tool("browser_evaluate", {"function": js_function})
         )
+        await _maybe_capture_visual(request.thread_id)
         return {"content": [block.model_dump() for block in result.content]}
 
     if request.tool == "browser_inspect":
         eval_tool, eval_args = _build_inspect_call(arguments.get("target"), arguments.get("element"))
         result = await _run_on_server("browser", lambda s: s.call_tool(eval_tool, eval_args))
+        await _maybe_capture_visual(request.thread_id)
         return {"content": [block.model_dump() for block in _rewrite_ref_error(result.content)]}
 
     result = await _run_on_server(tool_info["server"], lambda s: s.call_tool(request.tool, arguments))
@@ -593,4 +660,10 @@ async def call_tool(request: CallRequest):
         await _run_on_server(
             "browser", lambda s: s.call_tool("browser_wait_for", {"time": BROWSER_STABILIZE_WAIT_SECONDS})
         )
+    # Captured for every "browser" tool (not just navigate/click): a
+    # snapshot/extract/fill_form call is still "what the agent is looking
+    # at" for the dashboard's purposes (docs/briefs/
+    # campaign-visual-feedback.md, §1's DOM-first framing).
+    if tool_info["server"] == "browser":
+        await _maybe_capture_visual(request.thread_id)
     return {"content": [block.model_dump() for block in _rewrite_ref_error(result.content)]}
