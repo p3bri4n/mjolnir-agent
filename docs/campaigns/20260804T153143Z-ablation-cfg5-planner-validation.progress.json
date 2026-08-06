@@ -1,0 +1,258 @@
+{
+  "campaign_id": "20260804T153143Z-ablation-cfg5-planner-validation",
+  "completed": [
+    {
+      "approvals": 2,
+      "cup": null,
+      "duration_s": 23.0,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T3_tableau_dynamique",
+      "thread_id": "79ac77f493e558b9",
+      "tool_calls": 3
+    },
+    {
+      "approvals": 2,
+      "cup": null,
+      "duration_s": 17.1,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T3_tableau_dynamique",
+      "thread_id": "7cd7c05e25b8de69",
+      "tool_calls": 3
+    },
+    {
+      "approvals": 7,
+      "cup": null,
+      "duration_s": 88.0,
+      "fabricated_urls_count": 0,
+      "failure_cause": "boucle",
+      "repetition": 1,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "A1_reconciliation_croisee",
+      "thread_id": "41d5ba55939f792c",
+      "tool_calls": 16
+    },
+    {
+      "approvals": 7,
+      "cup": null,
+      "duration_s": 78.5,
+      "fabricated_urls_count": 0,
+      "failure_cause": "boucle",
+      "repetition": 2,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "A1_reconciliation_croisee",
+      "thread_id": "97bf41c59125b30c",
+      "tool_calls": 16
+    },
+    {
+      "approvals": 7,
+      "cup": null,
+      "duration_s": 97.4,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A2_schema_references",
+      "thread_id": "711ee28089b04945",
+      "tool_calls": 14
+    },
+    {
+      "approvals": 5,
+      "cup": null,
+      "duration_s": 84.8,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A2_schema_references",
+      "thread_id": "8e356573049c2ad4",
+      "tool_calls": 13
+    },
+    {
+      "approvals": 8,
+      "cup": null,
+      "duration_s": 69.6,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A4_parcours_guide",
+      "thread_id": "74ef82f9b5d7e4ac",
+      "tool_calls": 19
+    },
+    {
+      "approvals": 8,
+      "cup": null,
+      "duration_s": 67.3,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A4_parcours_guide",
+      "thread_id": "da13f24a90ffa217",
+      "tool_calls": 19
+    },
+    {
+      "approvals": 5,
+      "cup": true,
+      "duration_s": 27.8,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B1_conge_hard",
+      "thread_id": "0788a8b71da20c00",
+      "tool_calls": 9
+    },
+    {
+      "approvals": 5,
+      "cup": true,
+      "duration_s": 30.7,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B1_conge_hard",
+      "thread_id": "f7d456743745506d",
+      "tool_calls": 9
+    },
+    {
+      "approvals": 2,
+      "cup": null,
+      "duration_s": 11.7,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "E3_routing_equivalence",
+      "thread_id": "99bf22f9e5cf60d8",
+      "tool_calls": 3
+    },
+    {
+      "approvals": 2,
+      "cup": null,
+      "duration_s": 12.3,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "E3_routing_equivalence",
+      "thread_id": "ee2a5939a6eedd7a",
+      "tool_calls": 3
+    },
+    {
+      "approvals": 9,
+      "cup": null,
+      "duration_s": 96.5,
+      "fabricated_urls_count": 1,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "D1_cible_inexistante",
+      "thread_id": "f7a7d0dfc63f5e07",
+      "tool_calls": 20
+    },
+    {
+      "approvals": 6,
+      "cup": null,
+      "duration_s": 98.3,
+      "fabricated_urls_count": 4,
+      "failure_cause": "boucle",
+      "repetition": 2,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "D1_cible_inexistante",
+      "thread_id": "88953ce2e358fb50",
+      "tool_calls": 15
+    }
+  ],
+  "config_digest": "50b4752239f0f426",
+  "current": null,
+  "label": "ablation-cfg5-planner-validation",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "T3_tableau_dynamique"
+    },
+    {
+      "repetition": 2,
+      "task_id": "T3_tableau_dynamique"
+    },
+    {
+      "repetition": 1,
+      "task_id": "A1_reconciliation_croisee"
+    },
+    {
+      "repetition": 2,
+      "task_id": "A1_reconciliation_croisee"
+    },
+    {
+      "repetition": 1,
+      "task_id": "A2_schema_references"
+    },
+    {
+      "repetition": 2,
+      "task_id": "A2_schema_references"
+    },
+    {
+      "repetition": 1,
+      "task_id": "A4_parcours_guide"
+    },
+    {
+      "repetition": 2,
+      "task_id": "A4_parcours_guide"
+    },
+    {
+      "repetition": 1,
+      "task_id": "B1_conge_hard"
+    },
+    {
+      "repetition": 2,
+      "task_id": "B1_conge_hard"
+    },
+    {
+      "repetition": 1,
+      "task_id": "E3_routing_equivalence"
+    },
+    {
+      "repetition": 2,
+      "task_id": "E3_routing_equivalence"
+    },
+    {
+      "repetition": 1,
+      "task_id": "D1_cible_inexistante"
+    },
+    {
+      "repetition": 2,
+      "task_id": "D1_cible_inexistante"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-08-04T15:45:11.340567+00:00",
+      "index": 0,
+      "started_at": "2026-08-04T15:31:43.113331+00:00"
+    }
+  ],
+  "started_at": "2026-08-04T15:31:43.113331+00:00",
+  "total_runs": 14
+}
