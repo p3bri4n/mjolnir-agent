@@ -103,6 +103,43 @@ it is the condition most likely to keep planning's value while removing
 its cost — the latency diagnosis attributed 73–89 % of task time to
 auxiliary calls. Implement as a fifth env-selected mode, not a branch.
 
+**2.1 addendum (point 3, design pinned down before implementation)**:
+new `PLANNING_MODE` env var (`app/graph.py`, default `"nodes"` — current
+behavior, unchanged for every existing config; `"merged"` selects the
+new path). The only validated combination for `"merged"` is with the 4
+existing flags all forced `"false"` at the campaign level (asserted via
+`campaign_preflight.py`'s `CAMPAIGN_EXPECTED_FLAGS_OVERRIDE`) — this
+keeps `plan_task`/`validate_plan`/`revise_plan`/`replan_task`/
+`verify_action` structurally no-op (all already gate on these 4 flags),
+so all planning responsibility moves into one new synthetic tool,
+`manage_plan`, same precedent as the existing `_REPORT_AND_ACT_TOOL`
+(graph.py). Two actions only:
+- `set_plan(subtasks)` — creates the plan if none exists, or **replaces
+  the remaining subtasks** if one already does (this IS the replan
+  path: a subtask never gets a persisted `"echoue"` status in this mode,
+  so the costly `replan_task` node is never reached). Validated for
+  free via the existing `plan_validation.validate_plan_heuristics` — no
+  new bounds invented, no LLM judge call (removing that call is the
+  entire point of this mode). Rejection returns the reasons in a
+  ToolMessage, plan state untouched.
+- `complete_subtask(subtask_index)` — marks it `"fait"`, advances the
+  next subtask to `"en_cours"` (mirrors `verify_action`'s `atteint`
+  branch).
+
+Both dispatched in `_execute_tool_calls` (never sent to mcp-client,
+`TIER_READ` in `approval_policy.py` — pure bookkeeping, nothing to
+exfiltrate or undo), logged from day one as `role="merged_planning"`
+audit entries (CLAUDE.md's retroactive trigger-rate-counter rule). A
+new `_merged_plan_directive(state)` (same shape as the existing
+`_verification_directive`) tells the model its active subtask in
+`call_llm`'s system prompt — without it, merged mode would be measured
+at an information disadvantage unrelated to its actual cost question.
+
+Point 3's measurement itself is 3 configs (cfg1-all-off, cfg8-all-on,
+cfg9-merged-planning) × the point-2 subset (`A1`, `A2`, `A3`, `A4`,
+`D1`, `B1_conge_hard`) × n=3 — a live smoke (n=1, 1-2 tasks) required
+first per CLAUDE.md's measurement rules.
+
 **2.2 — Run the four existing flags FIRST.** If the planner proves
 globally harmful, building the merged mode is pointless. Measure what
 exists before building what is missing.
