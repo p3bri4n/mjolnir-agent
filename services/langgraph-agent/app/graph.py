@@ -2246,17 +2246,26 @@ def _split_image_blocks(result: dict) -> tuple[dict, list[dict]]:
     return {**result, "content": rest or "(voir image ci-dessous)"}, images
 
 
-async def _call_mcp_tool(client: httpx.AsyncClient, tool_name: str, args: dict) -> tuple[dict, list]:
+async def _call_mcp_tool(
+    client: httpx.AsyncClient, tool_name: str, args: dict, thread_id: Optional[str] = None
+) -> tuple[dict, list]:
     """
     Single HTTP call to mcp-client:/call, factored out between
     _execute_tool_calls (tool_calls decided by the LLM) and
     run_slash_command_direct (command typed directly by the user) — same
     error handling/image-block splitting in both cases.
+
+    thread_id (optional): forwarded so mcp-client can key its visual-
+    feedback capture by it (docs/briefs/campaign-visual-feedback.md) —
+    unrelated to this function's own return value, never touches
+    image-block splitting below. Omitted by callers with no thread_id in
+    scope (e.g. _fetch_verification_snapshot), which simply get no
+    capture for that call.
     """
     try:
         resp = await client.post(
             f"{MCP_CLIENT_URL}/call",
-            json={"tool": tool_name, "arguments": args},
+            json={"tool": tool_name, "arguments": args, "thread_id": thread_id},
         )
         resp.raise_for_status()
         result = resp.json()
@@ -2486,7 +2495,7 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
                 result = {"content": [{"type": "text", "text": _repeated_strategy_feedback(tool_call["name"])}]}
                 images = []
             else:
-                result, images = await _call_mcp_tool(client, tool_call["name"], tool_call["args"])
+                result, images = await _call_mcp_tool(client, tool_call["name"], tool_call["args"], thread_id)
                 if tool_call["name"].startswith("browser_"):
                     result = _truncate_browser_result(result, BROWSER_TOOL_OUTPUT_MAX_CHARS, objective)
                     for block in result.get("content", []) if isinstance(result.get("content"), list) else []:
@@ -2940,7 +2949,7 @@ async def run_slash_command_direct(state: AgentState, config: dict) -> dict:
     thread_id = config.get("configurable", {}).get("thread_id", "")
 
     async with httpx.AsyncClient(timeout=60) as client:
-        result, images = await _call_mcp_tool(client, tool_name, args)
+        result, images = await _call_mcp_tool(client, tool_name, args, thread_id)
 
     if tier == approval_policy.TIER_REVERSIBLE:
         audit_log.log_tool_call(thread_id, tool_name, args, tier, result)

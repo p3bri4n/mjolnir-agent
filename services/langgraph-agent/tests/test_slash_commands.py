@@ -104,7 +104,11 @@ async def test_slash_command_calls_tool_directly_without_llm(mock_side_services)
 
     assert call_route.called
     assert not llm_route.called
-    assert json.loads(call_route.calls.last.request.content) == {"tool": "read_file", "arguments": {}}
+    assert json.loads(call_route.calls.last.request.content) == {
+        "tool": "read_file",
+        "arguments": {},
+        "thread_id": "test-thread-slash",
+    }
     assert result["messages"][-1].content == "app1\napp2"
 
 
@@ -125,7 +129,11 @@ async def test_slash_command_with_arguments_sends_typed_values(mock_side_service
     await g.agent_graph.ainvoke(state, CONFIG)
 
     sent = json.loads(call_route.calls.last.request.content)
-    assert sent == {"tool": "write_file", "arguments": {"path": "/workspace/x.txt", "content": "y"}}
+    assert sent == {
+        "tool": "write_file",
+        "arguments": {"path": "/workspace/x.txt", "content": "y"},
+        "thread_id": "test-thread-slash",
+    }
 
 
 @pytest.mark.asyncio
@@ -249,7 +257,11 @@ async def test_slash_command_on_sensitive_tool_pauses_for_approval(mock_side_ser
     await g.agent_graph.ainvoke(None, CONFIG)
     assert call_route.call_count == 1
     sent = json.loads(call_route.calls.last.request.content)
-    assert sent == {"tool": "browser_evaluate", "arguments": {"code": "document.title"}}
+    assert sent == {
+        "tool": "browser_evaluate",
+        "arguments": {"code": "document.title"},
+        "thread_id": "test-thread-slash",
+    }
 
 
 @pytest.mark.asyncio
