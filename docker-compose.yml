@@ -194,9 +194,14 @@ services:
       # brief) — d'où le montage plutôt qu'un appel réseau.
       - CAMPAIGNS_DIR=/campaigns
       - DURATION_ESTIMATE_CACHE_PATH=/duration-estimates.json
+      # Visual feedback (docs/briefs/campaign-visual-feedback.md, minimal
+      # subset) — same read-only principle: mcp-client writes, this
+      # service only reads.
+      - VISUAL_CAPTURE_DIR=/visual-capture
     volumes:
       - ./docs/campaigns:/campaigns:ro
       - ./services/langgraph-agent/tests_integration/DURATION_ESTIMATE_CACHE.json:/duration-estimates.json:ro
+      - ./workspace/visual-capture:/visual-capture:ro
     ports:
       - "${DASHBOARD_PORT:-8090}:8090"
     healthcheck:
@@ -299,10 +304,18 @@ services:
       # browser_wait_for est appelé automatiquement après ces deux outils
       # pour laisser le rendu se stabiliser. 0 désactive ce délai.
       - BROWSER_STABILIZE_WAIT_SECONDS=${BROWSER_STABILIZE_WAIT_SECONDS:-0.5}
+      # Visual feedback (docs/briefs/campaign-visual-feedback.md, minimal
+      # subset, see that file's "Status" section for the full design).
+      # Off by default: overhead not yet measured (a with/without smoke
+      # names the number before this default changes) — see
+      # docs/history.md, "VISUAL FEEDBACK MINIMAL".
+      - CAMPAIGN_VISUAL_CAPTURE=${CAMPAIGN_VISUAL_CAPTURE:-false}
+      - VISUAL_CAPTURE_DIR=/visual-capture
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock   # ⚠️ équivaut à un accès root sur l'hôte,
                                                        # voir avertissement de sécurité dans le README
       - ./workspace:/workspace
+      - ./workspace/visual-capture:/visual-capture
     depends_on:
       playwright-mcp:
         condition: service_healthy
