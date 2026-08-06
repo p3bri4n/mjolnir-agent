@@ -5039,3 +5039,18 @@ material → `true` in smokes / `false` in campaigns, and say so).
 🧑 Checkpoint: implementation delivered and unit-tested end to end,
 nothing measured live yet. `CAMPAIGN_VISUAL_CAPTURE` stays `false` by
 default until that smoke runs.
+
+**Manual live check by the user (2026-08-06), requested before the
+overhead smoke**: rebuild + force-recreate `mcp-client`/`langgraph-agent`/
+`dashboard` with the flag on, one real run (`A2_schema_references`, v2
+suite, 30-page catalog crawl — picked for enough page-to-page visual
+variety to actually see), dashboard's `/campaign` page, "Retour visuel"
+card watched live. **Confirmed working**: image renders, updates page to
+page as the agent navigates, rest of the dashboard (counters, audit tail)
+unaffected. This is the live functional check, not point 6's
+measurement — `CAMPAIGN_VISUAL_CAPTURE` still `false` by default,
+overhead not yet measured.
+
+🧑 Checkpoint: mechanism confirmed working live. Next: the with/without
+overhead smoke (`scripts/visual-capture-smoke.sh`) before any default
+change.
