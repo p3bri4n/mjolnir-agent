@@ -401,6 +401,20 @@ tasks, all of family A plus the two tasks that already showed signal).
 score, reweighted to be judged by mechanism coverage (point 1's new
 counters) rather than CuP — excluding the hardest, most plan-shaped task
 in the benchmark would undercut the subset's declared bias in the
-mechanisms' favor. 🧑 **Checkpoint reached** — subset composed, not yet
-run. Point 3 (reduce matrix to cfg1/cfg8/fifth-condition, n=3 min) is
-next, pending confirmation.
+mechanisms' favor.
+
+**Point 3 delivered: the 5th condition ("merged planning") built** —
+new `PLANNING_MODE` env var (default `"nodes"`, unchanged behavior) and
+a synthetic `manage_plan` tool (`set_plan`/`complete_subtask`, dispatched
+in `_execute_tool_calls`, `TIER_READ`, no dedicated LLM call — planning
+folded into the main turn per the AgentOccam pattern, see
+`docs/briefs/update-plan.md` "2.1 addendum") — see docs/history.md,
+"EFFORT 2", "Point 3 delivered" for the full design and the
+`campaign_preflight._fetch_agent_env` override-key fetch gap fixed
+along the way. 11 new unit tests + 2 regression tests, full suite
+437 → 450 passed, 0 regressions. `scripts/run-flag-sweep.sh`'s `CONFIGS`
+updated in place for the point-3 measurement (cfg1/cfg8/cfg9-merged ×
+the point-2 subset × n=3). 🧑 **Checkpoint reached** — built and
+unit-tested, nothing measured live yet: needs a live smoke (n=1) first,
+then the full sweep, both requiring Docker/GPU this sandbox doesn't
+have.

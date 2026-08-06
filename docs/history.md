@@ -4246,3 +4246,64 @@ consistent with the criterion.
 🧑 **STOP after point 2** — subset composed and justified in writing, not
 yet run. Point 3 (matrix reduction to cfg1/cfg8/fifth-condition, n=3
 minimum) and the measurement itself wait for checkpoint confirmation.
+
+**Point 3 delivered: the 5th condition ("merged planning") built** —
+`PLANNING_MODE` env var (`app/graph.py`, default `"nodes"`, current
+behavior unchanged; `"merged"` selects the new path), a new synthetic
+`manage_plan` tool (same non-MCP, graph-only precedent as
+`_REPORT_AND_ACT_TOOL`), two actions:
+
+- `set_plan(subtasks)` — creates the plan if none exists, or replaces the
+  remaining subtasks if one already does (the replan path: a subtask
+  never gets a persisted `"echoue"` status in this mode, so the costly
+  `replan_task` node is never reached). Validated for free via the
+  existing `plan_validation.validate_plan_heuristics` — no new bounds
+  invented, no LLM judge call (removing that call is the entire point of
+  this mode). Rejection returns the reasons in a ToolMessage, plan state
+  untouched.
+- `complete_subtask(subtask_index)` — marks it `"fait"`, advances the
+  next subtask to `"en_cours"`.
+
+Both dispatched in `_execute_tool_calls` (never sent to mcp-client), new
+`approval_policy.MANAGE_PLAN_TOOL_NAME` constant classified `TIER_READ`
+(pure bookkeeping). Coverage counter from day one (CLAUDE.md's
+retroactive rule): every `manage_plan` call logs a `role="merged_planning"`
+audit entry (`action`, `subtask_count`, `heuristic_rejected`,
+`subtask_index`); harness (`TaskResult`/campaign row, `test_web_tasks.py`/
+`test_web_tasks_v2.py`) gained 5 new persisted fields
+(`merged_plan_calls`, `merged_plan_initial_subtask_count`,
+`merged_plan_heuristic_rejections`, `merged_plan_replans`,
+`merged_plan_completions`). New `_merged_plan_directive(state)` (same
+shape as `_verification_directive`) states the active subtask in
+`call_llm`'s system prompt when `PLANNING_MODE=="merged"` — without it,
+merged mode would be measured at an information disadvantage unrelated
+to its actual cost question, since `VERIFICATION_ENABLED` (which
+currently plays that role) stays off in this mode.
+
+A real gap fixed along the way: `campaign_preflight._fetch_agent_env()`
+only ever queried `list(EXPECTED_AGENT_FLAGS)` (the base dict) from the
+container, not `list(_expected_agent_flags())` (base +
+`CAMPAIGN_EXPECTED_FLAGS_OVERRIDE`) — a key introduced PURELY via the
+override (never already in the base dict) would never actually be
+fetched, silently always comparing as `""` regardless of the real value.
+Every override use so far only flipped an existing key, so this stayed
+latent until `PLANNING_MODE` (a genuinely new key) needed it. Fixed, plus
+`"PLANNING_MODE": "nodes"` added to the base `EXPECTED_AGENT_FLAGS` so
+every existing campaign now also asserts it stays on the unchanged path.
+
+11 new unit tests (`tests/test_merged_planning.py`: tool exposure gated
+by `PLANNING_MODE`, `set_plan` accept/reject/replan, `complete_subtask`
+advance/reject, the directive, `TIER_READ` classification) + 2 regression
+tests (`tests/test_campaign_preflight.py`, the `_fetch_agent_env` fix
+above). Full suite 437 → 450 passed, 0 regressions.
+
+`scripts/run-flag-sweep.sh`'s `CONFIGS` block updated in place (its
+documented per-sweep editing pattern) for point 3's measurement: 3
+configs (cfg1-all-off, cfg8-all-on, cfg9-merged-planning) × the point-2
+subset (`A1`, `A2`, `A3`, `A4`, `D1`, `B1_conge_hard`) × n=3.
+
+**Not yet done, and not doable from this sandbox** (no Docker/GPU,
+CLAUDE.md "Operational traps"): the live smoke (n=1, 1-2 tasks) that must
+precede any final measurement of a brand-new mechanism, then the full
+point-3 sweep itself. 🧑 Checkpoint before either: build delivered and
+unit-tested, nothing measured live yet.
