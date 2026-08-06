@@ -4307,3 +4307,62 @@ CLAUDE.md "Operational traps"): the live smoke (n=1, 1-2 tasks) that must
 precede any final measurement of a brand-new mechanism, then the full
 point-3 sweep itself. 🧑 Checkpoint before either: build delivered and
 unit-tested, nothing measured live yet.
+
+**Live smoke run by the user (2026-08-06), 6 independent runs, real
+finding: the mechanism never engages.** `merged_plan_calls` (the
+coverage counter built for exactly this purpose) reads **0 on all 6
+runs** — every task family in the point-2 subset represented (T3/E3
+excluded on purpose, see point 2), both a soft and a strengthened
+directive tried:
+
+| task | directive variant | thread_id | success | tool_calls_observed | merged_plan_calls |
+|---|---|---|---|---|---|
+| A2_schema_references | original | eaed6522ef5a6dc0 | true | 14 | 0 |
+| A1_reconciliation_croisee | original | 51391359b94ac611 | false (boucle) | 15 | 0 |
+| A1_reconciliation_croisee | original | 6962e6f066970287 | false (boucle) | 15 | 0 |
+| B1_conge_hard | original | 22f49cd2fa7bead8 | true (CuP true) | 8 | 0 |
+| A2_schema_references | strengthened | d48c2b4167d92739 | true | 12 | 0 |
+| A4_parcours_guide | strengthened | af3b7e23a3bf67dc | true | 12 | 0 |
+
+Cross-checked against the raw audit log directly (`.audit/2026-08-06.jsonl`,
+filtered per `thread_id`), not just the campaign row: on every one of
+the 6 runs, the model's actual tool_calls are ordinary browser tools
+(`browser_snapshot`/`browser_navigate`/`browser_click`/`browser_extract`/
+`browser_fill_form`, one run also used `browser_run_code_unsafe` — noted,
+not otherwise investigated here, orthogonal to this finding) — `manage_plan`
+never appears, including on turn 1 where the directive is the ONLY
+content in a two-message prompt (system + objective), the shortest,
+least-competed-for-attention context it will ever get.
+
+**One fix attempted and validated as ineffective, not left untried**:
+after the first 3 zeros (A2, A1×1, B1_conge_hard, original wording —
+`_merged_plan_directive`'s "no plan" branch phrased as a soft "commence
+par... avant toute autre action", appended LAST in the system prompt
+after 4 other directives), the directive was rewritten as a hard
+imperative ("ta TOUTE PREMIÈRE action... DOIT être manage_plan...
+N'appelle JAMAIS un autre outil avant") and moved FIRST in the prompt
+(harmless everywhere else — empty string outside `PLANNING_MODE="merged"`,
+verified by the unchanged 450/450 suite). Re-tested on A2 and A4: **still
+0/2**. Tool exposure itself is not in doubt — `_get_bound_llm()`'s
+inclusion of `manage_plan` when `PLANNING_MODE="merged"` is asserted by
+an end-to-end unit test against the actual JSON body sent to the LLM
+(`tests/test_merged_planning.py`), not just an internal mock.
+
+**Reading, without advocacy**: this is not an under-sampled zero (the
+coverage counter is real, cross-checked against the raw audit log, and
+survived a genuine attempted fix) — it reads as the model not adopting
+optional, self-managed planning regardless of task shape or prompt
+strength, at least for this specific tool design (a bookkeeping-only
+action competing against real progress-making actions, with no
+structural pressure forcing the choice — the AgentOccam pattern as
+built here). Running the full point-3 sweep as planned (3 configs × 6
+tasks × n=3) would not test the "merged planning keeps the mechanism's
+value while cutting its cost" hypothesis: with `merged_plan_calls` at 0,
+cfg9 is behaviorally cfg1 with a different label, and 54 runs would
+mostly re-confirm that fact at cost, not add signal. 🧑 **Checkpoint,
+sweep NOT launched**: point 3 stays "built, smoke-tested, mechanism
+found non-adopted" rather than proceeding to the originally planned
+full measurement — a design/prompt iteration decision (try a
+structurally different manage_plan design, or conclude the AgentOccam
+pattern doesn't transfer to this model/task set as specified) is for the
+user to make before any further live runs.

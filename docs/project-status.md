@@ -414,7 +414,23 @@ folded into the main turn per the AgentOccam pattern, see
 along the way. 11 new unit tests + 2 regression tests, full suite
 437 → 450 passed, 0 regressions. `scripts/run-flag-sweep.sh`'s `CONFIGS`
 updated in place for the point-3 measurement (cfg1/cfg8/cfg9-merged ×
-the point-2 subset × n=3). 🧑 **Checkpoint reached** — built and
-unit-tested, nothing measured live yet: needs a live smoke (n=1) first,
-then the full sweep, both requiring Docker/GPU this sandbox doesn't
-have.
+the point-2 subset × n=3).
+
+**Live smoke result (2026-08-06, 6 runs, user's machine): the mechanism
+never engages — `merged_plan_calls = 0` on all 6**, across A2/A1
+(×2)/B1_conge_hard/A4, both the original directive wording and a
+strengthened, reordered-first hard-imperative rewrite (tested, ruled
+out as a fix). Cross-verified against the raw audit log's actual
+tool_calls, not just the campaign report. See docs/history.md, "EFFORT
+2", "Live smoke run by the user" for the full per-run table and reading.
+`docs/resolved-bugs.md` #47 (docker-compose wiring gap, found by this
+same smoke) already fixed. **The planned full point-3 sweep (3 configs ×
+6 tasks × n=3) was NOT launched**: with the mechanism never firing, cfg9
+would be behaviorally indistinguishable from cfg1 under a different
+label — the sweep would not test the merged-planning hypothesis. 🧑
+**Checkpoint**: point 3 stands as "built, smoke-tested, mechanism found
+non-adopted by the model as designed" — a decision on whether to
+redesign `manage_plan` (e.g., make the first turn structurally require
+it rather than merely instruct it) or conclude this condition doesn't
+transfer to this model/task set is for the user, before any further
+live runs.
