@@ -407,6 +407,18 @@ class TaskResult:
         self.validation_heuristic_rejections = 0
         self.validation_judge_invocations = 0
         self.validation_judge_vetoes = 0
+        # Merged-planning mode coverage (EFFORT 2 point 3, PLANNING_MODE=
+        # "merged", docs/briefs/update-plan.md "2.1 addendum"): symmetric
+        # to the planner/validation/judge counters above, but for the 5th
+        # condition's manage_plan tool (role="merged_planning" audit
+        # entries) — the 4 flags' counters above stay 0/None on a merged-
+        # mode run (their nodes are no-op there), these are the only
+        # signal that the mechanism fired at all in that mode.
+        self.merged_plan_calls = 0
+        self.merged_plan_initial_subtask_count = None
+        self.merged_plan_heuristic_rejections = 0
+        self.merged_plan_replans = 0
+        self.merged_plan_completions = 0
 
 
 TABBYAPI_CONTAINER = os.environ.get("TABBYAPI_CONTAINER", "tabbyapi")
@@ -489,6 +501,30 @@ def run_task(prompt: str) -> TaskResult:
     )
     result.validation_judge_vetoes = sum(
         1 for e in validation_entries if (e.get("content") or {}).get("judge_vetoed")
+    )
+    # Merged-planning coverage (EFFORT 2 point 3, see the TaskResult
+    # docstring above): every manage_plan invocation logs one
+    # role="merged_planning" entry, action in {"set_plan",
+    # "complete_subtask"}. The first accepted set_plan is the initial
+    # plan; any later accepted set_plan is a replan (app/graph.py's
+    # manage_plan dispatch never leaves an intermediate "echoue" state,
+    # so there is no separate replan signal to look for beyond "a
+    # set_plan after the first one").
+    merged_planning_entries = [e for e in entries if e.get("kind") == "message" and e.get("role") == "merged_planning"]
+    result.merged_plan_calls = len(merged_planning_entries)
+    accepted_set_plans = [
+        e
+        for e in merged_planning_entries
+        if (e.get("content") or {}).get("action") == "set_plan" and not (e.get("content") or {}).get("heuristic_rejected")
+    ]
+    if accepted_set_plans:
+        result.merged_plan_initial_subtask_count = (accepted_set_plans[0].get("content") or {}).get("subtask_count")
+        result.merged_plan_replans = len(accepted_set_plans) - 1
+    result.merged_plan_heuristic_rejections = sum(
+        1 for e in merged_planning_entries if (e.get("content") or {}).get("heuristic_rejected")
+    )
+    result.merged_plan_completions = sum(
+        1 for e in merged_planning_entries if (e.get("content") or {}).get("action") == "complete_subtask"
     )
     for e in tool_call_entries:
         if e.get("tool") == "browser_navigate":
@@ -980,6 +1016,11 @@ def _run_campaign(resume_cid: str = None):
             "validation_heuristic_rejections": result.validation_heuristic_rejections,
             "validation_judge_invocations": result.validation_judge_invocations,
             "validation_judge_vetoes": result.validation_judge_vetoes,
+            "merged_plan_calls": result.merged_plan_calls,
+            "merged_plan_initial_subtask_count": result.merged_plan_initial_subtask_count,
+            "merged_plan_heuristic_rejections": result.merged_plan_heuristic_rejections,
+            "merged_plan_replans": result.merged_plan_replans,
+            "merged_plan_completions": result.merged_plan_completions,
             "prefill_seconds": result.prefill_seconds,
             "cache_zero_requests": result.cache_zero_requests,
             "tabbyapi_requests": result.tabbyapi_requests,
