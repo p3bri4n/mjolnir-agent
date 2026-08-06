@@ -31,23 +31,25 @@ AGENT_DIR="$PROJECT_DIR/services/langgraph-agent"
 cd "$PROJECT_DIR"
 
 # ─────────────────────────────────────────────────────────────────────────
-# Edit per sweep
+# Edit per sweep — currently effort 2 point 3 (docs/history.md, "EFFORT 2"
+# point 2/point 3): the discriminating-power subset (6 tasks, point 2) x
+# 3 configs — cfg1/cfg8 (the decisive pair from the first 8-config sweep)
+# plus cfg9, the 5th condition (merged planning, PLANNING_MODE="merged").
+# n=3 (point 3's stated minimum). REQUIRES a live smoke (n=1, 1-2 tasks)
+# BEFORE this full sweep — CLAUDE.md, "a live smoke precedes any final
+# measurement of a family or mechanism": merged planning is a brand-new
+# mechanism, never run live before.
 # ─────────────────────────────────────────────────────────────────────────
 SUITE="v2"
-REPS="2"
-TASKS="A1_reconciliation_croisee,A2_schema_references,A4_parcours_guide,T3_tableau_dynamique,D1_cible_inexistante,B1_conge_hard,E3_routing_equivalence"
-LABEL_PREFIX="ablation"
-PREFLIGHT_CHECKED_VARS=(PLANNER_ENABLED VERIFICATION_ENABLED PLAN_VALIDATION_ENABLED PLAN_JUDGE_ENABLED)
+REPS="3"
+TASKS="A1_reconciliation_croisee,A2_schema_references,A3_contact_conges,A4_parcours_guide,D1_cible_inexistante,B1_conge_hard"
+LABEL_PREFIX="point3"
+PREFLIGHT_CHECKED_VARS=(PLANNER_ENABLED VERIFICATION_ENABLED PLAN_VALIDATION_ENABLED PLAN_JUDGE_ENABLED PLANNING_MODE)
 
 CONFIGS=(
-  "cfg1-all-off:PLANNER_ENABLED=false,VERIFICATION_ENABLED=false,PLAN_VALIDATION_ENABLED=false,PLAN_JUDGE_ENABLED=false,NEVER_GRANTABLE_TOOLS_EXTRA=browser_click"
-  "cfg2-verif-only:PLANNER_ENABLED=false,VERIFICATION_ENABLED=true,PLAN_VALIDATION_ENABLED=false,PLAN_JUDGE_ENABLED=false,NEVER_GRANTABLE_TOOLS_EXTRA=browser_click"
-  "cfg3-planner-only:PLANNER_ENABLED=true,VERIFICATION_ENABLED=false,PLAN_VALIDATION_ENABLED=false,PLAN_JUDGE_ENABLED=false,NEVER_GRANTABLE_TOOLS_EXTRA=browser_click"
-  "cfg4-planner-verif:PLANNER_ENABLED=true,VERIFICATION_ENABLED=true,PLAN_VALIDATION_ENABLED=false,PLAN_JUDGE_ENABLED=false,NEVER_GRANTABLE_TOOLS_EXTRA=browser_click"
-  "cfg5-planner-validation:PLANNER_ENABLED=true,VERIFICATION_ENABLED=false,PLAN_VALIDATION_ENABLED=true,PLAN_JUDGE_ENABLED=false,NEVER_GRANTABLE_TOOLS_EXTRA=browser_click"
-  "cfg6-planner-verif-validation:PLANNER_ENABLED=true,VERIFICATION_ENABLED=true,PLAN_VALIDATION_ENABLED=true,PLAN_JUDGE_ENABLED=false,NEVER_GRANTABLE_TOOLS_EXTRA=browser_click"
-  "cfg7-planner-validation-judge:PLANNER_ENABLED=true,VERIFICATION_ENABLED=false,PLAN_VALIDATION_ENABLED=true,PLAN_JUDGE_ENABLED=true,NEVER_GRANTABLE_TOOLS_EXTRA=browser_click"
-  "cfg8-all-on:PLANNER_ENABLED=true,VERIFICATION_ENABLED=true,PLAN_VALIDATION_ENABLED=true,PLAN_JUDGE_ENABLED=true,NEVER_GRANTABLE_TOOLS_EXTRA=browser_click"
+  "cfg1-all-off:PLANNER_ENABLED=false,VERIFICATION_ENABLED=false,PLAN_VALIDATION_ENABLED=false,PLAN_JUDGE_ENABLED=false,PLANNING_MODE=nodes,NEVER_GRANTABLE_TOOLS_EXTRA=browser_click"
+  "cfg8-all-on:PLANNER_ENABLED=true,VERIFICATION_ENABLED=true,PLAN_VALIDATION_ENABLED=true,PLAN_JUDGE_ENABLED=true,PLANNING_MODE=nodes,NEVER_GRANTABLE_TOOLS_EXTRA=browser_click"
+  "cfg9-merged-planning:PLANNER_ENABLED=false,VERIFICATION_ENABLED=false,PLAN_VALIDATION_ENABLED=false,PLAN_JUDGE_ENABLED=false,PLANNING_MODE=merged,NEVER_GRANTABLE_TOOLS_EXTRA=browser_click"
 )
 # ─────────────────────────────────────────────────────────────────────────
 
