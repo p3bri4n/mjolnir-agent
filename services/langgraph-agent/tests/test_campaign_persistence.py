@@ -70,6 +70,17 @@ def test_collect_env_flags_filters_to_known_keys(monkeypatch):
     assert "PATH" not in flags
 
 
+def test_campaign_env_flags_includes_planning_mode():
+    """CAMPAIGN_ENV_FLAGS (drives what's persisted to a campaign's archived
+    env_flags) and EXPECTED_AGENT_FLAGS (campaign_preflight.py, drives the
+    pre-run assertion) are two separate lists — PLANNING_MODE was added to
+    the latter (EFFORT 2 point 3) but not the former, so every merged-mode
+    campaign ran with a verified-correct PLANNING_MODE that its own
+    archived JSON couldn't show (docs/resolved-bugs.md, fifth-condition
+    correction 1/2 follow-up). Regression guard."""
+    assert "PLANNING_MODE" in cp.CAMPAIGN_ENV_FLAGS
+
+
 def test_collect_env_flags_empty_dict_when_container_unreachable(monkeypatch):
     class _Result:
         returncode = 1
