@@ -79,6 +79,10 @@ Scores went from 16/33 to 30/33 over eleven campaigns — [docs/notes/agent-benc
   boundary and a read-only dashboard page (`/campaign`) — per-task ETA
   range, current run, running counters — no need to tail a terminal for a
   long-running campaign.
+- **Visual feedback** (`CAMPAIGN_VISUAL_CAPTURE`, off by default pending
+  an overhead measurement): the current run's latest browser viewport,
+  refreshed on the same dashboard page — captured harness-side after
+  every browser action, never entering the model's own context.
 - **Pause/resume**: `run-campaign.sh --pause`/`--resume` — a resume
   replays the full preflight and refuses if the effective configuration
   (commit, image digests, env flags) drifted since the pause; per-segment
