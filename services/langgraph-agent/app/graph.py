@@ -505,6 +505,22 @@ PLAN_JUDGE_ENABLED = os.environ.get("PLAN_JUDGE_ENABLED", "true").lower() == "tr
 # indefinitely.
 PLAN_VALIDATION_CYCLES_MAX = 2
 
+# Effort 2 point 3 (docs/briefs/update-plan.md, "2.1 addendum") — 5th
+# cognitive-core condition: planning as an action in the main turn
+# (manage_plan tool below) instead of the 4 flags' dedicated nodes,
+# targeting the auxiliary-call latency the 4-flag ablation attributed to
+# plan_task/revise_plan/replan_task/the plan judge. Value-selected mode
+# (like IMAGE_FORMAT_PASSTHROUGH above), not a plain on/off gate: this is
+# the first 2-way string mode in this file rather than a boolean. Default
+# "nodes" = current behavior, byte-for-byte unchanged. The only validated
+# combination for "merged" is with the 4 flags above all "false" (asserted
+# at the campaign level via campaign_preflight.py's
+# CAMPAIGN_EXPECTED_FLAGS_OVERRIDE, never silently forced here) — this
+# keeps plan_task/validate_plan/revise_plan/replan_task/verify_action
+# structurally no-op (they already gate on those 4 flags), so all
+# planning responsibility moves into manage_plan alone.
+PLANNING_MODE = os.environ.get("PLANNING_MODE", "nodes")
+
 # Qwen3.6 reasons by default on every turn (extended thinking tags) —
 # useful for an initial decision, costly in latency/tokens for a fast
 # perception-action loop (capture -> click -> capture...) where each
@@ -822,6 +838,54 @@ _REPORT_AND_ACT_TOOL = {
             "type": "object",
             "properties": {_CONSTAT_PARAM_NAME: _CONSTAT_PARAM_SCHEMA},
             "required": [_CONSTAT_PARAM_NAME],
+        },
+    },
+}
+
+
+# Merged-planning mode (PLANNING_MODE="merged", effort 2 point 3, see
+# docs/briefs/update-plan.md "2.1 addendum"): same non-MCP, graph-only
+# precedent as _REPORT_AND_ACT_TOOL above — dispatched locally in
+# _execute_tool_calls, never sent to mcp-client. Only exposed by
+# _get_bound_llm when PLANNING_MODE == "merged". Two actions, deliberately
+# no third "fail"/"replan" action: a stuck subtask is handled by calling
+# set_plan again (replacing the remaining subtasks) rather than by ever
+# persisting an "echoue" status — that status is what would route to the
+# costly replan_task node in the 4-flag architecture (route_after_tool_
+# execution), exactly the auxiliary call this mode exists to remove.
+_MANAGE_PLAN_TOOL_NAME = approval_policy.MANAGE_PLAN_TOOL_NAME
+_MANAGE_PLAN_TOOL = {
+    "type": "function",
+    "function": {
+        "name": _MANAGE_PLAN_TOOL_NAME,
+        "description": (
+            "Gère ton plan de sous-tâches directement (mode planification "
+            "fusionnée) : n'appelle aucun autre outil le même tour. "
+            "`set_plan` : crée le plan initial (premier appel) ou remplace "
+            "les sous-tâches restantes (si une sous-tâche bloque) — 2 à 12 "
+            "sous-tâches, chacune avec description et critère de succès. "
+            "`complete_subtask` : marque la sous-tâche `subtask_index` "
+            "comme atteinte et passe à la suivante."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["set_plan", "complete_subtask"]},
+                "subtasks": {
+                    "type": "array",
+                    "description": "Requis pour set_plan.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "description": {"type": "string"},
+                            "success_criterion": {"type": "string"},
+                        },
+                        "required": ["description", "success_criterion"],
+                    },
+                },
+                "subtask_index": {"type": "integer", "description": "Requis pour complete_subtask."},
+            },
+            "required": ["action"],
         },
     },
 }
@@ -1297,17 +1361,21 @@ async def _get_tools_schema() -> list:
 
 async def _get_bound_llm() -> ChatOpenAI:
     schema = await _get_tools_schema()
+    # Synthetic, non-MCP tool (independent of VERIFICATION_ENABLED — merged
+    # mode manages its own plan state instead of the constat_precedent/
+    # report_and_act self-report pattern below), see PLANNING_MODE above.
+    extra_tools = [_MANAGE_PLAN_TOOL] if PLANNING_MODE == "merged" else []
     if not schema:
-        return llm
+        return llm.bind_tools(extra_tools) if extra_tools else llm
     if not VERIFICATION_ENABLED:
-        return llm.bind_tools(schema)
+        return llm.bind_tools(schema + extra_tools)
     # constat_precedent injected as a required parameter of EVERY real MCP
     # tool, plus report_and_act as the sole fallback (pure-text turn, no
     # action) — see above. Gated on VERIFICATION_ENABLED: without it, this
     # field has no reader (_verification_directive doesn't instruct it)
     # and would only add noise to the schema sent to the model.
     wrapped = [_inject_constat_param(t) for t in schema]
-    return llm.bind_tools(wrapped + [_REPORT_AND_ACT_TOOL])
+    return llm.bind_tools(wrapped + [_REPORT_AND_ACT_TOOL] + extra_tools)
 
 
 async def retrieve_context(state: AgentState) -> dict:
@@ -1878,6 +1946,36 @@ def _verification_directive(state: AgentState) -> str:
     )
 
 
+def _merged_plan_directive(state: AgentState) -> str:
+    """
+    Merged-planning mode's counterpart to _verification_directive above:
+    since PLANNING_MODE="merged" runs with VERIFICATION_ENABLED off (no
+    dedicated node ever narrates the active subtask), the model would
+    otherwise have no per-turn reminder of its own plan beyond its own
+    prior manage_plan tool call sitting in message history — an
+    information disadvantage unrelated to the actual question this mode
+    measures (cost, not information access). No-op outside merged mode
+    or before any plan exists (manage_plan not called yet).
+    """
+    if PLANNING_MODE != "merged":
+        return ""
+    plan = state.get("plan") or []
+    active_index = _active_subtask_index(plan)
+    if active_index is None:
+        return (
+            "\nAucun plan actif : commence par appeler manage_plan "
+            '(action="set_plan") pour découper la tâche en sous-tâches, '
+            "avant toute autre action."
+        )
+    subtask = plan[active_index]
+    return (
+        f'\nSous-tâche en cours ({active_index}) : "{subtask["description"]}" — '
+        f'critère de succès : "{subtask["success_criterion"]}". Appelle '
+        "manage_plan (complete_subtask) une fois atteinte, ou set_plan si "
+        "elle est bloquée et doit être remplacée."
+    )
+
+
 async def call_llm(state: AgentState, config: dict) -> dict:
     bound_llm = await _get_bound_llm()
     # Compacted BEFORE the system message is prepended: subtask_message_start
@@ -1903,7 +2001,7 @@ async def call_llm(state: AgentState, config: dict) -> dict:
         SystemMessage(
             content=(
                 f"{DOWNLOAD_DIRECTIVE}{BULK_CHECK_DIRECTIVE}{PEREMPTION_DIRECTIVE}"
-                f"{_date_directive()}{_verification_directive(state)}"
+                f"{_date_directive()}{_verification_directive(state)}{_merged_plan_directive(state)}"
             )
         )
     ] + compacted_messages
@@ -2182,6 +2280,13 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
     plan = state.get("plan") or []
     active_index = _active_subtask_index(plan)
     active_attempts = plan[active_index].get("attempts", 0) if active_index is not None else 0
+    # Merged-planning mode only (PLANNING_MODE="merged", see manage_plan
+    # dispatch below): tracks whether this turn's tool_calls actually
+    # mutated the plan, so the returned dict only includes "plan"/
+    # "subtask_message_start" when there's something new to report —
+    # every other mode's return shape stays byte-for-byte unchanged.
+    plan_changed = False
+    subtask_message_start = state.get("subtask_message_start") or []
     # state["messages"][-1] IS `last`, the CURRENT turn whose tool_calls
     # are being executed — excluded from the search (messages[:-1]) so
     # that "previous_tool_calls" truly refers to the PREVIOUS turn, not
@@ -2208,6 +2313,78 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
                         "tool_call_id": tool_call["id"],
                         "content": json.dumps({"ok": True}, ensure_ascii=False),
                     }
+                )
+                continue
+
+            if tool_call["name"] == _MANAGE_PLAN_TOOL_NAME:
+                # Merged-planning mode's entire planning/replanning/
+                # verification responsibility (PLANNING_MODE="merged",
+                # docs/briefs/update-plan.md "2.1 addendum") — never
+                # dispatched to mcp-client, mutates `plan` synchronously,
+                # same "no dedicated LLM call" property as report_and_act
+                # above. TIER_READ (approval_policy.tool_tier), so this
+                # never reaches require_approval.
+                args = tool_call.get("args") or {}
+                action = args.get("action")
+                response: dict
+                if action == "set_plan":
+                    candidate = [
+                        {
+                            "description": st.get("description", ""),
+                            "success_criterion": st.get("success_criterion", ""),
+                        }
+                        for st in (args.get("subtasks") or [])
+                        if isinstance(st, dict)
+                    ]
+                    schema = await _get_tools_schema()
+                    known_tools = {t.get("function", {}).get("name") for t in schema}
+                    known_tools.discard(None)
+                    reasons = plan_validation.validate_plan_heuristics(
+                        candidate, known_tools=known_tools, task_scope_urls=_task_scope_urls(state["messages"])
+                    )
+                    audit_log.log_message(
+                        thread_id,
+                        "merged_planning",
+                        {
+                            "action": "set_plan",
+                            "subtask_count": len(candidate),
+                            "heuristic_rejected": bool(reasons),
+                            "subtask_index": None,
+                        },
+                    )
+                    if reasons:
+                        response = {"error": "plan rejeté", "reasons": reasons}
+                    else:
+                        plan = [{**st, "status": "a_faire", "attempts": 0, "result": None} for st in candidate]
+                        plan[0]["status"] = "en_cours"
+                        subtask_message_start = [len(state["messages"])]
+                        plan_changed = True
+                        response = {"ok": True, "subtask_count": len(plan)}
+                elif action == "complete_subtask":
+                    idx = args.get("subtask_index")
+                    if not isinstance(idx, int) or not (0 <= idx < len(plan)) or plan[idx].get("status") != "en_cours":
+                        response = {"error": f"sous-tâche {idx!r} invalide ou non active"}
+                    else:
+                        plan = [dict(st) for st in plan]
+                        plan[idx]["status"] = "fait"
+                        if idx + 1 < len(plan):
+                            plan[idx + 1]["status"] = "en_cours"
+                        plan_changed = True
+                        response = {"ok": True}
+                    audit_log.log_message(
+                        thread_id,
+                        "merged_planning",
+                        {
+                            "action": "complete_subtask",
+                            "subtask_count": len(plan),
+                            "heuristic_rejected": False,
+                            "subtask_index": idx,
+                        },
+                    )
+                else:
+                    response = {"error": f"action inconnue: {action!r}"}
+                new_messages.append(
+                    {"role": "tool", "tool_call_id": tool_call["id"], "content": json.dumps(response, ensure_ascii=False)}
                 )
                 continue
 
@@ -2304,7 +2481,7 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
                     }
                 )
 
-    return {
+    result_dict = {
         "messages": new_messages,
         "tool_iterations": state["tool_iterations"] + 1,
         "approved": None,  # rearms the pause for the next tool turn
@@ -2321,6 +2498,14 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
         # observe on the next turn (see AgentState.pending_verification).
         "pending_verification": True,
     }
+    if plan_changed:
+        # Merged-planning mode only (see manage_plan dispatch above) —
+        # every other mode never sets plan_changed, so this key is absent
+        # from the returned dict and state["plan"] stays whatever
+        # verify_action (or nothing, if PLANNER_ENABLED is off) decided.
+        result_dict["plan"] = plan
+        result_dict["subtask_message_start"] = subtask_message_start
+    return result_dict
 
 
 async def call_tools(state: AgentState, config: dict) -> dict:
