@@ -102,3 +102,69 @@ plan, Phase 1). Decide before the volume grows:
   per run, populated, and the dashboard page renders the latest image.
 - Judge: with the flag **off**, campaign results are byte-for-byte comparable
   to the previous campaign — the feature must be invisible when disabled.
+
+## Status: minimal subset implemented (2026-08-06)
+
+Everything above stays the target shape of B5 in full. What actually
+shipped is deliberately smaller — explicit instruction: "sous-ensemble de
+B5, tout le reste du brief reste hors périmètre (traces Playwright, bande
+de vignettes, mode headed, VNC)."
+
+**Delivered**: §2.1/2.3 (harness-side capture, the critical
+never-in-context test) and §4's live panel (latest capture only, no
+thumbnail strip), §3's flag/measurement discipline (flag default pending
+the with/without smoke — not run from this sandbox, no Docker/GPU access).
+**Explicitly not built**: §2.2's per-action `<seq>-<tool>.jpg` history (one
+file, overwritten, per §"UN SEUL FICHIER" — no history means retention/purge
+(§6) has no object: the footprint is one small JPEG per thread ever run,
+never growing per-action), the thumbnail strip, Playwright traces (§5),
+headed mode, VNC.
+
+**Two deviations from this file's literal text, made for concrete
+architectural reasons found while implementing — not oversights:**
+
+1. **Keyed by `thread_id`, not `campaign_id`.** Verified against the
+   running code (not assumed): `campaign_id` is a harness/dashboard-only
+   concept (`campaign_persistence.py`, generated client-side by the test
+   runner) — it is never sent to `langgraph-agent`'s graph nor to
+   `mcp-client`; grepping `services/mcp-client` for either `campaign_id` or
+   `thread_id` returns nothing today. `thread_id`, by contrast, already
+   flows end-to-end (`_execute_tool_calls`/`run_slash_command_direct` in
+   `app/graph.py` both have it in scope at the exact call site that reaches
+   `mcp-client`). Threading `campaign_id` through 3 services for a
+   side-channel feature would be the bigger change the "petit chantier"
+   framing (point 2 of the implementation instruction) explicitly wants to
+   avoid. The dashboard already resolves campaign → in-flight thread_id via
+   `state["current"]["thread_id"]` (`campaign_persistence.py`, written
+   BEFORE `run_task()` starts specifically "so the progress file can name
+   the in-flight thread_id for the dashboard to tail", B2 Part 1.2) — reused
+   as-is, no new plumbing needed on that side. Net effect for the user: the
+   campaign page still shows "the current run's latest capture" exactly as
+   specified; the file on disk is named by `thread_id`, not `campaign_id`.
+   Revisit if effort 1.3 (parallel run execution) ever lands: today
+   campaigns run one task at a time, so `thread_id` disambiguates
+   perfectly; concurrent campaigns sharing one `mcp-client` browser session
+   would need `campaign_id` (or a real per-campaign session) regardless of
+   this feature.
+2. **Written to `./workspace/visual-capture/`, not
+   `docs/campaigns/artifacts/`.** `docs/campaigns/` is a fully git-tracked
+   archive (confirmed: 223 tracked files, including the live-updated
+   `*.progress.json`) — not a place for gitignored runtime output.
+   `./workspace/` is already a shared, git-ignored, writable volume between
+   `langgraph-agent` and `mcp-client` (`docker-compose.yml`), and its
+   existing `.gitignore` pattern (`workspace/*`) already covers a new
+   `workspace/visual-capture/` subdirectory — no new `.gitignore` line
+   needed (verified via `git check-ignore`), simpler than adding one.
+
+**Retention (§6) not built, matching `.audit`'s own current state, not a
+gap specific to this feature**: the audit log has no retention/redaction
+either — `docs/briefs/update-plan.md`, Effort 5/B6 explicitly defers "the
+audit log's own retention and redaction" as future security work. This
+feature's directory should get the identical policy when that lands, not
+before — inventing one now for `latest.jpg` while `.audit` has none would
+be inconsistent, and per point 2 above the single-overwritten-file design
+makes it a non-issue in practice regardless (bounded by "number of
+distinct threads ever run", not by campaign duration).
+
+Full implementation detail, deviations, and the with/without measurement
+handoff: `docs/history.md`, "VISUAL FEEDBACK MINIMAL".

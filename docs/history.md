@@ -4919,3 +4919,123 @@ the user's read of this — the cause named here doesn't itself resolve
 the cfg1/cfg8 removal question (that table reading stands as reported
 above), it explains why A1 specifically fails everywhere and adds one
 more data point against keeping the cognitive core.
+
+## VISUAL FEEDBACK MINIMAL — LATEST CAPTURE DURING CAMPAIGNS AND SMOKES
+
+Implemented: docs/briefs/campaign-visual-feedback.md's (B5) minimal
+subset, per explicit instruction — everything else in that brief
+(Playwright traces, thumbnail strip, headed mode, VNC) stays out of
+scope. That file's own "Status" section now carries the full design and
+the two deviations below in detail; this entry is the implementation
+record.
+
+**Harness-side capture, not agent-side** (§1 of the brief): `mcp-client`
+fires an internal `browser_take_screenshot` call on the same persistent
+"browser" session right after every real "browser" tool call
+(`app/main.py`'s `/call` — the generic dispatch branch plus the two
+synthetic `browser_extract`/`browser_inspect` branches, all three return
+points), decodes whatever format comes back and re-encodes to JPEG q60
+via Pillow (new dependency) regardless of source format — guarantees the
+target format without depending on `browser_take_screenshot`'s exact
+parameter support, not independently verifiable from this sandbox.
+Atomic write (temp + `os.replace`) to `<VISUAL_CAPTURE_DIR>/<key>/
+latest.jpg` — one file, overwritten, no history, gated by
+`CAMPAIGN_VISUAL_CAPTURE` (default `false`, off until point 6's smoke
+names a real number) and a no-op without a caller-supplied key. Never
+breaks the real tool call it rides along (bare `except Exception: pass`
+around the whole capture, matching this repo's existing "a side capture
+issue never blocks the measured path" convention).
+
+**Two deviations from the brief's literal text**, both driven by
+architecture facts checked against the running code, not assumed —
+recorded in full in `campaign-visual-feedback.md`'s Status section:
+
+1. **Keyed by `thread_id`, not `campaign_id`.** `campaign_id` never
+   reaches `langgraph-agent` or `mcp-client` today (confirmed: grepping
+   `services/mcp-client` for either name returns nothing) — it's a
+   harness/dashboard-only concept. `thread_id` already flows end-to-end
+   (`_execute_tool_calls`/`run_slash_command_direct`, `app/graph.py`).
+   Threading a brand-new identifier through 3 services for a side-channel
+   feature contradicts the "petit chantier" framing. The dashboard
+   already resolves campaign → in-flight thread_id via
+   `state["current"]["thread_id"]` (B2 Part 1.2, pre-existing) — reused
+   as-is. Outward behavior is unchanged: the campaign page still shows
+   the current run's latest capture.
+2. **Written to `./workspace/visual-capture/`, not
+   `docs/campaigns/artifacts/`.** `docs/campaigns/` is a fully
+   git-tracked archive (223 tracked files) — not a place for gitignored
+   runtime output. `./workspace/` is already a shared, writable volume
+   between `langgraph-agent` and `mcp-client`, and its existing
+   `.gitignore` pattern (`workspace/*`) already covers the new
+   subdirectory — confirmed via `git check-ignore`, no new `.gitignore`
+   line needed (§7 of the implementation instruction, satisfied by the
+   simpler existing mechanism).
+
+**The critical test** (§3, "the one thing that would silently invalidate
+every campaign"): `services/mcp-client/tests/test_main.py::
+test_visual_capture_response_never_contains_the_screenshot_image_block`
+— asserts the `/call` HTTP response for a browser action contains ONLY
+that action's own content blocks, with `CAMPAIGN_VISUAL_CAPTURE` on and
+a real (tiny) image behind the internal screenshot call. Structurally
+guaranteed by design (the capture is consumed entirely inside
+`_maybe_capture_visual`, never appended to the returned `content` list —
+`app/graph.py`'s `_split_image_blocks`, which turns any `"type":"image"`
+block in a `/call` response into a multimodal LLM message, never even
+sees it), but tested directly rather than trusted from design alone. 11
+more tests alongside it: JPEG re-encode correctness, atomic
+overwrite-not-append, off-by-default no-op, missing-key no-op,
+non-browser-tool no-op, both synthetic tool paths, screenshot-failure
+resilience.
+
+**Plumbing**: `CallRequest.thread_id: Optional[str] = None` (new,
+optional field) on `mcp-client`'s side; `_call_mcp_tool` (`app/graph.py`)
+gains a `thread_id` parameter, forwarded from both its callers that have
+one in scope. 3 pre-existing slash-command tests updated for the request
+body's new shape (the field is now unconditionally present, `null` when
+absent — a real shape change, not a fixture bug).
+
+**Dashboard**: `GET /api/visual/{thread_id}` (`FileResponse`,
+`Cache-Control: no-store`, 404 when absent — never a 500), read-only
+bind mount from the same `./workspace/visual-capture/`. `campaign.html`
+gets a new "Retour visuel" card between "Run en cours" and "Compteurs
+cumulés", refreshed by the EXISTING 2.5s poll (`renderVisual`,
+cache-busting query param + server-side no-store, belt and suspenders
+against a stale cached frame) — no new transport, per §4.
+
+**Metadata** (§5): `CAMPAIGN_VISUAL_CAPTURE` lives on `mcp-client`, not
+`langgraph-agent` — `campaign_persistence.collect_metadata()` now merges
+`collect_env_flags()` (default: `AGENT_CONTAINER`) with a second call
+against `MCP_CLIENT_CONTAINER`/`MCP_CLIENT_ENV_FLAGS`, into the same flat
+`env_flags` dict (same "reader doesn't care which container" convention
+already established for the campaign JSON). **Scoped out, flagged
+explicitly, not an oversight**: `campaign_preflight.py`'s STRICT
+pre-run assertion (`EXPECTED_AGENT_FLAGS`/`check_agent_flags`) is not
+extended to `mcp-client` in this pass — it only ever fetches from
+`AGENT_CONTAINER`, and generalizing it to be multi-container-aware is a
+bigger change than this effort's own scope discipline wants. This
+campaign's own comparability (metadata recording) is covered; drift
+*prevention* for this specific flag is not, matching
+`BROWSER_STABILIZE_WAIT_SECONDS` and every other mcp-client-only flag
+already in this repo (none of them are preflight-checked either).
+
+**Retention** (§7, second half): not built. Matches `.audit`'s own
+current state, not a gap specific to this feature — Effort 5/B6
+(`docs/briefs/update-plan.md`) already defers audit-log retention as
+future security work; inventing one now for `latest.jpg` while `.audit`
+has none would be inconsistent. The single-overwritten-file design makes
+it a non-issue in practice regardless (footprint bounded by "distinct
+threads ever run", not by campaign duration or count).
+
+Full suite: `mcp-client` 33 → 45 passed, `langgraph-agent` 455 → 458
+passed, `dashboard` 16 → 19 passed — all three green, 0 regressions.
+
+**Not doable from this sandbox** (no Docker/GPU): point 6's with/without
+overhead smoke. `scripts/visual-capture-smoke.sh` built and ready
+(rebuilds `mcp-client`/`langgraph-agent`, runs the same 4-task/n=3 set
+twice, flag off then on) — one-off, to be deleted once the default is
+decided per its own stated rule (negligible overhead → default `true`;
+material → `true` in smokes / `false` in campaigns, and say so).
+
+🧑 Checkpoint: implementation delivered and unit-tested end to end,
+nothing measured live yet. `CAMPAIGN_VISUAL_CAPTURE` stays `false` by
+default until that smoke runs.
