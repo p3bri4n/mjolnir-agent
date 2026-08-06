@@ -1962,10 +1962,19 @@ def _merged_plan_directive(state: AgentState) -> str:
     plan = state.get("plan") or []
     active_index = _active_subtask_index(plan)
     if active_index is None:
+        # Strengthened after 3/3 live smokes (A2, A1, B1_conge_hard, see
+        # docs/history.md "EFFORT 2" point 3) showed merged_plan_calls=0
+        # even on turn 1 — the original softer "commence par... avant
+        # toute autre action" phrasing was never followed. Hard
+        # requirement, explicit "no other tool this turn" constraint
+        # (JAMAIS, same emphasis convention as PEREMPTION_DIRECTIVE
+        # above), not yet re-validated live.
         return (
-            "\nAucun plan actif : commence par appeler manage_plan "
-            '(action="set_plan") pour découper la tâche en sous-tâches, '
-            "avant toute autre action."
+            "\nMode planification active, AUCUN plan pour l'instant : ta "
+            "TOUTE PREMIÈRE action sur cette tâche DOIT être manage_plan "
+            '(action="set_plan", 2 à 8 sous-tâches). N\'appelle JAMAIS un '
+            "autre outil avant d'avoir créé ce plan — pas même pour "
+            "observer la page."
         )
     subtask = plan[active_index]
     return (
@@ -2000,8 +2009,15 @@ async def call_llm(state: AgentState, config: dict) -> dict:
     messages_for_llm = [
         SystemMessage(
             content=(
-                f"{DOWNLOAD_DIRECTIVE}{BULK_CHECK_DIRECTIVE}{PEREMPTION_DIRECTIVE}"
-                f"{_date_directive()}{_verification_directive(state)}{_merged_plan_directive(state)}"
+                # _merged_plan_directive FIRST (empty string outside
+                # PLANNING_MODE="merged" — no effect on any other mode's
+                # prompt, byte-for-byte): primacy matters most for the
+                # very first, shortest turn (system + objective only,
+                # nothing else yet to compete for attention), which is
+                # exactly the turn 3/3 live smokes showed being ignored
+                # when this directive sat last instead.
+                f"{_merged_plan_directive(state)}{DOWNLOAD_DIRECTIVE}{BULK_CHECK_DIRECTIVE}{PEREMPTION_DIRECTIVE}"
+                f"{_date_directive()}{_verification_directive(state)}"
             )
         )
     ] + compacted_messages
