@@ -30,6 +30,7 @@ referenced in app/graph.py, via the URL-fabrication guardrail).
 """
 
 import json
+import os
 import subprocess
 import time
 from typing import Callable, Iterable, Optional
@@ -141,21 +142,38 @@ def check_tools_schema(agent_tools: Iterable[str], mcp_tools: Iterable[str]) -> 
     return None
 
 
-def check_agent_flags(actual_flags: dict) -> Optional[str]:
+def _expected_agent_flags() -> dict:
+    """EXPECTED_AGENT_FLAGS merged with CAMPAIGN_EXPECTED_FLAGS_OVERRIDE (a
+    JSON object of {flag: value}), read at call time so each campaign
+    process picks up its own override — for an intentional ablation
+    campaign (docs/briefs/scaffolding-optimisation.md, effort 1) that
+    deliberately runs the cognitive-core flags off their "true" default.
+    Unset by default: every existing campaign path compares against
+    EXPECTED_AGENT_FLAGS unchanged."""
+    override_raw = os.environ.get("CAMPAIGN_EXPECTED_FLAGS_OVERRIDE", "")
+    if not override_raw:
+        return EXPECTED_AGENT_FLAGS
+    return {**EXPECTED_AGENT_FLAGS, **json.loads(override_raw)}
+
+
+def check_agent_flags(actual_flags: dict, expected_flags: Optional[dict] = None) -> Optional[str]:
     """
     Pure, unit-testable without docker (see check_tools_schema above,
     same style): None if `actual_flags` (see _fetch_agent_env below)
-    exactly matches EXPECTED_AGENT_FLAGS for every expected key, otherwise
-    a message listing the diff (key, expected, actual) — a campaign
-    measured against a drifted flag (e.g. a local .env still overriding
-    the old "false" default) must never claim to be comparable to the
-    reference campaign without flagging it BEFORE the first run. A key
-    absent from `actual_flags` (docker exec returned nothing, e.g. a
-    container not restarted since a variable was added to
-    docker-compose.yml) compares to "" as an empty value, never ignored.
+    exactly matches `expected_flags` (default: EXPECTED_AGENT_FLAGS, see
+    _expected_agent_flags) for every expected key, otherwise a message
+    listing the diff (key, expected, actual) — a campaign measured
+    against a drifted flag (e.g. a local .env still overriding the old
+    "false" default) must never claim to be comparable to the reference
+    campaign without flagging it BEFORE the first run. A key absent from
+    `actual_flags` (docker exec returned nothing, e.g. a container not
+    restarted since a variable was added to docker-compose.yml) compares
+    to "" as an empty value, never ignored.
     """
+    if expected_flags is None:
+        expected_flags = _expected_agent_flags()
     diffs = []
-    for key, expected in EXPECTED_AGENT_FLAGS.items():
+    for key, expected in expected_flags.items():
         actual = actual_flags.get(key, "")
         if actual != expected:
             diffs.append(f"{key} : attendu={expected!r} effectif={actual!r}")
