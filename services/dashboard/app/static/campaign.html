@@ -89,6 +89,8 @@
   .audit-entry .ts { color: var(--text-muted); margin-right: 6px; }
 
   .empty-note { color: var(--text-muted); font-size: 13px; }
+
+  #visual-content img { max-width: 100%; height: auto; display: block; border-radius: 6px; border: 1px solid var(--border); }
 </style>
 </head>
 <body>
@@ -108,6 +110,11 @@
   <section class="card" id="current-card">
     <h2>Run en cours</h2>
     <div id="current-content" class="empty-note">Aucune campagne sélectionnée.</div>
+  </section>
+
+  <section class="card" id="visual-card">
+    <h2>Retour visuel</h2>
+    <div id="visual-content" class="empty-note">Entre deux runs (ou campagne terminée).</div>
   </section>
 
   <section class="card">
@@ -226,6 +233,28 @@
     `;
   }
 
+  function visualNotAvailable() {
+    el("visual-content").innerHTML = `<div class="empty-note">Pas encore de capture pour ce run (CAMPAIGN_VISUAL_CAPTURE peut être désactivé).</div>`;
+  }
+
+  function renderVisual(state) {
+    const c = state.current;
+    if (!c || !c.thread_id) {
+      el("visual-content").innerHTML = `<div class="empty-note">Entre deux runs (ou campagne terminée).</div>`;
+      return;
+    }
+    // Same filename every poll (latest.jpg, overwritten in place) — the
+    // cache-busting query param is what actually forces a re-fetch;
+    // Cache-Control: no-store (server side) is the other half of that
+    // guarantee if some intermediary ignores the query string.
+    const src = `/api/visual/${encodeURIComponent(c.thread_id)}?t=${Date.now()}`;
+    const img = document.createElement("img");
+    img.alt = "dernière capture";
+    img.onerror = visualNotAvailable;
+    img.src = src;
+    el("visual-content").replaceChildren(img);
+  }
+
   function renderCounters(counters) {
     const tiles = [
       { label: "CuP jusqu'ici", value: counters.cup_so_far != null ? `${(counters.cup_so_far * 100).toFixed(0)}%` : "—" },
@@ -288,6 +317,7 @@
       const estimates = data.estimates || {};
       renderHeaderStats(data.state, data.eta);
       renderCurrent(data.state, estimates);
+      renderVisual(data.state);
       renderCounters(data.counters);
       renderRuns(data.state.completed || []);
       renderAudit(data.audit_tail || []);
