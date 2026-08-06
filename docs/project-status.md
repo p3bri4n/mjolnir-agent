@@ -333,3 +333,74 @@ are global, keyed by server name not caller — see
 `docs/architecture/mcp-client-concurrency.md`). Re-evaluate after efforts
 1.2 (delivered), 2, and 4.2 land, which reduce campaign duration via the
 numerator.
+
+**Effort 2 (factorial ablation of the cognitive-core flags) measured, at
+a checkpoint** — see docs/history.md, "EFFORT 2". All 8 coherent
+configurations of `PLANNER_ENABLED`/`VERIFICATION_ENABLED`/
+`PLAN_VALIDATION_ENABLED`/`PLAN_JUDGE_ENABLED` run live against the
+declared 7-task subset (2 reps/task, 112 runs total). An infra incident
+mid-campaign (langgraph-agent container down, `failure_cause="infra"` on
+10/14 runs of cfg6) was caught, diagnosed, and fixed by a targeted retry
+of the 5 affected tasks — cfg6's numbers below are the merged valid data.
+**Frozen decision table reading**: cfg1 (all flags off) matches cfg8
+(all flags on, current default) on the CuP judge — 12/14 each — at 37%
+less median cumulative time and 11% fewer tokens; every intermediate
+configuration (cfg2-cfg7) scores below both bookends, with no legible
+per-flag dependency (A1 fails near-systematically regardless of flags,
+a pre-existing capability limit; D1 varies without correlating to any
+single flag). Per the table's first branch ("a fixed configuration
+matches or beats all-on"), this reads as adopt-and-remove — reported
+as-is, without advocacy, alongside the caveat that n=2/task means a
+single flipped run moves a config's score by ~7%. **No mechanism removed
+yet — checkpoint open, awaiting user decision.**
+
+**Checkpoint decision (2026-08-05)**: record the result as reproducing
+the Cross-Component Interference pattern from the literature cited at
+B7's opening (see docs/history.md, "EFFORT 2" — two matching sources
+found, not yet independently verified, WebFetch failed in this
+environment). Before any removal: (1) consolidate cfg1-vs-cfg8 only to
+n=5 — script ready (`scripts/consolidate-ablation-cfg1-cfg8.sh`), not run
+yet; (2) build and measure the fifth condition, merged planning (B7
+amendment 2.1), the only hypothesis that could still justify keeping
+planning. `PLAN_VALIDATION_ENABLED` is flagged to survive regardless of
+the CuP reading (programmatic heuristic, safety value not score value).
+🧑 Stop after the consolidation result, then again after the fifth
+condition, before any flag is touched.
+
+**Judge validity check (2026-08-05, archives-only)** — see docs/history.md,
+"EFFORT 2", "Judge validity check": discriminating power of the 7-task
+subset is thin at the task level (only A2 and D1 show config-to-config
+variance on both repetitions, against a stated bar of 4 tasks — though
+the raw 14-slot count clears it); planner/validation/judge mechanism
+coverage is unmeasured (no persisted field), only verification's coverage
+is confirmed real. Same-outcome trajectory comparison (11 matched
+cfg1/cfg8 pairs) confirms the CuP tie hides a real cost gap in 10/11
+cases, with one unexplained reversal (D1 rep1: cfg8 cheaper AND faster).
+**Reading: ablation requalified NOT CONCLUSIVE**, not a confirmed tie —
+the planned n=5 consolidation (cfg1 vs cfg8) is superseded by this
+finding, pending a decision on redesigning the subset for discriminating
+power. Nothing run, nothing removed.
+
+**Resume, point 1 delivered (2026-08-05)**: planner/validation/judge
+coverage instrumentation shipped — `app/graph.py`'s `plan_task`/
+`validate_plan`/`replan_task` now log audit entries symmetric to
+`verify_action`'s existing `verification_opportunities`/`exploitable`,
+harness persists 6 new fields per run. 7 new unit tests, full suite
+430→437 passed, 0 regressions. See docs/history.md, "EFFORT 2", "Point 1
+delivered". `CLAUDE.md` updated: the trigger-rate-counter rule now
+applies retroactively to pre-existing mechanisms. Next: choose the
+discriminating-power subset (point 2), then reduce the matrix to
+cfg1/cfg8/fifth-condition (point 3) — 🧑 checkpoint after point 2.
+
+**Point 2 delivered**: subset chosen on a written criterion (variance
+shown in ablation 1, OR structurally plan-shaped — long/multi-site/
+multi-step; pure ceilings dropped) — see docs/history.md, "EFFORT 2",
+"Point 2". Result: `A1`, `A2`, `A3`, `A4`, `D1`, `B1_conge_hard` (6
+tasks, all of family A plus the two tasks that already showed signal).
+`T3`/`E3` dropped as pure ceilings. A1 kept despite being near-floor on
+score, reweighted to be judged by mechanism coverage (point 1's new
+counters) rather than CuP — excluding the hardest, most plan-shaped task
+in the benchmark would undercut the subset's declared bias in the
+mechanisms' favor. 🧑 **Checkpoint reached** — subset composed, not yet
+run. Point 3 (reduce matrix to cfg1/cfg8/fifth-condition, n=3 min) is
+next, pending confirmation.

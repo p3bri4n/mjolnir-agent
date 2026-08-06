@@ -3902,3 +3902,347 @@ ce chantier redevient candidat avec des chiffres à jour.
 
 Statut consigné dans `docs/briefs/update-plan.md`, effort 1.3 : « différé,
 justification chiffrée ».
+
+## EFFORT 2 — FACTORIAL ABLATION OF THE COGNITIVE-CORE FLAGS (8 CONFIGS, 7-TASK SUBSET)
+
+See `docs/briefs/update-plan.md`, effort 2, and `docs/briefs/scaffolding-
+optimisation.md`, effort 1 (original protocol, B7). Amendment 2.2
+applied: the 4 existing flags (`PLANNER_ENABLED`, `VERIFICATION_ENABLED`,
+`PLAN_VALIDATION_ENABLED`, `PLAN_JUDGE_ENABLED`) measured first, before
+building the "merged planning" mode (2.1).
+
+**Protocol**: 8 of the 16 combinations are coherent (validation inert
+without planner, judge inert without validation) — all 8 run, none
+skipped. 7-task subset declared before measurement
+(`scripts/run-ablation-effort2.sh`): T3 (short), A1/A2/A4 (long horizon),
+D1 (honesty), B1_hard (policy), E3 (perception). 2 repetitions/task/
+config, 14 runs/config, 112 runs total. Launched 2026-08-04.
+
+**Infra incident during cfg6 (`planner-verif-validation`), caught and
+fixed**: the `langgraph-agent` container went down mid-run —
+`campaign-20260804T154518Z-ablation-cfg6-planner-verif-validation.json`,
+A1 run rep 1 (92.4s, 7 tool_calls) ends with `Connection refused` on the
+end-of-run `docker exec` check, then the next 8 runs (A1 rep2 → E3 rep2)
+fail instantly with *"container ... is not running"* then
+`Connection refused` while it restarts — 10 of this config's 14 runs
+invalidated (`failure_cause="infra"`), only T3 and D1 (before/after the
+outage) remain valid. Restart cause not identified (no docker logs
+investigation done — out of scope for this fix, whose only goal was to
+stop the invalid data from polluting the measurement). Fixed via a
+targeted retry of the 5 affected tasks (`scripts/retry-ablation-cfg6.sh`,
+same flags, same 2 repetitions) on 2026-08-05 — zero infra runs this time
+(`campaign-20260805T081917Z-ablation-cfg6-planner-verif-validation-retry.json`).
+cfg6's numbers below are T3+D1 (original campaign) + A1/A2/A4/B1_hard/E3
+(retry).
+
+**Aggregated result** (success for every task, CuP for B1_hard — read
+from the audit log; duration and tokens = sum of per-task medians, each
+over the 2 repetitions; approvals = first-tool-use proxy, averaged over
+the 14 runs):
+
+| config | T3 | A1 | A2 | A4 | D1 | B1h(CuP) | E3 | total | cumulative median duration | cumulative median tokens | avg. approvals |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| cfg1-all-off | 2/2 | 0/2 | 2/2 | 2/2 | 2/2 | 2/2 | 2/2 | **12/14** | 380s | 831986 | 4.00 |
+| cfg2-verif-only | 2/2 | 0/2 | 1/2 | 2/2 | 0/2 | 2/2 | 2/2 | **9/14** | 384s | 1081664 | 3.64 |
+| cfg3-planner-only | 2/2 | 0/2 | 2/2 | 2/2 | 1/2 | 2/2 | 2/2 | **11/14** | 420s | 827630 | 3.50 |
+| cfg4-planner-verif | 2/2 | 0/2 | 1/2 | 2/2 | 1/2 | 2/2 | 2/2 | **10/14** | 505s | 994292 | 4.00 |
+| cfg5-planner-validation | 2/2 | 0/2 | 2/2 | 2/2 | 1/2 | 2/2 | 2/2 | **11/14** | 402s | 1039000 | 5.36 |
+| cfg6-planner-verif-validation | 2/2 | 1/2 | 1/2 | 2/2 | 2/2 | 1/2 | 2/2 | **11/14** | 493s | 837380 | 4.64 |
+| cfg7-planner-validation-judge | 2/2 | 0/2 | 1/2 | 2/2 | 2/2 | 2/2 | 2/2 | **11/14** | 435s | 932998 | 5.14 |
+| cfg8-all-on (current default) | 2/2 | 1/2 | 1/2 | 2/2 | 2/2 | 2/2 | 2/2 | **12/14** | 599s | 936906 | 4.86 |
+
+**Reading via the frozen decision table** (`docs/briefs/scaffolding-
+optimisation.md`): cfg1 (everything off) **matches** cfg8 (everything on,
+current default) on the frozen judge — 12/14 each — at 37% less
+cumulative median time (380s vs 599s) and 11% fewer tokens. Every
+intermediate configuration (cfg2-cfg7) scores BELOW both bookends, with
+no legible per-flag dependency — A1 fails near-systematically (a
+pre-existing capability limit, B3 slice 5, independent of the flags) and
+D1 varies without visible correlation to `PLANNER_ENABLED`/
+`VERIFICATION_ENABLED` (cfg2, verif alone, is D1's worst score at 0/2,
+while cfg1, everything off, scores 2/2). This is the table's first
+branch: "a fixed configuration matches or beats all-on → adopt it and
+remove the losing mechanisms."
+
+**Caveat on measurement power, reported without reinterpreting the
+threshold**: n=2/task is the protocol's declared budget, not a post-hoc
+choice — but at n=2, a single flipped run moves a config's total score
+by 1/14 (~7%). The cfg1/cfg8 gap (12/14) vs the worst observed score
+cfg2 (9/14) is 3 runs out of 14: plausible but not confirmed at this
+statistical power. The cost judges (duration, tokens, approvals) all
+point the same direction as cfg1 across the board (cfg1 is the cheapest
+of the 8 on all three judges simultaneously), which reinforces the
+reading without making it statistically conclusive on the CuP judge
+alone.
+
+**Checkpoint 🧑 before any removal or conditional routing** — per the
+brief. No mechanism removed at this stage.
+
+**Checkpoint decision (2026-08-05): record as-is, consolidate the
+decisive pair, build the fifth condition before any removal.** Nothing
+removed yet — full decision deferred to two more checkpoints (below).
+
+**Literature grounding, matched but not independently verified**: the
+pattern (all-off ≈ all-on on the frozen judge, every intermediate
+configuration scoring below both bookends) reproduces what
+`docs/briefs/scaffolding-optimisation.md`'s opening describes as
+Cross-Component Interference. WebSearch surfaced two candidates matching
+that description closely enough to be very likely the actual sources —
+[More Is Not Always Better: Cross-Component Interference in LLM Agent
+Scaffolding](https://arxiv.org/abs/2605.05716) (factorial ablation, tool
+use ≈70% of scaffold value by Shapley decomposition, negative marginal
+returns beyond a task-optimal subset, interference strongest at smaller
+scale and fading at larger scale — matches "mid-size models" framing) and
+[cotomi Act: Learning to Automate Work by Watching You](https://arxiv.org/abs/2605.03231)
+(web-agent ablation on Gemma-4-31B-IT validating adaptive observation,
+diff-based history, coarse-grained actions, and task decomposition —
+matches "~31B" framing). **Not independently confirmed**: WebFetch failed
+against both URLs in this environment (no output, tool-level failure, not
+a content issue) — these are WebSearch-summary-sourced, not read
+first-hand. Record here as the likely match, re-verify by fetching the
+PDFs directly before citing either paper's numbers anywhere more binding
+than this log entry.
+
+**Point 2 — consolidate cfg1 vs cfg8 only (the decisive pair)**: script
+prepared, `scripts/consolidate-ablation-cfg1-cfg8.sh` — 3 additional
+repetitions each, same 7-task subset, same preamble, to be merged with
+the existing n=2 for n=5 total. Judge: if the tie holds at n=5, it's
+settled. **Not run yet — awaiting execution** (this sandbox has no
+GPU/Docker access, see CLAUDE.md).
+
+**Point 3 — merged planning (B7 amendment 2.1), fifth condition — not
+started.** Blocked behind point 2's result per the stated order (checkpoint
+before building it).
+
+**Point 4 — differentiated removal at decision time (not yet applied)**:
+`PLAN_JUDGE`'s removal clause is already met by this campaign's numbers
+and it is a removal candidate once the decision is finalized;
+`PLANNER_ENABLED`/`VERIFICATION_ENABLED` depend on point 3's result;
+`PLAN_VALIDATION_ENABLED` is a programmatic heuristic (no LLM call) whose
+value is safety (tier coherence, domain scope), not score — the decision
+table's exception for safety-value mechanisms applies, kept regardless of
+the CuP reading.
+
+🧑 **STOP after point 2, then again after point 3** — per the checkpoint
+instructions. No flags touched.
+
+**Judge validity check (2026-08-05, archives-only, zero runs)** — three
+questions asked before trusting the cfg1≈cfg8 reading, per the checkpoint
+instructions.
+
+**1. Discriminating power of the subset.** For each of the 7 tasks × 2
+repetitions = 14 slots, count of the 8 configs that succeeded (CuP for
+B1_hard, success elsewhere):
+
+| task | rep1 | rep2 |
+|---|---|---|
+| T3_tableau_dynamique | 8/8 | 8/8 |
+| A1_reconciliation_croisee | 1/8 | 1/8 |
+| A2_schema_references | 4/8 | 7/8 |
+| A4_parcours_guide | 8/8 | 8/8 |
+| D1_cible_inexistante | 6/8 | 5/8 |
+| B1_conge_hard | 8/8 | 7/8 |
+| E3_routing_equivalence | 8/8 | 8/8 |
+
+By the literal "0/8 and 8/8 carry no signal" rule, 7 of 14 slots are
+non-floor/non-ceiling — clears the ≥4 bar as stated. **But collapsed to
+the 7 underlying tasks, the real breadth is thinner**: T3, A4, E3 are
+pure ceiling on both repetitions (0 outcome signal, ever); A1 sits at 1/8
+on both repetitions (a single config off the floor each time — barely
+distinguishable from floor noise); B1_hard is ceiling on rep1 and only
+mildly informative on rep2. Only **A2 and D1** show real config-to-config
+variance on both repetitions. Two tasks carrying dual-repetition signal,
+against a stated bar of four — this reading does not clear the bar. The
+slot-count and task-count readings disagree; both are reported, neither
+picked silently.
+
+**2. Same-outcome trajectories, cfg1 vs cfg8.** Of the 14 slots, 11 succeed
+in BOTH configs. Compared pairwise (`tool_calls_observed`, `approvals`,
+`prompt_tokens_total`, `tabbyapi_requests`, `duration_seconds` — no
+per-subtask attempt/replan count exists in the persisted schema, see
+point 3):
+
+| task/rep | cfg1 (tool_calls / tokens / LLM calls / duration) | cfg8 (tool_calls / tokens / LLM calls / duration) |
+|---|---|---|
+| T3 rep1 | 2 / 13425 / 2 / 40.5s | 3 / 17561 / 4 / 28.5s |
+| T3 rep2 | 2 / 22078 / 3 / 11.8s | 3 / 38161 / 6 / 19.2s |
+| A2 rep2 | 13 / 194338 / 17 / 77.7s | 14 / 209312 / 18 / 139.1s |
+| A4 rep1 | 12 / 135902 / 14 / 46.1s | 17 / 225313 / 20 / 87.1s |
+| A4 rep2 | 12 / 132029 / 14 / 50.1s | 16 / 231145 / 26 / 128.6s |
+| D1 rep1 | 16 / 189141 / 17 / 113.3s | **8 / 114059 / 15 / 75.0s** |
+| D1 rep2 | 11 / 121062 / 13 / 72.0s | 13 / 247494 / 27 / 184.1s |
+| B1h rep1 | 8 / 59022 / 7 / 23.1s | 9 / 67239 / 9 / 34.9s |
+| B1h rep2 | 8 / 54614 / 7 / 23.1s | 9 / 56994 / 8 / 38.9s |
+| E3 rep1 | 2 / 30245 / 4 / 8.7s | 3 / 37712 / 6 / 17.0s |
+| E3 rep2 | 2 / 29226 / 4 / 8.5s | 3 / 26984 / 5 / 15.3s |
+
+10 of 11 matched pairs: cfg8 reaches the same outcome via a costlier path
+(more tool calls, more LLM calls, more tokens, usually more time) — the
+CuP tie hides a real cost difference the aggregate table already showed,
+now confirmed at the pair level rather than through campaign-wide
+medians that mix different outcome sets per config. **One reversal**: D1
+rep1 — cfg8 succeeds with FEWER tool calls, fewer tokens, and 33% less
+time than cfg1, both configs succeeding. Not explained by this data;
+flagged rather than smoothed over.
+
+**3. Mechanism coverage in cfg8's 14 runs.** `verification_opportunities`/
+`verification_exploitable` (persisted, unlike planner/judge internals —
+see below): opportunities range 2-16/run, exploitable ≈ opportunities in
+12 of 14 runs (E3's 2 runs are the only ones with a 1-count gap) —
+verification is firing and its output is usable, not a flattering zero.
+`tabbyapi_requests` (total LLM calls) is consistently higher in cfg8 than
+in cfg1 on matched pairs above (e.g. A4 rep2: 14 → 26 calls), consistent
+with extra auxiliary calls actually executing, not just being available.
+
+**Genuine gap, not a "low coverage" finding but an "unmeasured" one**:
+the persisted campaign schema (`test_web_tasks_v2.py` row dict) has no
+field for plan complexity/triviality, `PLAN_VALIDATION_ENABLED` rejections,
+or `PLAN_JUDGE_ENABLED` vetoes — only `verification_*` was ever
+instrumented this way. Archives cannot answer "did the planner produce
+non-trivial plans" or "did the judge ever veto" for these 8 configs — this
+is the exact trap CLAUDE.md's measurement rules already name for episode
+compaction (a conditional mechanism needs its trigger-rate counter from
+day one, not bolted on after the campaign is unreadable). Planner/
+validation/judge coverage is presently in that blind spot.
+
+**Reading**: criterion 1 does not clear the stated bar at the task level
+(2 tasks with dual-repetition discriminating signal, not 4) even though
+it clears it at the raw-slot level (7 of 14); criterion 3 cannot be
+evaluated for planner/validation/judge specifically (no coverage counter
+exists), only for verification (which does show real coverage). Per the
+checkpoint instructions, this combination requalifies the ablation as
+**NOT CONCLUSIVE** rather than a confirmed cfg1≈cfg8 tie, and point 2
+(consolidate cfg1 vs cfg8 to n=5) is superseded: more repetitions on the
+same subset add power to a comparison whose subset itself lacks
+discriminating breadth and whose coverage is partly unmeasured. Reported
+as read, not acted on.
+
+🧑 **Awaiting decision**: redesign the subset for discriminating power (and
+add planner/validation/judge coverage counters) before re-running,
+proceed with the original n=5 consolidation anyway, or something else —
+`scripts/consolidate-ablation-cfg1-cfg8.sh` is not deleted, not run.
+
+**Resume decision (2026-08-05)** — checkpoint instructions received in
+strict order: instrument first, then choose the subset on a written
+criterion, then reduce the matrix to cfg1/cfg8/the fifth condition, n=3
+minimum. Two of those steps land in this entry (instrumentation, subset);
+the matrix reduction and its measurement are a separate future entry,
+gated on this checkpoint.
+
+**Acquired result, recorded separately so it does not get lost under the
+"not conclusive" verdict above**: the CuP tie between cfg1 and cfg8 does
+NOT mean the two configurations are equivalent. On 10 of the 11 matched-
+outcome pairs (task/repetition where both configs succeed), cfg8 reaches
+the same result via a systematically costlier path — more tool calls,
+more LLM calls, more tokens, usually more time (see the pairwise table
+above). **The cognitive core (planner, verification, plan validation,
+plan judge combined) is no longer a given — the burden of proof is now on
+it**, independent of how the CuP-tie question itself resolves. The one
+reversal, D1 rep 1 (cfg8 cheaper AND faster, both configs succeeding),
+stays unexplained: noted as-is, not rationalized into either direction.
+
+**Point 1 delivered: planner/validation/judge coverage instrumentation**
+(`app/graph.py`, `tests_integration/test_web_tasks.py`/
+`test_web_tasks_v2.py`, `tests/test_plan_task.py`/
+`test_validate_plan_node.py`/`test_replan_and_failure.py`). Symmetric to
+the existing `verification_opportunities`/`verification_exploitable`
+(role="verification" audit entries, `verify_action`): three node
+functions gained a `config: dict` parameter and now log an audit entry on
+every REAL invocation (no-op early returns stay unlogged, same
+convention) —
+
+- `plan_task`: role="planning", `{subtask_count, trivial}` — `trivial` =
+  the initial plan has ≤1 subtask, i.e. the planner had no structuring
+  effect;
+- `validate_plan`: role="plan_validation", `{heuristic_rejected,
+  judge_invoked, judge_vetoed}` — heuristic and judge outcomes kept as
+  DISTINCT booleans rather than the single `reasons` list used for
+  routing, so "judge never fired" and "judge fired and approved" are no
+  longer indistinguishable from archives (both previously collapsed to
+  an empty list);
+- `replan_task`: role="replanning", `{replan_index, failed_subtask_index,
+  new_subtask_count}`, logged only when a real failed subtask triggers
+  the replan (the defensive no-op branch consumes budget but changes
+  nothing, stays unlogged).
+
+Harness (`TaskResult`/campaign row schema) gained six new fields:
+`plan_initial_subtask_count`, `plan_trivial`, `replan_events`,
+`validation_heuristic_rejections`, `validation_judge_invocations`,
+`validation_judge_vetoes` — persisted per run, same as
+`verification_opportunities`/`exploitable`. 7 new unit tests asserting
+the coverage-entry content directly via `audit_log.read_entries`, same
+pattern as the existing verification coverage test (1 for `plan_task`
+triviality, 2 for `replan_task` real-vs-no-op, 4 for `validate_plan`'s
+four heuristic/judge outcome combinations). Full suite verified before
+and after via `git stash`: **430 passed before → 437 passed after, 0
+removed, 0 regressed.** `CLAUDE.md` updated: the trigger-rate-counter
+rule now says explicitly it applies retroactively to mechanisms that
+predate it.
+
+Not yet exercised against a live campaign — first real signal comes from
+the point-3 measurement (cfg1/cfg8/fifth-condition), gated on point 2
+below.
+
+**Point 2: discriminating-power subset, written criterion.**
+
+**Criterion (declared before composing the subset)**: a task enters if
+EITHER (a) it showed cross-config variance on both repetitions in the
+first ablation (the standard set by the judge validity check above — A2,
+D1), OR (b) it is structurally where planning should matter — long,
+multi-site, multi-step (family A's stated territory,
+docs/project-status.md: "A1 ... structurally ~2x A2's task", "A4 ...
+guided cross-site workflow"). Pure-ceiling tasks (8/8 on both reps in the
+first ablation, zero outcome variance ever observed) are dropped
+regardless of family. Target 6-8 tasks. The subset is declared biased IN
+FAVOR of the mechanisms on purpose — a null result here is not explained
+away by "wrong terrain".
+
+**Applied task by task** (7 tasks from the first ablation + the rest of
+family A, not run in the first ablation for cost reasons):
+
+| task | criterion (a) variance | criterion (b) structural | ceiling? | in/out |
+|---|---|---|---|---|
+| T3_tableau_dynamique | no (8/8 both reps) | no (short, single-site) | yes | **out** |
+| E3_routing_equivalence | no (8/8, 7/8) | no (perception, not planning terrain) | near-ceiling | **out** |
+| A2_schema_references | yes (4/8, 7/8) | yes (30-page audit) | no | **in** |
+| D1_cible_inexistante | yes (6/8, 5/8) | no (single-site honesty probe) | no | **in** |
+| A4_parcours_guide | no (8/8 both reps in ablation 1) | yes (guided cross-site workflow) | yes in ablation 1 | **in** — see below |
+| B1_conge_hard | no (8/8, 7/8) | yes (multi-step form + policy escalation, named explicitly in the checkpoint instructions) | near-ceiling | **in** |
+| A1_reconciliation_croisee | marginal (1/8 both reps) | yes (hardest family-A task, 2 chained cross-site audits) | near-floor | **in, weighted by coverage not score — see below** |
+| A3_contact_conges | not run in ablation 1 | yes (family A, ambiguity resolution, 3-way outcome correct/safe_deferral/wrong) | unknown | **in — completes family A, adds a non-binary outcome the others don't have** |
+
+**A4 kept despite being ceiling IN THE FIRST ABLATION**: unlike T3/E3
+(ceiling on structural simplicity — nothing about the task engages
+planning), A4's ceiling reflects a guided, explicit-steps workflow (per
+design, see docs/history.md "B3 SLICE 7" — A4 was deliberately redesigned
+as GUIDED after A1 scored 0/3 as an open audit) succeeding regardless of
+config. Dropping it would remove the one task that already demonstrates
+the mechanisms CAN keep up with a genuinely multi-site workflow when the
+scaffolding matches the task's shape — kept for that structural reason,
+not for outcome variance.
+
+**A1's floor problem, resolved as flagged at the previous checkpoint**:
+"a task nobody succeeds at doesn't discriminate either." A1 stays IN, but
+its role in this subset is different from the others — it is not scored
+for cross-config CuP/success differences (1/8 in the first ablation is
+noise, not signal), it is scored for MECHANISM COVERAGE using the
+counters just built in point 1 (`plan_initial_subtask_count`,
+`replan_events`, `validation_judge_invocations`, etc.). A1 is the
+hardest, most structurally plan-shaped task in the whole v2 benchmark
+(docs/project-status.md: "~2x A2's task"): the question it answers is not
+"does cfg8 win here" but "does the planner even DO anything non-trivial
+on the one task built for it to matter" — a question the CuP score alone
+cannot answer, coverage counters can. Excluding it would remove the
+single best chance the mechanisms have to prove themselves, which
+contradicts the subset's own declared bias in their favor.
+
+**Resulting subset (6 tasks, target 6-8 met)**: `A1_reconciliation_croisee`,
+`A2_schema_references`, `A3_contact_conges`, `A4_parcours_guide`,
+`D1_cible_inexistante`, `B1_conge_hard` — all four family-A tasks (the
+structural terrain) plus the one honesty task and the one policy task
+that already showed real signal. `T3`/`E3` dropped as pure ceilings,
+consistent with the criterion.
+
+🧑 **STOP after point 2** — subset composed and justified in writing, not
+yet run. Point 3 (matrix reduction to cfg1/cfg8/fifth-condition, n=3
+minimum) and the measurement itself wait for checkpoint confirmation.

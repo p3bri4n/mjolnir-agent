@@ -25,12 +25,13 @@
 11. Code/doc language ("restructuring + English" effort, see
     `docs/briefs/`): new content in English — docstrings, comments,
     non-exposed internal identifiers, README/CLAUDE.md/PLAN.md/docs.
-    Stays in French: system prompts/directives sent to the model and
-    benchmark task prompts (behavior, not documentation — translated in
-    an isolated phase 6, never mixed with a refactor); already-written
-    entries of `docs/history.md`/`docs/resolved-bugs.md` (dated
-    archives); approval messages/user-facing notices (separate decision
-    to come).
+    **Always write documents in English** — this includes new entries in
+    `docs/history.md`/`docs/resolved-bugs.md`: only their already-written
+    (dated) entries stay French as archives, never used as a template for
+    new ones. Stays in French: system prompts/directives sent to the
+    model and benchmark task prompts (behavior, not documentation —
+    translated in an isolated phase 6, never mixed with a refactor);
+    approval messages/user-facing notices (separate decision to come).
 12. Measurement rules:
     - one variable per experiment; each mechanism has its judge designated
       BEFORE the measurement. If a technical coupling forces two changes
@@ -52,6 +53,14 @@
       episode compaction, docs/campaigns/2026-07-28_campaign_episode-
       compaction-enabled.md, requalified "non concluante" once this
       counter was added retroactively and showed a 9-15% trigger rate).
+      This rule applies retroactively to mechanisms that predate it, not
+      just new ones: the planner/plan validation/plan judge shipped
+      without a coverage counter, and that exact gap requalified the
+      first cognitive-core ablation campaign as not conclusive — see
+      docs/history.md, EFFORT 2 "judge validity check". An existing
+      conditional mechanism found without a trigger-rate counter is a
+      blocker for the NEXT measurement that depends on it, not a
+      pre-existing condition to work around.
     - the brief before the code: every effort's instructions are written
       in `docs/briefs/` and committed before the first line. A closed
       effort gets a status header (result, deviations from the brief) and
@@ -119,6 +128,38 @@ single-variable validation campaign:
 - No campaign starts without a green preflight (tool schema, image
   freshness, effective flags, resets and purges). A campaign started on
   an unverified stack is void.
+- Claude's own sandbox has no GPU and cannot run the stack's Docker
+  containers (`docker compose up`, live campaigns, anything touching
+  TabbyAPI/fixtures). For any task requiring this, write a script under
+  `scripts/` (or hand over a self-contained shell snippet) and give the
+  user a single command to run it themselves on their machine — never
+  attempt the container/GPU action directly, and never fabricate or
+  assume its result.
+
+## Scripts (`scripts/`)
+
+- `docker-menu.sh` — interactive whiptail menu (start/stop/rebuild/logs
+  per service). Manual/exploratory use, not for unattended runs.
+- `last-chat.sh` — read-only debug: reconstructs the last Open WebUI
+  conversation(s) from `webui.db`. Use instead of ad hoc sqlite queries
+  when debugging a specific run.
+- `run-campaign.sh` — the reference harness runner (v1/v2 suite, smoke or
+  full, pause/resume). One env config per invocation: use directly for a
+  single measurement (baseline, before/after a fix, a checkpoint's
+  closing campaign).
+- `run-flag-sweep.sh` — generic multi-config driver, wraps
+  `run-campaign.sh` once per entry in its `CONFIGS` block (env-var combos
+  to compare, e.g. the cognitive-core flags ablation). Edit the block in
+  place per sweep rather than passing flags — sweeps differ campaign to
+  campaign, not worth a CLI. Use when a measurement needs several env
+  configurations compared, not just one.
+
+This list evolves with the project — update it when a script is added,
+renamed, or retired, don't treat it as frozen. One-off campaign scripts
+(named after their effort) are expected to be short-lived: generalize
+into `run-flag-sweep.sh`'s `CONFIGS` pattern once a second use case
+confirms it's worth keeping, or delete it once its campaign concludes —
+don't let single-use scripts accumulate in `scripts/`.
 
 
 # Context
