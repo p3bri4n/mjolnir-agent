@@ -1,0 +1,37 @@
+{
+  "campaign_id": "20260806T093238Z-point3-smoke-a2-schema-references",
+  "completed": [
+    {
+      "approvals": 4,
+      "cup": null,
+      "duration_s": 92.2,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A2_schema_references",
+      "thread_id": "d48c2b4167d92739",
+      "tool_calls": 12
+    }
+  ],
+  "config_digest": "ea77f6752416bdd2",
+  "current": null,
+  "label": "point3-smoke-A2_schema_references",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "A2_schema_references"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-08-06T09:34:10.782313+00:00",
+      "index": 0,
+      "started_at": "2026-08-06T09:32:38.277719+00:00"
+    }
+  ],
+  "started_at": "2026-08-06T09:32:38.277719+00:00",
+  "total_runs": 1
+}

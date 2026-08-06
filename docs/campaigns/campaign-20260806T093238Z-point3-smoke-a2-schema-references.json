@@ -1,0 +1,210 @@
+{
+  "metadata": {
+    "commit": "06335c2c7ee9b8854c75fd67e4c1815523d0e266",
+    "ended_at": "2026-08-06T09:34:10.782534+00:00",
+    "env_flags": {
+      "ADAPTIVE_THINKING": "true",
+      "AFFORDANCE_THRESHOLD": "60",
+      "APPROVAL_RULES_PATH": "",
+      "AUDIT_LOG_MAX_BYTES": "20971520",
+      "AUTO_APPROVAL_STREAK_LIMIT": "6",
+      "AUTO_APPROVED_TOOLS": "",
+      "BROWSER_NAVIGATE_GUARDRAIL": "true",
+      "BROWSER_TOOL_OUTPUT_MAX_CHARS": "8000",
+      "EPISODE_COMPACTION_ENABLED": "false",
+      "EPISODE_COMPACTION_TURN_THRESHOLD": "40",
+      "FABRICATION_LIMIT": "5",
+      "IMAGE_FORMAT_PASSTHROUGH": "",
+      "IMAGE_TOKEN_ESTIMATE": "1500",
+      "LLM_MAX_TOKENS": "2048",
+      "MAX_EMPTY_ANSWER_RETRIES": "1",
+      "MAX_IMAGES_IN_CONTEXT": "1",
+      "MAX_TOOL_ITERATIONS": "20",
+      "NEVER_GRANTABLE_TOOLS_EXTRA": "browser_click",
+      "PLANNER_ENABLED": "false",
+      "PLANNER_MAX_TOKENS": "8192",
+      "PLANNER_THINKING_ENABLED": "false",
+      "PLAN_JUDGE_ENABLED": "false",
+      "PLAN_VALIDATION_ENABLED": "false",
+      "REPLAN_BUDGET": "2",
+      "SUBTASK_ATTEMPT_BUDGET": "3",
+      "TZ": "Europe/Paris",
+      "VERIFICATION_ENABLED": "false"
+    },
+    "image_ids": {
+      "langgraph-agent": "sha256:60dc93462e6061d8da551021738fba30db194fd69ec89c1331a81998ac731eab",
+      "mcp-client": "sha256:882ae541e1f656858ed0850ef21f6c298888958537fdf09aa2e2a4443713d1c3",
+      "playwright-mcp": "sha256:8771dc4666e7c11440bfc6a0c6b00480e9a15b8891b45f29a52d7d995f8d1492",
+      "tabbyapi": "sha256:7ecf8c27484305df6375ce4fe83e6406b73d4d459e78cf6b32fc1941181ae139"
+    },
+    "label": "point3-smoke-A2_schema_references",
+    "started_at": "2026-08-06T09:32:38.277719+00:00",
+    "tabbyapi_model_id": "agent-llm"
+  },
+  "runs": [
+    {
+      "approvals": 4,
+      "cache_zero_requests": 0,
+      "cup": null,
+      "detail": "3 références non conformes trouvées",
+      "duration_seconds": 92.2,
+      "episode_compaction_applied_count": 0,
+      "episode_compaction_messages_max": 33,
+      "fabricated_urls": [],
+      "failure_cause": "",
+      "final_text": "I now have all the references. Let me analyze them against the format PX-#### (prefix \"PX-\" followed by exactly 4 digits).\n\nThe valid format is: PX-#### (exactly 4 digits)\nException: KX-4471 is documented as valid.\n\nLet me check each reference:\n1. PX-1001 ✓\n2. PX-1002 ✓\n3. PX-1003 ✓\n4. PX-1004 ✓\n5. PX-77 ✗ (only 2 digits, not 4)\n6. PX-1006 ✓\n7. PX-1007 ✓\n8. PX-1008 ✓\n9. PX-1009 ✓\n10. PX-1010 ✓\n11. PX-1011 ✓\n12. PX-1012 ✓\n13. PX-1013 ✓\n14. KX-4471 ✓ (documented exception)\n15. PX-1015 ✓\n16. PX-1016 ✓\n17. PX-1017 ✓\n18. REF-1023 ✗ (wrong prefix, not PX-)\n19. PX-1019 ✓\n20. PX-1020 ✓\n21. PX-1021 ✓\n22. PX-1022 ✓\n23. PX-1023 ✓\n24. PX-1024 ✓\n25. PX-1025 ✓\n26. PX-1026 ✓\n27. PX-102750 ✗ (6 digits, not 4)\n28. PX-1028 ✓\n29. PX-1029 ✓\n30. PX-1030 ✓\n\nSo the 3 references that don't follow the format are:\n1. PX-77 (product-5.html) - only 2 digits instead of 4\n\n\n2. REF-1023 (product-18.html) - wrong prefix (REF- instead of PX-)\n3. PX-102750 (product-27.html) - 6 digits instead of 4\n\nI've identified three violations: one with insufficient digits, one with an incorrect prefix, and one with too many digits.\n</think>\n\n\n\nJ'ai toutes les références. Analysons-les par rapport au format **PX-####** (préfixe \"PX-\" suivi de exactement 4 chiffres), avec l'exception documentée **KX-4471**.\n\nVoici les 30 références extraites :\n\n| Produit | Référence | Conforme ? |\n|---------|-----------|------------|\n| #1 | PX-1001 | ✅ |\n| #2 | PX-1002 | ✅ |\n| #3 | PX-1003 | ✅ |\n| #4 | PX-1004 | ✅ |\n| **#5** | **PX-77** | ❌ |\n| #6 | PX-1006 | ✅ |\n| #7 | PX-1007 | ✅ |\n| #8 | PX-1008 | ✅ |\n| #9 | PX-1009 | ✅ |\n| #10 | PX-1010 | ✅ |\n| #11 | PX-1011 | ✅ |\n| #12 | PX-1012 | ✅ |\n| #13 | PX-1013 | ✅ |\n| #14 | KX-4471 | ✅ (exception documentée) |\n| #15 | PX-1015 | ✅ |\n| #16 | PX-1016 | ✅ |\n| #17 | PX-1017 | ✅ |\n| **#18** | **REF-1023** | ❌ |\n| #19 | PX-1019 | ✅ |\n| #20 | PX-1020 | ✅ |\n| #21 | PX-1021 | ✅ |\n| #22 | PX-1022 | ✅ |\n| #23 | PX-1023 | ✅ |\n| #24 | PX-1024 | ✅ |\n| #25 | PX-1025 | ✅ |\n| #26 | PX-1026 | ✅ |\n| **#27** | **PX-102750** | ❌ |\n| #28 | PX-1028 | ✅ |\n| #29 | PX-1029 | ✅ |\n| #30 | PX-1030 | ✅ |\n\n---\n\n## Les 3 références non conformes\n\n1. **`PX-77`** — Produit #5 (*Robuste Chaise #5*, `product-5.html`) : le préfixe est correct mais il n'y a que **2 chiffres** au lieu de 4.\n\n2. **`REF-1023`** — Produit #18 (*Robuste Chaise #18*, `product-18.html`) : le préfixe est **`REF-`** au lieu de **`PX-`**.\n\n3. **`PX-102750`** — Produit #27 (*Moderne Étagère #27*, `product-27.html`) : le préfixe est correct mais il y a **6 chiffres** au lieu de 4.",
+      "merged_plan_calls": 0,
+      "merged_plan_completions": 0,
+      "merged_plan_heuristic_rejections": 0,
+      "merged_plan_initial_subtask_count": null,
+      "merged_plan_replans": 0,
+      "plan_initial_subtask_count": null,
+      "plan_trivial": null,
+      "prefill_seconds": 16.37,
+      "prompt_tokens_total": 178276,
+      "repetition": 1,
+      "replan_events": 0,
+      "segment": 0,
+      "success": true,
+      "tabbyapi_raw_samples": [
+        {
+          "cached_tokens": 6400,
+          "generation_seconds": 1.46,
+          "new_tokens": 206,
+          "process_speed_tps": 515.0,
+          "queue_seconds": 0.03,
+          "tokens_generated": 67
+        },
+        {
+          "cached_tokens": 6400,
+          "generation_seconds": 1.27,
+          "new_tokens": 453,
+          "process_speed_tps": 656.52,
+          "queue_seconds": 0.03,
+          "tokens_generated": 40
+        },
+        {
+          "cached_tokens": 6656,
+          "generation_seconds": 3.5,
+          "new_tokens": 2070,
+          "process_speed_tps": 995.19,
+          "queue_seconds": 0.03,
+          "tokens_generated": 93
+        },
+        {
+          "cached_tokens": 8704,
+          "generation_seconds": 0.92,
+          "new_tokens": 249,
+          "process_speed_tps": 732.35,
+          "queue_seconds": 0.03,
+          "tokens_generated": 35
+        },
+        {
+          "cached_tokens": 8704,
+          "generation_seconds": 3.83,
+          "new_tokens": 631,
+          "process_speed_tps": 760.24,
+          "queue_seconds": 0.03,
+          "tokens_generated": 192
+        },
+        {
+          "cached_tokens": 9216,
+          "generation_seconds": 1.3,
+          "new_tokens": 485,
+          "process_speed_tps": 673.61,
+          "queue_seconds": 0.03,
+          "tokens_generated": 33
+        },
+        {
+          "cached_tokens": 9472,
+          "generation_seconds": 1.76,
+          "new_tokens": 411,
+          "process_speed_tps": 604.41,
+          "queue_seconds": 0.03,
+          "tokens_generated": 72
+        },
+        {
+          "cached_tokens": 9728,
+          "generation_seconds": 1.33,
+          "new_tokens": 356,
+          "process_speed_tps": 613.79,
+          "queue_seconds": 0.03,
+          "tokens_generated": 45
+        },
+        {
+          "cached_tokens": 9984,
+          "generation_seconds": 6.96,
+          "new_tokens": 802,
+          "process_speed_tps": 826.8,
+          "queue_seconds": 0.03,
+          "tokens_generated": 340
+        },
+        {
+          "cached_tokens": 10752,
+          "generation_seconds": 1.37,
+          "new_tokens": 503,
+          "process_speed_tps": 679.73,
+          "queue_seconds": 0.03,
+          "tokens_generated": 30
+        },
+        {
+          "cached_tokens": 11008,
+          "generation_seconds": 2.54,
+          "new_tokens": 988,
+          "process_speed_tps": 796.77,
+          "queue_seconds": 0.03,
+          "tokens_generated": 82
+        },
+        {
+          "cached_tokens": 11776,
+          "generation_seconds": 1.34,
+          "new_tokens": 431,
+          "process_speed_tps": 615.71,
+          "queue_seconds": 0.03,
+          "tokens_generated": 39
+        },
+        {
+          "cached_tokens": 12032,
+          "generation_seconds": 7.25,
+          "new_tokens": 889,
+          "process_speed_tps": 786.73,
+          "queue_seconds": 0.03,
+          "tokens_generated": 489
+        },
+        {
+          "cached_tokens": 12800,
+          "generation_seconds": 6.97,
+          "new_tokens": 3222,
+          "process_speed_tps": 866.13,
+          "queue_seconds": 0.03,
+          "tokens_generated": 177
+        },
+        {
+          "cached_tokens": 15872,
+          "generation_seconds": 1.42,
+          "new_tokens": 457,
+          "process_speed_tps": 593.51,
+          "queue_seconds": 0.03,
+          "tokens_generated": 37
+        },
+        {
+          "cached_tokens": 16128,
+          "generation_seconds": 9.74,
+          "new_tokens": 491,
+          "process_speed_tps": 629.49,
+          "queue_seconds": 0.03,
+          "tokens_generated": 498
+        }
+      ],
+      "tabbyapi_requests": 16,
+      "task_id": "A2_schema_references",
+      "thread_id": "d48c2b4167d92739",
+      "tool_calls_observed": 12,
+      "validation_heuristic_rejections": 0,
+      "validation_judge_invocations": 0,
+      "validation_judge_vetoes": 0,
+      "verification_exploitable": 0,
+      "verification_opportunities": 0
+    }
+  ]
+}

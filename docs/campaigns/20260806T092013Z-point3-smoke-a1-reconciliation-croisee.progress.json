@@ -1,0 +1,28 @@
+{
+  "campaign_id": "20260806T092013Z-point3-smoke-a1-reconciliation-croisee",
+  "completed": [],
+  "config_digest": "ea77f6752416bdd2",
+  "current": {
+    "repetition": 1,
+    "started_at": "2026-08-06T09:20:13.890985+00:00",
+    "task_id": "A1_reconciliation_croisee",
+    "thread_id": "b68adefb390b32fb"
+  },
+  "label": "point3-smoke-A1_reconciliation_croisee",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "A1_reconciliation_croisee"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": null,
+      "index": 0,
+      "started_at": "2026-08-06T09:20:13.890742+00:00"
+    }
+  ],
+  "started_at": "2026-08-06T09:20:13.890742+00:00",
+  "total_runs": 1
+}
