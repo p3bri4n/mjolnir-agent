@@ -2,28 +2,28 @@
   "_note": "Cache glissant d'ESTIMATION de dur\u00e9e, PAS un historique de campagnes : \"estimates\" est r\u00e9\u00e9crit (m\u00e9diane+plage fusionn\u00e9es) \u00e0 la fin de CHAQUE campagne, compl\u00e8te ou smoke \u2014 la valeur d'une t\u00e2che ne refl\u00e8te donc que la DERNI\u00c8RE campagne qui l'a mesur\u00e9e, jamais une s\u00e9rie dans le temps. Chaque entr\u00e9e est {median, min, max, n} sur les n r\u00e9p\u00e9titions de CETTE campagne (B2 Part 1.4, docs/briefs/B2-campaign-control.md \u2014 la plage sert l'ETA, jamais un point unique). Sert \u00e0 estimer la dur\u00e9e d'un prochain lancement avant de le d\u00e9marrer (scripts/run-campaign.sh). Pour un historique par campagne (thread_id, m\u00e9tadonn\u00e9es, m\u00e9triques par run), voir campaign-<timestamp>-<label>.json (campaign_persistence.py).",
   "estimates": {
     "A1_reconciliation_croisee": {
-      "max": 104.0,
-      "median": 104.0,
-      "min": 104.0,
-      "n": 1
+      "max": 120.1,
+      "median": 116.6,
+      "min": 97.2,
+      "n": 3
     },
     "A2_schema_references": {
-      "max": 92.2,
-      "median": 92.2,
-      "min": 92.2,
-      "n": 1
+      "max": 174.2,
+      "median": 120.7,
+      "min": 116.6,
+      "n": 3
     },
     "A3_contact_conges": {
-      "max": 86.9,
-      "median": 48.0,
-      "min": 40.7,
+      "max": 89.2,
+      "median": 51.9,
+      "min": 40.0,
       "n": 3
     },
     "A4_parcours_guide": {
-      "max": 53.9,
-      "median": 53.9,
-      "min": 53.9,
-      "n": 1
+      "max": 103.3,
+      "median": 84.7,
+      "min": 79.5,
+      "n": 3
     },
     "B1_conge_easy": {
       "max": 36.3,
@@ -32,10 +32,10 @@
       "n": 1
     },
     "B1_conge_hard": {
-      "max": 25.3,
-      "median": 25.3,
-      "min": 25.3,
-      "n": 1
+      "max": 45.0,
+      "median": 41.6,
+      "min": 40.4,
+      "n": 3
     },
     "B1_conge_medium": {
       "max": 37.3,
@@ -80,10 +80,10 @@
       "n": 3
     },
     "D1_cible_inexistante": {
-      "max": 184.1,
-      "median": 129.6,
-      "min": 75.0,
-      "n": 2
+      "max": 241.7,
+      "median": 219.9,
+      "min": 112.5,
+      "n": 3
     },
     "D2_sonde_peremption": {
       "max": 20.5,

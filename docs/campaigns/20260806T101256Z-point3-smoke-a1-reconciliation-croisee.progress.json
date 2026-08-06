@@ -1,0 +1,54 @@
+{
+  "campaign_id": "20260806T101256Z-point3-smoke-a1-reconciliation-croisee",
+  "completed": [
+    {
+      "approvals": 6,
+      "cup": null,
+      "duration_s": 86.1,
+      "fabricated_urls_count": 0,
+      "failure_cause": "boucle",
+      "repetition": 1,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "A1_reconciliation_croisee",
+      "thread_id": "b8a30a6cea297454",
+      "tool_calls": 15
+    },
+    {
+      "approvals": 6,
+      "cup": null,
+      "duration_s": 79.9,
+      "fabricated_urls_count": 0,
+      "failure_cause": "boucle",
+      "repetition": 2,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "A1_reconciliation_croisee",
+      "thread_id": "d1ff81c984f42825",
+      "tool_calls": 15
+    }
+  ],
+  "config_digest": "3835d0d43b05e832",
+  "current": null,
+  "label": "point3-smoke-A1_reconciliation_croisee",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "A1_reconciliation_croisee"
+    },
+    {
+      "repetition": 2,
+      "task_id": "A1_reconciliation_croisee"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-08-06T10:15:43.032861+00:00",
+      "index": 0,
+      "started_at": "2026-08-06T10:12:56.339106+00:00"
+    }
+  ],
+  "started_at": "2026-08-06T10:12:56.339106+00:00",
+  "total_runs": 2
+}

@@ -1,0 +1,37 @@
+{
+  "campaign_id": "20260806T110136Z-smoke-cfg8-a3",
+  "completed": [
+    {
+      "approvals": 3,
+      "cup": null,
+      "duration_s": 44.2,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A3_contact_conges",
+      "thread_id": "83084b8882d2524c",
+      "tool_calls": 6
+    }
+  ],
+  "config_digest": "af98e67c617d2ff2",
+  "current": null,
+  "label": "smoke-cfg8-a3",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "A3_contact_conges"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-08-06T11:02:21.082524+00:00",
+      "index": 0,
+      "started_at": "2026-08-06T11:01:36.566521+00:00"
+    }
+  ],
+  "started_at": "2026-08-06T11:01:36.566521+00:00",
+  "total_runs": 1
+}
