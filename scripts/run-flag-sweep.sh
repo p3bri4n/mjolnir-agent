@@ -31,21 +31,24 @@ AGENT_DIR="$PROJECT_DIR/services/langgraph-agent"
 cd "$PROJECT_DIR"
 
 # ─────────────────────────────────────────────────────────────────────────
-# Edit per sweep — currently effort 2 point 3 (docs/history.md, "EFFORT 2"
-# point 2/point 3): the discriminating-power subset (6 tasks, point 2) x
-# 3 configs — cfg1/cfg8 (the decisive pair from the first 8-config sweep)
-# plus cfg9, the 5th condition (merged planning, PLANNING_MODE="merged").
-# n=3 (point 3's stated minimum).
+# Edit per sweep — currently effort 2, back to its original 2-config
+# question after point 3's cfg9 (merged planning) was closed out and
+# dropped (docs/history.md, "EFFORT 2", fifth-condition diagnostic,
+# 2026-08-06): three variables tested in isolation (dedicated planner
+# off, visible/editable plan document, tool position in the schema) each
+# moved the needle on adoption somewhat, but never produced mid-task
+# REVISION — the trait that distinguishes AgentOccam's pattern from a
+# classic planner and the entire premise of "keep the value, cut the
+# cost." No effect on task success either. cfg9 retired, not carried into
+# this sweep.
 #
-# ON HOLD (2026-08-06, see docs/history.md "EFFORT 2", "Live smoke run by
-# the user"): 6 live smokes (scripts/point3-smoke.sh) all show
-# merged_plan_calls=0 — the model never calls manage_plan regardless of
-# task or directive strength (a strengthened, reordered-first directive
-# was tried and made no difference). Launching this sweep as-is would
-# measure cfg9 behaving as cfg1 under a different label, not test the
-# merged-planning hypothesis. Block below is left in its full, ready-to-
-# run state for whenever a redesign decision is made — do not launch
-# without first re-reading that history.md entry.
+# This is therefore the ORIGINAL decisive question again: cfg1-all-off
+# vs cfg8-all-on on the discriminating-power subset (6 tasks, point 2),
+# n=3 — the measurement that decides the cognitive core's fate. Planner/
+# validation/judge coverage counters (plan_initial_subtask_count,
+# replan_events, validation_judge_invocations/_vetoes) already ship on
+# every run regardless of this sweep (test_web_tasks.py) — no new
+# counter needed before launching.
 # ─────────────────────────────────────────────────────────────────────────
 SUITE="v2"
 REPS="3"
@@ -56,7 +59,6 @@ PREFLIGHT_CHECKED_VARS=(PLANNER_ENABLED VERIFICATION_ENABLED PLAN_VALIDATION_ENA
 CONFIGS=(
   "cfg1-all-off:PLANNER_ENABLED=false,VERIFICATION_ENABLED=false,PLAN_VALIDATION_ENABLED=false,PLAN_JUDGE_ENABLED=false,PLANNING_MODE=nodes,NEVER_GRANTABLE_TOOLS_EXTRA=browser_click"
   "cfg8-all-on:PLANNER_ENABLED=true,VERIFICATION_ENABLED=true,PLAN_VALIDATION_ENABLED=true,PLAN_JUDGE_ENABLED=true,PLANNING_MODE=nodes,NEVER_GRANTABLE_TOOLS_EXTRA=browser_click"
-  "cfg9-merged-planning:PLANNER_ENABLED=false,VERIFICATION_ENABLED=false,PLAN_VALIDATION_ENABLED=false,PLAN_JUDGE_ENABLED=false,PLANNING_MODE=merged,NEVER_GRANTABLE_TOOLS_EXTRA=browser_click"
 )
 # ─────────────────────────────────────────────────────────────────────────
 
