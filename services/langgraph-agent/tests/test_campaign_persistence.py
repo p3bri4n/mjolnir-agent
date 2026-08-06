@@ -70,6 +70,36 @@ def test_collect_env_flags_filters_to_known_keys(monkeypatch):
     assert "PATH" not in flags
 
 
+def test_collect_metadata_merges_mcp_client_env_flags(monkeypatch):
+    """CAMPAIGN_VISUAL_CAPTURE (docs/briefs/campaign-visual-feedback.md)
+    lives on mcp-client, not langgraph-agent — collect_metadata must query
+    BOTH containers and merge into one flat env_flags dict. fake_run must
+    handle every _run() call collect_metadata makes (git rev-parse, docker
+    inspect ×4 containers, docker exec tabbyapi python3, docker exec env
+    ×2) — matched by shape, not just "exec", since several of those also
+    contain "exec" at a different position."""
+
+    class _Result:
+        returncode = 0
+
+        def __init__(self, stdout):
+            self.stdout = stdout
+
+    def fake_run(args, **kwargs):
+        if len(args) >= 4 and args[0] == "docker" and args[1] == "exec" and args[-1] == "env":
+            container = args[2]
+            if container == cp.MCP_CLIENT_CONTAINER:
+                return _Result("CAMPAIGN_VISUAL_CAPTURE=true\nPATH=/usr/bin\n")
+            return _Result("PLANNER_ENABLED=true\n")
+        return _Result("")
+
+    monkeypatch.setattr(cp.subprocess, "run", fake_run)
+    metadata = cp.collect_metadata("Campagne test")
+
+    assert metadata["env_flags"]["PLANNER_ENABLED"] == "true"
+    assert metadata["env_flags"]["CAMPAIGN_VISUAL_CAPTURE"] == "true"
+
+
 def test_campaign_env_flags_includes_planning_mode():
     """CAMPAIGN_ENV_FLAGS (drives what's persisted to a campaign's archived
     env_flags) and EXPECTED_AGENT_FLAGS (campaign_preflight.py, drives the

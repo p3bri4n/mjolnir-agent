@@ -58,6 +58,13 @@ from typing import Callable, Optional
 
 AGENT_CONTAINER = "langgraph-agent"
 TABBYAPI_CONTAINER = "tabbyapi"
+MCP_CLIENT_CONTAINER = "mcp-client"
+
+# CAMPAIGN_VISUAL_CAPTURE (docs/briefs/campaign-visual-feedback.md) lives on
+# mcp-client, not langgraph-agent — a separate small list rather than folding
+# it into CAMPAIGN_ENV_FLAGS below, which collect_env_flags() always reads
+# from AGENT_CONTAINER by default.
+MCP_CLIENT_ENV_FLAGS = ["CAMPAIGN_VISUAL_CAPTURE"]
 
 # Union de tous les os.environ.get(...) trouvés dans services/langgraph-agent/
 # app/*.py (voir grep ayant servi à établir cette liste) : les flags qui
@@ -179,11 +186,17 @@ def collect_env_flags(container: str = AGENT_CONTAINER, flags: list = None) -> d
 
 
 def collect_metadata(label: str, repo_dir: Optional[Path] = None) -> dict:
+    # env_flags merges TWO containers' env into one flat dict — preflight/
+    # the dashboard already read it that way (name -> value, unaware of
+    # which container each came from), same precedent as the
+    # CAMPAIGN_ENV_FLAGS/EXPECTED_AGENT_FLAGS split documented in
+    # docs/resolved-bugs.md #48.
+    env_flags = {**collect_env_flags(), **collect_env_flags(MCP_CLIENT_CONTAINER, MCP_CLIENT_ENV_FLAGS)}
     return {
         "commit": git_commit(repo_dir),
         "image_ids": collect_image_digests(),
         "tabbyapi_model_id": fetch_tabbyapi_model_id(),
-        "env_flags": collect_env_flags(),
+        "env_flags": env_flags,
         "label": label,
     }
 
