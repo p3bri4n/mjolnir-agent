@@ -177,6 +177,35 @@ this reading.
 
 🧑 Checkpoint before any removal — reported, not yet acted on.
 
+**2.3 — planned, not started: `browser_extract` dt/dd fix (blocks 2.4).**
+Named by the A1 trajectory diagnostic (docs/history.md, "A1 — TRAJECTORY
+DIAGNOSTIC"): `browser_extract`'s query-matching returns a matched label
+(`Prix`, `Référence`) but not its adjacent value, forcing every run
+(A1's 6/6, A2's cfg1 run before its `browser_run_code_unsafe` workaround)
+into a slow per-page navigation fallback. Surgical fix in
+`services/mcp-client`: when the matched label corresponds to a `dt`,
+also capture the adjacent `dd`. Generalize to the label/value pairs
+actually used across the fixtures (`dt`/`dd`, `label`/`input`, `th`/`td`)
+— list what the fixtures really use before writing the match logic,
+don't guess ahead of that check.
+
+Judge: A1 and A2, 3 reps each, one variable, non-regression on the rest
+of the suite. Expected: A1 recovers (the redundant re-navigation tail
+disappears, freeing budget for phase 2); A2 holds without needing
+`browser_run_code_unsafe`. The A2 side is a CuP gain as much as a
+capability one — A2 was passing via a never-grantable tool, the exact
+shape of the B-β breach (`docs/resolved-bugs.md` #43).
+
+**2.4 — planned, not started: the cognitive-core removal PR, after 2.3.**
+Defaults to `false` for `PLANNER_ENABLED`/`VERIFICATION_ENABLED`/
+`PLAN_JUDGE_ENABLED`, full v2 campaign, `PLAN_VALIDATION_ENABLED` kept
+(safety-value exception, untouched by the CuP reading). The A1 diagnostic
+reinforces this decision rather than complicating it: on 2 of A1's 3
+cfg8 runs, the mechanism didn't just add cost, it actively invalidated
+otherwise-correct navigation (attempt/replan-budget churn misfiring on
+ordinary multi-step pagination) — add this to the removal PR's
+justification dossier alongside the 15/15 vs 13/15 reading.
+
 ## Effort 3 — GhostDesk removal
 
 Decision taken (Mjolnir is a web agent), and the feasibility probe
@@ -230,6 +259,15 @@ ones, must fail cleanly and redirect, and must say in their description
 when to prefer them. `MAX_TOOL_ITERATIONS` is not to be raised — the goal
 is needing fewer turns. A1 (0/3) and A4's reverted 9-step extension are
 the judges.
+
+**Candidate named, not built**: "structured values from N pages" — an
+action returning field VALUES (not full-text search) across a URL list,
+surfaced by the A1 trajectory diagnostic as the same root cause 2.3
+targets more surgically. Do not build ahead of need: if 2.3's `dt`/`dd`
+fix alone recovers A1/A2, this candidate is superfluous, and the
+frequency analysis above is what should say whether it earns its place
+over a corrected `browser_extract` — not intuition, same rule as every
+other 4.2 candidate.
 
 ## Effort 5 — Security (B6), gated on a working instrument
 

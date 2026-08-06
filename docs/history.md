@@ -4892,7 +4892,7 @@ neutral once, actively harmful twice. It never once helps.
 **Livrable — cause named**: **primarily arithmetic** (phase 1's
 redundant individual re-navigation, itself forced by a real
 `browser_extract` limitation on label/value pairs, consumes the budget
-phase 2 needs) — **effort 4.1 (coarse-grained actions)** is the
+phase 2 needs) — **effort 4.2 (coarse-grained actions)** is the
 matching attachment: a single action that returns structured field
 VALUES from N pages (not just full-text search) would remove both the
 redundant re-navigation AND the need for A2's `browser_run_code_unsafe`

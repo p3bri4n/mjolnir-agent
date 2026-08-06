@@ -476,3 +476,26 @@ reading: docs/history.md, "EFFORT 2 — DECISIVE MEASUREMENT". `PLAN_VALIDATION_
 safety-value exception is untouched by this result. 🧑 **Checkpoint
 before any removal** — reported against the pre-declared table, nothing
 removed yet.
+
+**A1 trajectory diagnostic (requested before acting on the removal
+reading)**: primary cause named as arithmetic — a real `browser_extract`
+limitation (returns a matched label, not its adjacent value) forces a
+redundant per-page re-navigation tail that consumes the budget phase 2
+(docs cross-check) needs; A2 hits the identical limitation but routes
+around it with `browser_run_code_unsafe` where A1 doesn't. Secondary,
+cfg8-specific finding: attempt/replan-budget churn misfires on ordinary
+multi-step pagination on 2 of A1's 3 cfg8 runs — an added failure mode,
+never a help. Full detail: docs/history.md, "A1 — TRAJECTORY DIAGNOSTIC".
+
+**Planned, not started** (`docs/briefs/update-plan.md`, "2.3"/"2.4"):
+(1) a surgical `browser_extract` dt/dd fix in `mcp-client`, judged on
+A1/A2 at 3 reps, blocking (2) the cognitive-core removal PR itself —
+sequenced fix-then-removal so the removal dossier isn't measuring a
+tool-level defect it never needed to inherit. The A1 diagnostic's
+cfg8-specific finding is added to that PR's justification regardless of
+(1)'s outcome. A 4.2 candidate ("structured values from N pages") is
+named but explicitly not built ahead of (1) and the frequency analysis
+that effort already calls for. An open, unresolved question from the
+same diagnostic — 2 of A1's cfg8 runs stop via an unidentified path,
+not `report_failure`, not the iteration limit — is recorded at
+`docs/resolved-bugs.md` #49, independent of the removal's outcome.
