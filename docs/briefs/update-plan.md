@@ -140,6 +140,19 @@ cfg9-merged-planning) × the point-2 subset (`A1`, `A2`, `A3`, `A4`,
 `D1`, `B1_conge_hard`) × n=3 — a live smoke (n=1, 1-2 tasks) required
 first per CLAUDE.md's measurement rules.
 
+**Point 3 status: CLOSED 2026-08-06, cfg9 dropped, full sweep never
+launched.** The live smoke (fifth-condition diagnostic, 3 corrections
+tried in isolation — dedicated planner off, persistent/editable plan
+section, tool position moved first in the schema) got the model to
+engage `manage_plan` on one task family (A1) but never to REVISE a plan
+mid-task (`merged_plan_replans` stayed 0 on every run, including the
+engaged ones) and never changed task success. Revision under difficulty
+is what separates AgentOccam's pattern from a classic planner — without
+it, "keep the value, cut the cost" has no object to measure. Full detail
+and the tool-position side-finding: docs/history.md, "EFFORT 2". Effort
+2's measurement reverts to its original 2-config question (cfg1 vs
+cfg8, `scripts/run-flag-sweep.sh`).
+
 **2.2 — Run the four existing flags FIRST.** If the planner proves
 globally harmful, building the merged mode is pointless. Measure what
 exists before building what is missing.
@@ -150,7 +163,19 @@ conditional activation with the simplest observable criterion, never an
 LLM classifier; differences within noise → keep only what has *safety*
 value.
 
-🧑 Checkpoint before any removal.
+**2.2 measured (2026-08-06)**: cfg1-vs-cfg8, discriminating subset, n=3,
+36 runs, coverage counters confirmed non-trivial throughout (resolves
+the earlier "not conclusive" verdict from the 7-task/n=2 ablation).
+cfg1-all-off 15/15 vs cfg8-all-on 13/15 on the 5 scored tasks (A1 read
+for coverage only, per point 2's protocol), cfg1 never losing, at 43%
+less cumulative time for the same real work (tool_calls essentially
+identical, 195 vs 193). The table's first branch applies: fixed
+configuration matches-or-beats all-on → adopt and remove the losers.
+Full detail: docs/history.md, "EFFORT 2 — DECISIVE MEASUREMENT".
+`PLAN_VALIDATION_ENABLED` keeps its safety-value exception, untouched by
+this reading.
+
+🧑 Checkpoint before any removal — reported, not yet acted on.
 
 ## Effort 3 — GhostDesk removal
 

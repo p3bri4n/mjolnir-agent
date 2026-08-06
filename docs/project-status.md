@@ -324,6 +324,13 @@ removed (coupled measured-behavior change, judge declared and passed).
 Real schema weight: 10 979 → 6 047 tokens (-44.9%), confirmed live
 (smoke `post-effort1.2-smoke`, T1/T3/T7, 3/3, zero calls to a removed
 tool). See docs/history.md for the full measurement and campaign.
+**Candidate follow-up (not scheduled)**: closing effort 2 point 3
+surfaced schema ORDER, not just weight/count, as a variable affecting
+tool adoption (`manage_plan` position in the tools array measurably
+changed whether the model used it, all else held constant) — see
+docs/history.md, "TOOL SCHEMA ORDER AFFECTS ADOPTION". Worth an
+archives-only check (does per-tool usage frequency correlate with
+current schema position?) next time this family of work is revisited.
 **Effort 1.3 (parallel run execution): deferred, quantified justification**
 (archives-only recompute, zero runs — see docs/history.md, "EFFORT 1.3").
 Expected gain ×2.2 (pessimistic) to ×3 (optimistic) holds, but
@@ -434,3 +441,38 @@ redesign `manage_plan` (e.g., make the first turn structurally require
 it rather than merely instruct it) or conclude this condition doesn't
 transfer to this model/task set is for the user, before any further
 live runs.
+
+**Point 3 CLOSED (2026-08-06), cfg9 dropped**: fifth-condition
+diagnostic, 3 variables tried in isolation (dedicated planner off — was
+already the case; a persistent, editable `### PLAN` prompt section
+replacing the single-line reminder; `manage_plan` moved first in the
+tools array instead of last after the ~63-64-tool MCP catalog). Position
+measurably changed adoption on `A1` (0→2 and 0→1 `manage_plan` calls
+across smokes) but not on `A2` (stayed 0). Decisive factor: **no run
+ever revised a plan mid-task** (`merged_plan_replans` stayed 0
+throughout) — revision under difficulty is what distinguishes
+AgentOccam's pattern from a classic planner, and without it "keep the
+value, cut the cost" has no object. No task-success effect either. See
+docs/history.md, "EFFORT 2" closure entry, for the full per-run detail
+and the retired `<think>`-mention judge (mis-designed for this model,
+which doesn't narrate tool choice for any tool sampled). Side-finding
+kept independent of cfg9's fate: schema ORDER, not just weight/count,
+measurably affects tool adoption — candidate follow-up noted at the
+effort 1.1/1.2 paragraph above.
+
+**Effort 2's ablation reverted to cfg1 vs cfg8 only** (`scripts/
+run-flag-sweep.sh`), live smoke on `A3` (the one point-2 task without
+cfg1/cfg8 precedent) green with non-trivial coverage counters, then the
+**decisive 36-run measurement ran and resolves the earlier "not
+conclusive" verdict**: on the 5 scored tasks (A1 read for coverage only,
+per point 2's protocol, not scored), **cfg1-all-off 15/15, cfg8-all-on
+13/15** — cfg1 never loses, wins outright on A2 and D1 — while costing
+43% less cumulative time (1078s vs 1895s) for essentially identical real
+work (195 vs 193 total tool_calls). A1's coverage read confirms the
+mechanisms engage substantially even there (non-trivial plans, active
+judge vetoes/replans on 2 of 3 cfg8 runs) and still buys nothing (0/3
+either way). Full detail, per-task table, and the frozen-decision-table
+reading: docs/history.md, "EFFORT 2 — DECISIVE MEASUREMENT". `PLAN_VALIDATION_ENABLED`'s
+safety-value exception is untouched by this result. 🧑 **Checkpoint
+before any removal** — reported against the pre-declared table, nothing
+removed yet.

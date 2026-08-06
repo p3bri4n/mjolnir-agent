@@ -4366,3 +4366,556 @@ full measurement — a design/prompt iteration decision (try a
 structurally different manage_plan design, or conclude the AgentOccam
 pattern doesn't transfer to this model/task set as specified) is for the
 user to make before any further live runs.
+
+**Fifth-condition diagnostic (archives only, zero runs), before deciding
+between the two branches above**: re-examined the 6 zero-`merged_plan_calls`
+runs against four questions.
+1. *Task shape*: 4 of 6 runs used `A1_reconciliation_croisee`/
+   `A2_schema_references`, both genuinely multi-step, and A1 specifically
+   was picked at point 2 as "the hardest, most structurally plan-shaped
+   task in the whole v2 benchmark" — the "no matter to plan" explanation
+   does not hold for these. `A4_parcours_guide` is a weaker case (its
+   task text already gives a numbered step list — the decomposition work
+   is pre-done) and `B1_conge_hard` is short (8 tool_calls, the smoke's
+   shortest run) — both real caveats, but only 2 of 6 runs.
+2. `PLANNER_ENABLED`: confirmed `false` on all 6 (campaign JSON
+   `env_flags`, `scripts/point3-smoke.sh`'s override) — not the cause.
+3. **Confirmed real gap**: `_merged_plan_directive` only ever rendered a
+   single-line "active subtask" reminder, regenerated from state — never
+   a persistent, full plan section the model could read as a document.
+   The tool's own response after `set_plan`/`complete_subtask` was a bare
+   `{"ok": true}` — the submitted plan was never reverberated back. Unlike
+   AgentOccam, where `manage_plan` edits a plan that is literally a
+   visible prompt section, this design gave the tool no visible object to
+   operate on.
+4. `manage_plan` sits last in the tools array (`schema + extra_tools`,
+   `_get_bound_llm`) — after the ~63-64 MCP/browser tools
+   (`docs/resolved-bugs.md` #31). Real, untested confound — kept as
+   variable 2/2, deliberately not touched in this iteration.
+
+**Correction 1/2 (cause 3 only) applied**: `_merged_plan_directive`
+redesigned as a persistent `### PLAN (mode planification fusionnée)`
+section — full subtask list with `[x]`/`[>]`/`[ ]` status markers,
+rendered even with an empty plan (a template to compose into, not a bare
+command). New `_render_plan(plan)` helper shared between this section and
+the `manage_plan` tool response, which now reverberates
+`{"ok": true, "plan": [...]}` instead of `{"ok": true}`/
+`{"ok": true, "subtask_count": n}` on both `set_plan` and
+`complete_subtask` — the model sees the outcome of its own edit. The
+section moved from FIRST to LAST in the system prompt (after
+`DOWNLOAD_DIRECTIVE`/`BULK_CHECK_DIRECTIVE`/`PEREMPTION_DIRECTIVE`/
+`_date_directive()`, same slot as the mutually-exclusive
+`_verification_directive`) so the cacheable static prefix survives —
+it's now the part of the prompt that changes turn to turn, not
+everything after it. The hard-imperative "TOUTE PREMIÈRE action... DOIT
+être manage_plan... JAMAIS" wording (added in the previous fix attempt
+above) is **removed**: already measured ineffective (still 0/2 with it
+in place), and it crossed the "don't make manage_plan mandatory" rule
+regardless of outcome — consigned here as attempted, measured
+ineffective, removed, not silently dropped. Tool position in the schema
+(cause 4) deliberately untouched this iteration.
+
+`tests/test_merged_planning.py`: 3 tests updated (`set_plan`/
+`complete_subtask` response-shape assertions now check the reverberated
+`plan` key; the directive tests renamed/rewritten for the new template
+and full-plan rendering) + 3 new (`_render_plan` shape, a regression
+guard that the removed imperative wording doesn't reappear, section
+placement after `_date_directive()` in the actual system prompt sent to
+the LLM). Full suite 450 → 453 passed, 0 regressions (run against a
+scratch venv — the committed `.venv` symlink is stale, points to a path
+from a different machine; flagged for the user, not fixed here, out of
+scope).
+
+**Not yet done, and not doable from this sandbox** (no Docker/GPU): a
+targeted live smoke on `A1_reconciliation_croisee` and
+`A2_schema_references` only (n=2 each, per this diagnostic's own
+task-shape reading — `A4`/`B1_conge_hard` dropped as diluting the
+signal), judged on `merged_plan_calls > 0` AND, more importantly, on
+whether any run shows a plan **revision** mid-task (a `set_plan` after
+the first, or a `complete_subtask` sequence spanning more than the
+initial composition) rather than a single compose-then-ignore call.
+`scripts/point3-smoke.sh` already fits this (`bash
+scripts/point3-smoke.sh A1_reconciliation_croisee 2`, then the same for
+`A2_schema_references`) — requires a rebuild first
+(`docker compose build langgraph-agent`, `graph.py` changed) then
+`docker compose up -d --force-recreate langgraph-agent` before running
+it. 🧑 Checkpoint before the smoke: correction built and unit-tested,
+nothing measured live yet.
+
+**Targeted smoke run by the user (2026-08-06), 4 runs — `merged_plan_calls`
+still 0 on all 4.** `A1_reconciliation_croisee` ×2 (`b8a30a6cea297454`,
+`d1ff81c984f42825`, both `success: false`, consistent with A1's known
+0/3 capability-limit finding, independent of planning — see B3 SLICE 5)
+and `A2_schema_references` ×2 (`6dbf88d1b921916d`, `3e1ff26f1816b70e`,
+both `success: true`). Preflight passed on all 4 (confirms
+`PLANNING_MODE="merged"` was genuinely effective in the container — see
+docs/resolved-bugs.md #48 for a separate reporting gap this surfaced:
+the campaigns' own archived `env_flags` couldn't show it, `CAMPAIGN_ENV_FLAGS`
+never having been updated alongside `EXPECTED_AGENT_FLAGS`). Cross-checked
+against the raw audit log (`.audit/2026-08-06.jsonl`): zero
+`role="merged_planning"` entries, and — a stronger check than the
+previous smoke ran — zero mentions of `manage_plan` or `PLAN` anywhere in
+any of the 4 runs' `<think>` reasoning or output text. The model isn't
+declining the tool after considering it; nothing in its visible
+reasoning acknowledges the PLAN section exists.
+
+**Reading, without advocacy**: correction 1/2 (cause 3 — no visible,
+editable plan document) is now built exactly as diagnosed: a persistent
+`### PLAN` section, present as a template even before any plan, full
+reverberation of the model's own edits, no forcing, and moved to a
+cache-safe position — and the result is unchanged. This closes cause 3 as
+sufficient on its own. Cause 4 (tool position, last of ~63-64 in the
+tools array) is the only variable from the fifth-condition diagnostic
+left untried, kept in reserve as planned. 🧑 Checkpoint: try correction
+2/2 (reposition `manage_plan`, e.g. first in the tools array) before any
+further smoke, or read this as confirming non-adoption independent of
+both prompt design and document visibility — a decision for the user,
+not to be made here.
+
+**Correction 2/2 (cause 4, last variable) applied**: `manage_plan` moved
+from LAST to FIRST in the tools array sent to the LLM — `_get_bound_llm`'s
+`schema + extra_tools` became `extra_tools + schema` (the branch active
+whenever `VERIFICATION_ENABLED` is off, the only one merged mode ever
+takes; a no-op everywhere else, `extra_tools == []` outside
+`PLANNING_MODE="merged"`). Everything else held constant per the
+diagnostic's single-variable discipline: the persistent `### PLAN`
+section stays, the removed hard-imperative wording stays removed. New
+regression test (`test_manage_plan_tool_positioned_first_before_mcp_catalog`)
+asserts the actual order in the JSON body sent to the LLM against a
+non-empty fake MCP catalog — the existing exposure test used an empty
+catalog and couldn't have caught an ordering regression. Suite 453 → 455
+passed (includes resolved-bugs.md #48's `CAMPAIGN_ENV_FLAGS` fix, found
+while reading back correction 1/2's own campaign archives), 0
+regressions. 🧑 Checkpoint before the smoke: correction built and
+unit-tested, nothing measured live yet. Judge order for this smoke, per
+the checkpoint instructions: `<think>`-block mentions of `manage_plan`/
+`PLAN` FIRST (considered-then-declined vs never-noticed are different
+findings), `merged_plan_calls` second. If this smoke also comes back at
+zero mentions, three variables (dedicated planner off, visible/editable
+plan, tool position) will have been tested and eliminated — the
+diagnostic's own stopping rule: no fourth variable to open, a negative
+result stands as the finding, cfg9 (merged planning) is dropped, and the
+ablation reverts to cfg1/cfg8 only.
+
+**Smoke run by the user (2026-08-06), mixed result — not the clean zero
+the stopping rule anticipated.** `A1_reconciliation_croisee` ×2
+(`91d1c4b3d32f5542`, `b8b15296268c1278`) and `A2_schema_references` ×2
+(`09ad01c131161c71`, `657df7dee00b9344`), preflight green, image rebuilt
+(confirmed via `image_ids`).
+
+*Primary judge (`<think>`/text mentions of "manage_plan"/"plan",
+case-insensitive)*: **0 across all 4 runs — including the 2 A1 runs
+where `manage_plan` was actually called.** Cross-checked the raw audit
+log directly: the first turn of `91d1c4b3d32f5542` calls
+`manage_plan(set_plan, 3 subtasks)` while its `<think>` block only says
+"Commençons par naviguer sur le catalogue..." — text describing the
+NEXT browser action, silent about the tool actually invoked. The model
+doesn't narrate meta tool-choice for any tool in this sample (browser
+calls get the same terse, non-justifying style) — the mention criterion,
+as specified, cannot distinguish "never noticed" from "used silently"
+for this model's reasoning style. This is itself a finding: the
+pre-declared primary judge doesn't discriminate here, so "0 mentions"
+can't carry the weight the stopping rule assigned it.
+
+*Secondary judge (`merged_plan_calls`)*: **task-dependent, not uniformly
+zero.** `A2` stays 0/0 on both runs (first tool call is `browser_navigate`
+on turn 1 both times, confirmed in the raw log — unchanged from every
+prior smoke). `A1` engaged on both runs for the first time across this
+whole diagnostic:
+- `91d1c4b3d32f5542`: `set_plan` (3 subtasks matching the task's actual
+  two-site-then-cross-reference structure) then `complete_subtask(0)`
+  later in the run — both logged, `merged_plan_completions: 1`. Still
+  failed (`boucle`, same cause A1 has always failed on, unrelated to
+  planning — see B3 SLICE 5).
+- `b8b15296268c1278`: `set_plan` (3 subtasks) logged, then a SECOND
+  `manage_plan(complete_subtask, index=0)` tool_call appears as the
+  thread's absolute last audit entry, with no `merged_planning` log and
+  no ToolMessage after it — consistent with the run's `boucle` cutoff
+  landing between the model emitting that call and the graph dispatching
+  it, not a rejection. `merged_plan_calls` (which counts audit entries)
+  reads 1 for this run even though the model attempted the tool twice —
+  a real, narrow coverage-counter blind spot (a call cut off before
+  dispatch is invisible to the counter) worth naming per CLAUDE.md's
+  "beware flattering zeros," though it under-counts an ENGAGEMENT here,
+  not a null result, so it doesn't change the reading. Also failed
+  (`boucle`).
+
+No `set_plan` was ever called a second time on either A1 run
+(`merged_plan_replans: 0` both) — the "compose once, ignore or complete
+once, never revise under difficulty" pattern the previous checkpoint
+flagged as NOT the pattern that counts held here too, even with real
+engagement.
+
+**Net reading, without advocacy**: position (cause 4) measurably changed
+behavior on A1 (0→2 and 0→1 manage_plan interactions across the whole
+diagnostic) but not on A2 (0→0, unchanged) — a task-dependent effect,
+not the uniform non-adoption the first two corrections found, and not
+the uniform "still zero" the stopping rule's trigger condition names.
+Task success is unaffected either way in this n=2 sample (A1 still 0/2,
+same failure cause as always; A2 still 2/2). The literal letter of the
+stopping rule's trigger ("zéro mention") is met, but the mention signal
+itself is now shown to be a poor proxy — satisfied whether or not the
+tool was actually used. 🧑 **Checkpoint, not resolved here**: this
+doesn't cleanly match either branch the stopping rule anticipated
+(uniform zero → conclude; some engagement → no declared next step) —
+whether to close EFFORT 2 point 3 as "no practical effect, drop cfg9"
+despite the A1 engagement, or read the A1 result as enough to keep cfg9
+for a full measurement, is for the user to decide with this fuller
+picture, not inferred from the single criterion named in advance.
+
+**CLOSURE (2026-08-06)**: point 3 closed, cfg9 dropped, on the SECOND
+judge, not the first.
+
+- **Judge 1 (`<think>`-block mentions) retired**, its own stopping rule
+  falling with it. Confirmed mis-designed for this model, not just
+  under-informative for this run: this model doesn't narrate tool
+  selection for ANY tool sampled across the whole diagnostic (browser
+  calls get the same terse, unjustified style as the 2 engaged
+  `manage_plan` calls) — a model-specific trait, not a defect in the
+  general idea of checking reasoning text. Worth trying again on a model
+  that does verbalize tool choice; retired here specifically.
+- **Judge 2 (`merged_plan_calls`/`merged_plan_replans`) decides**: real
+  engagement appeared on A1 after the position fix, but `merged_plan_replans`
+  stayed 0 on every one of the 6 correction-2/2-and-earlier runs where
+  the tool was ever touched — no run ever called `set_plan` a second
+  time under difficulty. Revision under difficulty is the trait that
+  distinguishes AgentOccam's pattern from a classic dedicated-node
+  planner; without it, "keep the planner's value while cutting its
+  latency cost" has no object left to measure — composing a plan once
+  and never touching it again is not cheaper planning, it's decoration.
+  No task-success effect either. **cfg9 (merged planning) dropped.** The
+  full point-3 sweep is not launched. Three variables were tested and
+  eliminated in isolation across this diagnostic: dedicated planner off
+  (cause 2, ruled out from the start), a visible/editable plan document
+  (cause 3, built and measured, no change), tool position in the schema
+  (cause 4, built and measured, changed adoption but not revision or
+  outcome). Per the diagnostic's own stopping rule, no fourth variable is
+  opened — a negative result on the actual hypothesis ("value without
+  cost") stands as the finding.
+- **Coverage-counter blind spot fixed** (the `complete_subtask` cut off
+  before dispatch, noted above as undercounting engagement, not a null
+  result): new `merged_plan_attempted` counter
+  (`tests_integration/test_web_tasks.py`) counts `manage_plan` tool_calls
+  found in `role="assistant"` audit entries (logged unconditionally by
+  `call_llm`, before any dispatch) — a superset of `merged_plan_calls`
+  (which only counts calls that reached `_execute_tool_calls` and got a
+  `role="merged_planning"` entry). Both kept and both persisted to the
+  campaign row: `attempted - calls > 0` is itself the signal for this
+  specific blind spot on any future campaign, not something silently
+  reconciled away. Same fix applied to `test_web_tasks_v2.py`'s
+  duplicated row-building dict. No unit test added: this parsing block
+  has never had one (same as every sibling coverage counter here,
+  `plan_initial_subtask_count` through `merged_plan_completions`) —
+  inherent to `tests_integration/`'s live-harness nature, consistent
+  with the existing pattern, not a new gap.
+- **Effort 2's ablation reverts to its original 2-config question**
+  (`scripts/run-flag-sweep.sh`): cfg1-all-off vs cfg8-all-on on the
+  point-2 discriminating subset, n=3 — cfg9 removed from `CONFIGS`. This
+  is now the measurement that decides the cognitive core's fate (adopt,
+  condition, or remove `PLANNER_ENABLED`/`VERIFICATION_ENABLED`/
+  `PLAN_VALIDATION_ENABLED`/`PLAN_JUDGE_ENABLED`) — not doable from this
+  sandbox (no Docker/GPU), a live smoke should precede it per CLAUDE.md's
+  measurement rules same as every prior campaign.
+- Tool-position side-finding (independent of cfg9's fate, arguably the
+  more durable result of this whole diagnostic): see the dedicated entry
+  below.
+
+🧑 Checkpoint: EFFORT 2 point 3 closed as documented above. Next action
+is the live smoke preceding the reverted cfg1/cfg8 sweep — same
+operational constraints as every prior live run in this effort (rebuild,
+force-recreate, user-run).
+
+## TOOL SCHEMA ORDER AFFECTS ADOPTION — FOUND CLOSING EFFORT 2 POINT 3, CANDIDATE FOLLOW-UP FOR THE EFFORT 1.1/1.2 FAMILY
+
+Surfaced as a side effect of the fifth-condition diagnostic above (see
+"EFFORT 2", corrections 1/2 and 2/2), but independent of `manage_plan`
+or `PLANNING_MODE="merged"` specifically, and read as the more durable
+result of the two: **where a tool sits in the tools array sent to the
+LLM measurably affects whether the model ever uses it**, on top of and
+distinct from the tool's own description quality or the presence of a
+system-prompt directive about it.
+
+**Evidence**: `manage_plan`, identical in every other respect (schema,
+description, the persistent `### PLAN` prompt section, no forcing
+language), went from 0 uses across 6 live-smoke runs while positioned
+LAST in a ~63-64-tool array (`app/graph.py`'s `schema + extra_tools`,
+after the full MCP/browser catalog) to real engagement on 2 of 4 runs
+once moved FIRST (`extra_tools + schema`) — same tool, same prompt, same
+tasks, one variable changed. Effort 1.1 (`docs/history.md`, "EFFORT
+1.1") already established that schema WEIGHT (token count, tool count)
+affects the model, cutting it 10 979 → 6 047 tokens via git/terminal/
+desktop/ocr removal (project-status.md). This finding adds a second,
+independent axis: schema ORDER, not just size — a 65-tool array and a
+1-tool array can carry the same weight-per-token cost analysis, but
+position within either still predicts adoption on this evidence.
+
+**Not a conclusion on its own** — n=4 runs, one tool, one model, and the
+effect was task-dependent (moved the needle on A1, not on A2) rather
+than uniform, so it doesn't license a general "always put X first" rule
+without more evidence. It's a candidate variable for the NEXT time
+effort 1.1/1.2's family of work (tool-schema audit) is revisited, not a
+finding to act on unilaterally here.
+
+**Candidate measurement, not scheduled**: for the CURRENT real tool
+catalog (MCP/browser tools, ~63-64 after effort 1.2's removals), does
+usage frequency (already available per-tool from any campaign's audit
+log, `tool_calls_observed` broken down by tool name) correlate with
+position in the schema as currently served by `mcp-client`? If the
+most-used tools already cluster toward one end, current schema order may
+already be doing useful work or actively fighting the model's own
+preferences — worth checking archives-only (CLAUDE.md: archives first,
+zero runs) before any reordering is proposed. Cross-referenced from
+`docs/project-status.md`'s effort 1.1/1.2 paragraph.
+
+## EFFORT 2 — CFG1/CFG8 LIVE SMOKE ON A3, PRECEDING THE REVERTED 2-CONFIG SWEEP
+
+Per CLAUDE.md's "a live smoke precedes any final measurement" rule:
+`A3_contact_conges` is the only task in the point-2 discriminating subset
+(`A1`, `A2`, `A3`, `A4`, `D1`, `B1_conge_hard`) not already covered by
+the original 8-config ablation (2026-08-04, 7-task subset — `A3` wasn't
+in it, added at point 2 in place of `T3`/`E3`). The other 5 tasks
+already have live precedent under cfg1/cfg8 with `PLANNING_MODE=nodes`;
+only A3 needed a fresh check. n=1 each, `scripts/run-campaign.sh
+--tasks A3_contact_conges --reps 1`.
+
+**Both green, coverage counters non-trivial on cfg8 (no flattering
+zero)**: cfg1-all-off — `success: true`, `outcome: correct`, planner/
+validation/judge counters all `None`/`0` as expected (mechanisms off,
+correctly no-op), 4 tool_calls, 23.3s. cfg8-all-on — `success: true`,
+`outcome: correct`, `plan_initial_subtask_count: 5` (non-trivial plan,
+`plan_trivial: false`), `validation_judge_invocations: 1`,
+`validation_judge_vetoes: 0`, `replan_events: 0`, 6 tool_calls, 44.2s.
+`env_flags` in both campaign JSONs match the intended config exactly,
+preflight green. Confirms the mechanisms genuinely engage on A3, not
+just that the container came up with the right flags.
+
+🧑 Checkpoint: smoke green, full sweep (`bash scripts/run-flag-sweep.sh`,
+cfg1-all-off vs cfg8-all-on × the 6-task discriminating subset × n=3 —
+the measurement that decides the cognitive core's fate) not yet
+launched.
+
+## EFFORT 2 — DECISIVE MEASUREMENT: CFG1-ALL-OFF vs CFG8-ALL-ON, DISCRIMINATING SUBSET, N=3 — RESOLVES THE "NOT CONCLUSIVE" VERDICT
+
+The full sweep (`scripts/run-flag-sweep.sh`, cfg1-all-off vs cfg8-all-on,
+the 6-task point-2 discriminating subset, n=3) ran live by the user
+(2026-08-06). `point3-cfg1-all-off`: started 11:55:52Z, ended 12:13:57Z
+(18/18 runs). `point3-cfg8-all-on`: started 12:14:05Z, ended 12:45:48Z
+(18/18 runs). `env_flags` in both campaign JSONs match the intended
+config exactly, preflight green on every one of the 36 runs (no config
+drift mid-sweep).
+
+**Per the point-2 protocol, A1 is read for coverage, not scored for
+success** (declared at subset-composition time: "1/8 in the first
+ablation is noise, not signal... it is scored for MECHANISM COVERAGE").
+Scoring the other 5 tasks (15 slots):
+
+| task | cfg1-all-off | cfg8-all-on |
+|---|---|---|
+| A2_schema_references | 3/3 | 2/3 |
+| A3_contact_conges | 3/3 (correct=3) | 3/3 (correct=3) |
+| A4_parcours_guide | 3/3 | 3/3 |
+| B1_conge_hard (CuP) | 3/3 | 3/3 |
+| D1_cible_inexistante | 3/3 | 2/3 |
+| **total** | **15/15** | **13/15** |
+
+cfg1 never loses to cfg8 on any task family, wins outright on 2 of 5
+(A2, D1). Cost judges, all three pointing the same direction as the
+first ablation and now much wider: **cumulative duration 1078.2s (cfg1)
+vs 1895.1s (cfg8), +76% for cfg8** for essentially IDENTICAL real work
+(195 vs 193 total `tool_calls_observed`, avg 10.83 vs 10.72/run) — the
+entire cost is auxiliary LLM calls (planner/verification/validation/
+judge), not extra browser actions. Per-task median duration is consistent
+in direction across the board (A2: 100.8s→120.7s, A3: 21.6s→51.9s, A4:
+54.9s→84.7s, B1: 26.2s→41.6s, D1: 56.8s→219.9s) — not one outlier task
+driving the average; D1 is the most extreme (+287%) but every task moves
+the same way.
+
+**A1 coverage read (not scored, per protocol)**: cfg8's 3 A1 runs all
+show substantial, non-trivial engagement — `plan_initial_subtask_count`
+4/7/5 (never trivial), `validation_judge_invocations` 4/1/4,
+`validation_judge_vetoes` 1/0/2, `replan_events` 2/0/2 (the judge
+actively vetoed and forced a replan on 2 of 3 runs). The mechanism is
+demonstrably NOT idle on the one task built for it to matter most — no
+flattering zero here either. And still 0/3, identical to cfg1's 0/3
+achieved with none of that machinery. Direct answer to the question point
+2 posed for A1 ("does the planner even DO anything non-trivial here"):
+yes, substantially — and it changes nothing about the outcome.
+
+**Reading via the frozen decision table** (`docs/briefs/scaffolding-
+optimisation.md`): "a fixed configuration matches or beats all-on → adopt
+it and remove the losing mechanisms." At the original 7-task subset this
+branch applied to a 12/14 TIE, later requalified NOT CONCLUSIVE (missing
+coverage counters, insufficient discriminating power — see the "judge
+validity check" entry above). This measurement was built specifically to
+close both gaps: coverage counters now ship and show real, non-trivial
+engagement throughout (not one run among 18 reads as a flattering zero);
+the subset was chosen by a written criterion for discriminating power.
+Result: not a tie this time — cfg1 STRICTLY beats cfg8 on the success
+judge (15/15 vs 13/15) while costing 43% less cumulative time for the
+win. The table's first branch applies more cleanly here than it did at
+the original tie.
+
+**Caveat reported, not smoothed over**: n=3/task remains a small sample
+— A2's 3/3 vs 2/3 and D1's 3/3 vs 2/3 are each one flipped run at the
+individual-task level. What makes this reading stronger than the
+original tie's is not any single task's n, but the AGGREGATE
+consistency: cfg1 never loses on any of the 5 scored task families, the
+cost gap is large (+76%) and uniform across every task rather than
+concentrated in one, and A1's coverage confirms the engagement is real
+where it's most favorable to the mechanisms and still buys nothing.
+
+**Not resolved by this entry**: `PLAN_VALIDATION_ENABLED`'s standing
+exception (declared at point 4 above: safety value — tier coherence,
+domain scope — kept regardless of the CuP reading, a programmatic
+heuristic with no LLM call and thus no latency argument against it)
+still applies untouched by this result. The removal calculus below
+concerns `PLANNER_ENABLED`/`VERIFICATION_ENABLED`/`PLAN_JUDGE_ENABLED`.
+
+🧑 **Checkpoint before any removal** — per the brief and CLAUDE.md's
+"no fix on an unvalidated result." This entry reports the reading
+against the pre-declared, frozen table; it does not itself remove any
+flag. Decision needed: adopt cfg1 as the new default and remove
+`PLANNER_ENABLED`/`VERIFICATION_ENABLED`/`PLAN_JUDGE_ENABLED` (their
+nodes, their directives, their tests) in a dedicated removal PR, or
+something else — for the user.
+
+## A1 — TRAJECTORY DIAGNOSTIC BEFORE THE REMOVAL PR, REQUESTED BEFORE ACTING ON THE ABOVE
+
+**Removal PR suspended pending this diagnostic**, per explicit instruction.
+Archives-only, zero new runs: the 6 A1 runs from the just-completed sweep
+(3× cfg1-all-off, 3× cfg8-all-on — `4aaaf6bdb9b8a7d0`/`054bfe81d00b268e`/
+`667819fc4880f1f1` and `97784fd547a20d3d`/`6f34c09ee10e3759`/
+`e0d990eb9ac52679`), raw audit log (`.audit/2026-08-06.jsonl`) read turn by
+turn, trajectories compared rather than outcomes (all 6 fail the same way:
+`attendu ['PX-1009', 'PX-1028'], trouvé []`).
+
+**1. Iterations by phase — arithmetic confirmed as the primary cause.**
+Every cfg1 run and one of three cfg8 runs (`6f34c09ee10e3759`) consumes
+exactly 21 real turns before cutoff (`MAX_TOOL_ITERATIONS=20`,
+`failure_cause="boucle"`). Breakdown (identical shape across all of
+these 4 runs): ~8 turns just to paginate the 3 catalog list pages
+(navigate + snapshot ×4 pairs) → 2-3 bulk `browser_extract` calls
+(category scan across all 30 products, then price/reference check on
+the 4 candidates found) → **8 more turns individually re-navigating
+those SAME 4 candidates** (navigate+snapshot ×4) → 2 turns reaching the
+docs site → 1 turn attempting ONE docs cross-check. That is 18-21 turns
+spent before or during phase 1's tail, leaving 0-1 turn for phase 2
+(cross-referencing 4 references against the docs site), which
+structurally needs several turns on its own. `4aaaf6bdb9b8a7d0` is the
+only run of the 6 that reaches phase 2 at all (one `browser_extract`
+query for a single reference against docs pages) before the log ends —
+it never gets to check the other 3. **Phase 1 alone does not exhaust the
+budget by itself** (~10-13 turns would suffice for a clean bulk-only
+pass) — it's phase 1's REDUNDANT tail (see point 2) that pushes the
+total past what phase 2 needs, not phase 1's minimum cost. Retention is
+never in question here (see point 3): the model reasons and speaks
+correctly about all 4 candidates up to the very last turn, it simply
+runs out of turns before finishing the second site.
+
+**2. Strategy — corrects a premise: A1 already uses bulk, on every one
+of the 6 runs.** All 6 open with the exact same pattern as A2: paginate
+the catalog list, then ONE `browser_extract(query="Mobilier",
+urls=[30 product pages])` to find the category, then a second bulk call
+to check price on the 4 survivors — never a 30-page individual crawl.
+The actual divergence from A2 is in the RECOVERY strategy once bulk
+extraction hits a real tool limitation: `browser_extract` returns the
+field LABEL but not its VALUE for structured `dt`/`dd` pairs (confirmed
+verbatim in the model's own reasoning, `054bfe81d00b268e`: *"L'extraction
+ne montre que le label 'Référence' mais pas la valeur"*; `4aaaf6bdb9b8a7d0`
+on price: *"Le mot 'Prix' est trouvé mais pas la valeur"*). A2's cfg1
+run (`ef001c1b47ed5d05`, this same sweep) hits the IDENTICAL limitation
+on the SAME field ("Référence") — and recovers with ONE
+`browser_run_code_unsafe` call that reads the `dd` following the
+`dt`"Référence" across all 30 pages at once (*"la référence est dans un
+`dd` après le `dt` 'Référence'... je vais utiliser browser_run_code_unsafe
+pour extraire les références de toutes les pages en un seul appel"*) —
+16 turns total, comfortably inside budget. None of the 6 A1 runs
+attempts this: all 6 fall back to individually navigating the 4
+candidates instead, 8 turns for a problem A2 solved in 1. Plausible
+reason, not confirmed: at 4 candidates, individual navigation looks
+locally cheap turn-by-turn (unlike A2's 30, where it's obviously
+prohibitive), so the model doesn't reach for the code-execution
+workaround — a greedy, per-step choice that doesn't account for the
+mandatory second site still ahead. This is the real "why A1 not A2":
+not bulk-vs-not, but writing code to route around a tool limitation
+vs re-navigating around it.
+
+**3. Retention — cleared, not the cause.** `EPISODE_COMPACTION_ENABLED`
+is false for this whole sweep (no compaction in play regardless). Traced
+`4aaaf6bdb9b8a7d0` turn by turn: the 4 qualifying products and their
+correct references/prices, once found, are restated correctly and
+completely in every subsequent turn up to the final one (*"J'ai donc 4
+produits... PX-1002 (145,50 €), PX-1009 (199,00 €), PX-1021 (162,75 €),
+PX-1028 (128,90 €)"*) — nothing dropped, nothing corrupted, right up to
+the turn that starts the docs cross-check. Same pattern in every other
+run that reaches an equivalent point. Not a context-loss problem.
+
+**4. Does cfg8's plan change any of the three, even without changing the
+outcome? Yes — and it's a fourth, NEGATIVE finding, not a neutral one.**
+Turn-for-turn `role` counts (real turns / planning / replan / validation
+/ verification), all 6 runs:
+
+| run | real turns | planning | replan | validation | verification |
+|---|---|---|---|---|---|
+| cfg1 × 3 | 21 / 21 / 21 | 0 | 0 | 0 | 0 |
+| cfg8 `97784fd5...` | **10** | 1 | **2 (budget)** | 4 | 9 |
+| cfg8 `6f34c09e...` | 21 | 1 | 0 | 1 | 7 |
+| cfg8 `e0d990eb...` | **10** | 1 | **2 (budget)** | 5 | 9 |
+
+Two of the three cfg8 runs terminate at only 10 real turns — well short
+of `MAX_TOOL_ITERATIONS=20` — via a DIFFERENT, EARLIER path
+(`failure_cause="extraction"`, not `"boucle"`; `tool_iterations` only
+increments in `_execute_tool_calls`/`reject_tools`/
+`run_slash_command_direct` — confirmed by reading `app/graph.py`, so
+this isn't the same counter as cfg1's). What actually happens: the
+planner's subtask criterion for "browse the catalog" apparently isn't
+satisfied by a single pagination click, so `verify_action` reports
+`non_atteint` on 3 CONSECUTIVE ordinary clicks (`SUBTASK_ATTEMPT_BUDGET=3`)
+— completely normal multi-step navigation misread as a stuck subtask —
+triggering a replan. It happens again 3 clicks later, hitting
+`REPLAN_BUDGET=2`. Both replans grow the plan (4→6→8 subtasks on
+`97784fd5...`), not shrink it. After the 2nd replan the run continues a
+couple more turns (the two bulk extracts) then the audit trail simply
+stops — no `report_failure` text message was found (that terminal node,
+reached when a subtask is re-marked `echoue` after budget exhaustion,
+never fires here), so the exact final trigger for these 2 runs' early
+stop is NOT fully pinned down (worth a follow-up if it recurs elsewhere,
+not chased further here — reported as an open detail, not smoothed
+over). What IS clear: this failure path only exists BECAUSE the
+cognitive core is on. The third cfg8 run (`6f34c09e...`) never
+replans at all (its plan's criteria happened to tolerate the same
+pagination fine, all `atteint`) and follows the exact same
+bulk-then-redundant-individual-renavigation shape as cfg1, at the same
+21-turn ceiling — so the mechanism's effect on A1 across its 3 runs was:
+neutral once, actively harmful twice. It never once helps.
+
+**Livrable — cause named**: **primarily arithmetic** (phase 1's
+redundant individual re-navigation, itself forced by a real
+`browser_extract` limitation on label/value pairs, consumes the budget
+phase 2 needs) — **effort 4.1 (coarse-grained actions)** is the
+matching attachment: a single action that returns structured field
+VALUES from N pages (not just full-text search) would remove both the
+redundant re-navigation AND the need for A2's `browser_run_code_unsafe`
+escape hatch, in one stroke. A narrower, even more surgical candidate
+worth flagging separately: `browser_extract`'s query-matching itself
+could be fixed to return `dd` values adjacent to a matched `dt` label,
+which is a tool/`mcp-client`-level fix, not a scaffolding one — smaller
+than a coarse action, possibly faster to ship, same root cause. Not
+rétention (point 3 clears it) and not primarily a strategy/description
+problem (point 2 shows the model already reaches for bulk extraction
+correctly, same as A2). Secondary, cfg8-specific finding (point 4):
+the cognitive core adds its own, earlier failure surface via
+attempt/replan-budget churn on ordinary multi-step navigation — a data
+point FOR the pending removal decision, not against it.
+
+**Per instruction 4, not implemented**: no failure-triggered conditional
+activation. Nothing here supports a mid-task trigger design either — the
+one candidate signal this diagnostic surfaced (repeated `non_atteint` on
+ordinary multi-step progress) is itself an artifact of the mechanism
+being on, not a symptom worth detecting from a mechanism that's off.
+
+🧑 Checkpoint: diagnostic delivered, removal PR still suspended pending
+the user's read of this — the cause named here doesn't itself resolve
+the cfg1/cfg8 removal question (that table reading stands as reported
+above), it explains why A1 specifically fails everywhere and adds one
+more data point against keeping the cognitive core.
