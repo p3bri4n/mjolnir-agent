@@ -90,6 +90,11 @@ services:
       # explicite de l'activer avec les 3 flags ci-dessus, la campagne
       # finale 29/33 ayant mesuré les 4 flags actifs ensemble.
       - PLAN_JUDGE_ENABLED=${PLAN_JUDGE_ENABLED:-true}
+      # 5e condition du coeur cognitif (effort 2 point 3, voir
+      # docs/briefs/update-plan.md "2.1 addendum") : "nodes" (défaut,
+      # comportement inchangé) ou "merged" (planification fusionnée dans
+      # le tour principal via l'outil manage_plan, app/graph.py).
+      - PLANNING_MODE=${PLANNING_MODE:-nodes}
       # Budget de tokens dédié aux appels LLM auxiliaires (plan_task/
       # verify_action/replan_task/revise_plan/_judge_plan), SÉPARÉ de
       # LLM_MAX_TOKENS (boucle conversationnelle). Bug réel trouvé en
