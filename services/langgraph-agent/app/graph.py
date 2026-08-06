@@ -1372,7 +1372,7 @@ async def _available_tools_hint() -> str:
     )
 
 
-async def plan_task(state: AgentState) -> dict:
+async def plan_task(state: AgentState, config: dict) -> dict:
     """
     Planner node (Iteration 1, Phase 1 "cognitive core"). No-op
     (`{"messages": []}`) if PLANNER_ENABLED is disabled (default), if a
@@ -1389,6 +1389,13 @@ async def plan_task(state: AgentState) -> dict:
     httpx error), same spirit as the httpx.HTTPError degradation in
     retrieve_context/select_skill above, widened here since the failure
     can also come from JSON validation, not just transport.
+
+    Logs a role="planning" audit entry (coverage counter, symmetric to
+    verify_action's role="verification" — see docs/history.md, EFFORT 2
+    "judge validity check": archives had no way to tell whether the
+    planner ever produced a non-trivial plan, only whether it was
+    enabled) with the initial subtask count and a `trivial` flag
+    (1-subtask plan = the planner had no effect on task structure).
     """
     if not PLANNER_ENABLED or state.get("plan"):
         return {"messages": []}
@@ -1411,6 +1418,8 @@ async def plan_task(state: AgentState) -> dict:
     if plan:
         plan[0]["status"] = "en_cours"
     logger.info("Initial plan (%d subtask(s)): %s", len(plan), plan)
+    thread_id = config.get("configurable", {}).get("thread_id", "")
+    audit_log.log_message(thread_id, "planning", {"subtask_count": len(plan), "trivial": len(plan) <= 1})
     return {"plan": plan, "subtask_message_start": [len(state["messages"])] if plan else []}
 
 
@@ -1430,7 +1439,7 @@ def _plan_tier(plan: list) -> str:
     return approval_policy.TIER_READ
 
 
-async def validate_plan(state: AgentState) -> dict:
+async def validate_plan(state: AgentState, config: dict) -> dict:
     """
     Plan validation pipeline (Iteration 3, Phase 1 "cognitive core").
     No-op (`{"messages": []}`) if PLAN_VALIDATION_ENABLED is disabled
@@ -1440,6 +1449,13 @@ async def validate_plan(state: AgentState) -> dict:
     PLAN_JUDGE_ENABLED, LLM judge (costly — withdrawal clause, see
     docs/history.md). Rejection (heuristics OR judge) -> plan_validation_cycles
     incremented, reasons returned for route_after_validation.
+
+    Logs a role="plan_validation" audit entry (coverage counter,
+    docs/history.md EFFORT 2 "judge validity check"): heuristic rejection
+    and judge invocation/veto are distinct signals, kept separate rather
+    than collapsed into the single `reasons` list used for routing —
+    "the judge never fired" and "the judge fired and approved" were
+    previously indistinguishable from archives alone.
     """
     if not PLAN_VALIDATION_ENABLED:
         return {"messages": []}
@@ -1451,13 +1467,30 @@ async def validate_plan(state: AgentState) -> dict:
     known_tools = {t.get("function", {}).get("name") for t in schema}
     known_tools.discard(None)
     task_scope = _task_scope_urls(state["messages"])
-    reasons = plan_validation.validate_plan_heuristics(plan, known_tools=known_tools, task_scope_urls=task_scope)
+    heuristic_reasons = plan_validation.validate_plan_heuristics(
+        plan, known_tools=known_tools, task_scope_urls=task_scope
+    )
 
-    if not reasons and PLAN_JUDGE_ENABLED:
+    judge_invoked = False
+    judge_reasons = []
+    if not heuristic_reasons and PLAN_JUDGE_ENABLED:
+        judge_invoked = True
         first_human = next((m for m in state["messages"] if getattr(m, "type", None) == "human"), None)
         objective = first_human.content if first_human and isinstance(first_human.content, str) else ""
         page_snapshot = await _grounding_snapshot(state, objective)
-        reasons = await _judge_plan(plan, objective, page_snapshot)
+        judge_reasons = await _judge_plan(plan, objective, page_snapshot)
+
+    reasons = heuristic_reasons or judge_reasons
+    thread_id = config.get("configurable", {}).get("thread_id", "")
+    audit_log.log_message(
+        thread_id,
+        "plan_validation",
+        {
+            "heuristic_rejected": bool(heuristic_reasons),
+            "judge_invoked": judge_invoked,
+            "judge_vetoed": bool(judge_reasons),
+        },
+    )
 
     if reasons:
         cycles = state.get("plan_validation_cycles", 0) + 1
@@ -2426,7 +2459,7 @@ async def verify_action(state: AgentState, config: dict) -> dict:
     return {"plan": new_plan, "pending_verification": False}
 
 
-async def replan_task(state: AgentState) -> dict:
+async def replan_task(state: AgentState, config: dict) -> dict:
     """
     Replanning (Iteration 2): reached when verify_action has marked a
     subtask "echoue". Reuses PLANNER_SYSTEM_PROMPT/_validate_plan_json
@@ -2438,12 +2471,20 @@ async def replan_task(state: AgentState) -> dict:
     new chance on the SAME plan rather than crashing). replan_count
     incremented in all cases (budget consumed even if the replanning
     itself fails).
+
+    Logs a role="replanning" audit entry (coverage counter, docs/history.md
+    EFFORT 2 "judge validity check") for every REAL replan (failed_index
+    found) — the defensive early return below (no failed subtask, should
+    not normally happen) consumes budget but changes nothing, so it stays
+    unlogged, same "no-op = no audit entry" convention as plan_task/
+    validate_plan.
     """
     plan = state.get("plan") or []
     failed_index = next((i for i, st in enumerate(plan) if st.get("status") == "echoue"), None)
     replan_count = state.get("replan_count", 0) + 1
     if failed_index is None:
         return {"replan_count": replan_count}
+    thread_id = config.get("configurable", {}).get("thread_id", "")
 
     first_human = next((m for m in state["messages"] if getattr(m, "type", None) == "human"), None)
     objective = first_human.content if first_human and isinstance(first_human.content, str) else ""
@@ -2481,6 +2522,10 @@ async def replan_task(state: AgentState) -> dict:
         new_plan[failed_index]["attempts"] = 0
         boundaries = (state.get("subtask_message_start") or [])[:failed_index]
         boundaries.append(len(state["messages"]))
+        audit_log.log_message(
+            thread_id, "replanning",
+            {"replan_index": replan_count, "failed_subtask_index": failed_index, "new_subtask_count": None},
+        )
         return {"plan": new_plan, "replan_count": replan_count, "subtask_message_start": boundaries}
 
     rebuilt = [dict(st) for st in plan[:failed_index]]
@@ -2491,6 +2536,10 @@ async def replan_task(state: AgentState) -> dict:
     logger.info(
         "Replan #%d after subtask %d failure: %d new subtask(s)",
         replan_count, failed_index, len(new_subtasks),
+    )
+    audit_log.log_message(
+        thread_id, "replanning",
+        {"replan_index": replan_count, "failed_subtask_index": failed_index, "new_subtask_count": len(new_subtasks)},
     )
     return {"plan": rebuilt, "replan_count": replan_count, "subtask_message_start": boundaries}
 

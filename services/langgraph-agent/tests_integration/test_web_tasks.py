@@ -392,6 +392,21 @@ class TaskResult:
         # docs/campaigns/2026-07-28_campaign_episode-compaction-enabled.md.
         self.episode_compaction_messages_max = 0
         self.episode_compaction_applied_count = 0
+        # Planner/validation/judge coverage counters (EFFORT 2 "judge
+        # validity check", see docs/history.md): symmetric to
+        # verification_opportunities/exploitable above — plan_task,
+        # validate_plan and replan_task (app/graph.py) now each log an
+        # audit entry (role="planning"/"plan_validation"/"replanning")
+        # on every real invocation. Without these, an archived ablation
+        # campaign could tell a mechanism was ENABLED but never whether it
+        # actually fired non-trivially — exactly the gap that requalified
+        # the first cognitive-core ablation as "not conclusive".
+        self.plan_initial_subtask_count = None  # None = planner never ran (PLANNER_ENABLED off, or no-op)
+        self.plan_trivial = None
+        self.replan_events = 0
+        self.validation_heuristic_rejections = 0
+        self.validation_judge_invocations = 0
+        self.validation_judge_vetoes = 0
 
 
 TABBYAPI_CONTAINER = os.environ.get("TABBYAPI_CONTAINER", "tabbyapi")
@@ -452,6 +467,28 @@ def run_task(prompt: str) -> TaskResult:
         )
     result.episode_compaction_applied_count = sum(
         1 for e in compaction_entries if (e.get("content") or {}).get("compacted")
+    )
+    # Planner/validation/judge coverage (EFFORT 2 "judge validity check",
+    # see docs/history.md and the TaskResult docstring above). planning
+    # fires at most once per task (plan_task computes the plan once, never
+    # rebuilt within the same task — app/graph.py); replanning/
+    # plan_validation can fire multiple times.
+    planning_entries = [e for e in entries if e.get("kind") == "message" and e.get("role") == "planning"]
+    if planning_entries:
+        planning_content = planning_entries[0].get("content") or {}
+        result.plan_initial_subtask_count = planning_content.get("subtask_count")
+        result.plan_trivial = planning_content.get("trivial")
+    replanning_entries = [e for e in entries if e.get("kind") == "message" and e.get("role") == "replanning"]
+    result.replan_events = len(replanning_entries)
+    validation_entries = [e for e in entries if e.get("kind") == "message" and e.get("role") == "plan_validation"]
+    result.validation_heuristic_rejections = sum(
+        1 for e in validation_entries if (e.get("content") or {}).get("heuristic_rejected")
+    )
+    result.validation_judge_invocations = sum(
+        1 for e in validation_entries if (e.get("content") or {}).get("judge_invoked")
+    )
+    result.validation_judge_vetoes = sum(
+        1 for e in validation_entries if (e.get("content") or {}).get("judge_vetoed")
     )
     for e in tool_call_entries:
         if e.get("tool") == "browser_navigate":
@@ -937,6 +974,12 @@ def _run_campaign(resume_cid: str = None):
             "tool_calls_observed": result.tool_calls_observed,
             "verification_opportunities": result.verification_opportunities,
             "verification_exploitable": result.verification_exploitable,
+            "plan_initial_subtask_count": result.plan_initial_subtask_count,
+            "plan_trivial": result.plan_trivial,
+            "replan_events": result.replan_events,
+            "validation_heuristic_rejections": result.validation_heuristic_rejections,
+            "validation_judge_invocations": result.validation_judge_invocations,
+            "validation_judge_vetoes": result.validation_judge_vetoes,
             "prefill_seconds": result.prefill_seconds,
             "cache_zero_requests": result.cache_zero_requests,
             "tabbyapi_requests": result.tabbyapi_requests,

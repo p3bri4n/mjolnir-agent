@@ -18,6 +18,15 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from tests.fixtures.llm_sse import non_streaming_response, text_response, tool_call_response
 
+
+class _FakeConfig(dict):
+    """Minimal config expected by plan_task (thread_id, see app/audit_log.py) —
+    same pattern as tests/test_verify_action.py."""
+
+    def __init__(self, thread_id="thread-1"):
+        super().__init__(configurable={"thread_id": thread_id})
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # Unitaire : _validate_plan_json (pure, pas de docker/LLM)
 # ─────────────────────────────────────────────────────────────────────────
@@ -108,7 +117,7 @@ async def test_plan_task_is_noop_when_planner_disabled(monkeypatch):
     with respx.mock(assert_all_called=False) as mock:
         route = mock.post("http://fake-vllm/v1/chat/completions")
         state = {"messages": [HumanMessage(content="Fais X")]}
-        result = await g.plan_task(state)
+        result = await g.plan_task(state, _FakeConfig())
 
     assert result == {"messages": []}
     assert route.call_count == 0
@@ -123,7 +132,7 @@ async def test_plan_task_is_noop_when_plan_already_present(monkeypatch):
     with respx.mock(assert_all_called=False) as mock:
         route = mock.post("http://fake-vllm/v1/chat/completions")
         state = {"messages": [HumanMessage(content="Fais X")], "plan": existing_plan}
-        result = await g.plan_task(state)
+        result = await g.plan_task(state, _FakeConfig())
 
     assert result == {"messages": []}
     assert route.call_count == 0
@@ -148,7 +157,7 @@ async def test_plan_task_builds_plan_from_valid_llm_response(monkeypatch):
             return_value=httpx.Response(200, json=non_streaming_response(plan_json))
         )
         state = {"messages": [HumanMessage(content="Trouve le prix du produit")]}
-        result = await g.plan_task(state)
+        result = await g.plan_task(state, _FakeConfig())
 
     plan = result["plan"]
     assert len(plan) == 2
@@ -164,21 +173,64 @@ async def test_plan_task_builds_plan_from_valid_llm_response(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_plan_task_falls_back_to_single_subtask_on_invalid_response(monkeypatch):
+async def test_plan_task_logs_planning_audit_entry_with_subtask_count(monkeypatch, tmp_path):
+    """Coverage counter (EFFORT 2 "judge validity check", docs/history.md):
+    plan_task now always journalise a role="planning" entry — archives
+    previously had no way to tell whether the planner ever produced a
+    non-trivial plan, only whether PLANNER_ENABLED was on."""
     import app.graph as g
+    import app.audit_log as audit_log
 
+    monkeypatch.setattr(audit_log, "AUDIT_LOG_DIR", str(tmp_path))
+    monkeypatch.setattr(g, "PLANNER_ENABLED", True)
+    plan_json = json.dumps(
+        {
+            "sous_taches": [
+                {"description": "Ouvrir le catalogue", "critere_succes": "page affichée"},
+                {"description": "Lire le prix", "critere_succes": "prix trouvé"},
+            ]
+        }
+    )
+    with respx.mock(assert_all_called=False) as mock:
+        mock.get("http://fake-mcp-client/tools/schema").mock(return_value=httpx.Response(200, json={"tools": []}))
+        mock.post("http://fake-vllm/v1/chat/completions").mock(
+            return_value=httpx.Response(200, json=non_streaming_response(plan_json))
+        )
+        state = {"messages": [HumanMessage(content="Trouve le prix du produit")]}
+        await g.plan_task(state, _FakeConfig("thread-plan-cov"))
+
+    entries = audit_log.read_entries("thread-plan-cov")
+    plannings = [e for e in entries if e.get("kind") == "message" and e.get("role") == "planning"]
+    assert len(plannings) == 1
+    assert plannings[0]["content"] == {"subtask_count": 2, "trivial": False}
+
+
+@pytest.mark.asyncio
+async def test_plan_task_falls_back_to_single_subtask_on_invalid_response(monkeypatch, tmp_path):
+    import app.graph as g
+    import app.audit_log as audit_log
+
+    monkeypatch.setattr(audit_log, "AUDIT_LOG_DIR", str(tmp_path))
     monkeypatch.setattr(g, "PLANNER_ENABLED", True)
     with respx.mock(assert_all_called=False) as mock:
         mock.post("http://fake-vllm/v1/chat/completions").mock(
             return_value=httpx.Response(200, json=non_streaming_response("réponse pas du tout en JSON"))
         )
         state = {"messages": [HumanMessage(content="Trouve le prix du produit")]}
-        result = await g.plan_task(state)
+        result = await g.plan_task(state, _FakeConfig("thread-plan-trivial"))
 
     plan = result["plan"]
     assert len(plan) == 1
     assert plan[0]["status"] == "en_cours"
     assert plan[0]["description"] == "Trouve le prix du produit"
+
+    # Fallback single-subtask plan = trivial by definition (EFFORT 2
+    # "judge validity check", docs/history.md): the planner had no
+    # structuring effect on this task.
+    entries = audit_log.read_entries("thread-plan-trivial")
+    plannings = [e for e in entries if e.get("kind") == "message" and e.get("role") == "planning"]
+    assert len(plannings) == 1
+    assert plannings[0]["content"] == {"subtask_count": 1, "trivial": True}
 
 
 @pytest.mark.asyncio
@@ -189,7 +241,7 @@ async def test_plan_task_falls_back_when_llm_unreachable(monkeypatch):
     with respx.mock(assert_all_called=False) as mock:
         mock.post("http://fake-vllm/v1/chat/completions").mock(side_effect=httpx.ConnectError("down"))
         state = {"messages": [HumanMessage(content="Trouve le prix du produit")]}
-        result = await g.plan_task(state)
+        result = await g.plan_task(state, _FakeConfig())
 
     plan = result["plan"]
     assert len(plan) == 1
@@ -204,7 +256,7 @@ async def test_plan_task_noop_without_human_message(monkeypatch):
     with respx.mock(assert_all_called=False) as mock:
         route = mock.post("http://fake-vllm/v1/chat/completions")
         state = {"messages": [AIMessage(content="rien d'humain ici")]}
-        result = await g.plan_task(state)
+        result = await g.plan_task(state, _FakeConfig())
 
     assert result == {"messages": []}
     assert route.call_count == 0

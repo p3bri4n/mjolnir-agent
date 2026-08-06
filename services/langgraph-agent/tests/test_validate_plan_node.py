@@ -16,6 +16,14 @@ from langchain_core.messages import HumanMessage
 from tests.fixtures.llm_sse import non_streaming_response
 
 
+class _FakeConfig(dict):
+    """Minimal config expected by validate_plan (thread_id, see app/audit_log.py) —
+    same pattern as tests/test_verify_action.py."""
+
+    def __init__(self, thread_id="thread-1"):
+        super().__init__(configurable={"thread_id": thread_id})
+
+
 def _subtask(description="A", success_criterion="critère A", tools=None):
     return {
         "description": description,
@@ -146,7 +154,7 @@ async def test_validate_plan_noop_when_disabled(monkeypatch):
     monkeypatch.setattr(g, "PLAN_VALIDATION_ENABLED", False)
     with respx.mock(assert_all_called=False) as mock:
         route = mock.post("http://fake-vllm/v1/chat/completions")
-        result = await g.validate_plan({"plan": _valid_plan(), "messages": [HumanMessage(content="x")]})
+        result = await g.validate_plan({"plan": _valid_plan(), "messages": [HumanMessage(content="x")]}, _FakeConfig())
 
     assert result == {"messages": []}
     assert route.call_count == 0
@@ -176,7 +184,7 @@ async def test_validate_plan_accepts_valid_plan_without_judge(monkeypatch):
             "messages": [HumanMessage(content="Sur http://fixture-catalog/catalog/index.html, trouve le prix.")],
             "plan_validation_cycles": 0,
         }
-        result = await g.validate_plan(state)
+        result = await g.validate_plan(state, _FakeConfig())
 
     assert result == {"plan_validation_reasons": [], "plan_approved": None}
     assert judge_route.call_count == 0
@@ -196,7 +204,7 @@ async def test_validate_plan_rejects_on_heuristic_failure_without_calling_judge(
             "messages": [HumanMessage(content="x")],
             "plan_validation_cycles": 0,
         }
-        result = await g.validate_plan(state)
+        result = await g.validate_plan(state, _FakeConfig())
 
     assert result["plan_validation_reasons"]
     assert result["plan_validation_cycles"] == 1
@@ -231,10 +239,157 @@ async def test_validate_plan_calls_judge_when_heuristics_pass(monkeypatch):
             "messages": [HumanMessage(content="Sur http://fixture-catalog/catalog/index.html, trouve le prix.")],
             "plan_validation_cycles": 0,
         }
-        result = await g.validate_plan(state)
+        result = await g.validate_plan(state, _FakeConfig())
 
     assert any("manque une étape" in r for r in result["plan_validation_reasons"])
     assert result["plan_validation_cycles"] == 1
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Coverage counter (EFFORT 2 "judge validity check", docs/history.md):
+# validate_plan now always journalise a role="plan_validation" entry with
+# heuristic_rejected/judge_invoked/judge_vetoed kept as DISTINCT signals —
+# archives previously could not tell "the judge never fired" from "the
+# judge fired and approved", both collapsing to an empty plan_validation_
+# reasons list.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_validate_plan_logs_accepted_plan_with_no_rejection_no_judge(monkeypatch, tmp_path):
+    import app.graph as g
+    import app.audit_log as audit_log
+
+    monkeypatch.setattr(audit_log, "AUDIT_LOG_DIR", str(tmp_path))
+    monkeypatch.setattr(g, "PLAN_VALIDATION_ENABLED", True)
+    monkeypatch.setattr(g, "PLAN_JUDGE_ENABLED", False)
+    with respx.mock(assert_all_called=False) as mock:
+        mock.get("http://fake-mcp-client/tools/schema").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "tools": [
+                        {"type": "function", "function": {"name": "browser_navigate"}},
+                        {"type": "function", "function": {"name": "browser_extract"}},
+                    ]
+                },
+            )
+        )
+        mock.post("http://fake-vllm/v1/chat/completions")
+        state = {
+            "plan": _valid_plan(),
+            "messages": [HumanMessage(content="Sur http://fixture-catalog/catalog/index.html, trouve le prix.")],
+            "plan_validation_cycles": 0,
+        }
+        await g.validate_plan(state, _FakeConfig("thread-validate-cov"))
+
+    entries = audit_log.read_entries("thread-validate-cov")
+    validations = [e for e in entries if e.get("kind") == "message" and e.get("role") == "plan_validation"]
+    assert len(validations) == 1
+    assert validations[0]["content"] == {"heuristic_rejected": False, "judge_invoked": False, "judge_vetoed": False}
+
+
+@pytest.mark.asyncio
+async def test_validate_plan_logs_heuristic_rejection_without_invoking_judge(monkeypatch, tmp_path):
+    import app.graph as g
+    import app.audit_log as audit_log
+
+    monkeypatch.setattr(audit_log, "AUDIT_LOG_DIR", str(tmp_path))
+    monkeypatch.setattr(g, "PLAN_VALIDATION_ENABLED", True)
+    monkeypatch.setattr(g, "PLAN_JUDGE_ENABLED", True)
+    with respx.mock(assert_all_called=False) as mock:
+        mock.get("http://fake-mcp-client/tools/schema").mock(return_value=httpx.Response(200, json={"tools": []}))
+        mock.post("http://fake-vllm/v1/chat/completions")
+        state = {
+            "plan": [_subtask(tools=["outil_inconnu"])],  # 1 seule sous-tâche : hors bornes (2-12) aussi
+            "messages": [HumanMessage(content="x")],
+            "plan_validation_cycles": 0,
+        }
+        await g.validate_plan(state, _FakeConfig("thread-validate-cov"))
+
+    entries = audit_log.read_entries("thread-validate-cov")
+    validations = [e for e in entries if e.get("kind") == "message" and e.get("role") == "plan_validation"]
+    assert len(validations) == 1
+    assert validations[0]["content"] == {"heuristic_rejected": True, "judge_invoked": False, "judge_vetoed": False}
+
+
+@pytest.mark.asyncio
+async def test_validate_plan_logs_judge_veto_distinct_from_heuristic_rejection(monkeypatch, tmp_path):
+    import app.graph as g
+    import app.audit_log as audit_log
+
+    monkeypatch.setattr(audit_log, "AUDIT_LOG_DIR", str(tmp_path))
+    monkeypatch.setattr(g, "PLAN_VALIDATION_ENABLED", True)
+    monkeypatch.setattr(g, "PLAN_JUDGE_ENABLED", True)
+    with respx.mock(assert_all_called=False) as mock:
+        mock.get("http://fake-mcp-client/tools/schema").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "tools": [
+                        {"type": "function", "function": {"name": "browser_navigate"}},
+                        {"type": "function", "function": {"name": "browser_extract"}},
+                    ]
+                },
+            )
+        )
+        mock.post("http://fake-vllm/v1/chat/completions").mock(
+            return_value=httpx.Response(
+                200, json=non_streaming_response(json.dumps({"faisable": False, "risques": ["manque une étape"]}))
+            )
+        )
+        state = {
+            "plan": _valid_plan(),
+            "messages": [HumanMessage(content="Sur http://fixture-catalog/catalog/index.html, trouve le prix.")],
+            "plan_validation_cycles": 0,
+        }
+        await g.validate_plan(state, _FakeConfig("thread-validate-cov"))
+
+    entries = audit_log.read_entries("thread-validate-cov")
+    validations = [e for e in entries if e.get("kind") == "message" and e.get("role") == "plan_validation"]
+    assert len(validations) == 1
+    assert validations[0]["content"] == {"heuristic_rejected": False, "judge_invoked": True, "judge_vetoed": True}
+
+
+@pytest.mark.asyncio
+async def test_validate_plan_logs_judge_invoked_and_approved(monkeypatch, tmp_path):
+    """Judge invoked but faisable=True: judge_invoked must stay True
+    (coverage — the judge WAS exercised) while judge_vetoed is False —
+    without this entry, an archived campaign cannot tell "judge never
+    fired" from "judge fired and approved", both collapsing to the same
+    empty plan_validation_reasons."""
+    import app.graph as g
+    import app.audit_log as audit_log
+
+    monkeypatch.setattr(audit_log, "AUDIT_LOG_DIR", str(tmp_path))
+    monkeypatch.setattr(g, "PLAN_VALIDATION_ENABLED", True)
+    monkeypatch.setattr(g, "PLAN_JUDGE_ENABLED", True)
+    with respx.mock(assert_all_called=False) as mock:
+        mock.get("http://fake-mcp-client/tools/schema").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "tools": [
+                        {"type": "function", "function": {"name": "browser_navigate"}},
+                        {"type": "function", "function": {"name": "browser_extract"}},
+                    ]
+                },
+            )
+        )
+        mock.post("http://fake-vllm/v1/chat/completions").mock(
+            return_value=httpx.Response(200, json=non_streaming_response(json.dumps({"faisable": True})))
+        )
+        state = {
+            "plan": _valid_plan(),
+            "messages": [HumanMessage(content="Sur http://fixture-catalog/catalog/index.html, trouve le prix.")],
+            "plan_validation_cycles": 0,
+        }
+        await g.validate_plan(state, _FakeConfig("thread-validate-cov"))
+
+    entries = audit_log.read_entries("thread-validate-cov")
+    validations = [e for e in entries if e.get("kind") == "message" and e.get("role") == "plan_validation"]
+    assert len(validations) == 1
+    assert validations[0]["content"] == {"heuristic_rejected": False, "judge_invoked": True, "judge_vetoed": False}
 
 
 # ─────────────────────────────────────────────────────────────────────────
