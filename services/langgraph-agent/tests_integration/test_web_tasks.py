@@ -414,7 +414,20 @@ class TaskResult:
         # entries) — the 4 flags' counters above stay 0/None on a merged-
         # mode run (their nodes are no-op there), these are the only
         # signal that the mechanism fired at all in that mode.
+        # merged_plan_attempted counts manage_plan tool_calls found in
+        # role="assistant" audit entries (logged unconditionally by
+        # call_llm right after the model responds, before any dispatch —
+        # app/graph.py) — merged_plan_calls only counts the SUBSET that
+        # reached _execute_tool_calls and got a role="merged_planning"
+        # entry. Found to diverge in the fifth-condition diagnostic's
+        # correction-2/2 smoke (docs/history.md, "EFFORT 2" point 3): a
+        # manage_plan call emitted as the run's absolute last turn can be
+        # cut off (budget/loop-detection) before dispatch, undercounting
+        # a real engagement as if the model had never tried. Keep both:
+        # attempted - calls > 0 is itself the coverage signal for this
+        # specific blind spot, not something to silently reconcile away.
         self.merged_plan_calls = 0
+        self.merged_plan_attempted = 0
         self.merged_plan_initial_subtask_count = None
         self.merged_plan_heuristic_rejections = 0
         self.merged_plan_replans = 0
@@ -512,6 +525,13 @@ def run_task(prompt: str) -> TaskResult:
     # set_plan after the first one").
     merged_planning_entries = [e for e in entries if e.get("kind") == "message" and e.get("role") == "merged_planning"]
     result.merged_plan_calls = len(merged_planning_entries)
+    assistant_entries = [e for e in entries if e.get("kind") == "message" and e.get("role") == "assistant"]
+    result.merged_plan_attempted = sum(
+        1
+        for e in assistant_entries
+        for tc in ((e.get("content") or {}).get("tool_calls") or [])
+        if tc.get("name") == "manage_plan"
+    )
     accepted_set_plans = [
         e
         for e in merged_planning_entries
@@ -1017,6 +1037,7 @@ def _run_campaign(resume_cid: str = None):
             "validation_judge_invocations": result.validation_judge_invocations,
             "validation_judge_vetoes": result.validation_judge_vetoes,
             "merged_plan_calls": result.merged_plan_calls,
+            "merged_plan_attempted": result.merged_plan_attempted,
             "merged_plan_initial_subtask_count": result.merged_plan_initial_subtask_count,
             "merged_plan_heuristic_rejections": result.merged_plan_heuristic_rejections,
             "merged_plan_replans": result.merged_plan_replans,

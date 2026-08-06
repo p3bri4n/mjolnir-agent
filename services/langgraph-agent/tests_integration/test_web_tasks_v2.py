@@ -1028,6 +1028,7 @@ def _run_campaign_v2(resume_cid: str = None):
             "validation_judge_invocations": result.validation_judge_invocations,
             "validation_judge_vetoes": result.validation_judge_vetoes,
             "merged_plan_calls": result.merged_plan_calls,
+            "merged_plan_attempted": result.merged_plan_attempted,
             "merged_plan_initial_subtask_count": result.merged_plan_initial_subtask_count,
             "merged_plan_heuristic_rejections": result.merged_plan_heuristic_rejections,
             "merged_plan_replans": result.merged_plan_replans,
