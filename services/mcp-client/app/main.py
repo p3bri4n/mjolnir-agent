@@ -20,10 +20,12 @@ to it over Streamable HTTP instead of spawning a container.
 git/terminal/desktop(GhostDesk)/ocr were removed from this registry
 (docs/briefs/update-plan.md effort 1.2, docs/history.md): schema-weight
 audit found desktop+git+ocr+terminal cost 44.9% of the tool schema for
-1.6% of real usage across 67 v2 campaign threads. ocr-service and
-GhostDesk stay deployed (docker-compose.yml) for effort 3's future
-graph-capability rework — just no longer reachable through this
-registry.
+1.6% of real usage across 67 v2 campaign threads. GhostDesk itself was
+later removed entirely (effort 3, docs/history.md). ocr-service is not
+a tool server and never will be reachable through this registry — it's
+a graph-internal capability, called directly by langgraph-agent over
+plain HTTP (see docs/architecture/autonomy.md, "Proactive OCR
+enrichment").
 """
 
 import asyncio

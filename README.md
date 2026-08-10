@@ -130,10 +130,6 @@ Planned, not implemented — tracked in `PLAN.md`:
   engagement) and per-task domain scope.
 - A prompt-injection benchmark family (v2, family C) to measure resistance
   rather than assert it.
-- OCR-assisted visual grounding (`ocr-service` is deployed but currently
-  unregistered as a model-callable tool): planned as a graph capability,
-  auto-triggered on a `not_reached` verification verdict rather than a
-  free model choice.
 
 ## Quick start
 
@@ -179,9 +175,9 @@ services/
   playwright-mcp/      official mcp/playwright image, browser driven by
                        the agent (separate docker-compose service, native HTTP
                        server — see docs/resolved-bugs.md)
-  ocr-service/         supplementary OCR for VLM grounding (PaddleOCR CPU,
-                       find_text/read_screen) — deployed but currently
-                       unregistered in mcp-client (see Roadmap)
+  ocr-service/         graph-internal OCR capability (PaddleOCR CPU),
+                       called directly by langgraph-agent over plain
+                       HTTP — not an MCP server, no mcp-client registration
     app/
     tests/
   dashboard/           local observability cockpit — see
@@ -225,17 +221,15 @@ models/     weights (exl3) of the model and multimodal projector served by
 - **Skill matching and RAG are deliberately simplistic** (naive keyword
   match, no reranker) — to be strengthened if the volume of skills/documents
   grows.
-- **`ghostdesk` and `ocr-service` are deployed but not agent-callable**:
-  removed from `mcp-client`'s tool registry (schema-weight audit found
-  them at 44.9% of the tool schema for 1.6% of real usage — see
-  `docs/history.md`), pending effort 3's rework
-  (`docs/briefs/update-plan.md`: OCR becomes a graph capability rather
-  than a model-invoked tool). `ghostdesk` still runs with `cap_add:
-  SYS_ADMIN` and a full GUI shell, and the noVNC port (6080) stays
-  published on the host (the MCP port 3000 is not) — never expose it
-  beyond the internal `agent-net` network. Access:
-  http://localhost:6080 once the service is started, password =
-  `GHOSTDESK_VNC_PASSWORD` (see `.env`).
+- **`ocr-service`'s proactive trigger is unvalidated and ships default-off**
+  (`PROACTIVE_OCR_ENABLED=false`): the graph is meant to call it after
+  detecting a visual-only element (canvas/PDF/alt-less image) in a page,
+  but the exact detection signal (`_detect_visual_signal`,
+  `app/graph.py`) is a stub pending an empirical check against
+  `browser_snapshot`'s real output — see `docs/architecture/autonomy.md`
+  and `docs/briefs/update-plan.md`, effort 3. `ocr-service` itself never
+  captures anything on its own (GhostDesk, its former capture source, is
+  removed) — it only OCRs an image the caller supplies.
 - **`playwright-mcp` (the "browser" server) has been a persistent HTTP
   server since the fix documented in detail in `docs/resolved-bugs.md`** —
   it used to be spawned as an ephemeral STDIO process

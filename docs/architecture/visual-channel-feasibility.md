@@ -118,17 +118,18 @@ territory, already decided out of scope by explicit user choice
 this benchmark."* This probe does not reopen that decision; it confirms
 there is no OTHER, undocumented reason to keep GhostDesk around.
 
-## Side observation (not fixed here, flagged for a future checkpoint)
+## Side observation — fixed since (commit `6b4264e`)
 
-`browser_snapshot` and `browser_take_screenshot` are NOT in
-`_DEFAULT_TIER_READ` (`app/approval_policy.py`) despite being declared
-`type: "readOnly"` by the Playwright MCP server itself (verified against
-the installed `mcp/playwright:latest` image's own schema, CLAUDE.md #8)
-— both default to TIER_SENSITIVE, same as a mutating action, unlike
-`browser_extract`/`browser_inspect` which already got this treatment for
-the same reason (pure read, nothing to exfiltrate, nothing to undo). Out
-of scope for this probe (which only asked for the matrix and the removal
-impact list) — noted here since it directly affects how cheaply
-`browser_take_screenshot` can be reached for the VP1-VP4 cases above, and
-belongs with the rest of the tiering work already underway
-(`docs/briefs/B5-security-hardening.md`).
+`browser_snapshot` and `browser_take_screenshot` were NOT in
+`_DEFAULT_TIER_READ` (`app/approval_policy.py`) at the time of this probe,
+despite being declared `type: "readOnly"` by the Playwright MCP server
+itself (verified against the installed `mcp/playwright:latest` image's
+own schema, CLAUDE.md #8) — both defaulted to TIER_SENSITIVE, same as a
+mutating action, unlike `browser_extract`/`browser_inspect` which already
+got this treatment for the same reason (pure read, nothing to exfiltrate,
+nothing to undo). Fixed shortly after this probe (commit `6b4264e`,
+"promote browser_snapshot/browser_take_screenshot to TIER_READ") — both
+tools are TIER_READ today. This is a direct prerequisite for effort 3's
+proactive OCR enrichment (`docs/architecture/autonomy.md`): its
+`browser_take_screenshot` call needed to be silent (no approval pause on
+every trigger) to work as a background capability at all.

@@ -15,7 +15,8 @@
 # - reasoning: true — désactivé par défaut chez TabbyAPI, mais requis ici
 #   pour que les blocs <think> de Qwen soient effectivement parsés.
 # - vision: true — désactivé par défaut même si le modèle a des capacités
-#   vision ; requis pour préserver screen_shot GhostDesk/OCR.
+#   vision ; requis pour préserver browser_take_screenshot (Playwright) /
+#   la capacité OCR proactive du graphe.
 # - draft_model.draft_mode: mtp — utilise la tête MTP native du modèle
 #   (39 tenseurs mtp.* confirmés dans model.safetensors.index.json), pas de
 #   draft_model_name séparé à charger.

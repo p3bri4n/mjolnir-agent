@@ -9,9 +9,8 @@ _persistent_sessions: dict[str, tuple[AsyncExitStack, ClientSession]] = {}
 
 `_get_persistent_session(server_name)` returns the cached session if one
 is alive, opening a new one otherwise — there is no caller/thread/worker
-dimension in the key. The three isolation resets that exist today
-(`_reset_browser_session`, `_purge_downloads_volume`,
-`_reset_ghostdesk_desktop`, all in
+dimension in the key. The two isolation resets that exist today
+(`_reset_browser_session`, `_purge_downloads_volume`, both in
 `services/langgraph-agent/tests_integration/test_web_tasks.py`) are
 themselves global and called serially before each campaign repetition —
 they assume a single active conversation at a time, which nothing in
@@ -32,7 +31,7 @@ parallel (effort 1.3, `docs/briefs/update-plan.md`) or (b) more than one
 person/session uses the agent concurrently.
 
 **Preferred fix, when either trigger above materializes**: scope
-`_persistent_sessions` (and the three reset endpoints) by a caller-
+`_persistent_sessions` (and the two reset endpoints) by a caller-
 supplied `worker_id`/session key rather than by server name alone. This
 was identified as the same underlying defect as
 `_tools_schema_cache` in `services/langgraph-agent/app/graph.py`
