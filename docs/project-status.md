@@ -502,8 +502,13 @@ per-judge table and the two non-placement findings noted alongside it
 **Median-time figures from campaigns before this fix are not comparable
 to campaigns after it** — scores remain comparable.
 
-**Step 5 (preflight device-placement check, serialise device identity
-into campaign metadata) not yet built** — in progress.
+**Step 5 delivered**: `campaign_preflight.py`'s `check_device_placement`
+refuses a campaign whose per-GPU memory distribution deviates from the
+configured `gpu_split` (identity + ±3 GB tolerance); `campaign_persistence.
+collect_gpu_devices()` serialises device identity (name, index, bus id,
+memory used) into every campaign's metadata. Regression-tested against
+the original pre-fix reading (14131/4424 MiB) — correctly flagged. Full
+suite 458→466 passed. **Brief fully delivered (steps 1-5).**
 
 **Planned, not started** (`docs/briefs/update-plan.md`, "2.3"/"2.4"):
 (1) a surgical `browser_extract` dt/dd fix in `mcp-client`, judged on

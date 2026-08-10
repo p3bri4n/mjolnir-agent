@@ -5139,5 +5139,31 @@ affects the latency reading above.
 from campaigns run before this fix are not comparable to campaigns run
 after it.** Scores remain comparable; latency does not.
 
-**Step 5 (preflight device-placement check + campaign metadata) not yet
-built** — next piece of this brief.
+**Step 5 delivered**: `campaign_preflight.py` gains
+`check_device_placement`/`_fetch_device_placement`, wired into
+`run_preflight()` right after `check_tabbyapi_image_fresh` (same
+tabbyapi-container theme, and a drifted split would otherwise silently
+invalidate every latency judge downstream) — `EXPECTED_GPU_DEVICES`
+mirrors `services/tabbyapi/config.yml`'s `gpu_split` (identity: name +
+bus_id per index; memory: ±`GPU_PLACEMENT_TOLERANCE_GB` (3 GB) of the
+configured budget, never exact equality — real allocations don't land on
+the GB boundary, whole-layer granularity). `campaign_persistence.py`
+gains `collect_gpu_devices()` (same `nvidia-smi` CSV primitive, best-effort
+`[]` on failure, same philosophy as `collect_tabbyapi_raw_samples`),
+merged into `collect_metadata()`'s `gpu_devices` key. `_fetch_device_placement`
+delegates to `collect_gpu_devices` rather than duplicating the docker
+exec/parse logic (same DRY precedent as `_fetch_agent_env` delegating to
+`collect_env_flags`).
+
+Regression test added for the exact failure mode this check exists to
+catch (`test_check_device_placement_flags_reverted_to_autosplit`):
+feeding it the ORIGINAL pre-fix reading (14131/4424 MiB) correctly flags
+both devices as outside tolerance. 4 existing `run_preflight` orchestration
+tests updated to inject a passing `fetch_device_placement` (same pattern
+every prior check addition already required); 1 new ordering test
+confirms device placement is checked before env flags, aborting before
+`fetch_agent_env` is ever called. Full suite 458→466 passed, 0
+regressions.
+
+Brief `docs/briefs/deterministic-gpu-placement.md` is now fully delivered
+(steps 1-5).
