@@ -1,128 +1,94 @@
 """
-Tests de bout en bout de find_text/read_screen : @mcp.tool() (SDK mcp)
-renvoie la fonction Python d'origine inchangée, donc appelable directement
-ici (pas besoin de faire tourner ocr-service lui-même comme process HTTP
-séparé). Seule la capture GhostDesk est un vrai aller-retour réseau, contre
-un faux serveur MCP GhostDesk en Streamable HTTP (tests/fixtures/
-fake_ghostdesk_server.py), sur le modèle des fixtures HTTP de mcp-client.
+Tests of POST /ocr against the real FastAPI app (TestClient, same
+pattern as context-manager/skill-manager): no network round trip, no
+subprocess — OCR_ENGINE=fake (tests/conftest.py) makes
+FakeOCREngine.run() return whatever set_fake_detections() set,
+regardless of the image bytes actually posted.
 """
 
-import socket
-import subprocess
-import sys
-import time
-from pathlib import Path
+import base64
 
 import pytest
+from fastapi.testclient import TestClient
 
 from app.ocr_engine import set_fake_detections
 
-FAKE_GHOSTDESK_PATH = Path(__file__).parent / "fixtures" / "fake_ghostdesk_server.py"
-
-IMAGE_WIDTH = 1280
-IMAGE_HEIGHT = 1024
-
-
-def _free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-def _wait_for_port(port: int, timeout: float = 5.0):
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            if s.connect_ex(("127.0.0.1", port)) == 0:
-                return
-        time.sleep(0.05)
-    raise TimeoutError(f"le faux serveur GhostDesk n'a pas démarré sur le port {port}")
+# Any base64-valid payload works: FakeOCREngine.run() ignores its input.
+FAKE_IMAGE_B64 = base64.b64encode(b"not a real image").decode()
 
 
 @pytest.fixture
-def fake_ghostdesk(monkeypatch):
-    """Démarre le faux GhostDesk et pointe app.main vers lui."""
-    port = _free_port()
-    token = "ghostdesk-secret"
-    proc = subprocess.Popen(
-        [sys.executable, str(FAKE_GHOSTDESK_PATH), str(port), token, str(IMAGE_WIDTH), str(IMAGE_HEIGHT)]
-    )
-    try:
-        _wait_for_port(port)
+def client():
+    import app.main as main_mod
 
-        import app.main as main_mod
-
-        monkeypatch.setattr(main_mod, "GHOSTDESK_URL", f"http://127.0.0.1:{port}/mcp")
-        monkeypatch.setattr(main_mod, "GHOSTDESK_AUTH_TOKEN", token)
-        yield main_mod
-    finally:
-        proc.terminate()
-        proc.wait(timeout=5)
+    return TestClient(main_mod.app)
 
 
-def _detection(text, x, y, width, height, confidence):
-    return {"text": text, "x": x, "y": y, "width": width, "height": height, "confidence": confidence}
+def _detection(text, confidence):
+    return {"text": text, "x": 0, "y": 0, "width": 0, "height": 0, "confidence": confidence}
 
 
-@pytest.mark.asyncio
-async def test_find_text_returns_matches_sorted_by_confidence(fake_ghostdesk):
+def test_ocr_returns_matches_sorted_by_confidence(client):
     set_fake_detections(
         [
-            _detection("Fichier", x=10, y=10, width=80, height=20, confidence=0.7),
-            _detection("Fichiers récents", x=10, y=40, width=150, height=20, confidence=0.95),
-            _detection("Édition", x=200, y=10, width=80, height=20, confidence=0.9),
+            _detection("Fichier", confidence=0.7),
+            _detection("Fichiers récents", confidence=0.95),
+            _detection("Édition", confidence=0.9),
         ]
     )
 
-    result = await fake_ghostdesk.find_text(query="fichier")
+    resp = client.post("/ocr", json={"image_base64": FAKE_IMAGE_B64})
 
-    assert [d["text"] for d in result] == ["Fichiers récents", "Fichier"]
+    assert resp.status_code == 200
+    result = resp.json()
+    assert [d["text"] for d in result] == ["Fichiers récents", "Édition", "Fichier"]
     assert result[0]["confidence"] == 0.95
 
 
-@pytest.mark.asyncio
-async def test_find_text_converts_coordinates_to_normalized_space(fake_ghostdesk):
-    set_fake_detections([_detection("Fichier", x=640, y=512, width=128, height=32, confidence=0.9)])
+def test_ocr_returns_only_text_and_confidence(client):
+    set_fake_detections([_detection("Fichier", confidence=0.9)])
 
-    result = await fake_ghostdesk.find_text(query="Fichier")
+    resp = client.post("/ocr", json={"image_base64": FAKE_IMAGE_B64})
 
-    assert result == [
-        {"text": "Fichier", "x": 500, "y": 500, "width": 100, "height": 31, "confidence": 0.9}
-    ]
+    assert resp.json() == [{"text": "Fichier", "confidence": 0.9}]
 
 
-@pytest.mark.asyncio
-async def test_find_text_no_match_returns_empty_list(fake_ghostdesk):
-    set_fake_detections([_detection("Fichier", x=10, y=10, width=80, height=20, confidence=0.9)])
+def test_ocr_no_detections_returns_empty_list(client):
+    set_fake_detections([])
 
-    result = await fake_ghostdesk.find_text(query="motintrouvable", fuzzy=True)
+    resp = client.post("/ocr", json={"image_base64": FAKE_IMAGE_B64})
 
-    assert result == []
-
-
-@pytest.mark.asyncio
-async def test_find_text_fuzzy_recovers_ocr_misread(fake_ghostdesk):
-    set_fake_detections([_detection("Parametres avances", x=10, y=10, width=200, height=20, confidence=0.9)])
-
-    result = await fake_ghostdesk.find_text(query="Paramètres", fuzzy=True)
-
-    assert len(result) == 1
-
-    strict = await fake_ghostdesk.find_text(query="Paramètres", fuzzy=False)
-    assert strict == []
+    assert resp.status_code == 200
+    assert resp.json() == []
 
 
-@pytest.mark.asyncio
-async def test_read_screen_caps_at_80_elements_sorted_by_confidence(fake_ghostdesk):
-    detections = [
-        _detection(f"mot{i}", x=i, y=i, width=10, height=10, confidence=round(i / 100, 3))
-        for i in range(90)
-    ]
+def test_ocr_caps_at_80_elements_sorted_by_confidence(client):
+    detections = [_detection(f"mot{i}", confidence=round(i / 100, 3)) for i in range(90)]
     set_fake_detections(detections)
 
-    result = await fake_ghostdesk.read_screen()
+    resp = client.post("/ocr", json={"image_base64": FAKE_IMAGE_B64})
 
+    result = resp.json()
     assert len(result) == 80
     # Les 80 plus hautes confiances (0.10 à 0.89), triées décroissant.
     assert result[0]["confidence"] == 0.89
     assert result[-1]["confidence"] == round(10 / 100, 3)
+
+
+def test_ocr_default_mime_type_is_png(client):
+    """mime_type is accepted but unused server-side (engine.run() takes raw
+    bytes only) — this just confirms the request model doesn't require it."""
+    set_fake_detections([_detection("x", confidence=0.5)])
+
+    resp = client.post("/ocr", json={"image_base64": FAKE_IMAGE_B64})
+
+    assert resp.status_code == 200
+
+
+def test_health() -> None:
+    import app.main as main_mod
+
+    client = TestClient(main_mod.app)
+    resp = client.get("/health")
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ok"}
