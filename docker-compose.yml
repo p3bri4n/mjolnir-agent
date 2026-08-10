@@ -305,11 +305,11 @@ services:
       # pour laisser le rendu se stabiliser. 0 désactive ce délai.
       - BROWSER_STABILIZE_WAIT_SECONDS=${BROWSER_STABILIZE_WAIT_SECONDS:-0.5}
       # Visual feedback (docs/briefs/campaign-visual-feedback.md, minimal
-      # subset, see that file's "Status" section for the full design).
-      # Off by default: overhead not yet measured (a with/without smoke
-      # names the number before this default changes) — see
-      # docs/history.md, "VISUAL FEEDBACK MINIMAL".
-      - CAMPAIGN_VISUAL_CAPTURE=${CAMPAIGN_VISUAL_CAPTURE:-false}
+      # subset, see that file's "Status" section for the full design). On
+      # by default since 2026-08-10: with/without smoke measured negligible
+      # overhead on the declared judge (median task duration) — see
+      # docs/history.md, "VISUAL FEEDBACK MINIMAL", overhead smoke result.
+      - CAMPAIGN_VISUAL_CAPTURE=${CAMPAIGN_VISUAL_CAPTURE:-true}
       - VISUAL_CAPTURE_DIR=/visual-capture
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock   # ⚠️ équivaut à un accès root sur l'hôte,
