@@ -1499,7 +1499,10 @@ async def plan_task(state: AgentState, config: dict) -> dict:
         plan[0]["status"] = "en_cours"
     logger.info("Initial plan (%d subtask(s)): %s", len(plan), plan)
     thread_id = config.get("configurable", {}).get("thread_id", "")
-    audit_log.log_message(thread_id, "planning", {"subtask_count": len(plan), "trivial": len(plan) <= 1})
+    audit_log.log_message(
+        thread_id, "planning",
+        {"subtask_count": len(plan), "trivial": len(plan) <= 1, "subtasks": _render_plan(plan)},
+    )
     return {"plan": plan, "subtask_message_start": [len(state["messages"])] if plan else []}
 
 
@@ -2663,7 +2666,15 @@ async def verify_action(state: AgentState, config: dict) -> dict:
     last = state["messages"][-1]
     verdict, exploitable = _parse_constat(getattr(last, "tool_calls", None))
     thread_id = config.get("configurable", {}).get("thread_id", "")
-    audit_log.log_message(thread_id, "verification", {"exploitable": exploitable, "verdict": verdict})
+    audit_log.log_message(
+        thread_id, "verification",
+        {
+            "exploitable": exploitable,
+            "verdict": verdict,
+            "subtask_index": active_index,
+            "success_criterion": plan[active_index]["success_criterion"],
+        },
+    )
 
     if not exploitable:
         logger.warning(
@@ -2775,7 +2786,15 @@ async def replan_task(state: AgentState, config: dict) -> dict:
         boundaries.append(len(state["messages"]))
         audit_log.log_message(
             thread_id, "replanning",
-            {"replan_index": replan_count, "failed_subtask_index": failed_index, "new_subtask_count": None},
+            {
+                "replan_index": replan_count,
+                "failed_subtask_index": failed_index,
+                "failed_subtask": {
+                    "description": plan[failed_index]["description"],
+                    "success_criterion": plan[failed_index]["success_criterion"],
+                },
+                "new_subtask_count": None,
+            },
         )
         return {"plan": new_plan, "replan_count": replan_count, "subtask_message_start": boundaries}
 
@@ -2790,7 +2809,19 @@ async def replan_task(state: AgentState, config: dict) -> dict:
     )
     audit_log.log_message(
         thread_id, "replanning",
-        {"replan_index": replan_count, "failed_subtask_index": failed_index, "new_subtask_count": len(new_subtasks)},
+        {
+            "replan_index": replan_count,
+            "failed_subtask_index": failed_index,
+            "failed_subtask": {
+                "description": plan[failed_index]["description"],
+                "success_criterion": plan[failed_index]["success_criterion"],
+            },
+            "new_subtask_count": len(new_subtasks),
+            "new_subtasks": [
+                {"description": st["description"], "success_criterion": st["success_criterion"]}
+                for st in new_subtasks
+            ],
+        },
     )
     return {"plan": rebuilt, "replan_count": replan_count, "subtask_message_start": boundaries}
 

@@ -202,7 +202,17 @@ async def test_plan_task_logs_planning_audit_entry_with_subtask_count(monkeypatc
     entries = audit_log.read_entries("thread-plan-cov")
     plannings = [e for e in entries if e.get("kind") == "message" and e.get("role") == "planning"]
     assert len(plannings) == 1
-    assert plannings[0]["content"] == {"subtask_count": 2, "trivial": False}
+    # subtasks (EFFORT 2.3 follow-up, #51): description + success_criterion
+    # per subtask, needed to diagnose which literal criterion a stalled
+    # subtask was judged against (previously only the count was logged).
+    assert plannings[0]["content"] == {
+        "subtask_count": 2,
+        "trivial": False,
+        "subtasks": [
+            {"index": 0, "description": "Ouvrir le catalogue", "success_criterion": "page affichée", "status": "en_cours"},
+            {"index": 1, "description": "Lire le prix", "success_criterion": "prix trouvé", "status": "a_faire"},
+        ],
+    }
 
 
 @pytest.mark.asyncio
@@ -230,7 +240,18 @@ async def test_plan_task_falls_back_to_single_subtask_on_invalid_response(monkey
     entries = audit_log.read_entries("thread-plan-trivial")
     plannings = [e for e in entries if e.get("kind") == "message" and e.get("role") == "planning"]
     assert len(plannings) == 1
-    assert plannings[0]["content"] == {"subtask_count": 1, "trivial": True}
+    assert plannings[0]["content"] == {
+        "subtask_count": 1,
+        "trivial": True,
+        "subtasks": [
+            {
+                "index": 0,
+                "description": "Trouve le prix du produit",
+                "success_criterion": "objectif de la tâche atteint",
+                "status": "en_cours",
+            }
+        ],
+    }
 
 
 @pytest.mark.asyncio
