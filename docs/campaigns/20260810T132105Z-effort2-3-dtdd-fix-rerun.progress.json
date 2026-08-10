@@ -1,0 +1,122 @@
+{
+  "campaign_id": "20260810T132105Z-effort2-3-dtdd-fix-rerun",
+  "completed": [
+    {
+      "approvals": 5,
+      "cup": null,
+      "duration_s": 151.7,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A1_reconciliation_croisee",
+      "thread_id": "a543ab97dbe3ef2b",
+      "tool_calls": 11
+    },
+    {
+      "approvals": 6,
+      "cup": null,
+      "duration_s": 119.7,
+      "fabricated_urls_count": 0,
+      "failure_cause": "extraction",
+      "repetition": 2,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "A1_reconciliation_croisee",
+      "thread_id": "63dac997dbeddc1a",
+      "tool_calls": 10
+    },
+    {
+      "approvals": 6,
+      "cup": null,
+      "duration_s": 113.2,
+      "fabricated_urls_count": 0,
+      "failure_cause": "extraction",
+      "repetition": 3,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "A1_reconciliation_croisee",
+      "thread_id": "a3234af54c68fb23",
+      "tool_calls": 10
+    },
+    {
+      "approvals": 5,
+      "cup": null,
+      "duration_s": 92.8,
+      "fabricated_urls_count": 0,
+      "failure_cause": "extraction",
+      "repetition": 1,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "A2_schema_references",
+      "thread_id": "1ddbe574e71c9b55",
+      "tool_calls": 11
+    },
+    {
+      "approvals": 4,
+      "cup": null,
+      "duration_s": 94.9,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A2_schema_references",
+      "thread_id": "096a02c31e82b7be",
+      "tool_calls": 10
+    },
+    {
+      "approvals": 6,
+      "cup": null,
+      "duration_s": 142.6,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A2_schema_references",
+      "thread_id": "754fe34f2c23acb6",
+      "tool_calls": 12
+    }
+  ],
+  "config_digest": "66798cec3e54e587",
+  "current": null,
+  "label": "effort2.3-dtdd-fix-rerun",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "A1_reconciliation_croisee"
+    },
+    {
+      "repetition": 2,
+      "task_id": "A1_reconciliation_croisee"
+    },
+    {
+      "repetition": 3,
+      "task_id": "A1_reconciliation_croisee"
+    },
+    {
+      "repetition": 1,
+      "task_id": "A2_schema_references"
+    },
+    {
+      "repetition": 2,
+      "task_id": "A2_schema_references"
+    },
+    {
+      "repetition": 3,
+      "task_id": "A2_schema_references"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-08-10T13:33:02.261329+00:00",
+      "index": 0,
+      "started_at": "2026-08-10T13:21:05.268259+00:00"
+    }
+  ],
+  "started_at": "2026-08-10T13:21:05.268259+00:00",
+  "total_runs": 6
+}

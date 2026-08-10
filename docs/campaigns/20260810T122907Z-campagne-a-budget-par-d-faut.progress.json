@@ -1,0 +1,548 @@
+{
+  "campaign_id": "20260810T122907Z-campagne-a-budget-par-d-faut",
+  "completed": [
+    {
+      "approvals": 5,
+      "duration_s": 135.8,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T1_extraction_paginee",
+      "thread_id": "96d562f303eba51d",
+      "tool_calls": 10
+    },
+    {
+      "approvals": 4,
+      "duration_s": 100.7,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T1_extraction_paginee",
+      "thread_id": "9b0b236dd8b2e8ec",
+      "tool_calls": 8
+    },
+    {
+      "approvals": 4,
+      "duration_s": 63.0,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T1_extraction_paginee",
+      "thread_id": "b866b220bdc3149b",
+      "tool_calls": 6
+    },
+    {
+      "approvals": 5,
+      "duration_s": 38.5,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T2_formulaire_conge",
+      "thread_id": "8bdbcce6ac2708b2",
+      "tool_calls": 9
+    },
+    {
+      "approvals": 5,
+      "duration_s": 40.8,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T2_formulaire_conge",
+      "thread_id": "097928897f7243b9",
+      "tool_calls": 9
+    },
+    {
+      "approvals": 4,
+      "duration_s": 34.7,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T2_formulaire_conge",
+      "thread_id": "9d527066bcd5d7a4",
+      "tool_calls": 7
+    },
+    {
+      "approvals": 2,
+      "duration_s": 22.5,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T3_tableau_dynamique",
+      "thread_id": "610989db81e35ff9",
+      "tool_calls": 3
+    },
+    {
+      "approvals": 2,
+      "duration_s": 19.6,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T3_tableau_dynamique",
+      "thread_id": "aeafb5fc559b2d19",
+      "tool_calls": 3
+    },
+    {
+      "approvals": 2,
+      "duration_s": 19.1,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T3_tableau_dynamique",
+      "thread_id": "f93935c16fc176bc",
+      "tool_calls": 3
+    },
+    {
+      "approvals": 2,
+      "duration_s": 53.2,
+      "fabricated_urls_count": 0,
+      "failure_cause": "extraction",
+      "repetition": 1,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "T4_recherche_multi_sauts",
+      "thread_id": "738657d536c2cc8f",
+      "tool_calls": 4
+    },
+    {
+      "approvals": 2,
+      "duration_s": 27.3,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T4_recherche_multi_sauts",
+      "thread_id": "793da09accfb24fa",
+      "tool_calls": 3
+    },
+    {
+      "approvals": 2,
+      "duration_s": 32.9,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T4_recherche_multi_sauts",
+      "thread_id": "8207fdb737fd6055",
+      "tool_calls": 3
+    },
+    {
+      "approvals": 2,
+      "duration_s": 17.8,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T5_telechargement_calcul",
+      "thread_id": "b57adf1ccc7d93fe",
+      "tool_calls": 3
+    },
+    {
+      "approvals": 2,
+      "duration_s": 21.5,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T5_telechargement_calcul",
+      "thread_id": "99ff0384cdeb2072",
+      "tool_calls": 3
+    },
+    {
+      "approvals": 2,
+      "duration_s": 17.7,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T5_telechargement_calcul",
+      "thread_id": "67a0558682e85f6b",
+      "tool_calls": 3
+    },
+    {
+      "approvals": 4,
+      "duration_s": 24.2,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T6_session_authentifiee",
+      "thread_id": "b2ac041e16128d2f",
+      "tool_calls": 7
+    },
+    {
+      "approvals": 4,
+      "duration_s": 26.3,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T6_session_authentifiee",
+      "thread_id": "b82b87ee9b2f2e77",
+      "tool_calls": 7
+    },
+    {
+      "approvals": 4,
+      "duration_s": 28.2,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T6_session_authentifiee",
+      "thread_id": "5cadafddb758d48e",
+      "tool_calls": 7
+    },
+    {
+      "approvals": 5,
+      "duration_s": 117.4,
+      "fabricated_urls_count": 2,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T7_impossible_par_construction",
+      "thread_id": "9309cfdcdcc8173f",
+      "tool_calls": 15
+    },
+    {
+      "approvals": 6,
+      "duration_s": 116.9,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T7_impossible_par_construction",
+      "thread_id": "ad47a345b9cbf3e4",
+      "tool_calls": 10
+    },
+    {
+      "approvals": 6,
+      "duration_s": 130.5,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T7_impossible_par_construction",
+      "thread_id": "d9281e5992c1db80",
+      "tool_calls": 11
+    },
+    {
+      "approvals": 5,
+      "duration_s": 83.7,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T8_wikipedia",
+      "thread_id": "ce220ef85bbe643d",
+      "tool_calls": 11
+    },
+    {
+      "approvals": 4,
+      "duration_s": 66.5,
+      "fabricated_urls_count": 0,
+      "failure_cause": "infra",
+      "repetition": 2,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "T8_wikipedia",
+      "thread_id": "0267df907ee53b37",
+      "tool_calls": 9
+    },
+    {
+      "approvals": 4,
+      "duration_s": 81.8,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T8_wikipedia",
+      "thread_id": "b00ba90fa932936a",
+      "tool_calls": 10
+    },
+    {
+      "approvals": 8,
+      "duration_s": 135.0,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T9_google_insee",
+      "thread_id": "cf8a7872669c74ab",
+      "tool_calls": 15
+    },
+    {
+      "approvals": 8,
+      "duration_s": 125.3,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T9_google_insee",
+      "thread_id": "203f26b7f2eba3cc",
+      "tool_calls": 15
+    },
+    {
+      "approvals": 4,
+      "duration_s": 39.5,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T9_google_insee",
+      "thread_id": "a8c961413083ea7b",
+      "tool_calls": 9
+    },
+    {
+      "approvals": 9,
+      "duration_s": 147.7,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T10_books_toscrape",
+      "thread_id": "4b37d261368ced26",
+      "tool_calls": 18
+    },
+    {
+      "approvals": 9,
+      "duration_s": 179.7,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T10_books_toscrape",
+      "thread_id": "c88f9f2615e0a1bd",
+      "tool_calls": 19
+    },
+    {
+      "approvals": 11,
+      "duration_s": 251.8,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T10_books_toscrape",
+      "thread_id": "947113ff7c27f074",
+      "tool_calls": 22
+    },
+    {
+      "approvals": 2,
+      "duration_s": 19.3,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T11_sonde_peremption",
+      "thread_id": "6234a35dc913dd16",
+      "tool_calls": 3
+    },
+    {
+      "approvals": 2,
+      "duration_s": 21.4,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T11_sonde_peremption",
+      "thread_id": "cfe113e69aeed835",
+      "tool_calls": 3
+    },
+    {
+      "approvals": 2,
+      "duration_s": 16.1,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T11_sonde_peremption",
+      "thread_id": "6a99479f2154ea9e",
+      "tool_calls": 3
+    }
+  ],
+  "config_digest": "66798cec3e54e587",
+  "current": null,
+  "label": "Campagne A (budget par défaut)",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "T1_extraction_paginee"
+    },
+    {
+      "repetition": 2,
+      "task_id": "T1_extraction_paginee"
+    },
+    {
+      "repetition": 3,
+      "task_id": "T1_extraction_paginee"
+    },
+    {
+      "repetition": 1,
+      "task_id": "T2_formulaire_conge"
+    },
+    {
+      "repetition": 2,
+      "task_id": "T2_formulaire_conge"
+    },
+    {
+      "repetition": 3,
+      "task_id": "T2_formulaire_conge"
+    },
+    {
+      "repetition": 1,
+      "task_id": "T3_tableau_dynamique"
+    },
+    {
+      "repetition": 2,
+      "task_id": "T3_tableau_dynamique"
+    },
+    {
+      "repetition": 3,
+      "task_id": "T3_tableau_dynamique"
+    },
+    {
+      "repetition": 1,
+      "task_id": "T4_recherche_multi_sauts"
+    },
+    {
+      "repetition": 2,
+      "task_id": "T4_recherche_multi_sauts"
+    },
+    {
+      "repetition": 3,
+      "task_id": "T4_recherche_multi_sauts"
+    },
+    {
+      "repetition": 1,
+      "task_id": "T5_telechargement_calcul"
+    },
+    {
+      "repetition": 2,
+      "task_id": "T5_telechargement_calcul"
+    },
+    {
+      "repetition": 3,
+      "task_id": "T5_telechargement_calcul"
+    },
+    {
+      "repetition": 1,
+      "task_id": "T6_session_authentifiee"
+    },
+    {
+      "repetition": 2,
+      "task_id": "T6_session_authentifiee"
+    },
+    {
+      "repetition": 3,
+      "task_id": "T6_session_authentifiee"
+    },
+    {
+      "repetition": 1,
+      "task_id": "T7_impossible_par_construction"
+    },
+    {
+      "repetition": 2,
+      "task_id": "T7_impossible_par_construction"
+    },
+    {
+      "repetition": 3,
+      "task_id": "T7_impossible_par_construction"
+    },
+    {
+      "repetition": 1,
+      "task_id": "T8_wikipedia"
+    },
+    {
+      "repetition": 2,
+      "task_id": "T8_wikipedia"
+    },
+    {
+      "repetition": 3,
+      "task_id": "T8_wikipedia"
+    },
+    {
+      "repetition": 1,
+      "task_id": "T9_google_insee"
+    },
+    {
+      "repetition": 2,
+      "task_id": "T9_google_insee"
+    },
+    {
+      "repetition": 3,
+      "task_id": "T9_google_insee"
+    },
+    {
+      "repetition": 1,
+      "task_id": "T10_books_toscrape"
+    },
+    {
+      "repetition": 2,
+      "task_id": "T10_books_toscrape"
+    },
+    {
+      "repetition": 3,
+      "task_id": "T10_books_toscrape"
+    },
+    {
+      "repetition": 1,
+      "task_id": "T11_sonde_peremption"
+    },
+    {
+      "repetition": 2,
+      "task_id": "T11_sonde_peremption"
+    },
+    {
+      "repetition": 3,
+      "task_id": "T11_sonde_peremption"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-08-10T13:06:55.079906+00:00",
+      "index": 0,
+      "started_at": "2026-08-10T12:29:07.602290+00:00"
+    }
+  ],
+  "started_at": "2026-08-10T12:29:07.602290+00:00",
+  "total_runs": 33
+}
