@@ -487,6 +487,24 @@ cfg8-specific finding: attempt/replan-budget churn misfires on ordinary
 multi-step pagination on 2 of A1's 3 cfg8 runs — an added failure mode,
 never a help. Full detail: docs/history.md, "A1 — TRAJECTORY DIAGNOSTIC".
 
+## Deterministic GPU placement (`docs/briefs/deterministic-gpu-placement.md`)
+
+Steps 1-4 delivered and measured live (2026-08-10): `CUDA_DEVICE_ORDER=
+PCI_BUS_ID` pin + explicit `gpu_split: [5, 14]` replacing TabbyAPI's
+unstable autosplit (previously observed: 14 GB on the RTX 5060 Ti at
+84% util vs 4.4 GB on the RTX 4070 Ti SUPER at 0%). Before/after smoke
+(`scripts/gpu-placement-smoke.sh`, 4 tasks × 3 reps, one variable):
+decode throughput +28% (29.4→37.7 T/s), prefill throughput +49%
+(472→706 T/s), prefill time −19%, cumulative median task duration −14.5%
+— see docs/history.md, "DETERMINISTIC GPU PLACEMENT", for the full
+per-judge table and the two non-placement findings noted alongside it
+(A2 extraction flakiness, B1_conge_hard's pre-existing CuP gap).
+**Median-time figures from campaigns before this fix are not comparable
+to campaigns after it** — scores remain comparable.
+
+**Step 5 (preflight device-placement check, serialise device identity
+into campaign metadata) not yet built** — in progress.
+
 **Planned, not started** (`docs/briefs/update-plan.md`, "2.3"/"2.4"):
 (1) a surgical `browser_extract` dt/dd fix in `mcp-client`, judged on
 A1/A2 at 3 reps, blocking (2) the cognitive-core removal PR itself —

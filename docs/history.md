@@ -5054,3 +5054,90 @@ overhead not yet measured.
 🧑 Checkpoint: mechanism confirmed working live. Next: the with/without
 overhead smoke (`scripts/visual-capture-smoke.sh`) before any default
 change.
+
+## DETERMINISTIC GPU PLACEMENT — CUDA_DEVICE_ORDER PIN + EXPLICIT gpu_split
+
+Implemented `docs/briefs/deterministic-gpu-placement.md` steps 1-4 (step 5,
+a preflight device-placement check, tracked separately, not built yet).
+Triggering finding: TabbyAPI was loading with `Loading with autosplit`, no
+`gpu_split` configured — ExLlamaV3 fills devices in CUDA's default
+enumeration order, unstable across restarts. Observed before any fix:
+14 GB on the RTX 5060 Ti (84% util) against 4.4 GB on the RTX 4070 Ti
+SUPER (0%) — an uncontrolled variable across every campaign measured so
+far, since decode throughput depends on which card carries most of the
+layers.
+
+**Step 1** (`docker-compose.yml`, `tabbyapi`): `CUDA_DEVICE_ORDER=
+PCI_BUS_ID` pins device index to PCI bus order (index 0 = RTX 5060 Ti,
+bus `04:00.0`; index 1 = RTX 4070 Ti SUPER, bus `08:00.0`) — stable, but
+puts the slower card first, hence step 2.
+
+**Step 2** (`services/tabbyapi/config.yml`): `gpu_split_auto: false`,
+`gpu_split: [5, 14]` (GB, index 0 / index 1). Verified against the
+installed image's actual source (`backends/exllamav3/model.py`), not the
+`config_sample.yml` comment, which misleadingly reads "used with tensor
+parallelism" — the code applies `gpu_split` outside TP too
+(`use_per_device=self.gpu_split` in `load_model_sync`). Real gotcha found
+the same way: a manual `gpu_split` forces `autosplit_reserve = None`
+(source comment: "Causes crash if set with GPU split") — no automatic
+VRAM reserve once split is manual, all headroom has to be in the chosen
+values. 14 GB on the 4070 Ti SUPER (leaves ~2.4 GB on a 16 GB card driving
+the display), 5 GB on the 5060 Ti (large margin, no display on that one).
+
+**Step 3** (verify against the real, not the config): confirmed live —
+`docker compose logs tabbyapi` shows `"Loading with a manual GPU split"`
+(no autosplit), `nvidia-smi` shows 6052 MiB on the 5060 Ti / 12616 MiB on
+the 4070 Ti SUPER (total 18668 MiB, consistent with the known ~18.5 GB
+footprint). Values don't hit the configured GB budgets exactly
+(whole-layer granularity — the loader can't split mid-layer), but
+direction and both cards' safety margins are correct.
+
+**Step 4** (measurement, `scripts/gpu-placement-smoke.sh`, new one-off
+script, same fixed 4-task subset as `visual-capture-smoke.sh`): isolates
+ONE variable — `CUDA_DEVICE_ORDER` stays pinned in both arms (unpinning it
+for "before" would make that arm itself non-reproducible, defeating a
+controlled comparison); only `gpu_split`/`gpu_split_auto` toggle. Campaign
+metadata confirms `env_flags` and `image_ids` identical between the two
+runs — the only thing that moved is the split.
+
+Bug caught by this script's first live run, before any measurement number
+existed: `wait_for_container_ready` (copied from `visual-capture-smoke.sh`)
+hardcoded port 8000 for every service health check, but `mcp-client`
+listens on 8003 (`langgraph-agent` is 8000) — the mcp-client check timed
+out at 90s on the very first "before" run. Fixed in both scripts (port
+made a required parameter), same commit
+(`scripts: fix wait_for_container_ready hardcoded port 8000 for
+mcp-client`). `visual-capture-smoke.sh` carried the identical latent bug
+without ever tripping it, because that script has never actually been run
+yet.
+
+**Result — three independent judges, computed from `tabbyapi_raw_samples`
+in the raw campaign JSON (not just the `.md` report), all material and in
+the same direction**:
+
+| Judge | Before (autosplit) | After (manual split) | Δ |
+|---|---|---|---|
+| Decode throughput (Σtokens_generated/Σgeneration_seconds) | 29.4 T/s | 37.7 T/s | +28% |
+| Prefill throughput (avg process_speed_tps/request) | 472 T/s | 706 T/s | +49% |
+| Prefill time (Σprefill_seconds) | 576.1 s | 466.3 s | −19% |
+| Cumulative median duration (Σ per-task median, 4 tasks × 3 reps) | 445.4 s | 380.6 s | −14.5% |
+
+Per-task median duration: A2_schema_references 182.0→129.8s,
+A3_contact_conges 60.9→41.0s, B1_conge_hard 56.7→41.2s,
+D1_cible_inexistante 145.8→168.6s (the one task that got slower, within
+n=3 noise).
+
+**Noted for completeness, not a placement finding**:
+`A2_schema_references` dropped from 3/3 to 2/3 (one extraction failure,
+`attendu [...], trouvé []` — a known class of `browser_extract`
+flakiness, unrelated to which GPU carries the layers).
+`B1_conge_hard` stayed CuP 0/3 in both arms (pre-existing
+`no_grant_relaxation` finding, not a regression introduced here). Neither
+affects the latency reading above.
+
+**Per the brief's §4 rule, the gain being material: median-time figures
+from campaigns run before this fix are not comparable to campaigns run
+after it.** Scores remain comparable; latency does not.
+
+**Step 5 (preflight device-placement check + campaign metadata) not yet
+built** — next piece of this brief.

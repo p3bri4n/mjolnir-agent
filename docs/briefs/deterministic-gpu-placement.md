@@ -88,3 +88,20 @@ start would let the same class of drift return silently.
 
 - Changing quantisation, context size, or any other TabbyAPI parameter.
 - Re-running past campaigns.
+
+## Status: steps 1-4 delivered and measured (2026-08-10)
+
+`CUDA_DEVICE_ORDER=PCI_BUS_ID` pinned, `gpu_split: [5, 14]` (5060 Ti /
+4070 Ti SUPER) replacing autosplit, verified live against `nvidia-smi`
+and the loading log (step 3), measured before/after with
+`scripts/gpu-placement-smoke.sh` (step 4). All three declared judges
+material and in the same direction — decode throughput +28%, prefill
+throughput +49%, cumulative median task duration −14.5%. Full detail,
+per-task table, and the two non-placement findings noted alongside it:
+`docs/history.md`, "DETERMINISTIC GPU PLACEMENT — CUDA_DEVICE_ORDER PIN +
+EXPLICIT gpu_split".
+
+**Step 5 (preflight device-placement check + campaign metadata) not yet
+built** — the durable fix this brief calls for; without it, this same
+class of drift (or a future config edit) could silently reintroduce an
+unpinned/unbalanced split with no campaign able to say so. Next.
