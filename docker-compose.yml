@@ -478,6 +478,13 @@ services:
     build: ./services/tabbyapi
     container_name: tabbyapi
     restart: unless-stopped
+    environment:
+      # Ordre PCI stable (sinon l'ordre CUDA n'est pas garanti d'un
+      # redémarrage à l'autre) — voir
+      # docs/briefs/deterministic-gpu-placement.md. Lu à l'initialisation
+      # CUDA : un --force-recreate est nécessaire, un simple restart ne
+      # suffit pas.
+      - CUDA_DEVICE_ORDER=PCI_BUS_ID
     # Explicite plutôt que de dépendre du défaut du daemon Docker de l'hôte
     # (souvent plus restrictif, ex. Desktop Linux : max-size 20m/max-file 5,
     # ~100 Mio — insuffisant pour garder les lignes "tokens generated"
