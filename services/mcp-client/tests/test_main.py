@@ -374,6 +374,51 @@ def test_browser_extract_schema_declares_optional_urls_array(browser_evaluate_ec
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# adjacent_value (docs/briefs/update-plan.md 2.3, A1 trajectory diagnostic,
+# docs/history.md): browser_extract used to return a matched LABEL
+# ("Référence", "Prix") but never the structured VALUE next to it, forcing
+# a browser_run_code_unsafe (NEVER_GRANTABLE) workaround on A2 and a slow
+# per-page re-navigation fallback on A1. Only string-content assertions
+# here (no real DOM in this suite, same limit as every other
+# _build_extract_function test above) — the dt/dd and td/th matching logic
+# itself was verified functionally against jsdom outside this suite before
+# writing these, not guessed: "Référence"/"Prix" (dt) correctly resolve to
+# their dd's text, a docs table row's first cell correctly resolves to its
+# sibling cells joined with " | ".
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_build_extract_function_single_page_includes_adjacent_value_logic():
+    import app.main as main_mod
+
+    js = main_mod._build_extract_function("Référence")
+    assert "adjacent_value" in js
+    assert "nextElementSibling" in js
+    assert "tag === 'dt'" in js
+    assert "closest('tr')" in js
+
+
+def test_build_extract_function_bulk_includes_adjacent_value_logic():
+    import app.main as main_mod
+
+    js = main_mod._build_extract_function("Référence", ["http://catalog/product-1.html"])
+    assert "adjacent_value" in js
+    assert "nextElementSibling" in js
+    assert "tag === 'dt'" in js
+    assert "closest('tr')" in js
+
+
+def test_browser_extract_tool_description_mentions_adjacent_value():
+    """Discoverability: the model must know this field exists to stop
+    reaching for browser_run_code_unsafe/manual re-navigation as a
+    workaround — the exact failure mode this fix targets (A1/A2
+    trajectory diagnostic, docs/history.md)."""
+    import app.main as main_mod
+
+    assert "adjacent" in main_mod._BROWSER_EXTRACT_TOOL["description"].lower()
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # POST /reset-session/{server_name} (Phase 1d-révisée, voir docs/history.md
 # "isolation entre tâches") : purge une session persistante (état
 # navigateur/onglets pour "browser") entre deux tâches du harnais.

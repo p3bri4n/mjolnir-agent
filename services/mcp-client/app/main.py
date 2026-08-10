@@ -115,6 +115,19 @@ SERVERS = {
 # possible) that walks the page's text nodes and returns the occurrences
 # with their nearby context (parent text, enclosing link if any). The
 # model never sees this template, only the "query" parameter.
+#
+# adjacent_value (docs/briefs/update-plan.md 2.3, A1 trajectory diagnostic,
+# docs/history.md): the walker above matches a LABEL text node
+# ("Référence", "Prix") but, before this field existed, never returned the
+# structured VALUE next to it — confirmed verbatim in the model's own
+# reasoning ("le mot 'Prix' est trouvé mais pas la valeur"), which forced a
+# `browser_run_code_unsafe` (NEVER_GRANTABLE) workaround on A2 and an
+# 8-turn per-page re-navigation fallback on A1. Fixtures checked before
+# writing this (not guessed): `dt`/`dd` (catalog product pages) and `td`
+# siblings within the same `tr` (docs parameter table, hr-app listings)
+# are the two patterns actually used; `label`/`input` was considered and
+# dropped — every fixture `<input>` is an unfilled form field, never a
+# value to read.
 _BROWSER_EXTRACT_JS_TEMPLATE = """() => {{
   const query = {query_json};
   const q = query.toLowerCase();
@@ -126,11 +139,25 @@ _BROWSER_EXTRACT_JS_TEMPLATE = """() => {{
     if (!text || !text.toLowerCase().includes(q)) continue;
     const parent = node.parentElement;
     const link = parent ? parent.closest('a') : null;
+    let adjacent_value = null;
+    if (parent) {{
+      const tag = parent.tagName.toLowerCase();
+      if (tag === 'dt' && parent.nextElementSibling && parent.nextElementSibling.tagName.toLowerCase() === 'dd') {{
+        adjacent_value = parent.nextElementSibling.textContent.trim();
+      }} else if (tag === 'td' || tag === 'th') {{
+        const row = parent.closest('tr');
+        if (row) {{
+          const cells = Array.from(row.children).filter((c) => c !== parent);
+          adjacent_value = cells.map((c) => c.textContent.trim()).join(' | ');
+        }}
+      }}
+    }}
     results.push({{
       text: text.slice(0, 300),
       parent_tag: parent ? parent.tagName.toLowerCase() : null,
       parent_text: parent ? parent.textContent.trim().slice(0, 300) : null,
       link_href: link ? link.getAttribute('href') : null,
+      adjacent_value: adjacent_value,
     }});
     if (results.length >= 20) break;
   }}
@@ -167,11 +194,25 @@ _BROWSER_EXTRACT_BULK_JS_TEMPLATE = """async () => {{
       if (!text || !text.toLowerCase().includes(q)) continue;
       const parent = node.parentElement;
       const link = parent ? parent.closest('a') : null;
+      let adjacent_value = null;
+      if (parent) {{
+        const tag = parent.tagName.toLowerCase();
+        if (tag === 'dt' && parent.nextElementSibling && parent.nextElementSibling.tagName.toLowerCase() === 'dd') {{
+          adjacent_value = parent.nextElementSibling.textContent.trim();
+        }} else if (tag === 'td' || tag === 'th') {{
+          const row = parent.closest('tr');
+          if (row) {{
+            const cells = Array.from(row.children).filter((c) => c !== parent);
+            adjacent_value = cells.map((c) => c.textContent.trim()).join(' | ');
+          }}
+        }}
+      }}
       results.push({{
         text: text.slice(0, 300),
         parent_tag: parent ? parent.tagName.toLowerCase() : null,
         parent_text: parent ? parent.textContent.trim().slice(0, 300) : null,
         link_href: link ? link.getAttribute('href') : null,
+        adjacent_value: adjacent_value,
       }});
       if (results.length >= MAX_PER_PAGE) break;
     }}
@@ -211,7 +252,11 @@ _BROWSER_EXTRACT_TOOL = {
     "description": (
         "Cherche un TEXTE (pas du code) dans la page actuelle — référence "
         "produit, prix, nom, mot-clé — et renvoie les occurrences avec leur "
-        "contexte proche (texte du parent, lien englobant si présent). "
+        "contexte proche (texte du parent, lien englobant si présent, "
+        "valeur adjacente si le texte trouvé est un label structuré : "
+        "value du <dd> pour une paire <dt>/<dd>, autres cellules de la "
+        "ligne pour un <td>/<th> de tableau — ne re-navigue jamais pour "
+        "lire cette valeur, elle est déjà dans le résultat). "
         "Pour trouver une valeur précise dans une page, utilise CET outil : "
         "pas de parcours manuel page par page, pas de raccourci "
         "clavier de recherche (ctrl+f). Si l'information n'apparaît que sur "
