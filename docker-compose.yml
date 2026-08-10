@@ -39,6 +39,10 @@ services:
       - SKILL_MANAGER_URL=http://skill-manager:8001
       - CONTEXT_MANAGER_URL=http://context-manager:8002
       - MCP_CLIENT_URL=http://mcp-client:8003
+      # Capacité OCR proactive (effort 3, GhostDesk removal) : appelée
+      # directement par le graphe, jamais via mcp-client — même patron que
+      # CONTEXT_MANAGER_URL/SKILL_MANAGER_URL ci-dessus.
+      - OCR_SERVICE_URL=http://ocr-service:8004
       # Journal d'audit des tool_calls TIER_REVERSIBLE (Phase 2, voir README
       # section Supervision humaine) : /workspace/.audit, sur le même bind
       # mount que les autres serveurs MCP filesystem/git/terminal.
@@ -154,12 +158,20 @@ services:
       - AUDIT_LOG_MAX_BYTES=${AUDIT_LOG_MAX_BYTES:-20971520}
       - EPISODE_COMPACTION_ENABLED=${EPISODE_COMPACTION_ENABLED:-false}
       - EPISODE_COMPACTION_TURN_THRESHOLD=${EPISODE_COMPACTION_TURN_THRESHOLD:-40}
+      # Proactive OCR enrichment (effort 3): default OFF, scaffolding only
+      # in this pass — the detection heuristic (_detect_visual_signal) is
+      # stubbed to always return None pending an empirical DOM-signal
+      # check (see docs/history.md, "EFFORT 3"). Flip only after that
+      # check and its own restricted smoke.
+      - PROACTIVE_OCR_ENABLED=${PROACTIVE_OCR_ENABLED:-false}
+      - PROACTIVE_OCR_MAX_CHARS=${PROACTIVE_OCR_MAX_CHARS:-2000}
     volumes:
       - ./workspace:/workspace
     depends_on:
       - skill-manager
       - context-manager
       - mcp-client
+      - ocr-service
       - tabbyapi
     networks:
       - agent-net
@@ -297,10 +309,10 @@ services:
       # git/terminal/desktop(GhostDesk)/ocr retirés de ce registre (effort
       # 1.2, docs/briefs/update-plan.md ; docs/history.md) : schéma d'outils
       # lourd pour un usage quasi nul (44,9% du schéma pour 1,6% des appels
-      # réels sur 67 threads v2). GhostDesk et ocr-service restent déployés
-      # plus bas (ocr-service en dépend encore en interne) pour le
-      # rebranchement de l'effort 3 (OCR en capacité du graphe), mais
-      # mcp-client ne s'y connecte plus.
+      # réels sur 67 threads v2). GhostDesk supprimé (effort 3) ; ocr-service
+      # reste déployé mais jamais enregistré ici — ce n'est plus un serveur
+      # MCP, c'est une capacité interne appelée directement par
+      # langgraph-agent (voir plus bas).
       # Stabilisation post-navigation (trouvé en investiguant T10, voir
       # docs/history.md « désynchronisation snapshot/URL ») : sur une page à
       # rendu client, browser_snapshot peut renvoyer le contenu de
@@ -331,9 +343,7 @@ services:
   # par appel d'outil) : chaque appel repartait sur `about:blank` sans
   # continuité d'état avec le précédent (voir docs/resolved-bugs.md). L'image officielle
   # mcp/playwright supporte un mode serveur HTTP natif (`--port`, endpoint
-  # Streamable HTTP `/mcp`) ; on l'utilise ici comme service persistant,
-  # même patron que GhostDesk/OCR plus bas (déployés mais plus enregistrés
-  # dans mcp-client, voir effort 1.2/3, docs/briefs/update-plan.md).
+  # Streamable HTTP `/mcp`) ; on l'utilise ici comme service persistant.
   # Un volume nommé Docker est créé root:root par défaut ; l'image
   # mcp/playwright tourne en "node" (uid 1000), qui ne peut donc PAS écrire
   # dans /downloads sans ce correctif — constaté en conditions réelles
@@ -387,67 +397,27 @@ services:
       - agent-net
     # pas de port publié : uniquement accessible via le réseau interne (mcp-client)
 
-  # --- GhostDesk : bureau virtuel complet piloté par l'agent ------
-  # ⚠️ Surface d'attaque large : SYS_ADMIN + exécution shell + contrôle
-  # GUI complet. Reste un serveur MCP HTTP
-  # persistant avec état (pas un conteneur éphémère comme les autres) ;
-  # voir avertissement détaillé et limites assumées dans le README.
-  ghostdesk:
-    image: ghcr.io/yv17labs/ghostdesk:latest
-    container_name: ghostdesk
-    restart: unless-stopped
-    shm_size: 2gb
-    cap_add:
-      - SYS_ADMIN   # requis par Electron/apps complexes dans le bureau virtuel
-    environment:
-      - GHOSTDESK_AUTH_TOKEN=${GHOSTDESK_AUTH_TOKEN}
-      - GHOSTDESK_VNC_PASSWORD=${GHOSTDESK_VNC_PASSWORD}
-    volumes:
-      - ghostdesk-home:/home/agent   # persiste le bureau/apps entre redémarrages
-    ports:
-      - "6080:6080"   # noVNC — exposé par défaut pour observer l'agent piloter le bureau
-    healthcheck:
-      # Port MCP (3000, voir plus bas) : ocr-service en dépend (condition
-      # service_healthy) pour ne capturer qu'une fois GhostDesk réellement prêt
-      # à répondre, pas seulement démarré (depends_on seul ne garantit que
-      # l'ordre de démarrage des conteneurs, voir README tableau des bugs pour
-      # un précédent similaire avec Qdrant).
-      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/3000' || exit 1"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-      start_period: 10s
-    networks:
-      - agent-net
-    # Port MCP (3000) volontairement non publié sur l'hôte : seul
-    # ocr-service doit l'atteindre, via le réseau interne agent-net —
-    # mcp-client ne s'y connecte plus (effort 1.2, docs/briefs/update-plan.md).
-
-  # --- OCR d'appoint : PaddleOCR CPU (find_text/read_screen) ------
-  # Grounding du VLM (Qwen3.6 MoE) : raisonne bien mais localise mal un
-  # élément à l'écran (sans OCR/détection d'éléments UI dédiée, voir README
-  # section OCR d'appoint et Limites connues assumées). Serveur MCP HTTP
-  # déployé mais plus enregistré dans mcp-client (effort 1.2) : dormant
-  # jusqu'au rebranchement prévu par l'effort 3 (capacité du graphe plutôt
-  # qu'outil appelable par le modèle) — se connecte lui-même à GhostDesk
-  # pour capturer l'écran, indépendamment de mcp-client/langgraph-agent.
+  # --- OCR proactif : PaddleOCR CPU, capacité interne du graphe --------
+  # Grounding du VLM (Qwen3.6 MoE) sur canvas/WebGL/image/PDF natif : ces
+  # contenus sont illisibles par tout canal DOM (browser_snapshot/
+  # browser_extract), seule la capture visuelle les lit (voir
+  # docs/architecture/visual-channel-feasibility.md, VP1-VP4). GhostDesk a
+  # été retiré (effort 3) : ce service n'auto-capture plus rien lui-même —
+  # l'appelant (langgraph-agent) lui fournit l'image (base64), typiquement
+  # une capture browser_take_screenshot (Playwright, sans dépendance à
+  # GhostDesk). N'est plus un serveur MCP, jamais enregistré dans
+  # mcp-client — HTTP direct depuis langgraph-agent (OCR_SERVICE_URL), même
+  # patron que context-manager/skill-manager.
   ocr-service:
     build: ./services/ocr-service
     container_name: ocr-service
     restart: unless-stopped
-    environment:
-      - MCP_GHOSTDESK_URL=http://ghostdesk:3000/mcp
-      - GHOSTDESK_AUTH_TOKEN=${GHOSTDESK_AUTH_TOKEN}
-      - OCR_AUTH_TOKEN=${OCR_AUTH_TOKEN}
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8004/health', timeout=3)\" || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
-    depends_on:
-      ghostdesk:
-        condition: service_healthy
     networks:
       - agent-net
     # pas de port publié : uniquement accessible via le réseau interne agent-net
@@ -620,7 +590,6 @@ networks:
 volumes:
   open-webui-data:
   qdrant-data:
-  ghostdesk-home:
   # Volume PARTAGÉ entre playwright-mcp (écriture) et le serveur MCP
   # filesystem spawné par mcp-client (lecture seule) — voir playwright-mcp
   # (--output-dir) et services/mcp-client/app/main.py (SERVERS["filesystem"])
