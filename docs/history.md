@@ -5625,3 +5625,14 @@ needed: `docker compose build ocr-service langgraph-agent && docker
 compose up -d` (no `ghostdesk` in the compose file anymore), confirm
 `ocr-service`'s `/health` and `campaign_preflight.py` both green, then a
 restricted smoke before any campaign.
+
+**Live-deployed and verified (2026-08-10, user's machine)**: `docker
+compose ps` shows `ocr-service` `healthy`; `GET /health` ->
+`{"status": "ok"}` (confirms the PaddleOCR engine loaded, not just the
+process running — a bad `OCR_LANGS`/model load would leave the process
+up but the engine broken); `POST /ocr` against a real 1x1 PNG ->
+`[]` (correctly decodes a real image, zero false detections — the first
+attempt sent non-image bytes and got a 500, expected given invalid
+input, not a service defect). No GhostDesk container left running.
+`PROACTIVE_OCR_ENABLED` stays `false` — the explicit next checkpoint
+(`_detect_visual_signal`'s real implementation) is unblocked and open.

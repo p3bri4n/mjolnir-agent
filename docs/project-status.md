@@ -594,9 +594,15 @@ default rule was entirely fictional, not just GhostDesk wording).
 Incidental fix: `.env.example` still showed the pre-2.4 `true` defaults
 for the cognitive-core flags (only `docker-compose.yml`/`app/graph.py`
 were updated that session) — corrected. Full detail: docs/history.md,
-"EFFORT 3". 🧑 **Next**: live verification (`docker compose build
-ocr-service langgraph-agent && docker compose up -d`, confirm
-`ocr-service` healthy and `campaign_preflight.py` green), then the
-explicit next checkpoint — resolve `_detect_visual_signal` empirically
-against the `fixture-visual-probe` fixtures before implementing it and
-flipping `PROACTIVE_OCR_ENABLED`, with its own restricted smoke.
+"EFFORT 3".
+
+**Live-deployed and verified (2026-08-10)**: `docker compose build
+ocr-service langgraph-agent && docker compose up -d` — `ocr-service`
+reports `healthy` (`docker compose ps`), `GET /health` -> `{"status":
+"ok"}` (PaddleOCR engine loaded, not just the process up), `POST /ocr`
+against a real 1x1 PNG -> `[]` (correctly decodes, zero false
+detections). No GhostDesk container left running. 🧑 **Next, the
+explicit checkpoint**: resolve `_detect_visual_signal` empirically
+against the `fixture-visual-probe` fixtures before implementing it for
+real and flipping `PROACTIVE_OCR_ENABLED`, with its own restricted smoke
+— nothing else blocking.
