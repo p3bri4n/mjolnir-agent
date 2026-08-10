@@ -103,7 +103,7 @@ plan, Phase 1). Decide before the volume grows:
 - Judge: with the flag **off**, campaign results are byte-for-byte comparable
   to the previous campaign — the feature must be invisible when disabled.
 
-## Status: minimal subset implemented (2026-08-06)
+## Status: minimal subset fully closed (2026-08-10)
 
 Everything above stays the target shape of B5 in full. What actually
 shipped is deliberately smaller — explicit instruction: "sous-ensemble de
@@ -168,3 +168,16 @@ distinct threads ever run", not by campaign duration).
 
 Full implementation detail, deviations, and the with/without measurement
 handoff: `docs/history.md`, "VISUAL FEEDBACK MINIMAL".
+
+**Point 6 closed (2026-08-10)**: `scripts/visual-capture-smoke.sh`
+measured no negative overhead on the declared judge (median task
+duration, 321.4s vs 297.3s false/true — the delta reads as noise given
+per-task variance up to ×3.5 within a single arm). Per this file's own
+decision rule, negligible overhead → `CAMPAIGN_VISUAL_CAPTURE` now
+defaults to `true` (`docker-compose.yml`). The one-off smoke script
+deleted per its own header instruction. Full detail:
+`docs/history.md`, "VISUAL FEEDBACK MINIMAL", overhead smoke result.
+
+Everything outside this minimal subset (§2.2's per-action history, the
+thumbnail strip, Playwright traces §5, headed mode, VNC) stays explicitly
+out of scope — B5 in full is not scheduled.

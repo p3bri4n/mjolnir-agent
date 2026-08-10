@@ -487,7 +487,19 @@ cfg8-specific finding: attempt/replan-budget churn misfires on ordinary
 multi-step pagination on 2 of A1's 3 cfg8 runs — an added failure mode,
 never a help. Full detail: docs/history.md, "A1 — TRAJECTORY DIAGNOSTIC".
 
-## Deterministic GPU placement (`docs/briefs/deterministic-gpu-placement.md`)
+## Visual feedback during campaigns (`docs/briefs/campaign-visual-feedback.md`, B5)
+
+Minimal subset fully closed. Delivered, live-verified (2026-08-06), and
+overhead-measured (2026-08-10): with/without smoke on a fixed 4-task
+subset found no measurable overhead on the declared judge (median task
+duration, 321.4s vs 297.3s — the small delta reads as noise, not a real
+effect) — see docs/history.md, "VISUAL FEEDBACK MINIMAL", overhead smoke
+result. `CAMPAIGN_VISUAL_CAPTURE` now defaults to `true`
+(`docker-compose.yml`). The rest of B5 (Playwright traces, thumbnail
+strip, headed mode, VNC) stays explicitly out of scope, per the
+implementation instruction that scoped this subset.
+
+## Deterministic GPU placement (`docs/briefs/archives/deterministic-gpu-placement.md`)
 
 Steps 1-4 delivered and measured live (2026-08-10): `CUDA_DEVICE_ORDER=
 PCI_BUS_ID` pin + explicit `gpu_split: [5, 14]` replacing TabbyAPI's

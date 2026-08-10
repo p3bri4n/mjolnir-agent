@@ -5055,6 +5055,35 @@ overhead not yet measured.
 overhead smoke (`scripts/visual-capture-smoke.sh`) before any default
 change.
 
+**Overhead smoke result (2026-08-10), point 6 closed**:
+`scripts/visual-capture-smoke.sh` run on the same fixed 4-task subset as
+the GPU-placement smoke (A2_schema_references, A3_contact_conges,
+B1_conge_hard, D1_cible_inexistante, 3 reps), `CAMPAIGN_VISUAL_CAPTURE`
+false then true, `image_ids`/`env_flags` confirmed identical between the
+two campaign runs bar the flag itself. Declared judge (median task
+duration): cumulative per-task median 321.4s (false) vs 297.3s (true) —
+**no measurable overhead; the -7.5% delta reads as noise**, not a real
+speedup, given per-task run-to-run variance up to ×3.5 within a single
+arm (e.g. D1: 35.1/124.2/125.4s in the false arm alone).
+
+**Noted, not a capture effect**: `A2_schema_references` stayed 1/3 in
+BOTH arms (same extraction-failure class already seen in the same
+morning's GPU-placement smoke — pre-existing flakiness on this task, unrelated
+to this flag). `D1_cible_inexistante` swung 1/3 (false, hallucination +
+loop) → 3/3 (true) — not plausibly caused by screenshot capture; recorded
+as evidence that this task subset (A2/D1 specifically) is noisy across
+smokes run the same day, not a capture-flag artifact.
+
+**Per the brief's point 6 decision rule** ("negligible -> true; otherwise
+-> true in smokes / false in campaigns, and say so"): overhead negligible
+→ **`CAMPAIGN_VISUAL_CAPTURE` default flipped to `true`**
+(`docker-compose.yml`). `scripts/visual-capture-smoke.sh` deleted per its
+own header instruction (one-off, delete once the default is decided and
+recorded) — same lifecycle as every other one-off smoke script in this
+repo. B5's minimal subset (docs/briefs/campaign-visual-feedback.md) is
+now fully closed: mechanism delivered, live-verified, overhead measured,
+default set.
+
 ## DETERMINISTIC GPU PLACEMENT — CUDA_DEVICE_ORDER PIN + EXPLICIT gpu_split
 
 Implemented `docs/briefs/deterministic-gpu-placement.md` steps 1-4 (step 5,
