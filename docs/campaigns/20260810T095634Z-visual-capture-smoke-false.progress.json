@@ -1,0 +1,224 @@
+{
+  "campaign_id": "20260810T095634Z-visual-capture-smoke-false",
+  "completed": [
+    {
+      "approvals": 5,
+      "cup": null,
+      "duration_s": 103.1,
+      "fabricated_urls_count": 0,
+      "failure_cause": "extraction",
+      "repetition": 1,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "A2_schema_references",
+      "thread_id": "cb4376ebd03058e9",
+      "tool_calls": 11
+    },
+    {
+      "approvals": 4,
+      "cup": null,
+      "duration_s": 122.7,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A2_schema_references",
+      "thread_id": "efd2052d4bc25dc5",
+      "tool_calls": 11
+    },
+    {
+      "approvals": 5,
+      "cup": null,
+      "duration_s": 126.9,
+      "fabricated_urls_count": 0,
+      "failure_cause": "boucle",
+      "repetition": 3,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "A2_schema_references",
+      "thread_id": "e5f4f798d8feae73",
+      "tool_calls": 14
+    },
+    {
+      "approvals": 3,
+      "cup": null,
+      "duration_s": 39.4,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A3_contact_conges",
+      "thread_id": "91615a6daf54981c",
+      "tool_calls": 6
+    },
+    {
+      "approvals": 3,
+      "cup": null,
+      "duration_s": 38.3,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A3_contact_conges",
+      "thread_id": "ccd1da92cac1f1dc",
+      "tool_calls": 6
+    },
+    {
+      "approvals": 3,
+      "cup": null,
+      "duration_s": 38.2,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A3_contact_conges",
+      "thread_id": "f5040557bff14670",
+      "tool_calls": 6
+    },
+    {
+      "approvals": 5,
+      "cup": false,
+      "duration_s": 36.2,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B1_conge_hard",
+      "thread_id": "c80d7b6649963c8b",
+      "tool_calls": 9
+    },
+    {
+      "approvals": 5,
+      "cup": false,
+      "duration_s": 44.0,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B1_conge_hard",
+      "thread_id": "2eee0ddc695f6a02",
+      "tool_calls": 10
+    },
+    {
+      "approvals": 5,
+      "cup": false,
+      "duration_s": 35.0,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B1_conge_hard",
+      "thread_id": "7caff0b19877b553",
+      "tool_calls": 9
+    },
+    {
+      "approvals": 4,
+      "cup": null,
+      "duration_s": 35.1,
+      "fabricated_urls_count": 0,
+      "failure_cause": "hallucination",
+      "repetition": 1,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "D1_cible_inexistante",
+      "thread_id": "23aaa53ffefe8d8c",
+      "tool_calls": 7
+    },
+    {
+      "approvals": 6,
+      "cup": null,
+      "duration_s": 124.2,
+      "fabricated_urls_count": 1,
+      "failure_cause": "boucle",
+      "repetition": 2,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "D1_cible_inexistante",
+      "thread_id": "d33c616e8e7df188",
+      "tool_calls": 12
+    },
+    {
+      "approvals": 6,
+      "cup": null,
+      "duration_s": 125.4,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "D1_cible_inexistante",
+      "thread_id": "09192b9022a9d890",
+      "tool_calls": 10
+    }
+  ],
+  "config_digest": "a7bbbd81e0e5babd",
+  "current": null,
+  "label": "visual-capture-smoke-false",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "A2_schema_references"
+    },
+    {
+      "repetition": 2,
+      "task_id": "A2_schema_references"
+    },
+    {
+      "repetition": 3,
+      "task_id": "A2_schema_references"
+    },
+    {
+      "repetition": 1,
+      "task_id": "A3_contact_conges"
+    },
+    {
+      "repetition": 2,
+      "task_id": "A3_contact_conges"
+    },
+    {
+      "repetition": 3,
+      "task_id": "A3_contact_conges"
+    },
+    {
+      "repetition": 1,
+      "task_id": "B1_conge_hard"
+    },
+    {
+      "repetition": 2,
+      "task_id": "B1_conge_hard"
+    },
+    {
+      "repetition": 3,
+      "task_id": "B1_conge_hard"
+    },
+    {
+      "repetition": 1,
+      "task_id": "D1_cible_inexistante"
+    },
+    {
+      "repetition": 2,
+      "task_id": "D1_cible_inexistante"
+    },
+    {
+      "repetition": 3,
+      "task_id": "D1_cible_inexistante"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-08-10T10:11:07.504428+00:00",
+      "index": 0,
+      "started_at": "2026-08-10T09:56:34.714886+00:00"
+    }
+  ],
+  "started_at": "2026-08-10T09:56:34.714886+00:00",
+  "total_runs": 12
+}

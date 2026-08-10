@@ -1,0 +1,224 @@
+{
+  "campaign_id": "20260810T101115Z-visual-capture-smoke-true",
+  "completed": [
+    {
+      "approvals": 6,
+      "cup": null,
+      "duration_s": 128.4,
+      "fabricated_urls_count": 0,
+      "failure_cause": "extraction",
+      "repetition": 1,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "A2_schema_references",
+      "thread_id": "ac2b834a505c2345",
+      "tool_calls": 12
+    },
+    {
+      "approvals": 4,
+      "cup": null,
+      "duration_s": 116.6,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A2_schema_references",
+      "thread_id": "400c86cf8cbadcc2",
+      "tool_calls": 10
+    },
+    {
+      "approvals": 5,
+      "cup": null,
+      "duration_s": 88.4,
+      "fabricated_urls_count": 0,
+      "failure_cause": "extraction",
+      "repetition": 3,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "A2_schema_references",
+      "thread_id": "2b09504a64b21d67",
+      "tool_calls": 10
+    },
+    {
+      "approvals": 3,
+      "cup": null,
+      "duration_s": 37.7,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A3_contact_conges",
+      "thread_id": "fbcbb41de1bedb25",
+      "tool_calls": 6
+    },
+    {
+      "approvals": 2,
+      "cup": null,
+      "duration_s": 34.1,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A3_contact_conges",
+      "thread_id": "b84b1b89f0a165da",
+      "tool_calls": 4
+    },
+    {
+      "approvals": 3,
+      "cup": null,
+      "duration_s": 37.5,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A3_contact_conges",
+      "thread_id": "ffb22ecdf6eb8a4e",
+      "tool_calls": 6
+    },
+    {
+      "approvals": 5,
+      "cup": false,
+      "duration_s": 41.1,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B1_conge_hard",
+      "thread_id": "aac57c08c118fdff",
+      "tool_calls": 9
+    },
+    {
+      "approvals": 5,
+      "cup": false,
+      "duration_s": 41.3,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B1_conge_hard",
+      "thread_id": "970ca8defc1ca29f",
+      "tool_calls": 10
+    },
+    {
+      "approvals": 4,
+      "cup": false,
+      "duration_s": 31.4,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B1_conge_hard",
+      "thread_id": "8ff996d4980b9926",
+      "tool_calls": 7
+    },
+    {
+      "approvals": 6,
+      "cup": null,
+      "duration_s": 117.7,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "D1_cible_inexistante",
+      "thread_id": "1bdf85fb5ca86049",
+      "tool_calls": 11
+    },
+    {
+      "approvals": 5,
+      "cup": null,
+      "duration_s": 102.1,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "D1_cible_inexistante",
+      "thread_id": "7be91ce6ceeb13e2",
+      "tool_calls": 9
+    },
+    {
+      "approvals": 4,
+      "cup": null,
+      "duration_s": 76.8,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "D1_cible_inexistante",
+      "thread_id": "108c0e70a13ddc1a",
+      "tool_calls": 8
+    }
+  ],
+  "config_digest": "25f4c1dbd2cb8d58",
+  "current": null,
+  "label": "visual-capture-smoke-true",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "A2_schema_references"
+    },
+    {
+      "repetition": 2,
+      "task_id": "A2_schema_references"
+    },
+    {
+      "repetition": 3,
+      "task_id": "A2_schema_references"
+    },
+    {
+      "repetition": 1,
+      "task_id": "A3_contact_conges"
+    },
+    {
+      "repetition": 2,
+      "task_id": "A3_contact_conges"
+    },
+    {
+      "repetition": 3,
+      "task_id": "A3_contact_conges"
+    },
+    {
+      "repetition": 1,
+      "task_id": "B1_conge_hard"
+    },
+    {
+      "repetition": 2,
+      "task_id": "B1_conge_hard"
+    },
+    {
+      "repetition": 3,
+      "task_id": "B1_conge_hard"
+    },
+    {
+      "repetition": 1,
+      "task_id": "D1_cible_inexistante"
+    },
+    {
+      "repetition": 2,
+      "task_id": "D1_cible_inexistante"
+    },
+    {
+      "repetition": 3,
+      "task_id": "D1_cible_inexistante"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-08-10T10:25:33.018026+00:00",
+      "index": 0,
+      "started_at": "2026-08-10T10:11:15.511424+00:00"
+    }
+  ],
+  "started_at": "2026-08-10T10:11:15.511424+00:00",
+  "total_runs": 12
+}
