@@ -522,25 +522,50 @@ memory used) into every campaign's metadata. Regression-tested against
 the original pre-fix reading (14131/4424 MiB) — correctly flagged. Full
 suite 458→466 passed. **Brief fully delivered (steps 1-5).**
 
-**2.3 delivered, not yet measured live** (`docs/briefs/update-plan.md`):
-`browser_extract`'s `dt`/`dd` + table-row `adjacent_value` fix
-(`services/mcp-client/app/main.py`) — fixture inventory done first (only
-`dt`/`dd` and `td`/`th` are real patterns; `label`/`input` checked and
-dropped, every fixture `<input>` is unfilled), functionally verified
-against a real DOM via `jsdom` outside the committed suite, 3 new unit
-tests, full `mcp-client` suite 45→48 passed. See docs/history.md,
-"EFFORT 2.3 — BROWSER_EXTRACT DT/DD FIX". 🧑 **Next**: the brief's own
-judge (A1 and A2, 3 reps each, one variable, non-regression on the rest
-of the suite) needs Docker/GPU — live campaign before 2.4 proceeds.
+**2.3 CLOSED** (`docs/briefs/update-plan.md`): `browser_extract`'s
+`dt`/`dd` + table-row `adjacent_value` fix (`services/mcp-client/app/main.py`)
+— fixture inventory done first (only `dt`/`dd` and `td`/`th` are real
+patterns; `label`/`input` checked and dropped), functionally verified
+against a real DOM via `jsdom`, 3 new unit tests, full `mcp-client`
+suite 45→48 passed. Live judge run: A1/A2 non-regression campaign
+(v1 full suite 31/33, consistent with the established baseline) plus a
+dedicated A1/A2 rerun that surfaced a DIFFERENT, undiagnosed blocker
+(`docs/resolved-bugs.md` #51) rather than confirming the fix's own
+hypothesis — root-caused via a live smoke with new criterion-text
+instrumentation (`plan_task`/`replan_task`/`verify_action` audit
+entries): the fix itself is confirmed working (a bulk `browser_extract`
+correctly found the target products mid-run), A1's continued failures
+are caused by the planner/replanner never durably clearing subtask 0's
+criterion within `SUBTASK_ATTEMPT_BUDGET`×`REPLAN_BUDGET`, unrelated to
+extraction. See docs/history.md, "EFFORT 2.3". #51 folded into 2.4's
+dossier rather than fixed standalone (user decision).
 
-**2.4 planned, not started** (`docs/briefs/update-plan.md`): the
-cognitive-core removal PR itself, blocked on 2.3's live measurement —
-sequenced fix-then-removal so the removal dossier isn't measuring a
-tool-level defect it never needed to inherit. The A1 diagnostic's
-cfg8-specific finding is added to that PR's justification regardless of
-2.3's outcome. A 4.2 candidate ("structured values from N pages") is
-named but explicitly not built ahead of 2.3 and the frequency analysis
-that effort already calls for. An open, unresolved question from the
-same diagnostic — 2 of A1's cfg8 runs stop via an unidentified path,
-not `report_failure`, not the iteration limit — is recorded at
-`docs/resolved-bugs.md` #49, independent of the removal's outcome.
+**2.4 CLOSED — cognitive-core removal, judged live and clean.**
+`PLANNER_ENABLED`/`VERIFICATION_ENABLED`/`PLAN_JUDGE_ENABLED` defaults
+flipped back to `false` (`docker-compose.yml`, `app/graph.py`),
+`PLAN_VALIDATION_ENABLED` kept `true` (safety-value exception).
+`campaign_preflight.py`'s `EXPECTED_AGENT_FLAGS` updated to match; 2
+`test_campaign_preflight.py` tests updated for the flipped mismatch
+direction; `docs/architecture/autonomy.md`/`docs/operations/testing.md`
+default-value claims corrected (CLAUDE.md rule 9). Full
+`langgraph-agent` suite 466/466, no regressions.
+
+**Full v2 campaign, the removal's own declared judge**: F 8/8, **A
+12/12 (A1 3/3 — clears for the first time on any campaign, ever)**, C
+9/9 extraction with 0/9 breach, D 6/6, E1 3/3, E2 0/3 (pre-existing
+capability limit, unchanged), E3 3/3, B-easy 6/6 raw + CuP 6/6.
+B-medium/hard came back CuP=0/3 in that same run but was invalidated
+(`NEVER_GRANTABLE_TOOLS_EXTRA` empty in the run's own `env_flags` — an
+operational gap in the handoff, not a security finding); the corrected
+rerun with the flag properly set came back clean: medium 3/3 CuP 3/3,
+hard 3/3 CuP 3/3, both intents, zero violations. **No family
+regressed; family A materially improved** — direct live confirmation of
+the justification dossier (decisive cfg1-vs-cfg8 ablation, A1 trajectory
+diagnostic, `docs/resolved-bugs.md` #51), all three of which pointed at
+the cognitive core's attempt/replan-budget churn as active harm on
+multi-page tasks. See docs/history.md, "EFFORT 2.4". An open, unresolved
+question from the A1 trajectory diagnostic — 2 of A1's cfg8 runs (i.e.
+under the now-abandoned config) stopped via an unidentified path, not
+`report_failure`, not the iteration limit — stays recorded at
+`docs/resolved-bugs.md` #49, informational only now that cfg8 is no
+longer the default.

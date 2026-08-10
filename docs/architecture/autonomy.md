@@ -12,11 +12,22 @@ compares each result against the active subtask's criterion,
 `replan_task` takes back over on budget failure, `report_failure` ends
 honestly if the replanning budget is exhausted. The 4 mechanisms are
 independently toggleable (`PLANNER_ENABLED`/`VERIFICATION_ENABLED`/
-`PLAN_VALIDATION_ENABLED`/`PLAN_JUDGE_ENABLED`) — **defaults FLIPPED to
-`true`** since the final campaign (29/33, consistent with pre-cognitive-core
-Campaign A at 30/33 — see docs/briefs/flags-du-coeur-cognitif.md and
-docs/history.md): the cognitive core is measured and adopted, it's now
-DISABLING it that must be explicit. See each one's detail below.
+`PLAN_VALIDATION_ENABLED`/`PLAN_JUDGE_ENABLED`). History: defaults were
+FLIPPED to `true` after the initial campaign (29/33, consistent with
+pre-cognitive-core Campaign A at 30/33 — see
+docs/briefs/flags-du-coeur-cognitif.md), then **flipped back to `false`
+for `PLANNER_ENABLED`/`VERIFICATION_ENABLED`/`PLAN_JUDGE_ENABLED`
+(EFFORT 2.4)**: a later decisive ablation (36 runs, discriminating
+5-task subset) found cfg1 (all 4 flags off) never losing to cfg8 (all
+on, the interim default) at 43% less cumulative time for essentially
+identical real work, and separate diagnostics (the A1 trajectory
+diagnostic, `docs/resolved-bugs.md` #51) found the mechanism actively
+discarding genuine progress via attempt/replan-budget churn on
+multi-page tasks, not merely costing more for the same result — see
+docs/history.md, "EFFORT 2 — DECISIVE MEASUREMENT". `PLAN_VALIDATION_ENABLED`
+alone is KEPT `true` (safety-value exception: a programmatic heuristic
+gate, not a score-driven mechanism, untouched by that reading). See each
+one's detail below.
 
 **⚠️ Operational trap**: these 4 flags (as well as
 `MAX_TOOL_ITERATIONS`/the attempt and replanning budgets/
@@ -65,7 +76,7 @@ test (`_default_cognitive_core_flags_to_false` fixture,
 `tests/conftest.py`) rather than depending on the default.
 
 **Post-action verification + failure budget** (`VERIFICATION_ENABLED`,
-default `true` — Iteration 2): **only has an effect if `PLANNER_ENABLED`
+default `false` since EFFORT 2.4, see above — Iteration 2): **only has an effect if `PLANNER_ENABLED`
 is also on** (nothing to verify without a plan). After every tool-call
 turn, `verify_action` (`app/graph.py`) compares the result to the ACTIVE
 subtask's `success_criterion`, via a dedicated LLM judge call
@@ -90,9 +101,9 @@ Iteration 3): **only has an effect if `PLANNER_ENABLED` is also on**.
 `call_llm`) first applies programmatic heuristics
 (`app/plan_validation.py`: 2-12 subtask bounds, no duplicates, existing
 referenced tools, domains within the declared scope), then, if
-`PLAN_JUDGE_ENABLED` (default `true` since docs/briefs/
-flags-du-coeur-cognitif.md — measured withdrawal clause, see docs/history.md
-Iteration 3: it did really veto a plan the heuristics let through), an
+`PLAN_JUDGE_ENABLED` (default `false` since EFFORT 2.4, see above —
+measured withdrawal clause, see docs/history.md Iteration 3: it did
+really veto a plan the heuristics let through), an
 LLM judge (`{"faisable": bool, "risques": [...], "etapes_manquantes":
 [...]}`, FAIL-OPEN on error). Rejection → `revise_plan` (max
 `PLAN_VALIDATION_CYCLES_MAX` = 2 cycles) → beyond that, human escalation

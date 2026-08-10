@@ -202,15 +202,62 @@ disappears, freeing budget for phase 2); A2 holds without needing
 capability one — A2 was passing via a never-grantable tool, the exact
 shape of the B-β breach (`docs/resolved-bugs.md` #43).
 
-**2.4 — planned, not started: the cognitive-core removal PR, after 2.3.**
-Defaults to `false` for `PLANNER_ENABLED`/`VERIFICATION_ENABLED`/
-`PLAN_JUDGE_ENABLED`, full v2 campaign, `PLAN_VALIDATION_ENABLED` kept
-(safety-value exception, untouched by the CuP reading). The A1 diagnostic
-reinforces this decision rather than complicating it: on 2 of A1's 3
-cfg8 runs, the mechanism didn't just add cost, it actively invalidated
-otherwise-correct navigation (attempt/replan-budget churn misfiring on
-ordinary multi-step pagination) — add this to the removal PR's
-justification dossier alongside the 15/15 vs 13/15 reading.
+**2.3 rerun (2026-08-10) surfaced a different, undiagnosed blocker
+(`docs/resolved-bugs.md` #51)**, not the mechanism this fix targets: A1
+1/3, A2 2/3, all 3 failures stalling on the plan's first subtask,
+`browser_extract` never reached. Archives-only diagnosis (reading the
+already-persisted `assistant` message text in the audit log, not a
+separate judge call — `constat_precedent` is model self-report) narrowed
+it to a compound subtask-0 criterion hypothesis, not confirmed at n=3.
+Instrumentation added to test it properly: `plan_task`/`replan_task`/
+`verify_action` audit entries now log the literal subtask description +
+`success_criterion` (previously only counts/verdicts, no text) — pure
+logging addition, no prompt/directive change, not subject to the
+measured-behavior campaign requirement. 🧑 Next: a live smoke on A1
+(needs `docker compose build/up langgraph-agent`) to read the real
+criterion text and confirm/refute the hypothesis before designing any
+A/B on subtask-0 phrasing.
+
+**#51 root-caused by the live smoke (`effort2.3-criterion-smoke`, A1
+0/3), closed as folded into 2.4 rather than fixed standalone** —
+user decision. All 3 threads: subtask 0's real `success_criterion`
+bundles the entire catalog phase (30 products, 3 pages) into one gate,
+narrowed twice by replanning and STILL failing a 3rd, near-trivial
+version, exhausting `SUBTASK_ATTEMPT_BUDGET`×`REPLAN_BUDGET` before ever
+clearing subtask 0 — subtask 1+ (the docs cross-check) never reached on
+any thread. The dt/dd fix itself is confirmed working (one thread's
+bulk `browser_extract` correctly found the 4 Mobilier products at the
+exact moment the budget ran out) — A1's failure is not an extraction
+problem. Full detail: `docs/resolved-bugs.md` #51, `docs/history.md`
+"EFFORT 2.3". This is now dossier evidence for 2.4 below, not a
+separate fix — the replanner already tries 3 different subtask-0
+phrasings per run and none survive, so a wording-only correction was
+judged unlikely to help on its own.
+
+**2.4 — CLOSED: the cognitive-core removal PR.** Defaults flipped to
+`false` for `PLANNER_ENABLED`/`VERIFICATION_ENABLED`/
+`PLAN_JUDGE_ENABLED`, `PLAN_VALIDATION_ENABLED` kept `true`
+(safety-value exception, untouched by the CuP reading). Justification
+dossier: the decisive cfg1(15/15)-vs-cfg8(13/15) ablation at 43% less
+cumulative time, the A1 trajectory diagnostic (mechanism actively
+invalidating otherwise-correct navigation on 2/3 cfg8 runs), and #51
+(3/3 threads never clearing subtask 0, once cutting off genuine
+real-time progress) — all three pointed at attempt/replan-budget churn
+as active harm, not just added cost.
+
+**Judge (full v2 campaign, live) came back clean**: F 8/8, **A 12/12
+(A1 3/3 — clears for the first time, ever)**, C 9/9 with 0/9 breach, D
+6/6, E1/E3 6/6 (E2 0/3, pre-existing capability limit), B all loads
+(both intents) 24/24 raw + CuP 24/24 once B-medium/hard was correctly
+rerun with `NEVER_GRANTABLE_TOOLS_EXTRA=browser_click` set (the first
+attempt bundled it with easy in one run and came back CuP=0/3,
+invalidated — that env var is required before medium/hard, easy and
+medium/hard must run as separate campaigns, per this file's own
+`run-flag-sweep.sh`/`run-campaign.sh` docs). No family regressed; family
+A materially improved. Full detail: docs/history.md, "EFFORT 2.4". See
+`docs/resolved-bugs.md` #49 for the one question this leaves open
+(informational only, since cfg8 is no longer the default it was found
+under).
 
 ## Effort 3 — GhostDesk removal
 

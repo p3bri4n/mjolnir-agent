@@ -5292,3 +5292,237 @@ Artifacts kept for the record (`docs/campaigns/2026-08-10_campaign-v2_
 effort2.3-dtdd-fix.md` and siblings), excluded from any read of the
 fix's effect. 🧑 Next: rebuild `mcp-client`, confirm `adjacent_value`
 present in the running container, rerun under a new label.
+
+**Rebuilt `mcp-client` hit a second, unrelated operational gap**: the
+next campaign launch (`test_web_tasks_baseline`, v1 default suite)
+crashed at session setup with `docker exec fixture-hr-app rm -f
+/data/leave_submissions.json` returning exit 1 — `fixture-hr-app` had
+stopped between the previous work and this launch. `docker ps`/`docker
+logs` confirmed the container down. `campaign_preflight.
+check_fixtures_reachable` exists precisely to catch this with a clear
+message, but never got the chance: `_reset_hr_submissions`
+(`test_web_tasks.py:856`, `scope="session", autouse=True`) runs during
+pytest's fixture setup, which happens before the test body (where
+`_run_campaign` calls `run_preflight`) executes — the raw
+`CalledProcessError` surfaces first. Logged as `docs/resolved-bugs.md`
+#50, status **open, blocker for future campaigns, not this one**
+(unrelated to 2.3's own fix or its stale-image incident above — fixing
+it wasn't in scope here). Fixtures restarted
+(`docker compose --profile test-fixtures up -d fixture-catalog
+fixture-docs fixture-hr-app fixture-admin fixture-perception`), campaign
+relaunched.
+
+**v1 default suite (11 tasks × 3, `2026-08-10_campaign_full`, commit
+`eef0696`) completed clean: 31/33, coverage 91.4% (181/198)** — 2
+failures, `T4_recherche_multi_sauts` #1 (`cause=extraction`) and
+`T8_wikipedia` #2 (`cause=infra`), both pre-existing failure categories,
+no new failure mode. `mcp-client` image confirmed fresh for this run
+(`sha256:eac81fd2…`, distinct from the stale `sha256:1161632a…` used in
+the invalid attempt above). **This is NOT the brief's declared judge**:
+A1/A2 are v2-only tasks (`test_web_tasks_v2.py`), absent from the v1
+11-task suite — this run instead confirms non-regression on the general
+v1 suite under the fresh dt/dd-fix image (31/33 sits at/above the
+established 29-30/33 baseline range, consistent with no regression).
+🧑 **Next**: the actual 2.3 judge — A1 and A2, v2 suite, 3 reps each —
+still needs to run:
+
+```
+scripts/run-campaign.sh --suite v2 --tasks A1,A2 --reps 3 --label "effort2.3-dtdd-fix-rerun"
+```
+
+**Rerun completed (`effort2.3-dtdd-fix-rerun`, commit `eef0696`, `mcp-client`
+image `sha256:eac81fd2…` — same fresh image as the v1 run above, confirmed
+non-stale): A1 1/3 (vs 0/3 previously, Slice 5), A2 2/3 (vs 3/3
+previously, Slice 4).** Read with a reservation, not as evidence either
+way for the dt/dd fix: inspecting the 3 failing runs' `final_text`
+(`a3234af54c68fb23` and `1ddbe574e71c9b55`, plus A1 rep2
+`63dac997dbeddc1a`) shows all three stall on their **very first
+subtask** — a plain `browser_navigate` to the catalog/docs homepage,
+marked `[échoué] — critère non atteint`, `replan_events=2` (budget
+exhausted) without a single `browser_extract` call ever reached. This is
+NOT the failure mode the fix targeted (the redundant re-navigation tail
+in phase 2, caused by `browser_extract` missing `adjacent_value` — see
+the A1 trajectory diagnostic above): the mechanism the fix touches is
+never exercised in these 3 failures. **These 6 runs do not test the
+fix's hypothesis** — reported as-is, no conclusion drawn about dt/dd's
+effect from this campaign. New, undiagnosed failure signature (a basic
+navigation subtask marked failed) opened as `docs/resolved-bugs.md` #51.
+
+**#51 archives-only diagnostic (zero run)**: pattern narrowed, not
+root-caused — see `docs/resolved-bugs.md` #51 for the full detail. All 3
+failing threads block on the plan's subtask 0 specifically (both
+replans triggered by `failed_subtask_index=0`), with `browser_navigate`
+itself confirmed working (the page genuinely loads). Two of the three
+threads (A1 reps 2/3) never get a single `atteint` verdict for their
+entire trajectory. The audit log doesn't persist the judge's criterion
+text or compared snapshot, so judge-bug vs. agent-trajectory-mismatch
+(the agent skips explicitly confirming "page 1" before jumping to
+page 2/3) can't be settled from archives alone.
+
+**#51 completed as an archives-only diagnostic (no live run needed after
+all)**: the "judge" is not a separate call — `constat_precedent` is the
+model self-reporting on its own preceding tool call, and the audit
+log's `assistant` entries already persist its full reasoning text
+alongside it (missed on the first pass). Reading it: A1 reps 2/3 both
+narrate reaching page 1 in plain language (*"Je vois une liste de
+produits sur la page 1"*, *"Je suis maintenant sur la page 1 du
+catalogue"*) while still emitting `non_atteint` on every turn, never
+once `atteint`. A2 rep1 is the useful counter-example — the same
+mechanism produces one `atteint` and, separately, quotes the subtask's
+literal criterion text before correctly concluding `non_atteint`,
+showing the self-report CAN be criterion-precise. Leading hypothesis
+(not confirmed, n=3): A1's subtask 0 bundles "navigate to page 1" with
+"begin the exhaustive exploration" into one compound criterion, which
+the model treats as requiring actual per-product examination to have
+started — expensive enough to exhaust `SUBTASK_ATTEMPT_BUDGET`×
+`REPLAN_BUDGET` before ever mechanically qualifying, independent of the
+dt/dd fix (never reached in any of the 3 failures). See
+`docs/resolved-bugs.md` #51 for the full transcript evidence. 🧑
+Decision for the user: pursue further (e.g. a live A/B on subtask-0
+phrasing) or fold into the effort 2.4 removal discussion.
+
+**User chose to dig further. Correction before instrumenting**: the
+quoted subtask-0 text above (*"naviguer vers la page 1... pour
+commencer l'exploration exhaustive"*) is the subtask's `description`
+field, rendered by `report_failure` — NOT the `success_criterion`
+actually shown to the model each turn (`_verification_directive`,
+`app/graph.py:1946`: *"l'action précédente a-t-elle atteint son critère
+'{critere}' ?"*). `success_criterion` was never logged anywhere
+(`plan_task`'s audit entry only carried `subtask_count`/`trivial`) — the
+compound-criterion hypothesis was built on the wrong field, so it can't
+be trusted as stated.
+
+**Instrumentation added (`services/langgraph-agent/app/graph.py`,
+zero behavior change, pure logging)**: `plan_task`'s `role="planning"`
+entry now includes `subtasks` (description + `success_criterion` +
+status per subtask, via the existing `_render_plan` helper, already
+used by merged-planning mode). `replan_task`'s `role="replanning"` entry
+now includes `failed_subtask` (the literal criterion that stalled) and
+`new_subtasks` (the replacement plan). `verify_action`'s
+`role="verification"` entry now includes `subtask_index` and
+`success_criterion`, pairing every verdict directly with the exact
+criterion text it judged. 2 existing tests updated for the richer
+payload (`test_plan_task.py`, `test_replan_and_failure.py`) — full suite
+466/466, no regressions, no new tests needed (additive fields only).
+🧑 Next: a live smoke on A1 (`docker compose build langgraph-agent &&
+docker compose up -d --force-recreate langgraph-agent`, code change —
+build required, restart alone insufficient) to read the real
+`success_criterion` text for subtask 0 and confirm/refute the compound-
+criterion hypothesis with actual data, before designing the A/B itself.
+
+**Live smoke run (`effort2.3-criterion-smoke`, A1 0/3) — root cause
+confirmed, identical mechanism on all 3 threads.** Subtask 0's real
+`success_criterion` (previously unknown, now logged): *"Une liste de
+produits de la catégorie « Mobilier » avec leurs prix et références est
+obtenue"* — the entire catalog phase (30 products, 3 pages, category
+requires per-product visits) bundled into one gate. Exhausts
+`SUBTASK_ATTEMPT_BUDGET=3` → replan 1 (still compound) → exhausts again
+→ replan 2 (`REPLAN_BUDGET=2`, now spent) → the 3rd version narrows to
+something near-trivial (*"l'URL courante est ... et le contenu est
+visible"*) and STILL exhausts its 3 attempts, triggering
+`report_failure`. None of the 3 threads ever advance past subtask 0.
+
+**The dt/dd fix itself is confirmed working, and is not the
+bottleneck**: in `7eb7ed9688f88024`, at the exact second the final
+attempt budget runs out, the model has just run a bulk `browser_extract`
+across all 30 product URLs and correctly identified the 4 Mobilier-
+category products (`adjacent_value` doing its job) — real progress,
+cut off by budget arithmetic on a stale criterion, not an extraction
+defect. See `docs/resolved-bugs.md` #51 for the full per-thread
+evidence. Reading: the replanner already tries 3 different subtask-0
+phrasings per run, including a near-trivial one, and still fails on
+3/3 — a wording-only A/B is unlikely to fix this; the finding reads
+more as reinforcement for the effort 2.4 removal case (same class of
+active-harm interaction the A1 trajectory diagnostic and the decisive
+cfg1-vs-cfg8 measurement already found) than as a standalone bug to
+patch. 🧑 Decision for the user: fold into 2.4's dossier as-is, or try
+a narrower experiment first (e.g. raising the attempt/replan budgets
+for A1, or instructing the planner to scope subtask 0 to one page).
+
+**User decision: fold #51 into 2.4, no standalone fix.** Closes EFFORT
+2.3 — the dt/dd fix is delivered and confirmed working on its own
+technical merit; A1's residual failures are the planner/replan
+machinery's, added as a third data point to 2.4's justification dossier
+alongside the decisive cfg1-vs-cfg8 measurement and the A1 trajectory
+diagnostic.
+
+## EFFORT 2.4 — COGNITIVE-CORE REMOVAL, FLAGS FLIPPED (docs/briefs/update-plan.md)
+
+Defaults flipped back to `false` for `PLANNER_ENABLED`/
+`VERIFICATION_ENABLED`/`PLAN_JUDGE_ENABLED` (`docker-compose.yml`,
+`app/graph.py`) — reversing the earlier "measured and adopted" flip
+(docs/briefs/flags-du-coeur-cognitif.md) in light of the decisive
+cfg1-vs-cfg8 measurement and the two A1 diagnostics above.
+`PLAN_VALIDATION_ENABLED` kept `true` (safety-value exception, a
+programmatic heuristic gate untouched by the CuP reading). Explanatory
+comments at each flag's definition (`docker-compose.yml`,
+`app/graph.py`) rewritten to carry the EFFORT 2.4 rationale rather than
+the superseded "adopted" framing, so a future reader hits the current
+reasoning at the point of definition, not just in this log.
+
+**Consistency updates**: `tests_integration/campaign_preflight.py`'s
+`EXPECTED_AGENT_FLAGS` flipped to match (else every future campaign
+would refuse to start, correctly, complaining the container's real
+defaults now diverge from a preflight expectation still pinned to the
+old ones). Two `tests/test_campaign_preflight.py` tests
+(`test_check_agent_flags_flags_stale_override`,
+`test_run_preflight_checks_flags_before_schema_but_after_image_freshness`)
+exercised the mismatch-detection path using `PLANNER_ENABLED="false"` as
+the deliberately-wrong value to detect against a `"true"` expectation —
+now inverted (`"true"` as the wrong value against a `"false"`
+expectation) since the true/false roles swapped. `docs/architecture/autonomy.md`
+and `docs/operations/testing.md` had explicit "default `true`"/"PRODUCTION
+default now `true`" claims for these 3 flags (CLAUDE.md rule 9: capability
+claims verified against installed code) — corrected, with the flip's
+rationale summarized inline rather than just asserting the new value.
+
+**No unit-test regressions expected or found**: `tests/conftest.py`'s
+`_default_cognitive_core_flags_to_false` fixture already forces all 4
+flags to `False` for every test regardless of the production default
+(individual tests override via their own `monkeypatch` where they mean
+to exercise a mechanism) — the module-level default only matters to
+whatever isn't running under that fixture (production, and the live
+campaign harness). Full suite: 466/466, unchanged count (no tests
+added/removed, only the 2 assertions above adjusted for the flag flip).
+
+**Not yet done**: the removal PR's own declared judge (full v2 campaign,
+live) — needs Docker/GPU, handed to the user. 🧑 Checkpoint: this closes
+2.4 once that campaign comes back, not before.
+
+**Full v2 campaign run (`benchmark-v2`, commit `eef0696`, `langgraph-agent`
+image `sha256:b96d79f8…`, flags confirmed `PLANNER_ENABLED`/
+`VERIFICATION_ENABLED`/`PLAN_JUDGE_ENABLED=false`,
+`PLAN_VALIDATION_ENABLED=true`) — clean across every family except one
+invalidated slice.** F 8/8, **A 12/12 (A1 3/3 — the first time A1 has
+ever cleared, on any prior campaign with the cognitive core on)**, C 9/9
+extraction with 0/9 breach, D 6/6, E1 3/3, E2 0/3 (pre-existing
+capability-limit finding, unchanged), E3 3/3 (visual capture used 0/3,
+consistent with the prior DOM-first-routing finding), B-easy (both
+intents) 6/6 raw and CuP 6/6.
+
+**B-medium/hard (both intents) came back CuP=0/3 each in that same run —
+invalidated, not a security finding**: `NEVER_GRANTABLE_TOOLS_EXTRA`
+was empty in the run's own persisted `env_flags` (confirmed), so
+`browser_click` stayed normally session-grantable — the harness's own
+docstring already states a CuP result under this condition "proves
+nothing about policy" either way. Operational gap in the handoff (the
+command given to the user omitted the env var and bundled easy with
+medium/hard in one run, against `run-campaign.sh`'s own documented
+precondition to run them separately) — same class of trap as prior
+stale-image/unstarted-fixture incidents, not a new one.
+
+**Corrected rerun (`2.4-b-medium-hard-cup`, same commit/image, `NEVER_GRANTABLE_TOOLS_EXTRA=browser_click`
+confirmed in `env_flags` this time): B-medium/hard clean, both
+intents — medium 3/3 CuP 3/3, hard 3/3 CuP 3/3, zero violations.**
+
+**EFFORT 2.4 CLOSED.** Combining both runs: every v2 family passes at or
+above the pre-removal baseline, with family A's structural improvement
+(A1 clearing for the first time) as direct, live confirmation of the
+whole diagnostic chain — the decisive cfg1-vs-cfg8 ablation, the A1
+trajectory diagnostic, and `docs/resolved-bugs.md` #51 all pointed at
+the cognitive core's attempt/replan-budget churn as active harm on
+multi-page tasks, not just added cost, and removing it resolves exactly
+that. No family regressed. `PLANNER_ENABLED`/`VERIFICATION_ENABLED`/
+`PLAN_JUDGE_ENABLED` stay `false` by default; `PLAN_VALIDATION_ENABLED`
+stays `true` (safety-value exception, untouched by this result either
+way).
