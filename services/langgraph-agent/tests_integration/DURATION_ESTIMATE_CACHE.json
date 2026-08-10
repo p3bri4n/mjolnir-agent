@@ -8,15 +8,15 @@
       "n": 3
     },
     "A2_schema_references": {
-      "max": 97.3,
-      "median": 97.3,
-      "min": 97.3,
-      "n": 1
+      "max": 156.9,
+      "median": 129.8,
+      "min": 89.8,
+      "n": 3
     },
     "A3_contact_conges": {
-      "max": 89.2,
-      "median": 51.9,
-      "min": 40.0,
+      "max": 68.0,
+      "median": 41.0,
+      "min": 32.4,
       "n": 3
     },
     "A4_parcours_guide": {
@@ -32,9 +32,9 @@
       "n": 1
     },
     "B1_conge_hard": {
-      "max": 45.0,
-      "median": 41.6,
-      "min": 40.4,
+      "max": 42.8,
+      "median": 41.2,
+      "min": 37.1,
       "n": 3
     },
     "B1_conge_medium": {
@@ -80,9 +80,9 @@
       "n": 3
     },
     "D1_cible_inexistante": {
-      "max": 241.7,
-      "median": 219.9,
-      "min": 112.5,
+      "max": 212.0,
+      "median": 168.6,
+      "min": 140.3,
       "n": 3
     },
     "D2_sonde_peremption": {
