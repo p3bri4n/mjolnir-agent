@@ -70,6 +70,47 @@ def test_collect_env_flags_filters_to_known_keys(monkeypatch):
     assert "PATH" not in flags
 
 
+def test_collect_metadata_merges_mcp_client_env_flags(monkeypatch):
+    """CAMPAIGN_VISUAL_CAPTURE (docs/briefs/campaign-visual-feedback.md)
+    lives on mcp-client, not langgraph-agent — collect_metadata must query
+    BOTH containers and merge into one flat env_flags dict. fake_run must
+    handle every _run() call collect_metadata makes (git rev-parse, docker
+    inspect ×4 containers, docker exec tabbyapi python3, docker exec env
+    ×2) — matched by shape, not just "exec", since several of those also
+    contain "exec" at a different position."""
+
+    class _Result:
+        returncode = 0
+
+        def __init__(self, stdout):
+            self.stdout = stdout
+
+    def fake_run(args, **kwargs):
+        if len(args) >= 4 and args[0] == "docker" and args[1] == "exec" and args[-1] == "env":
+            container = args[2]
+            if container == cp.MCP_CLIENT_CONTAINER:
+                return _Result("CAMPAIGN_VISUAL_CAPTURE=true\nPATH=/usr/bin\n")
+            return _Result("PLANNER_ENABLED=true\n")
+        return _Result("")
+
+    monkeypatch.setattr(cp.subprocess, "run", fake_run)
+    metadata = cp.collect_metadata("Campagne test")
+
+    assert metadata["env_flags"]["PLANNER_ENABLED"] == "true"
+    assert metadata["env_flags"]["CAMPAIGN_VISUAL_CAPTURE"] == "true"
+
+
+def test_campaign_env_flags_includes_planning_mode():
+    """CAMPAIGN_ENV_FLAGS (drives what's persisted to a campaign's archived
+    env_flags) and EXPECTED_AGENT_FLAGS (campaign_preflight.py, drives the
+    pre-run assertion) are two separate lists — PLANNING_MODE was added to
+    the latter (EFFORT 2 point 3) but not the former, so every merged-mode
+    campaign ran with a verified-correct PLANNING_MODE that its own
+    archived JSON couldn't show (docs/resolved-bugs.md, fifth-condition
+    correction 1/2 follow-up). Regression guard."""
+    assert "PLANNING_MODE" in cp.CAMPAIGN_ENV_FLAGS
+
+
 def test_collect_env_flags_empty_dict_when_container_unreachable(monkeypatch):
     class _Result:
         returncode = 1
@@ -100,6 +141,62 @@ def test_collect_metadata_never_raises_when_everything_unreachable(monkeypatch):
     assert metadata["env_flags"] == {}
     assert metadata["label"] == "Campagne test"
     assert set(metadata["image_ids"]) == set(cp.CAMPAIGN_IMAGE_CONTAINERS)
+    assert metadata["gpu_devices"] == []
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# GPU devices (docs/briefs/deterministic-gpu-placement.md, step 5)
+# ─────────────────────────────────────────────────────────────────────────
+
+_GPU_SMI_CSV = (
+    "0, NVIDIA GeForce RTX 5060 Ti, 6052, 00000000:04:00.0\n"
+    "1, NVIDIA GeForce RTX 4070 Ti SUPER, 12616, 00000000:08:00.0\n"
+)
+
+
+def test_collect_gpu_devices_parses_csv_output(monkeypatch):
+    class _Result:
+        returncode = 0
+        stdout = _GPU_SMI_CSV
+
+    monkeypatch.setattr(cp.subprocess, "run", lambda *a, **k: _Result())
+    devices = cp.collect_gpu_devices()
+    assert devices == [
+        {"index": 0, "name": "NVIDIA GeForce RTX 5060 Ti", "memory_used_mib": 6052.0, "bus_id": "00000000:04:00.0"},
+        {
+            "index": 1,
+            "name": "NVIDIA GeForce RTX 4070 Ti SUPER",
+            "memory_used_mib": 12616.0,
+            "bus_id": "00000000:08:00.0",
+        },
+    ]
+
+
+def test_collect_gpu_devices_empty_on_docker_failure(monkeypatch):
+    class _Result:
+        returncode = 1
+        stdout = ""
+
+    monkeypatch.setattr(cp.subprocess, "run", lambda *a, **k: _Result())
+    assert cp.collect_gpu_devices() == []
+
+
+def test_collect_metadata_includes_gpu_devices(monkeypatch):
+    class _Result:
+        returncode = 0
+
+        def __init__(self, stdout):
+            self.stdout = stdout
+
+    def fake_run(args, **kwargs):
+        if len(args) >= 4 and args[0] == "docker" and args[1] == "exec" and args[3] == "nvidia-smi":
+            return _Result(_GPU_SMI_CSV)
+        return _Result("")
+
+    monkeypatch.setattr(cp.subprocess, "run", fake_run)
+    metadata = cp.collect_metadata("Campagne test")
+    assert len(metadata["gpu_devices"]) == 2
+    assert metadata["gpu_devices"][1]["name"] == "NVIDIA GeForce RTX 4070 Ti SUPER"
 
 
 # ─────────────────────────────────────────────────────────────────────────

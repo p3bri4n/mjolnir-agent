@@ -49,7 +49,6 @@ from tests_integration.test_web_tasks import (  # noqa: E402
     _derive_thread_id,
     _purge_downloads_volume,
     _reset_browser_session,
-    _reset_ghostdesk_desktop,
     run_task,
 )
 
@@ -93,7 +92,6 @@ def run_one(rep: int, flag_label: str) -> dict:
     prompt = _build_prompt(marker)
     _purge_downloads_volume()
     _reset_browser_session()
-    _reset_ghostdesk_desktop()
 
     wall_start = datetime.now(timezone.utc)
     result = run_task(prompt)

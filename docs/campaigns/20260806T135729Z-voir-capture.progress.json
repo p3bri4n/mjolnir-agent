@@ -1,0 +1,37 @@
+{
+  "campaign_id": "20260806T135729Z-voir-capture",
+  "completed": [
+    {
+      "approvals": 4,
+      "cup": null,
+      "duration_s": 97.3,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A2_schema_references",
+      "thread_id": "cff983555574990f",
+      "tool_calls": 9
+    }
+  ],
+  "config_digest": "8fcfb6f33327ef58",
+  "current": null,
+  "label": "voir-capture",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "A2_schema_references"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-08-06T13:59:06.743045+00:00",
+      "index": 0,
+      "started_at": "2026-08-06T13:57:29.103313+00:00"
+    }
+  ],
+  "started_at": "2026-08-06T13:57:29.103313+00:00",
+  "total_runs": 1
+}

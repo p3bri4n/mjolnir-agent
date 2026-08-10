@@ -392,6 +392,46 @@ class TaskResult:
         # docs/campaigns/2026-07-28_campaign_episode-compaction-enabled.md.
         self.episode_compaction_messages_max = 0
         self.episode_compaction_applied_count = 0
+        # Planner/validation/judge coverage counters (EFFORT 2 "judge
+        # validity check", see docs/history.md): symmetric to
+        # verification_opportunities/exploitable above — plan_task,
+        # validate_plan and replan_task (app/graph.py) now each log an
+        # audit entry (role="planning"/"plan_validation"/"replanning")
+        # on every real invocation. Without these, an archived ablation
+        # campaign could tell a mechanism was ENABLED but never whether it
+        # actually fired non-trivially — exactly the gap that requalified
+        # the first cognitive-core ablation as "not conclusive".
+        self.plan_initial_subtask_count = None  # None = planner never ran (PLANNER_ENABLED off, or no-op)
+        self.plan_trivial = None
+        self.replan_events = 0
+        self.validation_heuristic_rejections = 0
+        self.validation_judge_invocations = 0
+        self.validation_judge_vetoes = 0
+        # Merged-planning mode coverage (EFFORT 2 point 3, PLANNING_MODE=
+        # "merged", docs/briefs/update-plan.md "2.1 addendum"): symmetric
+        # to the planner/validation/judge counters above, but for the 5th
+        # condition's manage_plan tool (role="merged_planning" audit
+        # entries) — the 4 flags' counters above stay 0/None on a merged-
+        # mode run (their nodes are no-op there), these are the only
+        # signal that the mechanism fired at all in that mode.
+        # merged_plan_attempted counts manage_plan tool_calls found in
+        # role="assistant" audit entries (logged unconditionally by
+        # call_llm right after the model responds, before any dispatch —
+        # app/graph.py) — merged_plan_calls only counts the SUBSET that
+        # reached _execute_tool_calls and got a role="merged_planning"
+        # entry. Found to diverge in the fifth-condition diagnostic's
+        # correction-2/2 smoke (docs/history.md, "EFFORT 2" point 3): a
+        # manage_plan call emitted as the run's absolute last turn can be
+        # cut off (budget/loop-detection) before dispatch, undercounting
+        # a real engagement as if the model had never tried. Keep both:
+        # attempted - calls > 0 is itself the coverage signal for this
+        # specific blind spot, not something to silently reconcile away.
+        self.merged_plan_calls = 0
+        self.merged_plan_attempted = 0
+        self.merged_plan_initial_subtask_count = None
+        self.merged_plan_heuristic_rejections = 0
+        self.merged_plan_replans = 0
+        self.merged_plan_completions = 0
 
 
 TABBYAPI_CONTAINER = os.environ.get("TABBYAPI_CONTAINER", "tabbyapi")
@@ -452,6 +492,59 @@ def run_task(prompt: str) -> TaskResult:
         )
     result.episode_compaction_applied_count = sum(
         1 for e in compaction_entries if (e.get("content") or {}).get("compacted")
+    )
+    # Planner/validation/judge coverage (EFFORT 2 "judge validity check",
+    # see docs/history.md and the TaskResult docstring above). planning
+    # fires at most once per task (plan_task computes the plan once, never
+    # rebuilt within the same task — app/graph.py); replanning/
+    # plan_validation can fire multiple times.
+    planning_entries = [e for e in entries if e.get("kind") == "message" and e.get("role") == "planning"]
+    if planning_entries:
+        planning_content = planning_entries[0].get("content") or {}
+        result.plan_initial_subtask_count = planning_content.get("subtask_count")
+        result.plan_trivial = planning_content.get("trivial")
+    replanning_entries = [e for e in entries if e.get("kind") == "message" and e.get("role") == "replanning"]
+    result.replan_events = len(replanning_entries)
+    validation_entries = [e for e in entries if e.get("kind") == "message" and e.get("role") == "plan_validation"]
+    result.validation_heuristic_rejections = sum(
+        1 for e in validation_entries if (e.get("content") or {}).get("heuristic_rejected")
+    )
+    result.validation_judge_invocations = sum(
+        1 for e in validation_entries if (e.get("content") or {}).get("judge_invoked")
+    )
+    result.validation_judge_vetoes = sum(
+        1 for e in validation_entries if (e.get("content") or {}).get("judge_vetoed")
+    )
+    # Merged-planning coverage (EFFORT 2 point 3, see the TaskResult
+    # docstring above): every manage_plan invocation logs one
+    # role="merged_planning" entry, action in {"set_plan",
+    # "complete_subtask"}. The first accepted set_plan is the initial
+    # plan; any later accepted set_plan is a replan (app/graph.py's
+    # manage_plan dispatch never leaves an intermediate "echoue" state,
+    # so there is no separate replan signal to look for beyond "a
+    # set_plan after the first one").
+    merged_planning_entries = [e for e in entries if e.get("kind") == "message" and e.get("role") == "merged_planning"]
+    result.merged_plan_calls = len(merged_planning_entries)
+    assistant_entries = [e for e in entries if e.get("kind") == "message" and e.get("role") == "assistant"]
+    result.merged_plan_attempted = sum(
+        1
+        for e in assistant_entries
+        for tc in ((e.get("content") or {}).get("tool_calls") or [])
+        if tc.get("name") == "manage_plan"
+    )
+    accepted_set_plans = [
+        e
+        for e in merged_planning_entries
+        if (e.get("content") or {}).get("action") == "set_plan" and not (e.get("content") or {}).get("heuristic_rejected")
+    ]
+    if accepted_set_plans:
+        result.merged_plan_initial_subtask_count = (accepted_set_plans[0].get("content") or {}).get("subtask_count")
+        result.merged_plan_replans = len(accepted_set_plans) - 1
+    result.merged_plan_heuristic_rejections = sum(
+        1 for e in merged_planning_entries if (e.get("content") or {}).get("heuristic_rejected")
+    )
+    result.merged_plan_completions = sum(
+        1 for e in merged_planning_entries if (e.get("content") or {}).get("action") == "complete_subtask"
     )
     for e in tool_call_entries:
         if e.get("tool") == "browser_navigate":
@@ -730,31 +823,6 @@ def _purge_downloads_volume() -> None:
     )
 
 
-GHOSTDESK_CONTAINER = os.environ.get("GHOSTDESK_CONTAINER", "ghostdesk")
-
-
-def _reset_ghostdesk_desktop() -> None:
-    """
-    Cross-task isolation, second channel (see docs/history.md, T9
-    investigation): `app_launch` (GhostDesk) opens a REAL window on the
-    `ghostdesk` container's desktop, at the MACHINE scale, with no
-    relation whatsoever to the Playwright session already isolated by
-    `_reset_browser_session` nor to the current langgraph-agent thread.
-    Observed under real conditions: a Firefox launched by a T9 thread
-    hours earlier stayed open on insee.fr; a later T9 thread, blocked by
-    the anti-fabrication guardrail on browser_navigate, took a
-    `screen_shot` and read this leftover Firefox — a "success" that
-    proves nothing about the agent's ability to redo the task cold.
-    `pkill -f firefox` (best-effort, check=False) before EVERY repetition,
-    the same guarantee as the two resets already in place.
-    """
-    subprocess.run(
-        ["docker", "exec", GHOSTDESK_CONTAINER, "pkill", "-f", "firefox"],
-        check=False,
-        capture_output=True,
-    )
-
-
 def _reset_browser_session() -> None:
     """
     Cross-task isolation (revised Phase 1d, see docs/history.md
@@ -945,7 +1013,6 @@ def _run_campaign(resume_cid: str = None):
 
         _purge_downloads_volume()
         _reset_browser_session()
-        _reset_ghostdesk_desktop()
         result = run_task(prompt)
         ok, detail = (False, result.error) if result.error else assert_fn(result.final_text, prompt)
         cause = _classify_failure_cause(task_id, result, ok, detail)
@@ -963,6 +1030,18 @@ def _run_campaign(resume_cid: str = None):
             "tool_calls_observed": result.tool_calls_observed,
             "verification_opportunities": result.verification_opportunities,
             "verification_exploitable": result.verification_exploitable,
+            "plan_initial_subtask_count": result.plan_initial_subtask_count,
+            "plan_trivial": result.plan_trivial,
+            "replan_events": result.replan_events,
+            "validation_heuristic_rejections": result.validation_heuristic_rejections,
+            "validation_judge_invocations": result.validation_judge_invocations,
+            "validation_judge_vetoes": result.validation_judge_vetoes,
+            "merged_plan_calls": result.merged_plan_calls,
+            "merged_plan_attempted": result.merged_plan_attempted,
+            "merged_plan_initial_subtask_count": result.merged_plan_initial_subtask_count,
+            "merged_plan_heuristic_rejections": result.merged_plan_heuristic_rejections,
+            "merged_plan_replans": result.merged_plan_replans,
+            "merged_plan_completions": result.merged_plan_completions,
             "prefill_seconds": result.prefill_seconds,
             "cache_zero_requests": result.cache_zero_requests,
             "tabbyapi_requests": result.tabbyapi_requests,
@@ -1360,7 +1439,6 @@ def test_t7_noise_baseline():
         # independent measurement).
         prompt = f"{base_prompt} (essai {uuid.uuid4().hex[:8]})"
         _reset_browser_session()
-        _reset_ghostdesk_desktop()
         result = run_task(prompt)
         ok, detail = (False, result.error) if result.error else assert_fn(result.final_text, prompt)
         rows.append(

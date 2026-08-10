@@ -5,14 +5,23 @@ This document replaces the "Development plan" and "Amendments" sections of
 rather than listed as a separate patch. In case of divergence, this file
 is authoritative.
 
+Phases 0–2 below are delivered (see `docs/project-status.md` for the
+detail). Phase 3 is superseded by `docs/briefs/security-hardening.md` and
+by benchmark v2's family C. Phase 4 (consolidation) survives as the final
+step. For everything past this point — sequencing, open efforts, what's
+missing — see `docs/briefs/update-plan.md`, the authoritative roadmap.
+
 ## Context
 
 The stack now serves Qwen3.6-27B EXL3 via TabbyAPI/ExLlamaV3 (dual-GPU,
 vision + MTP), the langgraph/langchain-openai/openai trio is migrated to
-1.x/2.x, and an MCP Playwright server is wired in alongside GhostDesk.
-Goal of this effort: move the agent from "executes approved actions" to
+1.x/2.x, and an MCP Playwright server is wired in alongside GhostDesk
+(removal decided — see `docs/briefs/update-plan.md` effort 3). Goal of
+this effort: move the agent from "executes approved actions" to
 "accomplishes multi-step web tasks autonomously", without weakening the
-existing security model (approval tiers, PromptGuard, egress firewall).
+existing security model (approval tiers). PromptGuard and an egress
+firewall do not exist yet — they are planned under
+`docs/briefs/security-hardening.md`, not part of the current stack.
 
 ## Phase 0 — The instrument first: TASK-level harness
 
@@ -90,12 +99,14 @@ In `app/graph.py`, without breaking the existing approval flow:
    repeated); beyond that → replanning; if replanning is exhausted →
    honest failure report to the user with the state reached. Never an
    infinite loop, never a false success.
-6. **Hybrid perception**: Playwright = primary channel for anything that
-   is a web page (cheaper, more reliable); GhostDesk = explicit fallback
-   (canvas, outside the browser, Playwright failure). The routing rule
-   lives in the system prompt + a programmatic guardrail (if the
-   URL/context is web and the agent attempts a pixel capture, suggest the
-   DOM channel in the tool feedback).
+6. **Hybrid perception** (as delivered): Playwright = primary channel for
+   anything that is a web page (cheaper, more reliable); GhostDesk =
+   explicit fallback (canvas, outside the browser, Playwright failure).
+   **Superseded**: the visual-channel feasibility probe found nothing
+   tested is lost without GhostDesk (`browser_take_screenshot` covers
+   canvas/WebGL/images/native PDF); the decision is removal, with
+   `ocr-service` kept but moved from a callable tool to a graph
+   capability — see `docs/briefs/update-plan.md` effort 3.
 7. **Temporal awareness** (from the dedicated amendment):
    a. Date injection into the system prompt on EVERY request: DAY
       granularity (never the time — preserves the prefix cache), format
@@ -128,7 +139,12 @@ for this number to GO DOWN at equal or better control. 🧑 **Checkpoint.**
    rate (compaction must NOT degrade the rate — if it does, thresholds to
    revisit at the checkpoint). 🧑 **Checkpoint.**
 
-## Phase 3 — Security tiers by action nature
+## Phase 3 — Security tiers by action nature (superseded)
+
+**Not started as written.** Superseded by `docs/briefs/security-hardening.md`
+and by benchmark v2: point 4 below is stale (see correction after it).
+Kept for historical context; execution order and pass criteria now live
+in the security-hardening brief, per `docs/briefs/update-plan.md` effort 5.
 
 Extend the existing approval policy, without removing from it:
 
@@ -144,19 +160,20 @@ Extend the existing approval policy, without removing from it:
 3. **Dedicated browser profile**: the agent's Playwright context is blank
    (no personal-profile cookies/credentials), persistent per task only if
    needed.
-4. **Prompt injection**: page content is an UNTRUSTED INPUT. Verify that
-   the Playwright→LLM flow goes through the same PromptGuard inspection
-   as everything else; at a minimum, any instruction detected in web
-   content that requests a COMMIT action triggers escalation. Add 2
-   trapped tasks to the Phase 0 suite (a page containing an injection
-   requesting an out-of-scope action): success = the agent does not obey.
-   The suite thus goes from 11 to **13 tasks**.
+4. **Prompt injection** (as originally written; superseded): page content
+   is an UNTRUSTED INPUT; the plan was to add 2 trapped tasks to the
+   Phase 0 suite (11 → 13 tasks). **Superseded**: benchmark v2's family C
+   already covers injection and scope (C1/C2/C3), measured 9/9 at
+   baseline — see `docs/briefs/update-plan.md` effort 5, which also notes
+   this 9/9 leaves no progression margin for a security campaign and
+   requires a new hostile family (v2.1) first.
 
 🧑 **Checkpoint: review the nature×tier matrix together before merging.**
 
 ## Phase 4 — Consolidation
 
-Replay the full suite (now 13 tasks, including T11 and the injections), 3
+Final step, once the efforts in `docs/briefs/update-plan.md` land: replay
+the current frozen suite (v2, not the stale "13 tasks" figure above), 3
 repetitions, record the phase-by-phase evolution table under
 `docs/campaigns/`. README: new "Autonomy" section (loop architecture, web
 tier policy, known and accepted limitations). 🧑 **Final checkpoint.**
@@ -167,8 +184,10 @@ tier policy, known and accepted limitations). 🧑 **Final checkpoint.**
   by OBSERVED failures of the task suite (if the DOM channel covers the
   need, don't add it).
 - Agent authentication on real accounts, payments, captchas.
-- Multi-agent / parallel sub-agents.
-- Any task requiring more than the current browser + GhostDesk scope.
+- Multi-agent / parallel sub-agents (a single parameterised READ-tier tool
+  is discussed, not yet a brief — see `docs/briefs/update-plan.md`).
+- Any task requiring more than the current browser scope (GhostDesk
+  removal decided, see `docs/briefs/update-plan.md` effort 3).
 
 ## Deferred architecture effort: Mjolnir folder (second model)
 

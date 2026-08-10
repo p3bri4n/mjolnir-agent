@@ -90,40 +90,40 @@ async def test_call_llm_recovers_tool_call_trapped_in_reasoning(mock_side_servic
     """
     Le modèle a écrit son appel d'outil en prose, noyé dans reasoning_content
     (jamais un vrai tool_calls structuré) : call_llm doit le reconstruire
-    avant que has_tool_calls ne le traite. mouse_click est auto-approuvé
+    avant que has_tool_calls ne le traite. write_file est auto-approuvé
     (tier réversible) : une fois récupéré, il s'exécute directement sans
     passer par require_approval ni consommer de retry.
     """
     trapped = (
-        "Je vais cliquer sur le bouton.\n"
-        "<tool_call>\n<function=mouse_click>\n"
-        "<parameter=x>\n10\n</parameter>\n<parameter=y>\n20\n</parameter>\n"
+        "Je vais écrire le fichier.\n"
+        "<tool_call>\n<function=write_file>\n"
+        "<parameter=path>\n/workspace/x.txt\n</parameter>\n<parameter=content>\ny\n</parameter>\n"
         "</function>\n</tool_call>"
     )
     route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
     route.side_effect = [
         _sse_response(reasoning_response([trapped], [])),
-        _sse_response(text_response(["Cliqué", "."])),
+        _sse_response(text_response(["Écrit", "."])),
     ]
     mcp_route = mock_side_services.post("http://fake-mcp-client/call").mock(
         return_value=httpx.Response(200, json={"content": [{"type": "text", "text": "ok"}]})
     )
     g.agent_graph = g.build_graph()
 
-    state = {"messages": [{"role": "user", "content": "Clique là"}], "tool_iterations": 0, "approved": None}
+    state = {"messages": [{"role": "user", "content": "Écris ce fichier"}], "tool_iterations": 0, "approved": None}
     result = await g.agent_graph.ainvoke(state, CONFIG)
 
     ai_messages = [m for m in result["messages"] if getattr(m, "type", None) == "ai"]
     recovered_call = ai_messages[0].tool_calls
     assert len(recovered_call) == 1
-    assert recovered_call[0]["name"] == "mouse_click"
-    assert recovered_call[0]["args"] == {"x": "10", "y": "20"}
+    assert recovered_call[0]["name"] == "write_file"
+    assert recovered_call[0]["args"] == {"path": "/workspace/x.txt", "content": "y"}
 
     snapshot = await g.agent_graph.aget_state(CONFIG)
     assert snapshot.next == ()
     assert snapshot.values.get("empty_answer_retries", 0) == 0  # jamais consommé : récupéré au 1er essai
     assert mcp_route.call_count == 1
-    assert result["messages"][-1].content == "Cliqué."
+    assert result["messages"][-1].content == "Écrit."
 
 
 @pytest.mark.asyncio
@@ -222,17 +222,17 @@ async def test_normal_tool_call_flow_unaffected_by_retry_logic(mock_side_service
     """Non-régression : un tool_calls structuré normal ne déclenche jamais le chemin de retry."""
     route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
     route.side_effect = [
-        _sse_response(tool_call_response("mouse_click", "call_1", '{"x": 1, "y": 2}')),
-        _sse_response(text_response(["Cliqué", "."])),
+        _sse_response(tool_call_response("write_file", "call_1", '{"path": "/workspace/x.txt", "content": "y"}')),
+        _sse_response(text_response(["Écrit", "."])),
     ]
     mock_side_services.post("http://fake-mcp-client/call").mock(
         return_value=httpx.Response(200, json={"content": [{"type": "text", "text": "ok"}]})
     )
     g.agent_graph = g.build_graph()
 
-    state = {"messages": [{"role": "user", "content": "Clique"}], "tool_iterations": 0, "approved": None}
+    state = {"messages": [{"role": "user", "content": "Écris ce fichier"}], "tool_iterations": 0, "approved": None}
     result = await g.agent_graph.ainvoke(state, CONFIG)
 
     snapshot = await g.agent_graph.aget_state(CONFIG)
     assert snapshot.values.get("empty_answer_retries", 0) == 0
-    assert result["messages"][-1].content == "Cliqué."
+    assert result["messages"][-1].content == "Écrit."

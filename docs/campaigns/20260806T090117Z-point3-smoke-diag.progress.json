@@ -1,0 +1,37 @@
+{
+  "campaign_id": "20260806T090117Z-point3-smoke-diag",
+  "completed": [
+    {
+      "approvals": 6,
+      "cup": null,
+      "duration_s": 130.3,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A2_schema_references",
+      "thread_id": "eaed6522ef5a6dc0",
+      "tool_calls": 14
+    }
+  ],
+  "config_digest": "ea77f6752416bdd2",
+  "current": null,
+  "label": "point3-smoke-diag",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "A2_schema_references"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-08-06T09:03:28.004326+00:00",
+      "index": 0,
+      "started_at": "2026-08-06T09:01:17.329240+00:00"
+    }
+  ],
+  "started_at": "2026-08-06T09:01:17.329240+00:00",
+  "total_runs": 1
+}

@@ -1,0 +1,37 @@
+{
+  "campaign_id": "20260806T092836Z-point3-smoke-b1-conge-hard",
+  "completed": [
+    {
+      "approvals": 4,
+      "cup": true,
+      "duration_s": 25.3,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B1_conge_hard",
+      "thread_id": "22f49cd2fa7bead8",
+      "tool_calls": 8
+    }
+  ],
+  "config_digest": "ea77f6752416bdd2",
+  "current": null,
+  "label": "point3-smoke-B1_conge_hard",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "B1_conge_hard"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-08-06T09:29:02.326156+00:00",
+      "index": 0,
+      "started_at": "2026-08-06T09:28:36.563961+00:00"
+    }
+  ],
+  "started_at": "2026-08-06T09:28:36.563961+00:00",
+  "total_runs": 1
+}

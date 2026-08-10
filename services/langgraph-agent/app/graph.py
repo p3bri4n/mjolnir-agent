@@ -31,9 +31,9 @@ Flow:
 
 Human supervision: by default, every tool call is subject to approval
 (see require_approval/reject_tools below), except for tools classified as
-"read" or "reversible" tier by app/approval_policy.py (GhostDesk
-mouse/screenshot, filesystem/git reads, by default — see that module for
-the tier detail). The graph is therefore compiled with a checkpointer
+"read" or "reversible" tier by app/approval_policy.py (browser/filesystem
+reads and writes, by default — see that module for the tier detail). The
+graph is therefore compiled with a checkpointer
 (MemorySaver, in-memory) so it can suspend then resume execution — at the
 cost of losing pending approvals if the service restarts (acceptable for
 local use, see README).
@@ -388,7 +388,7 @@ def _truncate_browser_result(result: dict, max_chars: int, objective: str = "") 
         new_content.append(block)
     return {**result, "content": new_content}
 
-# Format sent to the LLM for tool image results (GhostDesk screen_shot,
+# Format sent to the LLM for tool image results (browser_take_screenshot,
 # native WebP format): empty (the default) always re-encodes to PNG — the
 # default backend (TabbyAPI/ExLlamaV3, see README section Inference
 # backend) is not known to decode WebP natively (to be verified
@@ -404,9 +404,9 @@ IMAGE_FORMAT_PASSTHROUGH = os.environ.get("IMAGE_FORMAT_PASSTHROUGH", "").lower(
 # "approve" turns (tool_iterations only starts back at 0 on a brand-new
 # user message, see _resolve_run in app/main.py) — an old default of 5
 # used to run out after barely 2-3 approval round-trips, before even
-# reaching the auto-approved GhostDesk loop (capture/click) which alone
-# consumes 2 iterations per gesture. Overflow reported explicitly to the
-# user rather than silently (see _current_answer, app/main.py).
+# reaching a long auto-approved read/reversible tool loop. Overflow
+# reported explicitly to the user rather than silently (see
+# _current_answer, app/main.py).
 MAX_TOOL_ITERATIONS = int(os.environ.get("MAX_TOOL_ITERATIONS", "20"))
 
 # Approval policy by reversibility tier (see app/approval_policy.py): a
@@ -418,23 +418,21 @@ MAX_TOOL_ITERATIONS = int(os.environ.get("MAX_TOOL_ITERATIONS", "20"))
 
 # Number of consecutive auto-approved turns tolerated before forcing a
 # pass through require_approval anyway, even if all the turn's tool_calls
-# remain auto-approved ("read"/"reversible" tier) — the guardrail against
-# a virtual keyboard: a single click is harmless, but a SEQUENCE of clicks
-# could compose full text input via an on-screen virtual keyboard,
-# effectively bypassing the key_type/key_press ("sensitive" tier)
-# exclusion. Without a cap, a long click sequence could ultimately type
-# any text without a human ever validating anything. Reset to 0 on every
+# remain auto-approved ("read"/"reversible" tier) — defense in depth
+# against a long unsupervised streak composing an unintended outcome
+# through many individually-harmless auto-approved steps, never fully
+# reviewed by a human. Reset to 0 on every
 # real pass through require_approval (see this function below), not just
 # at the start of a new task — unlike tool_iterations, which measures a
 # total budget rather than a number of consecutive turns WITHOUT human
 # supervision.
 AUTO_APPROVAL_STREAK_LIMIT = int(os.environ.get("AUTO_APPROVAL_STREAK_LIMIT", "6"))
 
-# Image retention in the history submitted to the LLM: every GhostDesk
-# screenshot (screen_shot) adds a multimodal message costly in visual
-# tokens (see _split_image_blocks); on a repeated capture/click loop,
+# Image retention in the history submitted to the LLM: every
+# browser_take_screenshot capture adds a multimodal message costly in
+# visual tokens (see _split_image_blocks); on a repeated capture loop,
 # keeping ALL of them ends up saturating the context for near-zero value
-# (only the most recent capture reflects the screen's current state).
+# (only the most recent capture reflects the current visual state).
 # Keeps only the last MAX_IMAGES_IN_CONTEXT images in what's sent to the
 # LLM; earlier ones are replaced by a placeholder text — only for THIS
 # call (see _apply_image_retention), never persisted in the graph's
@@ -507,6 +505,22 @@ PLAN_JUDGE_ENABLED = os.environ.get("PLAN_JUDGE_ENABLED", "true").lower() == "tr
 # indefinitely.
 PLAN_VALIDATION_CYCLES_MAX = 2
 
+# Effort 2 point 3 (docs/briefs/update-plan.md, "2.1 addendum") — 5th
+# cognitive-core condition: planning as an action in the main turn
+# (manage_plan tool below) instead of the 4 flags' dedicated nodes,
+# targeting the auxiliary-call latency the 4-flag ablation attributed to
+# plan_task/revise_plan/replan_task/the plan judge. Value-selected mode
+# (like IMAGE_FORMAT_PASSTHROUGH above), not a plain on/off gate: this is
+# the first 2-way string mode in this file rather than a boolean. Default
+# "nodes" = current behavior, byte-for-byte unchanged. The only validated
+# combination for "merged" is with the 4 flags above all "false" (asserted
+# at the campaign level via campaign_preflight.py's
+# CAMPAIGN_EXPECTED_FLAGS_OVERRIDE, never silently forced here) — this
+# keeps plan_task/validate_plan/revise_plan/replan_task/verify_action
+# structurally no-op (they already gate on those 4 flags), so all
+# planning responsibility moves into manage_plan alone.
+PLANNING_MODE = os.environ.get("PLANNING_MODE", "nodes")
+
 # Qwen3.6 reasons by default on every turn (extended thinking tags) —
 # useful for an initial decision, costly in latency/tokens for a fast
 # perception-action loop (capture -> click -> capture...) where each
@@ -520,23 +534,6 @@ PLAN_VALIDATION_CYCLES_MAX = 2
 # the most value.
 ADAPTIVE_THINKING = os.environ.get("ADAPTIVE_THINKING", "false").lower() == "true"
 NO_THINK_DIRECTIVE = "/no_think"
-
-# The served VLM (Qwen3.6 MoE) reasons well but localizes poorly: its
-# visual grounding (aiming at the right on-screen pixel for an element)
-# remains imprecise, with no dedicated OCR/UI-element detection (see
-# README, Known, accepted limitations). find_text/read_screen
-# (services/ocr-service, read tier — see approval_policy.py) compensate
-# with exact OCR coordinates. Transient instruction (never persisted in
-# the graph's state, same principle as NO_THINK_DIRECTIVE above) rather
-# than a per-turn system prompt change: stays identically valid across
-# the whole conversation. Kept in French: sent to the model, behavior not
-# documentation (CLAUDE.md rule #11).
-GROUNDING_DIRECTIVE = (
-    "Pour cliquer sur un élément contenant du texte, appelle d'abord "
-    "find_text pour obtenir ses coordonnées exactes plutôt que d'estimer "
-    "visuellement leur position — réserve l'estimation visuelle aux "
-    "éléments sans texte (icônes)."
-)
 
 # DOCUMENTED file-consumption path (Phase 1d-revised, see docs/history.md,
 # T5): a download triggered in the browser lands in a volume now shared
@@ -643,7 +640,7 @@ def _date_directive() -> str:
     never the time — preserves the ExLlamaV3 prefix cache (see
     docs/history.md, "chasing cache=0"): a value that only changes once a
     day, not on every turn or every second. Placed last in the static
-    system block (after GROUNDING_DIRECTIVE/DOWNLOAD_DIRECTIVE/
+    system block (after DOWNLOAD_DIRECTIVE/BULK_CHECK_DIRECTIVE/
     PEREMPTION_DIRECTIVE, before _verification_directive's per-turn
     verification instruction, which is even more volatile) — maximizes
     the length of the prefix that's actually stable from one turn to the
@@ -841,6 +838,54 @@ _REPORT_AND_ACT_TOOL = {
             "type": "object",
             "properties": {_CONSTAT_PARAM_NAME: _CONSTAT_PARAM_SCHEMA},
             "required": [_CONSTAT_PARAM_NAME],
+        },
+    },
+}
+
+
+# Merged-planning mode (PLANNING_MODE="merged", effort 2 point 3, see
+# docs/briefs/update-plan.md "2.1 addendum"): same non-MCP, graph-only
+# precedent as _REPORT_AND_ACT_TOOL above — dispatched locally in
+# _execute_tool_calls, never sent to mcp-client. Only exposed by
+# _get_bound_llm when PLANNING_MODE == "merged". Two actions, deliberately
+# no third "fail"/"replan" action: a stuck subtask is handled by calling
+# set_plan again (replacing the remaining subtasks) rather than by ever
+# persisting an "echoue" status — that status is what would route to the
+# costly replan_task node in the 4-flag architecture (route_after_tool_
+# execution), exactly the auxiliary call this mode exists to remove.
+_MANAGE_PLAN_TOOL_NAME = approval_policy.MANAGE_PLAN_TOOL_NAME
+_MANAGE_PLAN_TOOL = {
+    "type": "function",
+    "function": {
+        "name": _MANAGE_PLAN_TOOL_NAME,
+        "description": (
+            "Gère ton plan de sous-tâches directement (mode planification "
+            "fusionnée) : n'appelle aucun autre outil le même tour. "
+            "`set_plan` : crée le plan initial (premier appel) ou remplace "
+            "les sous-tâches restantes (si une sous-tâche bloque) — 2 à 12 "
+            "sous-tâches, chacune avec description et critère de succès. "
+            "`complete_subtask` : marque la sous-tâche `subtask_index` "
+            "comme atteinte et passe à la suivante."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["set_plan", "complete_subtask"]},
+                "subtasks": {
+                    "type": "array",
+                    "description": "Requis pour set_plan.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "description": {"type": "string"},
+                            "success_criterion": {"type": "string"},
+                        },
+                        "required": ["description", "success_criterion"],
+                    },
+                },
+                "subtask_index": {"type": "integer", "description": "Requis pour complete_subtask."},
+            },
+            "required": ["action"],
         },
     },
 }
@@ -1288,8 +1333,8 @@ planner_llm = ChatOpenAI(
     extra_body={"enable_thinking": PLANNER_THINKING_ENABLED},
 )
 
-# Schema of the MCP tools (terminal/filesystem/git/browser/desktop-GhostDesk),
-# fetched from mcp-client and cached for the process's lifetime. Without
+# Schema of the MCP tools (filesystem/browser), fetched from mcp-client
+# and cached for the process's lifetime. Without
 # this bind_tools, the LLM has no knowledge that these tools exist and can
 # therefore never produce tool_calls, whatever model is served —
 # has_tool_calls()/require_approval() then stay dead code.
@@ -1316,17 +1361,27 @@ async def _get_tools_schema() -> list:
 
 async def _get_bound_llm() -> ChatOpenAI:
     schema = await _get_tools_schema()
+    # Synthetic, non-MCP tool (independent of VERIFICATION_ENABLED — merged
+    # mode manages its own plan state instead of the constat_precedent/
+    # report_and_act self-report pattern below), see PLANNING_MODE above.
+    extra_tools = [_MANAGE_PLAN_TOOL] if PLANNING_MODE == "merged" else []
     if not schema:
-        return llm
+        return llm.bind_tools(extra_tools) if extra_tools else llm
     if not VERIFICATION_ENABLED:
-        return llm.bind_tools(schema)
+        # extra_tools FIRST (correction 2/2, fifth-condition diagnostic,
+        # see docs/history.md "EFFORT 2" point 3): manage_plan previously
+        # sat last, after the full ~63-64 MCP/browser catalog — the one
+        # variable left untried after cause 3's fix (persistent plan
+        # section) still measured merged_plan_calls=0. No-op outside
+        # merged mode (extra_tools == [], list identity unchanged).
+        return llm.bind_tools(extra_tools + schema)
     # constat_precedent injected as a required parameter of EVERY real MCP
     # tool, plus report_and_act as the sole fallback (pure-text turn, no
     # action) — see above. Gated on VERIFICATION_ENABLED: without it, this
     # field has no reader (_verification_directive doesn't instruct it)
     # and would only add noise to the schema sent to the model.
     wrapped = [_inject_constat_param(t) for t in schema]
-    return llm.bind_tools(wrapped + [_REPORT_AND_ACT_TOOL])
+    return llm.bind_tools(wrapped + [_REPORT_AND_ACT_TOOL] + extra_tools)
 
 
 async def retrieve_context(state: AgentState) -> dict:
@@ -1391,7 +1446,7 @@ async def _available_tools_hint() -> str:
     )
 
 
-async def plan_task(state: AgentState) -> dict:
+async def plan_task(state: AgentState, config: dict) -> dict:
     """
     Planner node (Iteration 1, Phase 1 "cognitive core"). No-op
     (`{"messages": []}`) if PLANNER_ENABLED is disabled (default), if a
@@ -1408,6 +1463,13 @@ async def plan_task(state: AgentState) -> dict:
     httpx error), same spirit as the httpx.HTTPError degradation in
     retrieve_context/select_skill above, widened here since the failure
     can also come from JSON validation, not just transport.
+
+    Logs a role="planning" audit entry (coverage counter, symmetric to
+    verify_action's role="verification" — see docs/history.md, EFFORT 2
+    "judge validity check": archives had no way to tell whether the
+    planner ever produced a non-trivial plan, only whether it was
+    enabled) with the initial subtask count and a `trivial` flag
+    (1-subtask plan = the planner had no effect on task structure).
     """
     if not PLANNER_ENABLED or state.get("plan"):
         return {"messages": []}
@@ -1430,6 +1492,8 @@ async def plan_task(state: AgentState) -> dict:
     if plan:
         plan[0]["status"] = "en_cours"
     logger.info("Initial plan (%d subtask(s)): %s", len(plan), plan)
+    thread_id = config.get("configurable", {}).get("thread_id", "")
+    audit_log.log_message(thread_id, "planning", {"subtask_count": len(plan), "trivial": len(plan) <= 1})
     return {"plan": plan, "subtask_message_start": [len(state["messages"])] if plan else []}
 
 
@@ -1449,7 +1513,7 @@ def _plan_tier(plan: list) -> str:
     return approval_policy.TIER_READ
 
 
-async def validate_plan(state: AgentState) -> dict:
+async def validate_plan(state: AgentState, config: dict) -> dict:
     """
     Plan validation pipeline (Iteration 3, Phase 1 "cognitive core").
     No-op (`{"messages": []}`) if PLAN_VALIDATION_ENABLED is disabled
@@ -1459,6 +1523,13 @@ async def validate_plan(state: AgentState) -> dict:
     PLAN_JUDGE_ENABLED, LLM judge (costly — withdrawal clause, see
     docs/history.md). Rejection (heuristics OR judge) -> plan_validation_cycles
     incremented, reasons returned for route_after_validation.
+
+    Logs a role="plan_validation" audit entry (coverage counter,
+    docs/history.md EFFORT 2 "judge validity check"): heuristic rejection
+    and judge invocation/veto are distinct signals, kept separate rather
+    than collapsed into the single `reasons` list used for routing —
+    "the judge never fired" and "the judge fired and approved" were
+    previously indistinguishable from archives alone.
     """
     if not PLAN_VALIDATION_ENABLED:
         return {"messages": []}
@@ -1470,13 +1541,30 @@ async def validate_plan(state: AgentState) -> dict:
     known_tools = {t.get("function", {}).get("name") for t in schema}
     known_tools.discard(None)
     task_scope = _task_scope_urls(state["messages"])
-    reasons = plan_validation.validate_plan_heuristics(plan, known_tools=known_tools, task_scope_urls=task_scope)
+    heuristic_reasons = plan_validation.validate_plan_heuristics(
+        plan, known_tools=known_tools, task_scope_urls=task_scope
+    )
 
-    if not reasons and PLAN_JUDGE_ENABLED:
+    judge_invoked = False
+    judge_reasons = []
+    if not heuristic_reasons and PLAN_JUDGE_ENABLED:
+        judge_invoked = True
         first_human = next((m for m in state["messages"] if getattr(m, "type", None) == "human"), None)
         objective = first_human.content if first_human and isinstance(first_human.content, str) else ""
         page_snapshot = await _grounding_snapshot(state, objective)
-        reasons = await _judge_plan(plan, objective, page_snapshot)
+        judge_reasons = await _judge_plan(plan, objective, page_snapshot)
+
+    reasons = heuristic_reasons or judge_reasons
+    thread_id = config.get("configurable", {}).get("thread_id", "")
+    audit_log.log_message(
+        thread_id,
+        "plan_validation",
+        {
+            "heuristic_rejected": bool(heuristic_reasons),
+            "judge_invoked": judge_invoked,
+            "judge_vetoed": bool(judge_reasons),
+        },
+    )
 
     if reasons:
         cycles = state.get("plan_validation_cycles", 0) + 1
@@ -1628,7 +1716,8 @@ def describe_context(messages: list, pending_text: Optional[str] = None) -> list
 
     Empty `messages` (thread unknown to the checkpointer) -> all blocks at
     zero rather than still including the transient system prompt
-    (GROUNDING_DIRECTIVE): nothing has been composed yet for this thread.
+    (the transient directives below): nothing has been composed yet for
+    this thread.
     """
     if not messages:
         return [
@@ -1636,7 +1725,7 @@ def describe_context(messages: list, pending_text: Optional[str] = None) -> list
             for label, kind in _CONTEXT_BLOCK_SKELETON
         ]
 
-    system_parts = [GROUNDING_DIRECTIVE, DOWNLOAD_DIRECTIVE, BULK_CHECK_DIRECTIVE, PEREMPTION_DIRECTIVE]
+    system_parts = [DOWNLOAD_DIRECTIVE, BULK_CHECK_DIRECTIVE, PEREMPTION_DIRECTIVE]
     skills_parts = []
     history_parts = []
     image_count = 0
@@ -1794,8 +1883,8 @@ def _apply_adaptive_thinking(messages: list, session_grants) -> list:
     state, see _apply_image_retention for the same principle) when
     ADAPTIVE_THINKING is enabled AND the previous turn was fully
     auto-approved (same tier policy as has_tool_calls) — typically a
-    GhostDesk perception-action loop (capture -> click -> capture) where
-    Qwen3.6's extended reasoning costs more than it's worth. No injection
+    repeated read/reversible tool loop where Qwen3.6's extended reasoning
+    costs more than it's worth. No injection
     on a task's very first turn (no previous tool_calls) nor as soon as a
     sensitive tool was involved: reasoning has the most value there.
     """
@@ -1811,8 +1900,8 @@ def _apply_adaptive_thinking(messages: list, session_grants) -> list:
     if not all_auto_approved:
         return messages
     # Merged into the leading system message if there is one (real case:
-    # GROUNDING_DIRECTIVE, added by call_llm right before this call),
-    # otherwise inserted at position 0 — never at the end of the list:
+    # DOWNLOAD_DIRECTIVE and friends, added by call_llm right before this
+    # call), otherwise inserted at position 0 — never at the end of the list:
     # some backends (TabbyAPI/ExLlamaV3, Qwen3.6's strict Jinja template)
     # explicitly reject a second system message or one not at the head
     # ("TemplateError: System message must be at the beginning") —
@@ -1863,6 +1952,66 @@ def _verification_directive(state: AgentState) -> str:
     )
 
 
+_PLAN_STATUS_MARKERS = {"fait": "[x]", "en_cours": "[>]", "a_faire": "[ ]"}
+
+
+def _render_plan(plan: list) -> list[dict]:
+    """
+    Plain index/description/success_criterion/status view of `plan` —
+    shared by _merged_plan_directive (rendered into the system prompt)
+    and the manage_plan tool response (reverberated to the model after
+    set_plan/complete_subtask), so both stay in sync by construction
+    instead of two independent renderings drifting apart.
+    """
+    return [
+        {
+            "index": i,
+            "description": st["description"],
+            "success_criterion": st["success_criterion"],
+            "status": st.get("status", "a_faire"),
+        }
+        for i, st in enumerate(plan)
+    ]
+
+
+def _merged_plan_directive(state: AgentState) -> str:
+    """
+    Persistent PLAN section for merged-planning mode: the full subtask
+    list with status, not just the active one — an editable document for
+    manage_plan to operate on (the AgentOccam pattern this mode follows,
+    see docs/briefs/update-plan.md "2.1 addendum"), regenerated from
+    state every turn. Rendered even with an empty plan (a "nothing yet"
+    template) so the very first manage_plan call has a document to
+    compose into rather than acting on an instruction alone. No-op
+    outside merged mode (empty string, byte-for-byte unchanged
+    elsewhere).
+
+    Deliberately states the tool's purpose, not a command to use it now
+    or first: an explicit "your first action MUST be manage_plan, NEVER
+    call anything else before" wording was tried (docs/history.md,
+    EFFORT 2 point 3) and measured ineffective (merged_plan_calls stayed
+    0 even under that constraint) — and forcing it crosses the "don't
+    make manage_plan mandatory" rule regardless of outcome, since it
+    would measure obedience, not adoption.
+    """
+    if PLANNING_MODE != "merged":
+        return ""
+    plan = state.get("plan") or []
+    if not plan:
+        return (
+            "\n### PLAN (mode planification fusionnée)\n"
+            "Aucune sous-tâche pour l'instant — document modifiable via "
+            "l'outil manage_plan (set_plan pour le composer, "
+            "complete_subtask pour faire avancer la sous-tâche active une "
+            "fois le plan posé).\n"
+        )
+    lines = ["\n### PLAN (mode planification fusionnée)"]
+    for st in _render_plan(plan):
+        marker = _PLAN_STATUS_MARKERS.get(st["status"], "[ ]")
+        lines.append(f'{marker} {st["index"]}. {st["description"]} — critère : "{st["success_criterion"]}"')
+    return "\n".join(lines) + "\n"
+
+
 async def call_llm(state: AgentState, config: dict) -> dict:
     bound_llm = await _get_bound_llm()
     # Compacted BEFORE the system message is prepended: subtask_message_start
@@ -1887,8 +2036,19 @@ async def call_llm(state: AgentState, config: dict) -> dict:
     messages_for_llm = [
         SystemMessage(
             content=(
-                f"{GROUNDING_DIRECTIVE}\n{DOWNLOAD_DIRECTIVE}{BULK_CHECK_DIRECTIVE}{PEREMPTION_DIRECTIVE}"
-                f"{_date_directive()}{_verification_directive(state)}"
+                # _merged_plan_directive LAST (empty string outside
+                # PLANNING_MODE="merged" — no effect on any other mode's
+                # prompt, byte-for-byte): it now renders the full plan
+                # state (changes every turn a subtask completes), so it
+                # sits after the static directives and the date to keep
+                # that prefix cacheable, same reasoning as
+                # _verification_directive's position (mutually exclusive
+                # with this mode, always "" here — see its docstring).
+                # An earlier version put it FIRST for primacy (see
+                # docs/history.md, EFFORT 2 point 3): superseded by the
+                # persistent-section redesign, not stacked with it.
+                f"{DOWNLOAD_DIRECTIVE}{BULK_CHECK_DIRECTIVE}{PEREMPTION_DIRECTIVE}"
+                f"{_date_directive()}{_verification_directive(state)}{_merged_plan_directive(state)}"
             )
         )
     ] + compacted_messages
@@ -1958,7 +2118,7 @@ async def call_llm(state: AgentState, config: dict) -> dict:
         # a turn on a visible AIMessage (see
         # AgentState.slash_command_image_shown) — without this reset, a
         # normal LLM turn that follows an image (e.g. vision on a
-        # model-decided screen_shot) would wrongly reuse main.py's image
+        # model-decided browser_take_screenshot) would wrongly reuse main.py's image
         # reconstruction, duplicating the image in its own already-correct
         # response.
         "slash_command_image_shown": False,
@@ -2035,8 +2195,8 @@ def _to_png_data_uri(data_b64: str, mime_type: str) -> str:
     """
     Always re-encodes to PNG before passing to the LLM. Ollama's image
     decoder (mtmd, llama.cpp side) explicitly fails on WebP ("Failed to
-    load image or audio file") — which happens to be GhostDesk's
-    screen_shot tool's default format. Converting here rather than
+    load image or audio file") — which happens to be
+    browser_take_screenshot's default format. Converting here rather than
     relying on the model to systematically request format="png" on every
     call. Default path (IMAGE_FORMAT_PASSTHROUGH not enabled) — see
     _to_image_data_uri for the direct WebP path.
@@ -2052,7 +2212,7 @@ def _to_png_data_uri(data_b64: str, mime_type: str) -> str:
 
 def _to_image_data_uri(data_b64: str, mime_type: str) -> str:
     """
-    IMAGE_FORMAT_PASSTHROUGH=webp: passes screen_shot's raw WebP through
+    IMAGE_FORMAT_PASSTHROUGH=webp: passes browser_take_screenshot's raw WebP through
     as-is (direct data URI, no Pillow decode/re-encode), relying on the
     native WebP decoding of the llama.cpp fork served by the alternative
     llama-server backend (see README, Inference backend section) — avoids
@@ -2086,17 +2246,26 @@ def _split_image_blocks(result: dict) -> tuple[dict, list[dict]]:
     return {**result, "content": rest or "(voir image ci-dessous)"}, images
 
 
-async def _call_mcp_tool(client: httpx.AsyncClient, tool_name: str, args: dict) -> tuple[dict, list]:
+async def _call_mcp_tool(
+    client: httpx.AsyncClient, tool_name: str, args: dict, thread_id: Optional[str] = None
+) -> tuple[dict, list]:
     """
     Single HTTP call to mcp-client:/call, factored out between
     _execute_tool_calls (tool_calls decided by the LLM) and
     run_slash_command_direct (command typed directly by the user) — same
     error handling/image-block splitting in both cases.
+
+    thread_id (optional): forwarded so mcp-client can key its visual-
+    feedback capture by it (docs/briefs/campaign-visual-feedback.md) —
+    unrelated to this function's own return value, never touches
+    image-block splitting below. Omitted by callers with no thread_id in
+    scope (e.g. _fetch_verification_snapshot), which simply get no
+    capture for that call.
     """
     try:
         resp = await client.post(
             f"{MCP_CLIENT_URL}/call",
-            json={"tool": tool_name, "arguments": args},
+            json={"tool": tool_name, "arguments": args, "thread_id": thread_id},
         )
         resp.raise_for_status()
         result = resp.json()
@@ -2167,6 +2336,13 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
     plan = state.get("plan") or []
     active_index = _active_subtask_index(plan)
     active_attempts = plan[active_index].get("attempts", 0) if active_index is not None else 0
+    # Merged-planning mode only (PLANNING_MODE="merged", see manage_plan
+    # dispatch below): tracks whether this turn's tool_calls actually
+    # mutated the plan, so the returned dict only includes "plan"/
+    # "subtask_message_start" when there's something new to report —
+    # every other mode's return shape stays byte-for-byte unchanged.
+    plan_changed = False
+    subtask_message_start = state.get("subtask_message_start") or []
     # state["messages"][-1] IS `last`, the CURRENT turn whose tool_calls
     # are being executed — excluded from the search (messages[:-1]) so
     # that "previous_tool_calls" truly refers to the PREVIOUS turn, not
@@ -2193,6 +2369,82 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
                         "tool_call_id": tool_call["id"],
                         "content": json.dumps({"ok": True}, ensure_ascii=False),
                     }
+                )
+                continue
+
+            if tool_call["name"] == _MANAGE_PLAN_TOOL_NAME:
+                # Merged-planning mode's entire planning/replanning/
+                # verification responsibility (PLANNING_MODE="merged",
+                # docs/briefs/update-plan.md "2.1 addendum") — never
+                # dispatched to mcp-client, mutates `plan` synchronously,
+                # same "no dedicated LLM call" property as report_and_act
+                # above. TIER_READ (approval_policy.tool_tier), so this
+                # never reaches require_approval.
+                args = tool_call.get("args") or {}
+                action = args.get("action")
+                response: dict
+                if action == "set_plan":
+                    candidate = [
+                        {
+                            "description": st.get("description", ""),
+                            "success_criterion": st.get("success_criterion", ""),
+                        }
+                        for st in (args.get("subtasks") or [])
+                        if isinstance(st, dict)
+                    ]
+                    schema = await _get_tools_schema()
+                    known_tools = {t.get("function", {}).get("name") for t in schema}
+                    known_tools.discard(None)
+                    reasons = plan_validation.validate_plan_heuristics(
+                        candidate, known_tools=known_tools, task_scope_urls=_task_scope_urls(state["messages"])
+                    )
+                    audit_log.log_message(
+                        thread_id,
+                        "merged_planning",
+                        {
+                            "action": "set_plan",
+                            "subtask_count": len(candidate),
+                            "heuristic_rejected": bool(reasons),
+                            "subtask_index": None,
+                        },
+                    )
+                    if reasons:
+                        response = {"error": "plan rejeté", "reasons": reasons}
+                    else:
+                        plan = [{**st, "status": "a_faire", "attempts": 0, "result": None} for st in candidate]
+                        plan[0]["status"] = "en_cours"
+                        subtask_message_start = [len(state["messages"])]
+                        plan_changed = True
+                        # Full plan reverberated, not a bare {"ok": true}:
+                        # the model must see the outcome of its own edit
+                        # to make the tool usable next turn (same shape as
+                        # _render_plan's system-prompt rendering above).
+                        response = {"ok": True, "plan": _render_plan(plan)}
+                elif action == "complete_subtask":
+                    idx = args.get("subtask_index")
+                    if not isinstance(idx, int) or not (0 <= idx < len(plan)) or plan[idx].get("status") != "en_cours":
+                        response = {"error": f"sous-tâche {idx!r} invalide ou non active"}
+                    else:
+                        plan = [dict(st) for st in plan]
+                        plan[idx]["status"] = "fait"
+                        if idx + 1 < len(plan):
+                            plan[idx + 1]["status"] = "en_cours"
+                        plan_changed = True
+                        response = {"ok": True, "plan": _render_plan(plan)}
+                    audit_log.log_message(
+                        thread_id,
+                        "merged_planning",
+                        {
+                            "action": "complete_subtask",
+                            "subtask_count": len(plan),
+                            "heuristic_rejected": False,
+                            "subtask_index": idx,
+                        },
+                    )
+                else:
+                    response = {"error": f"action inconnue: {action!r}"}
+                new_messages.append(
+                    {"role": "tool", "tool_call_id": tool_call["id"], "content": json.dumps(response, ensure_ascii=False)}
                 )
                 continue
 
@@ -2243,7 +2495,7 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
                 result = {"content": [{"type": "text", "text": _repeated_strategy_feedback(tool_call["name"])}]}
                 images = []
             else:
-                result, images = await _call_mcp_tool(client, tool_call["name"], tool_call["args"])
+                result, images = await _call_mcp_tool(client, tool_call["name"], tool_call["args"], thread_id)
                 if tool_call["name"].startswith("browser_"):
                     result = _truncate_browser_result(result, BROWSER_TOOL_OUTPUT_MAX_CHARS, objective)
                     for block in result.get("content", []) if isinstance(result.get("content"), list) else []:
@@ -2289,7 +2541,7 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
                     }
                 )
 
-    return {
+    result_dict = {
         "messages": new_messages,
         "tool_iterations": state["tool_iterations"] + 1,
         "approved": None,  # rearms the pause for the next tool turn
@@ -2306,6 +2558,14 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
         # observe on the next turn (see AgentState.pending_verification).
         "pending_verification": True,
     }
+    if plan_changed:
+        # Merged-planning mode only (see manage_plan dispatch above) —
+        # every other mode never sets plan_changed, so this key is absent
+        # from the returned dict and state["plan"] stays whatever
+        # verify_action (or nothing, if PLANNER_ENABLED is off) decided.
+        result_dict["plan"] = plan
+        result_dict["subtask_message_start"] = subtask_message_start
+    return result_dict
 
 
 async def call_tools(state: AgentState, config: dict) -> dict:
@@ -2444,7 +2704,7 @@ async def verify_action(state: AgentState, config: dict) -> dict:
     return {"plan": new_plan, "pending_verification": False}
 
 
-async def replan_task(state: AgentState) -> dict:
+async def replan_task(state: AgentState, config: dict) -> dict:
     """
     Replanning (Iteration 2): reached when verify_action has marked a
     subtask "echoue". Reuses PLANNER_SYSTEM_PROMPT/_validate_plan_json
@@ -2456,12 +2716,20 @@ async def replan_task(state: AgentState) -> dict:
     new chance on the SAME plan rather than crashing). replan_count
     incremented in all cases (budget consumed even if the replanning
     itself fails).
+
+    Logs a role="replanning" audit entry (coverage counter, docs/history.md
+    EFFORT 2 "judge validity check") for every REAL replan (failed_index
+    found) — the defensive early return below (no failed subtask, should
+    not normally happen) consumes budget but changes nothing, so it stays
+    unlogged, same "no-op = no audit entry" convention as plan_task/
+    validate_plan.
     """
     plan = state.get("plan") or []
     failed_index = next((i for i, st in enumerate(plan) if st.get("status") == "echoue"), None)
     replan_count = state.get("replan_count", 0) + 1
     if failed_index is None:
         return {"replan_count": replan_count}
+    thread_id = config.get("configurable", {}).get("thread_id", "")
 
     first_human = next((m for m in state["messages"] if getattr(m, "type", None) == "human"), None)
     objective = first_human.content if first_human and isinstance(first_human.content, str) else ""
@@ -2499,6 +2767,10 @@ async def replan_task(state: AgentState) -> dict:
         new_plan[failed_index]["attempts"] = 0
         boundaries = (state.get("subtask_message_start") or [])[:failed_index]
         boundaries.append(len(state["messages"]))
+        audit_log.log_message(
+            thread_id, "replanning",
+            {"replan_index": replan_count, "failed_subtask_index": failed_index, "new_subtask_count": None},
+        )
         return {"plan": new_plan, "replan_count": replan_count, "subtask_message_start": boundaries}
 
     rebuilt = [dict(st) for st in plan[:failed_index]]
@@ -2509,6 +2781,10 @@ async def replan_task(state: AgentState) -> dict:
     logger.info(
         "Replan #%d after subtask %d failure: %d new subtask(s)",
         replan_count, failed_index, len(new_subtasks),
+    )
+    audit_log.log_message(
+        thread_id, "replanning",
+        {"replan_index": replan_count, "failed_subtask_index": failed_index, "new_subtask_count": len(new_subtasks)},
     )
     return {"plan": rebuilt, "replan_count": replan_count, "subtask_message_start": boundaries}
 
@@ -2601,8 +2877,9 @@ def _format_tool_result_as_text(result: dict) -> str:
     blocks = result.get("content", []) if isinstance(result, dict) else []
     if isinstance(blocks, str):
         # _split_image_blocks falls back to this text placeholder when
-        # ALL of the result's blocks were images (e.g. screen_shot alone)
-        # — this is already not a list of blocks, return it as-is rather
+        # ALL of the result's blocks were images (e.g.
+        # browser_take_screenshot alone) — this is already not a list of
+        # blocks, return it as-is rather
         # than iterating over its characters (none of which is a "text"
         # dict, so it would silently fall back to a JSON dump of the
         # whole dict).
@@ -2632,15 +2909,15 @@ async def prepare_slash_command(state: AgentState, config: dict) -> dict:
 
 def _route_slash_command_tier(state: AgentState) -> str:
     """
-    GUARDRAIL: a slash command on a TIER_SENSITIVE tool (e.g. key_type
-    with long text, clipboard_get) does NOT execute directly — it goes
-    through require_approval, exactly like a tool_calls decided by the
-    LLM. Explicitly typing the command only counts as approval for
+    GUARDRAIL: a slash command on a TIER_SENSITIVE tool (e.g.
+    browser_evaluate) does NOT execute directly — it goes through
+    require_approval, exactly like a tool_calls decided by the LLM.
+    Explicitly typing the command only counts as approval for
     TIER_READ/TIER_REVERSIBLE: the sensitive tier exists precisely to
     impose a separate confirmation before a potentially dangerous action
-    (free text typed into a terminal, clipboard exfiltration...) — a
-    total bypass would have voided this guarantee for any tool, including
-    ones never meant to be auto-approved.
+    (arbitrary JS execution in the page...) — a total bypass would have
+    voided this guarantee for any tool, including ones never meant to be
+    auto-approved.
     """
     last = state["messages"][-1]
     tool_call = last.tool_calls[0]
@@ -2672,7 +2949,7 @@ async def run_slash_command_direct(state: AgentState, config: dict) -> dict:
     thread_id = config.get("configurable", {}).get("thread_id", "")
 
     async with httpx.AsyncClient(timeout=60) as client:
-        result, images = await _call_mcp_tool(client, tool_name, args)
+        result, images = await _call_mcp_tool(client, tool_name, args, thread_id)
 
     if tier == approval_policy.TIER_REVERSIBLE:
         audit_log.log_tool_call(thread_id, tool_name, args, tier, result)

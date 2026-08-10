@@ -60,9 +60,9 @@ async def test_retry_then_success_reaches_fait_and_final_answer(mock_side_servic
     route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
     route.side_effect = [
         httpx.Response(200, json=non_streaming_response(plan_json)),  # plan_task
-        _sse(tool_call_response("mouse_click", "call_1", '{"x": 1, "y": 1}')),  # call_llm #1 : rien à constater encore
+        _sse(tool_call_response("write_file", "call_1", '{"path": "/workspace/x.txt", "content": "a"}')),  # call_llm #1 : rien à constater encore
         _sse(
-            tool_call_response("mouse_click", "call_2", _args_with_constat("non_atteint", x=2, y=2))
+            tool_call_response("write_file", "call_2", _args_with_constat("non_atteint", path="/workspace/x.txt", content="b"))
         ),  # call_llm #2 : constat (non_atteint) fusionné + retry (stratégie différente)
         _sse(
             content_and_tool_call_response(
@@ -98,12 +98,12 @@ async def test_budget_and_replan_exhausted_reaches_report_failure(mock_side_serv
     route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
     route.side_effect = [
         httpx.Response(200, json=non_streaming_response(plan_json)),  # plan_task
-        _sse(tool_call_response("mouse_click", "call_1", '{"x": 1, "y": 1}')),  # call_llm #1 : rien à constater encore
+        _sse(tool_call_response("write_file", "call_1", '{"path": "/workspace/x.txt", "content": "a"}')),  # call_llm #1 : rien à constater encore
         _sse(
             content_and_tool_call_response("echec1", "report_and_act", "report_2", _args_with_constat("non_atteint"))
         ),  # call_llm #2 : aucune action réelle -> report_and_act (non_atteint) -> echoue (budget=1)
         httpx.Response(200, json=non_streaming_response(replan_json)),  # replan_task
-        _sse(tool_call_response("mouse_click", "call_2", '{"x": 9, "y": 9}')),  # call_llm #3 : rien à constater (juste replanifié)
+        _sse(tool_call_response("write_file", "call_2", '{"path": "/workspace/x.txt", "content": "c"}')),  # call_llm #3 : rien à constater (juste replanifié)
         _sse(
             content_and_tool_call_response("echec2", "report_and_act", "report_4", _args_with_constat("non_atteint"))
         ),  # call_llm #4 : constate (non_atteint) action2 -> echoue, replan_budget épuisé

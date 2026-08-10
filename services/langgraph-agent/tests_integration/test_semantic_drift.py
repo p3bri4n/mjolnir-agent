@@ -16,15 +16,7 @@ et non déterministe par nature. Ignoré par défaut ; opt-in explicite :
 
     RUN_LIVE_LLM_TESTS=1 python -m pytest tests_integration/ -v
 
-Prérequis : `docker compose up` avec langgraph-agent/mcp-client/ollama actifs,
-ET le bureau virtuel GhostDesk sans application ouverte — une fenêtre parasite
-dans le screen_shot capturé pendant la tâche fausserait le grounding visuel du
-modèle et donc la comparabilité du test d'une exécution à l'autre. Fermeture
-à faire manuellement via noVNC avant de lancer ce test : aucun outil MCP
-(app_list/app_running/app_launch/app_status) ne permet de fermer une
-application par programme (voir mcp-client). Ce test vérifie l'état via
-app_running() et échoue avec un message explicite si le bureau n'est pas
-propre, plutôt que de produire un résultat non fiable en silence.
+Prérequis : `docker compose up` avec langgraph-agent/mcp-client/ollama actifs.
 """
 import json
 import os
@@ -39,10 +31,9 @@ pytestmark = pytest.mark.skipif(
 )
 
 AGENT_CONTAINER = os.environ.get("LANGGRAPH_AGENT_CONTAINER", "langgraph-agent")
-MCP_CLIENT_CONTAINER = os.environ.get("MCP_CLIENT_CONTAINER", "mcp-client")
 
 # Une réponse saine sur cette tâche est soit une pause d'approbation (le
-# modèle a décidé d'appeler key_type/mouse_click, etc. — quelques dizaines de
+# modèle a décidé d'appeler browser_navigate, etc. — quelques dizaines de
 # mots), soit un court message texte. Une dérive (sémantique ou boucle de
 # répétition) produit systématiquement des réponses bien plus longues, sans
 # jamais atteindre de tool_calls. Seuil large exprès pour ne pas être fragile
@@ -66,29 +57,6 @@ def _docker_exec_python(container: str, script: str, timeout: int = 150) -> str:
     if result.returncode != 0:
         raise RuntimeError(f"docker exec dans {container} a échoué : {result.stderr}")
     return result.stdout
-
-
-def _assert_desktop_is_clean():
-    script = """
-import json, urllib.request
-req = urllib.request.Request(
-    'http://localhost:8003/call',
-    data=json.dumps({"tool": "app_running", "arguments": {}}).encode(),
-    headers={'Content-Type': 'application/json'},
-)
-with urllib.request.urlopen(req, timeout=15) as r:
-    print(r.read().decode())
-"""
-    raw = _docker_exec_python(MCP_CLIENT_CONTAINER, script)
-    data = json.loads(raw)
-    content = data.get("content", [])
-    if content:
-        pytest.fail(
-            "Bureau virtuel GhostDesk non vide avant le test "
-            f"(app_running a retourné {content!r}) : ferme les applications "
-            "ouvertes manuellement via noVNC avant de relancer — aucun outil "
-            "MCP ne permet de le faire par programme (voir docstring du module)."
-        )
 
 
 def _chat(content: str) -> str:
@@ -128,8 +96,6 @@ def _max_trigram_repetition(text: str) -> int:
 
 
 def test_va_sur_google_fr_does_not_drift():
-    _assert_desktop_is_clean()
-
     # Prompt unique par exécution pour éviter de retomber sur un thread_id
     # déjà résolu par un précédent tour (voir _derive_thread_id, app/main.py).
     content = _chat(f"[test intégration {os.getpid()}] va sur google.fr")

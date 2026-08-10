@@ -1,0 +1,258 @@
+{
+  "campaign_id": "20260804T150027Z-ablation-cfg3-planner-only",
+  "completed": [
+    {
+      "approvals": 1,
+      "cup": null,
+      "duration_s": 26.1,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T3_tableau_dynamique",
+      "thread_id": "6632ac110f497737",
+      "tool_calls": 2
+    },
+    {
+      "approvals": 1,
+      "cup": null,
+      "duration_s": 17.3,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T3_tableau_dynamique",
+      "thread_id": "7fef494e7e837e14",
+      "tool_calls": 2
+    },
+    {
+      "approvals": 6,
+      "cup": null,
+      "duration_s": 125.8,
+      "fabricated_urls_count": 0,
+      "failure_cause": "boucle",
+      "repetition": 1,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "A1_reconciliation_croisee",
+      "thread_id": "41df059613961d71",
+      "tool_calls": 12
+    },
+    {
+      "approvals": 7,
+      "cup": null,
+      "duration_s": 176.2,
+      "fabricated_urls_count": 0,
+      "failure_cause": "boucle",
+      "repetition": 2,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "A1_reconciliation_croisee",
+      "thread_id": "d46447c32bd081e1",
+      "tool_calls": 15
+    },
+    {
+      "approvals": 4,
+      "cup": null,
+      "duration_s": 96.6,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A2_schema_references",
+      "thread_id": "254a0a8a561a6c2b",
+      "tool_calls": 9
+    },
+    {
+      "approvals": 3,
+      "cup": null,
+      "duration_s": 70.0,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A2_schema_references",
+      "thread_id": "abbd4bdef5730d3d",
+      "tool_calls": 8
+    },
+    {
+      "approvals": 6,
+      "cup": null,
+      "duration_s": 75.8,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A4_parcours_guide",
+      "thread_id": "35019b3bf1fa539b",
+      "tool_calls": 17
+    },
+    {
+      "approvals": 4,
+      "cup": null,
+      "duration_s": 56.1,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A4_parcours_guide",
+      "thread_id": "d14ee531b235e830",
+      "tool_calls": 12
+    },
+    {
+      "approvals": 4,
+      "cup": true,
+      "duration_s": 30.0,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B1_conge_hard",
+      "thread_id": "55a6cad6e8e84c8e",
+      "tool_calls": 8
+    },
+    {
+      "approvals": 4,
+      "cup": true,
+      "duration_s": 30.0,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B1_conge_hard",
+      "thread_id": "57c28e5ffdde8356",
+      "tool_calls": 8
+    },
+    {
+      "approvals": 1,
+      "cup": null,
+      "duration_s": 8.2,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "E3_routing_equivalence",
+      "thread_id": "b54f79ef149cfb58",
+      "tool_calls": 2
+    },
+    {
+      "approvals": 1,
+      "cup": null,
+      "duration_s": 7.8,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "E3_routing_equivalence",
+      "thread_id": "bd3d2a6e9ad9b861",
+      "tool_calls": 2
+    },
+    {
+      "approvals": 4,
+      "cup": null,
+      "duration_s": 73.1,
+      "fabricated_urls_count": 0,
+      "failure_cause": "hallucination",
+      "repetition": 1,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "D1_cible_inexistante",
+      "thread_id": "45152ff672650897",
+      "tool_calls": 9
+    },
+    {
+      "approvals": 3,
+      "cup": null,
+      "duration_s": 47.4,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "D1_cible_inexistante",
+      "thread_id": "1e8acbfb368a56bc",
+      "tool_calls": 7
+    }
+  ],
+  "config_digest": "3c269b0ba9ca3a75",
+  "current": null,
+  "label": "ablation-cfg3-planner-only",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "T3_tableau_dynamique"
+    },
+    {
+      "repetition": 2,
+      "task_id": "T3_tableau_dynamique"
+    },
+    {
+      "repetition": 1,
+      "task_id": "A1_reconciliation_croisee"
+    },
+    {
+      "repetition": 2,
+      "task_id": "A1_reconciliation_croisee"
+    },
+    {
+      "repetition": 1,
+      "task_id": "A2_schema_references"
+    },
+    {
+      "repetition": 2,
+      "task_id": "A2_schema_references"
+    },
+    {
+      "repetition": 1,
+      "task_id": "A4_parcours_guide"
+    },
+    {
+      "repetition": 2,
+      "task_id": "A4_parcours_guide"
+    },
+    {
+      "repetition": 1,
+      "task_id": "B1_conge_hard"
+    },
+    {
+      "repetition": 2,
+      "task_id": "B1_conge_hard"
+    },
+    {
+      "repetition": 1,
+      "task_id": "E3_routing_equivalence"
+    },
+    {
+      "repetition": 2,
+      "task_id": "E3_routing_equivalence"
+    },
+    {
+      "repetition": 1,
+      "task_id": "D1_cible_inexistante"
+    },
+    {
+      "repetition": 2,
+      "task_id": "D1_cible_inexistante"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-08-04T15:14:33.189651+00:00",
+      "index": 0,
+      "started_at": "2026-08-04T15:00:27.933845+00:00"
+    }
+  ],
+  "started_at": "2026-08-04T15:00:27.933845+00:00",
+  "total_runs": 14
+}

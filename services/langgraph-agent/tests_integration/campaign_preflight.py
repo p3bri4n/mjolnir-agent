@@ -30,6 +30,7 @@ referenced in app/graph.py, via the URL-fabrication guardrail).
 """
 
 import json
+import os
 import subprocess
 import time
 from typing import Callable, Iterable, Optional
@@ -95,6 +96,7 @@ EXPECTED_AGENT_FLAGS = {
     "REPLAN_BUDGET": "2",
     "PLAN_VALIDATION_ENABLED": "true",
     "PLAN_JUDGE_ENABLED": "true",
+    "PLANNING_MODE": "nodes",
     "ADAPTIVE_THINKING": "true",
     "MAX_IMAGES_IN_CONTEXT": "1",
     "IMAGE_FORMAT_PASSTHROUGH": "",
@@ -111,6 +113,22 @@ EXPECTED_AGENT_FLAGS = {
     "EPISODE_COMPACTION_ENABLED": "false",
     "EPISODE_COMPACTION_TURN_THRESHOLD": "40",
 }
+
+
+# Deterministic GPU placement (docs/briefs/deterministic-gpu-placement.md,
+# step 5): expected device identity + configured split, mirrored from
+# services/tabbyapi/config.yml's gpu_split ([5, 14] GB, index 0 = RTX 5060
+# Ti bus 04:00.0, index 1 = RTX 4070 Ti SUPER bus 08:00.0) — kept in sync
+# manually like EXPECTED_AGENT_FLAGS above, verified against nvidia-smi's
+# own fields, never guessed. Tolerance from the real measured spread
+# (docs/history.md, "DETERMINISTIC GPU PLACEMENT": budget [5, 14] GB,
+# observed 5.91/12.32 GB used — whole-layer granularity, the loader can't
+# split mid-layer, so exact equality would never hold).
+EXPECTED_GPU_DEVICES = [
+    {"index": 0, "name": "NVIDIA GeForce RTX 5060 Ti", "bus_id": "00000000:04:00.0", "expected_gb": 5},
+    {"index": 1, "name": "NVIDIA GeForce RTX 4070 Ti SUPER", "bus_id": "00000000:08:00.0", "expected_gb": 14},
+]
+GPU_PLACEMENT_TOLERANCE_GB = 3.0
 
 
 class PreflightError(RuntimeError):
@@ -141,21 +159,84 @@ def check_tools_schema(agent_tools: Iterable[str], mcp_tools: Iterable[str]) -> 
     return None
 
 
-def check_agent_flags(actual_flags: dict) -> Optional[str]:
+def check_device_placement(devices: Iterable[dict], expected: Optional[list] = None) -> Optional[str]:
+    """
+    Pure, unit-testable without docker (same style as check_tools_schema
+    above): None if `devices` (see _fetch_device_placement below) matches
+    EXPECTED_GPU_DEVICES on identity (name, bus_id, per index) AND on
+    memory used within GPU_PLACEMENT_TOLERANCE_GB of each device's
+    configured gpu_split budget — never exact equality, real allocations
+    don't land on the configured GB boundary. A campaign measured against
+    a reverted/drifted split (e.g. gpu_split_auto flipped back to true, or
+    CUDA_DEVICE_ORDER unpinned) must never claim to be comparable to a
+    campaign measured under the pinned split without flagging it BEFORE
+    the first run — see docs/history.md, "DETERMINISTIC GPU PLACEMENT".
+    """
+    if expected is None:
+        expected = EXPECTED_GPU_DEVICES
+    by_index = {d.get("index"): d for d in devices}
+    diffs = []
+    for exp in expected:
+        idx = exp["index"]
+        actual = by_index.get(idx)
+        if actual is None:
+            diffs.append(f"index {idx} : carte absente de nvidia-smi (attendu {exp['name']})")
+            continue
+        if actual.get("name") != exp["name"] or actual.get("bus_id") != exp["bus_id"]:
+            diffs.append(
+                f"index {idx} : attendu {exp['name']} ({exp['bus_id']}), effectif "
+                f"{actual.get('name')} ({actual.get('bus_id')})"
+            )
+            continue
+        actual_gb = actual.get("memory_used_mib", 0) / 1024
+        low = exp["expected_gb"] - GPU_PLACEMENT_TOLERANCE_GB
+        high = exp["expected_gb"] + GPU_PLACEMENT_TOLERANCE_GB
+        if not (low <= actual_gb <= high):
+            diffs.append(
+                f"index {idx} ({exp['name']}) : {actual_gb:.1f} Go utilisés, attendu "
+                f"{exp['expected_gb']} Go ± {GPU_PLACEMENT_TOLERANCE_GB:.0f} Go"
+            )
+    if diffs:
+        return (
+            "placement GPU effectif différent du split configuré "
+            f"({'; '.join(diffs)}) — vérifier services/tabbyapi/config.yml "
+            "(gpu_split_auto/gpu_split) et docker compose up -d --force-recreate tabbyapi"
+        )
+    return None
+
+
+def _expected_agent_flags() -> dict:
+    """EXPECTED_AGENT_FLAGS merged with CAMPAIGN_EXPECTED_FLAGS_OVERRIDE (a
+    JSON object of {flag: value}), read at call time so each campaign
+    process picks up its own override — for an intentional ablation
+    campaign (docs/briefs/scaffolding-optimisation.md, effort 1) that
+    deliberately runs the cognitive-core flags off their "true" default.
+    Unset by default: every existing campaign path compares against
+    EXPECTED_AGENT_FLAGS unchanged."""
+    override_raw = os.environ.get("CAMPAIGN_EXPECTED_FLAGS_OVERRIDE", "")
+    if not override_raw:
+        return EXPECTED_AGENT_FLAGS
+    return {**EXPECTED_AGENT_FLAGS, **json.loads(override_raw)}
+
+
+def check_agent_flags(actual_flags: dict, expected_flags: Optional[dict] = None) -> Optional[str]:
     """
     Pure, unit-testable without docker (see check_tools_schema above,
     same style): None if `actual_flags` (see _fetch_agent_env below)
-    exactly matches EXPECTED_AGENT_FLAGS for every expected key, otherwise
-    a message listing the diff (key, expected, actual) — a campaign
-    measured against a drifted flag (e.g. a local .env still overriding
-    the old "false" default) must never claim to be comparable to the
-    reference campaign without flagging it BEFORE the first run. A key
-    absent from `actual_flags` (docker exec returned nothing, e.g. a
-    container not restarted since a variable was added to
-    docker-compose.yml) compares to "" as an empty value, never ignored.
+    exactly matches `expected_flags` (default: EXPECTED_AGENT_FLAGS, see
+    _expected_agent_flags) for every expected key, otherwise a message
+    listing the diff (key, expected, actual) — a campaign measured
+    against a drifted flag (e.g. a local .env still overriding the old
+    "false" default) must never claim to be comparable to the reference
+    campaign without flagging it BEFORE the first run. A key absent from
+    `actual_flags` (docker exec returned nothing, e.g. a container not
+    restarted since a variable was added to docker-compose.yml) compares
+    to "" as an empty value, never ignored.
     """
+    if expected_flags is None:
+        expected_flags = _expected_agent_flags()
     diffs = []
-    for key, expected in EXPECTED_AGENT_FLAGS.items():
+    for key, expected in expected_flags.items():
         actual = actual_flags.get(key, "")
         if actual != expected:
             diffs.append(f"{key} : attendu={expected!r} effectif={actual!r}")
@@ -269,6 +350,21 @@ print(json.dumps(result))
     return json.loads(_docker_exec_python(AGENT_CONTAINER, script))
 
 
+def _fetch_device_placement() -> list:
+    """Delegates to campaign_persistence.collect_gpu_devices (same DRY
+    precedent as _fetch_agent_env delegating to collect_env_flags above)
+    but raises PreflightError on an empty result — preflight must fail
+    loud on a GPU layout it can't observe, unlike campaign metadata's
+    best-effort []."""
+    devices = campaign_persistence.collect_gpu_devices(TABBYAPI_CONTAINER)
+    if not devices:
+        raise PreflightError(
+            f"nvidia-smi dans {TABBYAPI_CONTAINER} n'a renvoyé aucune carte (préambule) — "
+            "vérifier `docker exec tabbyapi nvidia-smi`"
+        )
+    return devices
+
+
 def _run_docker(args: list, timeout: int = 15) -> str:
     result = subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout)
     if result.returncode != 0:
@@ -313,8 +409,17 @@ def _fetch_agent_env() -> dict:
     """Effective flags INSIDE the running langgraph-agent container — see
     check_agent_flags. Reuses campaign_persistence.collect_env_flags (the
     same `docker exec ... env` primitive as campaign serialization, see
-    campaign_persistence.py) rather than duplicating a variant here."""
-    return campaign_persistence.collect_env_flags(AGENT_CONTAINER, list(EXPECTED_AGENT_FLAGS))
+    campaign_persistence.py) rather than duplicating a variant here.
+
+    Queries `_expected_agent_flags()` (base + CAMPAIGN_EXPECTED_FLAGS_OVERRIDE),
+    not the base EXPECTED_AGENT_FLAGS alone: a key introduced purely via
+    the override (not already present in the base dict) would otherwise
+    never be fetched from the container and would silently always
+    compare against "" in check_agent_flags — every override use so far
+    only flipped existing keys, so this gap was latent until effort 2
+    point 3 (PLANNING_MODE) needed a genuinely new one.
+    """
+    return campaign_persistence.collect_env_flags(AGENT_CONTAINER, list(_expected_agent_flags()))
 
 
 def wait_for_llm_ready(
@@ -349,6 +454,7 @@ def run_preflight(
     fetch_mcp_tools: Callable[[], Iterable[str]] = _fetch_mcp_tools,
     fetch_llm_ready: Callable[[], bool] = _fetch_llm_ready,
     fetch_tabbyapi_image_ids: Callable[[], tuple] = _fetch_tabbyapi_image_ids,
+    fetch_device_placement: Callable[[], list] = _fetch_device_placement,
     fetch_agent_env: Callable[[], dict] = _fetch_agent_env,
     fetch_fixtures_reachable: Callable[[], dict] = _fetch_fixtures_reachable,
 ) -> None:
@@ -365,15 +471,22 @@ def run_preflight(
     Order: LLM readiness FIRST (cheapest to observe IN ERROR — no point
     comparing tool schemas if the backend doesn't even respond), then
     tabbyapi image freshness (post-1/2-ter arbitration, see
-    docs/history.md), then effective env flags (docs/briefs/
-    flags-du-coeur-cognitif.md — no point measuring a campaign against a
-    config we don't actually have), then tool schema, then fixture
-    reachability (docs/campaigns/2026-07-28_campaign_post-rename-mjolnir.md
-    — a campaign against unreachable T1-T7 fixtures wastes a full run
-    before failing on assertions, not before starting), then purge/reset.
+    docs/history.md), then GPU device placement (docs/briefs/
+    deterministic-gpu-placement.md, step 5 — same tabbyapi-container theme
+    as image freshness, and a drifted split would otherwise silently
+    invalidate every latency judge downstream), then effective env flags
+    (docs/briefs/flags-du-coeur-cognitif.md — no point measuring a
+    campaign against a config we don't actually have), then tool schema,
+    then fixture reachability (docs/campaigns/2026-07-28_campaign_post-
+    rename-mjolnir.md — a campaign against unreachable T1-T7 fixtures
+    wastes a full run before failing on assertions, not before starting),
+    then purge/reset.
     """
     wait_for_llm_ready(fetch_llm_ready)
     error = check_tabbyapi_image_fresh(fetch_tabbyapi_image_ids)
+    if error:
+        raise PreflightError(error)
+    error = check_device_placement(fetch_device_placement())
     if error:
         raise PreflightError(error)
     error = check_agent_flags(fetch_agent_env())

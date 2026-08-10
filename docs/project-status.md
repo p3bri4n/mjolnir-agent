@@ -313,3 +313,234 @@ covered by `browser_snapshot` already. **Conclusion: GhostDesk removal
 would lose nothing tested here** — its only unique capability
 (out-of-browser interaction) is E4's territory, already out of scope by
 explicit user decision.
+
+## Consolidated plan (`docs/briefs/update-plan.md`) — effort 1
+
+**Effort 1.1 (tool-schema weight audit) and 1.2 (removal) delivered.**
+git/terminal removed entirely (`services/mcp-terminal/` deleted);
+desktop(GhostDesk)/ocr removed from the tool schema only, containers
+kept running for effort 3's future rework. `GROUNDING_DIRECTIVE`
+removed (coupled measured-behavior change, judge declared and passed).
+Real schema weight: 10 979 → 6 047 tokens (-44.9%), confirmed live
+(smoke `post-effort1.2-smoke`, T1/T3/T7, 3/3, zero calls to a removed
+tool). See docs/history.md for the full measurement and campaign.
+**Candidate follow-up (not scheduled)**: closing effort 2 point 3
+surfaced schema ORDER, not just weight/count, as a variable affecting
+tool adoption (`manage_plan` position in the tools array measurably
+changed whether the model used it, all else held constant) — see
+docs/history.md, "TOOL SCHEMA ORDER AFFECTS ADOPTION". Worth an
+archives-only check (does per-tool usage frequency correlate with
+current schema position?) next time this family of work is revisited.
+**Effort 1.3 (parallel run execution): deferred, quantified justification**
+(archives-only recompute, zero runs — see docs/history.md, "EFFORT 1.3").
+Expected gain ×2.2 (pessimistic) to ×3 (optimistic) holds, but
+implementation needs a per-worker-isolation architecture chantier
+(`mcp-client`'s `_persistent_sessions` and the three contamination resets
+are global, keyed by server name not caller — see
+`docs/architecture/mcp-client-concurrency.md`). Re-evaluate after efforts
+1.2 (delivered), 2, and 4.2 land, which reduce campaign duration via the
+numerator.
+
+**Effort 2 (factorial ablation of the cognitive-core flags) measured, at
+a checkpoint** — see docs/history.md, "EFFORT 2". All 8 coherent
+configurations of `PLANNER_ENABLED`/`VERIFICATION_ENABLED`/
+`PLAN_VALIDATION_ENABLED`/`PLAN_JUDGE_ENABLED` run live against the
+declared 7-task subset (2 reps/task, 112 runs total). An infra incident
+mid-campaign (langgraph-agent container down, `failure_cause="infra"` on
+10/14 runs of cfg6) was caught, diagnosed, and fixed by a targeted retry
+of the 5 affected tasks — cfg6's numbers below are the merged valid data.
+**Frozen decision table reading**: cfg1 (all flags off) matches cfg8
+(all flags on, current default) on the CuP judge — 12/14 each — at 37%
+less median cumulative time and 11% fewer tokens; every intermediate
+configuration (cfg2-cfg7) scores below both bookends, with no legible
+per-flag dependency (A1 fails near-systematically regardless of flags,
+a pre-existing capability limit; D1 varies without correlating to any
+single flag). Per the table's first branch ("a fixed configuration
+matches or beats all-on"), this reads as adopt-and-remove — reported
+as-is, without advocacy, alongside the caveat that n=2/task means a
+single flipped run moves a config's score by ~7%. **No mechanism removed
+yet — checkpoint open, awaiting user decision.**
+
+**Checkpoint decision (2026-08-05)**: record the result as reproducing
+the Cross-Component Interference pattern from the literature cited at
+B7's opening (see docs/history.md, "EFFORT 2" — two matching sources
+found, not yet independently verified, WebFetch failed in this
+environment). Before any removal: (1) consolidate cfg1-vs-cfg8 only to
+n=5 — script ready (`scripts/consolidate-ablation-cfg1-cfg8.sh`), not run
+yet; (2) build and measure the fifth condition, merged planning (B7
+amendment 2.1), the only hypothesis that could still justify keeping
+planning. `PLAN_VALIDATION_ENABLED` is flagged to survive regardless of
+the CuP reading (programmatic heuristic, safety value not score value).
+🧑 Stop after the consolidation result, then again after the fifth
+condition, before any flag is touched.
+
+**Judge validity check (2026-08-05, archives-only)** — see docs/history.md,
+"EFFORT 2", "Judge validity check": discriminating power of the 7-task
+subset is thin at the task level (only A2 and D1 show config-to-config
+variance on both repetitions, against a stated bar of 4 tasks — though
+the raw 14-slot count clears it); planner/validation/judge mechanism
+coverage is unmeasured (no persisted field), only verification's coverage
+is confirmed real. Same-outcome trajectory comparison (11 matched
+cfg1/cfg8 pairs) confirms the CuP tie hides a real cost gap in 10/11
+cases, with one unexplained reversal (D1 rep1: cfg8 cheaper AND faster).
+**Reading: ablation requalified NOT CONCLUSIVE**, not a confirmed tie —
+the planned n=5 consolidation (cfg1 vs cfg8) is superseded by this
+finding, pending a decision on redesigning the subset for discriminating
+power. Nothing run, nothing removed.
+
+**Resume, point 1 delivered (2026-08-05)**: planner/validation/judge
+coverage instrumentation shipped — `app/graph.py`'s `plan_task`/
+`validate_plan`/`replan_task` now log audit entries symmetric to
+`verify_action`'s existing `verification_opportunities`/`exploitable`,
+harness persists 6 new fields per run. 7 new unit tests, full suite
+430→437 passed, 0 regressions. See docs/history.md, "EFFORT 2", "Point 1
+delivered". `CLAUDE.md` updated: the trigger-rate-counter rule now
+applies retroactively to pre-existing mechanisms. Next: choose the
+discriminating-power subset (point 2), then reduce the matrix to
+cfg1/cfg8/fifth-condition (point 3) — 🧑 checkpoint after point 2.
+
+**Point 2 delivered**: subset chosen on a written criterion (variance
+shown in ablation 1, OR structurally plan-shaped — long/multi-site/
+multi-step; pure ceilings dropped) — see docs/history.md, "EFFORT 2",
+"Point 2". Result: `A1`, `A2`, `A3`, `A4`, `D1`, `B1_conge_hard` (6
+tasks, all of family A plus the two tasks that already showed signal).
+`T3`/`E3` dropped as pure ceilings. A1 kept despite being near-floor on
+score, reweighted to be judged by mechanism coverage (point 1's new
+counters) rather than CuP — excluding the hardest, most plan-shaped task
+in the benchmark would undercut the subset's declared bias in the
+mechanisms' favor.
+
+**Point 3 delivered: the 5th condition ("merged planning") built** —
+new `PLANNING_MODE` env var (default `"nodes"`, unchanged behavior) and
+a synthetic `manage_plan` tool (`set_plan`/`complete_subtask`, dispatched
+in `_execute_tool_calls`, `TIER_READ`, no dedicated LLM call — planning
+folded into the main turn per the AgentOccam pattern, see
+`docs/briefs/update-plan.md` "2.1 addendum") — see docs/history.md,
+"EFFORT 2", "Point 3 delivered" for the full design and the
+`campaign_preflight._fetch_agent_env` override-key fetch gap fixed
+along the way. 11 new unit tests + 2 regression tests, full suite
+437 → 450 passed, 0 regressions. `scripts/run-flag-sweep.sh`'s `CONFIGS`
+updated in place for the point-3 measurement (cfg1/cfg8/cfg9-merged ×
+the point-2 subset × n=3).
+
+**Live smoke result (2026-08-06, 6 runs, user's machine): the mechanism
+never engages — `merged_plan_calls = 0` on all 6**, across A2/A1
+(×2)/B1_conge_hard/A4, both the original directive wording and a
+strengthened, reordered-first hard-imperative rewrite (tested, ruled
+out as a fix). Cross-verified against the raw audit log's actual
+tool_calls, not just the campaign report. See docs/history.md, "EFFORT
+2", "Live smoke run by the user" for the full per-run table and reading.
+`docs/resolved-bugs.md` #47 (docker-compose wiring gap, found by this
+same smoke) already fixed. **The planned full point-3 sweep (3 configs ×
+6 tasks × n=3) was NOT launched**: with the mechanism never firing, cfg9
+would be behaviorally indistinguishable from cfg1 under a different
+label — the sweep would not test the merged-planning hypothesis. 🧑
+**Checkpoint**: point 3 stands as "built, smoke-tested, mechanism found
+non-adopted by the model as designed" — a decision on whether to
+redesign `manage_plan` (e.g., make the first turn structurally require
+it rather than merely instruct it) or conclude this condition doesn't
+transfer to this model/task set is for the user, before any further
+live runs.
+
+**Point 3 CLOSED (2026-08-06), cfg9 dropped**: fifth-condition
+diagnostic, 3 variables tried in isolation (dedicated planner off — was
+already the case; a persistent, editable `### PLAN` prompt section
+replacing the single-line reminder; `manage_plan` moved first in the
+tools array instead of last after the ~63-64-tool MCP catalog). Position
+measurably changed adoption on `A1` (0→2 and 0→1 `manage_plan` calls
+across smokes) but not on `A2` (stayed 0). Decisive factor: **no run
+ever revised a plan mid-task** (`merged_plan_replans` stayed 0
+throughout) — revision under difficulty is what distinguishes
+AgentOccam's pattern from a classic planner, and without it "keep the
+value, cut the cost" has no object. No task-success effect either. See
+docs/history.md, "EFFORT 2" closure entry, for the full per-run detail
+and the retired `<think>`-mention judge (mis-designed for this model,
+which doesn't narrate tool choice for any tool sampled). Side-finding
+kept independent of cfg9's fate: schema ORDER, not just weight/count,
+measurably affects tool adoption — candidate follow-up noted at the
+effort 1.1/1.2 paragraph above.
+
+**Effort 2's ablation reverted to cfg1 vs cfg8 only** (`scripts/
+run-flag-sweep.sh`), live smoke on `A3` (the one point-2 task without
+cfg1/cfg8 precedent) green with non-trivial coverage counters, then the
+**decisive 36-run measurement ran and resolves the earlier "not
+conclusive" verdict**: on the 5 scored tasks (A1 read for coverage only,
+per point 2's protocol, not scored), **cfg1-all-off 15/15, cfg8-all-on
+13/15** — cfg1 never loses, wins outright on A2 and D1 — while costing
+43% less cumulative time (1078s vs 1895s) for essentially identical real
+work (195 vs 193 total tool_calls). A1's coverage read confirms the
+mechanisms engage substantially even there (non-trivial plans, active
+judge vetoes/replans on 2 of 3 cfg8 runs) and still buys nothing (0/3
+either way). Full detail, per-task table, and the frozen-decision-table
+reading: docs/history.md, "EFFORT 2 — DECISIVE MEASUREMENT". `PLAN_VALIDATION_ENABLED`'s
+safety-value exception is untouched by this result. 🧑 **Checkpoint
+before any removal** — reported against the pre-declared table, nothing
+removed yet.
+
+**A1 trajectory diagnostic (requested before acting on the removal
+reading)**: primary cause named as arithmetic — a real `browser_extract`
+limitation (returns a matched label, not its adjacent value) forces a
+redundant per-page re-navigation tail that consumes the budget phase 2
+(docs cross-check) needs; A2 hits the identical limitation but routes
+around it with `browser_run_code_unsafe` where A1 doesn't. Secondary,
+cfg8-specific finding: attempt/replan-budget churn misfires on ordinary
+multi-step pagination on 2 of A1's 3 cfg8 runs — an added failure mode,
+never a help. Full detail: docs/history.md, "A1 — TRAJECTORY DIAGNOSTIC".
+
+## Visual feedback during campaigns (`docs/briefs/campaign-visual-feedback.md`, B5)
+
+Minimal subset fully closed. Delivered, live-verified (2026-08-06), and
+overhead-measured (2026-08-10): with/without smoke on a fixed 4-task
+subset found no measurable overhead on the declared judge (median task
+duration, 321.4s vs 297.3s — the small delta reads as noise, not a real
+effect) — see docs/history.md, "VISUAL FEEDBACK MINIMAL", overhead smoke
+result. `CAMPAIGN_VISUAL_CAPTURE` now defaults to `true`
+(`docker-compose.yml`). The rest of B5 (Playwright traces, thumbnail
+strip, headed mode, VNC) stays explicitly out of scope, per the
+implementation instruction that scoped this subset.
+
+## Deterministic GPU placement (`docs/briefs/archives/deterministic-gpu-placement.md`)
+
+Steps 1-4 delivered and measured live (2026-08-10): `CUDA_DEVICE_ORDER=
+PCI_BUS_ID` pin + explicit `gpu_split: [5, 14]` replacing TabbyAPI's
+unstable autosplit (previously observed: 14 GB on the RTX 5060 Ti at
+84% util vs 4.4 GB on the RTX 4070 Ti SUPER at 0%). Before/after smoke
+(`scripts/gpu-placement-smoke.sh`, 4 tasks × 3 reps, one variable):
+decode throughput +28% (29.4→37.7 T/s), prefill throughput +49%
+(472→706 T/s), prefill time −19%, cumulative median task duration −14.5%
+— see docs/history.md, "DETERMINISTIC GPU PLACEMENT", for the full
+per-judge table and the two non-placement findings noted alongside it
+(A2 extraction flakiness, B1_conge_hard's pre-existing CuP gap).
+**Median-time figures from campaigns before this fix are not comparable
+to campaigns after it** — scores remain comparable.
+
+**Step 5 delivered**: `campaign_preflight.py`'s `check_device_placement`
+refuses a campaign whose per-GPU memory distribution deviates from the
+configured `gpu_split` (identity + ±3 GB tolerance); `campaign_persistence.
+collect_gpu_devices()` serialises device identity (name, index, bus id,
+memory used) into every campaign's metadata. Regression-tested against
+the original pre-fix reading (14131/4424 MiB) — correctly flagged. Full
+suite 458→466 passed. **Brief fully delivered (steps 1-5).**
+
+**2.3 delivered, not yet measured live** (`docs/briefs/update-plan.md`):
+`browser_extract`'s `dt`/`dd` + table-row `adjacent_value` fix
+(`services/mcp-client/app/main.py`) — fixture inventory done first (only
+`dt`/`dd` and `td`/`th` are real patterns; `label`/`input` checked and
+dropped, every fixture `<input>` is unfilled), functionally verified
+against a real DOM via `jsdom` outside the committed suite, 3 new unit
+tests, full `mcp-client` suite 45→48 passed. See docs/history.md,
+"EFFORT 2.3 — BROWSER_EXTRACT DT/DD FIX". 🧑 **Next**: the brief's own
+judge (A1 and A2, 3 reps each, one variable, non-regression on the rest
+of the suite) needs Docker/GPU — live campaign before 2.4 proceeds.
+
+**2.4 planned, not started** (`docs/briefs/update-plan.md`): the
+cognitive-core removal PR itself, blocked on 2.3's live measurement —
+sequenced fix-then-removal so the removal dossier isn't measuring a
+tool-level defect it never needed to inherit. The A1 diagnostic's
+cfg8-specific finding is added to that PR's justification regardless of
+2.3's outcome. A 4.2 candidate ("structured values from N pages") is
+named but explicitly not built ahead of 2.3 and the frequency analysis
+that effort already calls for. An open, unresolved question from the
+same diagnostic — 2 of A1's cfg8 runs stop via an unidentified path,
+not `report_failure`, not the iteration limit — is recorded at
+`docs/resolved-bugs.md` #49, independent of the removal's outcome.

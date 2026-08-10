@@ -85,7 +85,7 @@ async def test_streaming_endpoint_returns_slash_command_result_not_empty_answer_
     mock_side_services.get("http://fake-mcp-client/tools/schema").mock(
         return_value=httpx.Response(
             200,
-            json={"tools": [{"type": "function", "function": {"name": "app_list", "parameters": {}}}]},
+            json={"tools": [{"type": "function", "function": {"name": "read_file", "parameters": {}}}]},
         )
     )
     mock_side_services.post("http://fake-mcp-client/call").mock(
@@ -100,7 +100,7 @@ async def test_streaming_endpoint_returns_slash_command_result_not_empty_answer_
         async with client.stream(
             "POST",
             "/v1/chat/completions",
-            json={"model": "agent-llm", "messages": [{"role": "user", "content": "/app_list"}], "stream": True},
+            json={"model": "agent-llm", "messages": [{"role": "user", "content": "/read_file"}], "stream": True},
         ) as resp:
             assert resp.status_code == 200
             async for line in resp.aiter_lines():
@@ -120,7 +120,7 @@ async def test_streaming_endpoint_splits_large_content_into_multiple_sse_lines(m
     Non-regression (real error observed via Open WebUI: "Got more than
     131072 bytes when reading" — aiohttp's client-side line-size limit):
     large content (e.g. a base64 data-URI image for a slash command on
-    screen_shot, see app/graph.py, run_slash_command_direct) sent as a
+    browser_take_screenshot, see app/graph.py, run_slash_command_direct) sent as a
     SINGLE SSE line exceeds this limit. app/main.py's
     _sse_content_chunks must split it into several small SSE lines, like
     real token-by-token streaming would.
@@ -133,7 +133,7 @@ async def test_streaming_endpoint_splits_large_content_into_multiple_sse_lines(m
     mock_side_services.get("http://fake-mcp-client/tools/schema").mock(
         return_value=httpx.Response(
             200,
-            json={"tools": [{"type": "function", "function": {"name": "app_list", "parameters": {}}}]},
+            json={"tools": [{"type": "function", "function": {"name": "read_file", "parameters": {}}}]},
         )
     )
     mock_side_services.post("http://fake-mcp-client/call").mock(
@@ -148,7 +148,7 @@ async def test_streaming_endpoint_splits_large_content_into_multiple_sse_lines(m
         async with client.stream(
             "POST",
             "/v1/chat/completions",
-            json={"model": "agent-llm", "messages": [{"role": "user", "content": "/app_list"}], "stream": True},
+            json={"model": "agent-llm", "messages": [{"role": "user", "content": "/read_file"}], "stream": True},
         ) as resp:
             assert resp.status_code == 200
             async for line in resp.aiter_lines():
@@ -167,7 +167,7 @@ async def test_streaming_endpoint_splits_large_content_into_multiple_sse_lines(m
 @pytest.mark.asyncio
 async def test_non_streaming_endpoint_renders_slash_command_image_without_persisting_it(mock_side_services):
     """
-    End-to-end non-regression (real bug via Open WebUI): /screen_shot
+    End-to-end non-regression (real bug via Open WebUI): /browser_take_screenshot
     must display the image in THIS turn's HTTP response
     (_render_visible_answer, app/main.py), without the PERSISTED
     assistant message containing the base64 — otherwise a second normal
@@ -192,7 +192,7 @@ async def test_non_streaming_endpoint_renders_slash_command_image_without_persis
     mock_side_services.get("http://fake-mcp-client/tools/schema").mock(
         return_value=httpx.Response(
             200,
-            json={"tools": [{"type": "function", "function": {"name": "screen_shot", "parameters": {}}}]},
+            json={"tools": [{"type": "function", "function": {"name": "browser_take_screenshot", "parameters": {}}}]},
         )
     )
     mock_side_services.post("http://fake-mcp-client/call").mock(
@@ -207,7 +207,7 @@ async def test_non_streaming_endpoint_renders_slash_command_image_without_persis
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.post(
             "/v1/chat/completions",
-            json={"model": "agent-llm", "messages": [{"role": "user", "content": "/screen_shot"}], "stream": False},
+            json={"model": "agent-llm", "messages": [{"role": "user", "content": "/browser_take_screenshot"}], "stream": False},
         )
 
     assert resp.status_code == 200
@@ -215,7 +215,7 @@ async def test_non_streaming_endpoint_renders_slash_command_image_without_persis
     assert f"data:image/png;base64,{png_b64}" in content  # visible in THIS response
 
     # But the message persisted by the graph stays light, without the base64.
-    config = {"configurable": {"thread_id": main_mod._derive_thread_id([main_mod.ChatMessage(role="user", content="/screen_shot")])}}
+    config = {"configurable": {"thread_id": main_mod._derive_thread_id([main_mod.ChatMessage(role="user", content="/browser_take_screenshot")])}}
     snapshot = await g.agent_graph.aget_state(config)
     assert png_b64 not in snapshot.values["messages"][-1].content
 
@@ -315,9 +315,11 @@ async def test_streaming_endpoint_merges_think_across_auto_approved_tool_loop(mo
     route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
     route.side_effect = [
         _sse_response(
-            reasoning_tool_call_response(["Je vais ", "cliquer."], "mouse_click", "call_1", '{"x": 1, "y": 2}')
+            reasoning_tool_call_response(
+                ["Je vais ", "écrire."], "write_file", "call_1", '{"path": "/workspace/x.txt", "content": "y"}'
+            )
         ),
-        _sse_response(reasoning_response(["Et ", "voilà."], ["Cliqué", "."])),
+        _sse_response(reasoning_response(["Et ", "voilà."], ["Écrit", "."])),
     ]
     mock_side_services.post("http://fake-mcp-client/call").mock(
         return_value=httpx.Response(200, json={"content": [{"type": "text", "text": "ok"}]})
@@ -331,7 +333,7 @@ async def test_streaming_endpoint_merges_think_across_auto_approved_tool_loop(mo
         async with client.stream(
             "POST",
             "/v1/chat/completions",
-            json={"model": "agent-llm", "messages": [{"role": "user", "content": "Clique là"}], "stream": True},
+            json={"model": "agent-llm", "messages": [{"role": "user", "content": "Écris ce fichier"}], "stream": True},
         ) as resp:
             async for line in resp.aiter_lines():
                 if line.startswith("data: ") and "[DONE]" not in line:
@@ -345,7 +347,7 @@ async def test_streaming_endpoint_merges_think_across_auto_approved_tool_loop(mo
     # turns' reasoning must fit in the same block.
     assert full_text.count("<think>") == 1
     assert full_text.count("</think>") == 1
-    assert full_text.index("<think>") < full_text.index("</think>") < full_text.index("Cliqué.")
+    assert full_text.index("<think>") < full_text.index("</think>") < full_text.index("Écrit.")
 
 
 @pytest.mark.asyncio
@@ -419,7 +421,7 @@ async def test_non_streaming_endpoint_pauses_for_approval(mock_side_services):
 async def test_non_streaming_endpoint_reports_iteration_limit_notice(mock_side_services, monkeypatch):
     """
     Non-regression: before this fix, a run that hit MAX_TOOL_ITERATIONS
-    with a tool_call still pending (auto-approved GhostDesk loop) just
+    with a tool_call still pending (auto-approved read loop) just
     rendered the model's last reasoning text as-is, with no indication
     the task had been interrupted — observed in real usage (the agent
     seemed to "stop" mid-sentence).
@@ -432,7 +434,7 @@ async def test_non_streaming_endpoint_reports_iteration_limit_notice(mock_side_s
 
     route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
     route.side_effect = [
-        _sse_response(tool_call_response("mouse_click", f"call_{i}", '{"x": 1, "y": 2}')) for i in range(3)
+        _sse_response(tool_call_response("read_file", f"call_{i}", '{"path": "/workspace/x.txt"}')) for i in range(3)
     ]
     mock_side_services.post("http://fake-mcp-client/call").mock(
         return_value=httpx.Response(200, json={"content": [{"type": "text", "text": "ok"}]})
@@ -444,13 +446,13 @@ async def test_non_streaming_endpoint_reports_iteration_limit_notice(mock_side_s
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.post(
             "/v1/chat/completions",
-            json={"model": "agent-llm", "messages": [{"role": "user", "content": "Clique en boucle"}], "stream": False},
+            json={"model": "agent-llm", "messages": [{"role": "user", "content": "Relis en boucle"}], "stream": False},
         )
 
     assert resp.status_code == 200
     content = resp.json()["choices"][0]["message"]["content"]
     assert "Limite d'itérations" in content
-    assert "mouse_click" in content
+    assert "read_file" in content
 
 
 @pytest.mark.asyncio

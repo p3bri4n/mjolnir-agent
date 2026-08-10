@@ -21,6 +21,10 @@ intermittent multi-GPU crash isolated to a prefill batch-size threshold.
 
 Scores went from 16/33 to 30/33 over eleven campaigns — [docs/notes/agent-benchmarking.md](https://github.com/p3bri4n/mjolnir-agent/discussions/12). 
 
+Forty-two engineering rules, each with the incident and the numbers that
+produced it — including the one where we measured that our own cognitive
+core did nothing: [docs/lessons-learned.md](docs/lessons-learned.md).
+
 ## Features
 
 ### Autonomy that reports its own failures
@@ -59,7 +63,8 @@ Scores went from 16/33 to 30/33 over eleven campaigns — [docs/notes/agent-benc
 ### Hybrid perception
 
 - **DOM first** (Playwright MCP: accessibility tree, real links), **vision
-  as fallback** (GhostDesk desktop capture), **OCR** for exact text.
+  as fallback** (`browser_take_screenshot`) when the DOM channel doesn't
+  cover it (canvas, WebGL, images, native PDF).
 - **Affordance-preserving truncation**: page content may be summarised, the
   inventory of links, buttons and fields never is.
 
@@ -78,6 +83,10 @@ Scores went from 16/33 to 30/33 over eleven campaigns — [docs/notes/agent-benc
   boundary and a read-only dashboard page (`/campaign`) — per-task ETA
   range, current run, running counters — no need to tail a terminal for a
   long-running campaign.
+- **Visual feedback** (`CAMPAIGN_VISUAL_CAPTURE`, off by default pending
+  an overhead measurement): the current run's latest browser viewport,
+  refreshed on the same dashboard page — captured harness-side after
+  every browser action, never entering the model's own context.
 - **Pause/resume**: `run-campaign.sh --pause`/`--resume` — a resume
   replays the full preflight and refuses if the effective configuration
   (commit, image digests, env flags) drifted since the pause; per-segment
@@ -99,8 +108,6 @@ of them were thrown away.
   through a named read-tier tool rather than model-written JavaScript.
 - **Isolated browser profile**: `--isolated`, in-memory, never persisted —
   no personal cookies or credentials reachable by the agent.
-- **MCP terminal restricted to a command whitelist** (no arbitrary command
-  execution).
 - **Full audit trail**: intentions, tool results and model messages
   persisted, so any action taken can be reconstructed after the fact.
 - Everything runs locally: no API keys, no data leaving the machine.
@@ -123,6 +130,10 @@ Planned, not implemented — tracked in `PLAN.md`:
   engagement) and per-task domain scope.
 - A prompt-injection benchmark family (v2, family C) to measure resistance
   rather than assert it.
+- OCR-assisted visual grounding (`ocr-service` is deployed but currently
+  unregistered as a model-callable tool): planned as a graph capability,
+  auto-triggered on a `not_reached` verification verdict rather than a
+  free model choice.
 
 ## Quick start
 
@@ -135,9 +146,7 @@ cp .env.example .env
 # backend, never downloaded automatically (see docs/architecture/inference-backend.md).
 
 docker pull mcp/filesystem:latest
-docker pull mcp/git:latest
 docker pull mcp/playwright:latest   # persistent HTTP server (playwright-mcp service), see docs/resolved-bugs.md
-docker compose --profile build-only build mcp-terminal-build   # builds the local mcp-terminal:local image
 
 docker compose up -d
 ```
@@ -162,21 +171,17 @@ services/
   context-manager/    RAG + memory (Qdrant + sentence-transformers)
     app/
     tests/
-  mcp-client/          spawns filesystem/git/terminal on demand (docker.sock) ;
-                       browser/desktop/ocr are persistent HTTP servers
-                       (mcp-client connects to them over Streamable HTTP)
+  mcp-client/          spawns filesystem on demand (docker.sock) ; browser
+                       is a persistent HTTP server (mcp-client connects to
+                       it over Streamable HTTP)
     app/
     tests/
-  mcp-terminal/        homegrown "terminal" MCP server, strict allowlist
-    server.py
-    tests/
-  ghostdesk/           official YV17labs image, virtual desktop driven by
-                       the agent (separate docker-compose service, Streamable HTTP)
   playwright-mcp/      official mcp/playwright image, browser driven by
                        the agent (separate docker-compose service, native HTTP
                        server — see docs/resolved-bugs.md)
   ocr-service/         supplementary OCR for VLM grounding (PaddleOCR CPU,
-                       find_text/read_screen — see docs/architecture/autonomy.md)
+                       find_text/read_screen) — deployed but currently
+                       unregistered in mcp-client (see Roadmap)
     app/
     tests/
   dashboard/           local observability cockpit — see
@@ -185,8 +190,8 @@ services/
       static/          vanilla HTML/JS page served as-is (no build step)
     tests/
 skills/     to be filled in (one subfolder per skill, each with a SKILL.md)
-workspace/  shared with the filesystem/git/terminal MCP servers, and
-            with langgraph-agent for the audit log (.audit/, see
+workspace/  shared with the filesystem MCP server, and with langgraph-agent
+            for the audit log (.audit/, see
             docs/architecture/tool-supervision.md)
 models/     weights (exl3) of the model and multimodal projector served by
             tabbyAPI — never downloaded automatically, see
@@ -205,6 +210,8 @@ models/     weights (exl3) of the model and multimodal projector served by
 - `docs/operations/testing.md` — per-service test suites, SSE streaming.
 - `docs/operations/runbook.md` — rebuild/restart commands.
 - `docs/project-status.md` — progress status (changes at every checkpoint).
+- `docs/lessons-learned.md` — 42 engineering rules, each anchored to the
+  incident and numbers that produced it.
 - `PLAN.md` — roadmap (changes rarely, source of truth).
 - `docs/history.md` / `docs/resolved-bugs.md` — progress log and resolved bugs
   (consult by targeted search, never read in full — see `CLAUDE.md`).
@@ -212,33 +219,23 @@ models/     weights (exl3) of the model and multimodal projector served by
 
 ## Known, accepted limitations (design choices, not bugs)
 
-- **`mcp-terminal` does not expose a free-form shell**: strict allowlist
-  (`ls`, `pwd`, `cat`, `git status`), confined to `/workspace`. Extend this
-  list with caution: every added command is a new potential attack surface.
 - **`mcp-client` mounts `/var/run/docker.sock`**: equivalent to root access
   on the host. Acceptable for local use; should be replaced by a filtering
   socket proxy before any network exposure.
 - **Skill matching and RAG are deliberately simplistic** (naive keyword
   match, no reranker) — to be strengthened if the volume of skills/documents
   grows.
-- **`ghostdesk` (the "desktop" MCP server) runs with `cap_add: SYS_ADMIN`
-  and exposes a shell**: a much larger attack surface than `mcp-terminal`
-  (no allowlist, full GUI control). Never expose it beyond the internal
-  `agent-net` network — only the noVNC port (6080) is published on the
-  host, deliberately, to observe the agent driving the desktop; the MCP
-  port (3000) is not. `mcp-terminal` remains the default tool for simple
-  commands; `ghostdesk` is only used for GUI control that genuinely
-  warrants it — the two knowingly coexist rather than one replacing the
-  other. Access: http://localhost:6080 once the service is started,
-  password = `GHOSTDESK_VNC_PASSWORD` (see `.env`).
-- **`ghostdesk` is a stateful, persistent HTTP MCP server** (desktop/VNC
-  session), unlike the other MCP servers in the project, which are spawned
-  as ephemeral STDIO processes by `mcp-client` (`docker run -i --rm` per
-  call). It runs continuously as a separate `docker-compose` service;
-  `mcp-client` connects to it via `streamablehttp_client` (`mcp` SDK ≥ 1.8,
-  hence the bump from `mcp==1.2.0` to `mcp==1.9.4` in
-  `services/mcp-client/requirements.txt`), authenticated with a bearer
-  token (`GHOSTDESK_AUTH_TOKEN`, see `.env.example`).
+- **`ghostdesk` and `ocr-service` are deployed but not agent-callable**:
+  removed from `mcp-client`'s tool registry (schema-weight audit found
+  them at 44.9% of the tool schema for 1.6% of real usage — see
+  `docs/history.md`), pending effort 3's rework
+  (`docs/briefs/update-plan.md`: OCR becomes a graph capability rather
+  than a model-invoked tool). `ghostdesk` still runs with `cap_add:
+  SYS_ADMIN` and a full GUI shell, and the noVNC port (6080) stays
+  published on the host (the MCP port 3000 is not) — never expose it
+  beyond the internal `agent-net` network. Access:
+  http://localhost:6080 once the service is started, password =
+  `GHOSTDESK_VNC_PASSWORD` (see `.env`).
 - **`playwright-mcp` (the "browser" server) has been a persistent HTTP
   server since the fix documented in detail in `docs/resolved-bugs.md`** —
   it used to be spawned as an ephemeral STDIO process
@@ -265,18 +262,6 @@ models/     weights (exl3) of the model and multimodal projector served by
   the browser's state. The system prompt documents this path explicitly
   (`DOWNLOAD_DIRECTIVE`, `app/graph.py`) rather than letting the model
   guess one.
-- **Click accuracy with Qwen models**: these models natively reason in a
-  normalized 0-1000 coordinate space, whereas GhostDesk expects native
-  screen pixels by default (documented by GhostDesk) — without
-  correction, clicks land next to their target. `mcp-client` therefore
-  sends the `GhostDesk-Model-Space` header (value `GHOSTDESK_MODEL_SPACE`,
-  default `1000`) on every HTTP call to GhostDesk (`_run_on_server`,
-  `services/mcp-client/app/main.py`). Clear it (`GHOSTDESK_MODEL_SPACE=`)
-  if the served model switches to a frontier model (Claude, GPT-4o), which
-  natively works in screen pixels. This fix does not solve grounding
-  itself (aiming at the right element remains imprecise with a
-  general-purpose vision model) — see the limitation above on the absence
-  of OCR/UI-element detection.
 - **Long-term memory (`context-manager`) never wired into the
   conversation**: `POST /remember` (stores a fact tied to a `user_id`,
   Qdrant `memory` collection) and `POST /retrieve` with

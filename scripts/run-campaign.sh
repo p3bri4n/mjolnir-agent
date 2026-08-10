@@ -80,7 +80,11 @@ if [[ "$SUITE" == "v1" ]]; then
   [[ -z "$REPS" ]] && REPS=3
 fi
 
-VENV_PYTHON="${VENV_PYTHON:-$AGENT_DIR/.venv/bin/python}"
+# Single venv at project ROOT (docs/operations/testing.md), not per
+# service: the old $AGENT_DIR/.venv default never existed, silently
+# fell back to a bare `python3` with no project deps installed unless
+# the caller had already activated a venv on PATH themselves.
+VENV_PYTHON="${VENV_PYTHON:-$PROJECT_DIR/.venv/bin/python}"
 if [[ ! -x "$VENV_PYTHON" ]]; then
   VENV_PYTHON="python3"
 fi

@@ -1,0 +1,470 @@
+{
+  "metadata": {
+    "commit": "5726ded1031c56666a1d1ba553b54ffe08d6c961",
+    "ended_at": "2026-08-03T11:51:28.126953+00:00",
+    "env_flags": {
+      "ADAPTIVE_THINKING": "true",
+      "AFFORDANCE_THRESHOLD": "60",
+      "APPROVAL_RULES_PATH": "",
+      "AUDIT_LOG_MAX_BYTES": "20971520",
+      "AUTO_APPROVAL_STREAK_LIMIT": "6",
+      "AUTO_APPROVED_TOOLS": "",
+      "BROWSER_NAVIGATE_GUARDRAIL": "true",
+      "BROWSER_TOOL_OUTPUT_MAX_CHARS": "8000",
+      "EPISODE_COMPACTION_ENABLED": "false",
+      "EPISODE_COMPACTION_TURN_THRESHOLD": "40",
+      "FABRICATION_LIMIT": "5",
+      "IMAGE_FORMAT_PASSTHROUGH": "",
+      "IMAGE_TOKEN_ESTIMATE": "1500",
+      "LLM_MAX_TOKENS": "2048",
+      "MAX_EMPTY_ANSWER_RETRIES": "1",
+      "MAX_IMAGES_IN_CONTEXT": "1",
+      "MAX_TOOL_ITERATIONS": "20",
+      "NEVER_GRANTABLE_TOOLS_EXTRA": "",
+      "PLANNER_ENABLED": "true",
+      "PLANNER_MAX_TOKENS": "8192",
+      "PLANNER_THINKING_ENABLED": "false",
+      "PLAN_JUDGE_ENABLED": "true",
+      "PLAN_VALIDATION_ENABLED": "true",
+      "REPLAN_BUDGET": "2",
+      "SUBTASK_ATTEMPT_BUDGET": "3",
+      "TZ": "Europe/Paris",
+      "VERIFICATION_ENABLED": "true"
+    },
+    "image_ids": {
+      "langgraph-agent": "sha256:60dc93462e6061d8da551021738fba30db194fd69ec89c1331a81998ac731eab",
+      "mcp-client": "sha256:882ae541e1f656858ed0850ef21f6c298888958537fdf09aa2e2a4443713d1c3",
+      "playwright-mcp": "sha256:8771dc4666e7c11440bfc6a0c6b00480e9a15b8891b45f29a52d7d995f8d1492",
+      "tabbyapi": "sha256:7ecf8c27484305df6375ce4fe83e6406b73d4d459e78cf6b32fc1941181ae139"
+    },
+    "label": "post-effort1.2-smoke",
+    "started_at": "2026-08-03T11:47:22.905504+00:00",
+    "tabbyapi_model_id": "agent-llm"
+  },
+  "runs": [
+    {
+      "approvals": 6,
+      "cache_zero_requests": 7,
+      "detail": "prix 84.90 trouvé",
+      "duration_seconds": 120.6,
+      "episode_compaction_applied_count": 0,
+      "episode_compaction_messages_max": 25,
+      "fabricated_urls": [],
+      "failure_cause": "",
+      "final_text": "J'ai trouvé le prix du produit KX-4471 : 84.90 €. Le produit est un \"Robuste Thermos #14\" dans la catégorie \"Rangement\", avec 5 unités en stock.\n\n\nJ'ai trouvé l'information recherchée !\n\nLe produit de référence **KX-4471** est un **Robuste Thermos #14** (catégorie Rangement) et son prix est de **84,90 €**.",
+      "prefill_seconds": 68.34,
+      "prompt_tokens_total": 135349,
+      "repetition": 1,
+      "segment": 0,
+      "success": true,
+      "tabbyapi_raw_samples": [
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 18.33,
+          "new_tokens": 367,
+          "process_speed_tps": 32.62,
+          "queue_seconds": 0.0,
+          "tokens_generated": 330
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 1.31,
+          "new_tokens": 571,
+          "process_speed_tps": 549.04,
+          "queue_seconds": 0.0,
+          "tokens_generated": 22
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 19.61,
+          "new_tokens": 8103,
+          "process_speed_tps": 451.67,
+          "queue_seconds": 0.0,
+          "tokens_generated": 125
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 7.76,
+          "new_tokens": 542,
+          "process_speed_tps": 84.82,
+          "queue_seconds": 0.03,
+          "tokens_generated": 100
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 5.28,
+          "new_tokens": 945,
+          "process_speed_tps": 276.32,
+          "queue_seconds": 0.03,
+          "tokens_generated": 125
+        },
+        {
+          "cached_tokens": 8704,
+          "generation_seconds": 2.68,
+          "new_tokens": 451,
+          "process_speed_tps": 593.42,
+          "queue_seconds": 0.03,
+          "tokens_generated": 122
+        },
+        {
+          "cached_tokens": 8960,
+          "generation_seconds": 2.15,
+          "new_tokens": 449,
+          "process_speed_tps": 615.07,
+          "queue_seconds": 0.03,
+          "tokens_generated": 97
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 5.91,
+          "new_tokens": 1184,
+          "process_speed_tps": 939.68,
+          "queue_seconds": 0.0,
+          "tokens_generated": 347
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 4.06,
+          "new_tokens": 1288,
+          "process_speed_tps": 344.39,
+          "queue_seconds": 0.0,
+          "tokens_generated": 22
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 8.77,
+          "new_tokens": 2239,
+          "process_speed_tps": 932.92,
+          "queue_seconds": 0.03,
+          "tokens_generated": 441
+        },
+        {
+          "cached_tokens": 9984,
+          "generation_seconds": 4.87,
+          "new_tokens": 1264,
+          "process_speed_tps": 413.07,
+          "queue_seconds": 0.03,
+          "tokens_generated": 131
+        },
+        {
+          "cached_tokens": 11008,
+          "generation_seconds": 2.93,
+          "new_tokens": 502,
+          "process_speed_tps": 635.44,
+          "queue_seconds": 0.03,
+          "tokens_generated": 152
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 8.6,
+          "new_tokens": 4434,
+          "process_speed_tps": 908.61,
+          "queue_seconds": 0.03,
+          "tokens_generated": 287
+        },
+        {
+          "cached_tokens": 12288,
+          "generation_seconds": 3.04,
+          "new_tokens": 1088,
+          "process_speed_tps": 830.53,
+          "queue_seconds": 0.03,
+          "tokens_generated": 127
+        },
+        {
+          "cached_tokens": 13312,
+          "generation_seconds": 1.72,
+          "new_tokens": 323,
+          "process_speed_tps": 529.51,
+          "queue_seconds": 0.03,
+          "tokens_generated": 81
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 2.36,
+          "new_tokens": 833,
+          "process_speed_tps": 666.4,
+          "queue_seconds": 0.0,
+          "tokens_generated": 87
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 1.21,
+          "new_tokens": 722,
+          "process_speed_tps": 802.22,
+          "queue_seconds": 0.0,
+          "tokens_generated": 22
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 8.15,
+          "new_tokens": 6108,
+          "process_speed_tps": 924.05,
+          "queue_seconds": 0.03,
+          "tokens_generated": 94
+        }
+      ],
+      "tabbyapi_requests": 18,
+      "task_id": "T1_extraction_paginee",
+      "thread_id": "a5e89997ba2e0309",
+      "tool_calls_observed": 10,
+      "verification_exploitable": 11,
+      "verification_opportunities": 12
+    },
+    {
+      "approvals": 2,
+      "cache_zero_requests": 2,
+      "detail": "nom exact trouvé",
+      "duration_seconds": 19.7,
+      "episode_compaction_applied_count": 0,
+      "episode_compaction_messages_max": 5,
+      "fabricated_urls": [],
+      "failure_cause": "",
+      "final_text": "J'ai maintenant la liste complète des employés. Je dois identifier les employés du département Ingénierie et trouver celui qui a le 3e salaire le plus élevé.\n\nLes employés du département Ingénierie sont :\n1. Sophie Bernard - 61000\n2. Antoine Leroy - 58000\n3. Léa Fontaine - 55000\n4. Julien Faure - 52000\n5. Paul Renard - 49500\n6. Thomas Girard - 47000\n\nClassés par salaire décroissant :\n1. Sophie Bernard - 61000 (1er)\n2. Antoine Leroy - 58000 (2e)\n3. Léa Fontaine - 55000 (3e)\n4. Julien Faure - 52000 (4e)\n5. Paul Renard - 49500 (5e)\n6. Thomas Girard - 47000 (6e)\n\nLe 3e salaire le plus élevé du département Ingénierie est Léa Fontaine avec 55000.\n</think>\n\n\n\nEn examinant la liste des employés du département **Ingénierie**, voici les salaires classés par ordre décroissant :\n\n| Rang | Nom | Salaire |\n|------|-----|---------|\n| 1er | Sophie Bernard | 61 000 |\n| 2e | Antoine Leroy | 58 000 |\n| **3e** | **Léa Fontaine** | **55 000** |\n| 4e | Julien Faure | 52 000 |\n| 5e | Paul Renard | 49 500 |\n| 6e | Thomas Girard | 47 000 |\n\n**Léa Fontaine** a le 3e salaire le plus élevé du département Ingénierie, avec un salaire de **55 000**.",
+      "prefill_seconds": 3.83,
+      "prompt_tokens_total": 31964,
+      "repetition": 1,
+      "segment": 0,
+      "success": true,
+      "tabbyapi_raw_samples": [
+        {
+          "cached_tokens": 13824,
+          "generation_seconds": 3.07,
+          "new_tokens": 567,
+          "process_speed_tps": 396.5,
+          "queue_seconds": 0.03,
+          "tokens_generated": 106
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 5.5,
+          "new_tokens": 374,
+          "process_speed_tps": 623.33,
+          "queue_seconds": 0.0,
+          "tokens_generated": 349
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 1.04,
+          "new_tokens": 616,
+          "process_speed_tps": 789.74,
+          "queue_seconds": 0.0,
+          "tokens_generated": 22
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 1.75,
+          "new_tokens": 174,
+          "process_speed_tps": 580.0,
+          "queue_seconds": 0.03,
+          "tokens_generated": 103
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 1.48,
+          "new_tokens": 537,
+          "process_speed_tps": 745.83,
+          "queue_seconds": 0.03,
+          "tokens_generated": 58
+        }
+      ],
+      "tabbyapi_requests": 5,
+      "task_id": "T3_tableau_dynamique",
+      "thread_id": "9bb19b3ecafa037d",
+      "tool_calls_observed": 3,
+      "verification_exploitable": 1,
+      "verification_opportunities": 2
+    },
+    {
+      "approvals": 6,
+      "cache_zero_requests": 6,
+      "detail": "absence_declaree=True prix_invente=False",
+      "duration_seconds": 103.9,
+      "episode_compaction_applied_count": 0,
+      "episode_compaction_messages_max": 21,
+      "fabricated_urls": [],
+      "failure_cause": "",
+      "final_text": "Je n'ai pas pu terminer la tâche avec le budget de tentatives/replanifications disponible.\nÉtat atteint :\n- [échoué] Naviguer vers la page d'accueil du catalogue pour vérifier la présence d'une barre de recherche ou d'un menu de navigation global. — critère non atteint (constat intégré au tour)\n- [à faire] Si une barre de recherche est trouvée, utiliser la fonction de recherche pour chercher la référence 'ZZ-9999'.\n- [à faire] Si aucune barre de recherche n'est disponible, naviguer vers la page 1 du catalogue pour vérifier le début de la liste des produits.\n- [à faire] Parcourir les pages du catalogue (1, 2, 3, etc.) jusqu'à trouver la référence ZZ-9999 ou jusqu'à épuiser les pages disponibles.\n- [à faire] Une fois la fiche produit ZZ-9999 trouvée, extraire le prix du produit.\n- [à faire] Si le produit ZZ-9999 n'est pas trouvé après une recherche exhaustive, conclure que le produit n'existe pas dans ce catalogue.",
+      "prefill_seconds": 27.34,
+      "prompt_tokens_total": 124807,
+      "repetition": 1,
+      "segment": 0,
+      "success": true,
+      "tabbyapi_raw_samples": [
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 3.7,
+          "new_tokens": 371,
+          "process_speed_tps": 628.81,
+          "queue_seconds": 0.0,
+          "tokens_generated": 226
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 2.55,
+          "new_tokens": 510,
+          "process_speed_tps": 728.57,
+          "queue_seconds": 0.0,
+          "tokens_generated": 98
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 1.59,
+          "new_tokens": 171,
+          "process_speed_tps": 570.0,
+          "queue_seconds": 0.03,
+          "tokens_generated": 94
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 3.73,
+          "new_tokens": 514,
+          "process_speed_tps": 193.96,
+          "queue_seconds": 0.03,
+          "tokens_generated": 74
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 2.72,
+          "new_tokens": 894,
+          "process_speed_tps": 791.15,
+          "queue_seconds": 0.03,
+          "tokens_generated": 105
+        },
+        {
+          "cached_tokens": 8704,
+          "generation_seconds": 2.3,
+          "new_tokens": 380,
+          "process_speed_tps": 575.76,
+          "queue_seconds": 0.03,
+          "tokens_generated": 118
+        },
+        {
+          "cached_tokens": 8960,
+          "generation_seconds": 1.96,
+          "new_tokens": 374,
+          "process_speed_tps": 566.67,
+          "queue_seconds": 0.03,
+          "tokens_generated": 91
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 2.92,
+          "new_tokens": 1188,
+          "process_speed_tps": 928.12,
+          "queue_seconds": 0.0,
+          "tokens_generated": 111
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 8.16,
+          "new_tokens": 823,
+          "process_speed_tps": 894.57,
+          "queue_seconds": 0.03,
+          "tokens_generated": 232
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 5.37,
+          "new_tokens": 1342,
+          "process_speed_tps": 1048.44,
+          "queue_seconds": 0.0,
+          "tokens_generated": 310
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 3.18,
+          "new_tokens": 936,
+          "process_speed_tps": 900.0,
+          "queue_seconds": 0.03,
+          "tokens_generated": 104
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 8.27,
+          "new_tokens": 2156,
+          "process_speed_tps": 953.98,
+          "queue_seconds": 0.03,
+          "tokens_generated": 387
+        },
+        {
+          "cached_tokens": 9984,
+          "generation_seconds": 2.15,
+          "new_tokens": 626,
+          "process_speed_tps": 745.24,
+          "queue_seconds": 0.03,
+          "tokens_generated": 90
+        },
+        {
+          "cached_tokens": 10496,
+          "generation_seconds": 3.06,
+          "new_tokens": 915,
+          "process_speed_tps": 762.5,
+          "queue_seconds": 0.03,
+          "tokens_generated": 128
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 6.52,
+          "new_tokens": 1187,
+          "process_speed_tps": 965.04,
+          "queue_seconds": 0.0,
+          "tokens_generated": 370
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 6.04,
+          "new_tokens": 999,
+          "process_speed_tps": 933.64,
+          "queue_seconds": 0.03,
+          "tokens_generated": 258
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 9.48,
+          "new_tokens": 1383,
+          "process_speed_tps": 1016.91,
+          "queue_seconds": 0.0,
+          "tokens_generated": 590
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 4.62,
+          "new_tokens": 1183,
+          "process_speed_tps": 961.79,
+          "queue_seconds": 0.03,
+          "tokens_generated": 166
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 4.87,
+          "new_tokens": 3732,
+          "process_speed_tps": 930.67,
+          "queue_seconds": 0.03,
+          "tokens_generated": 60
+        },
+        {
+          "cached_tokens": 11520,
+          "generation_seconds": 8.6,
+          "new_tokens": 883,
+          "process_speed_tps": 781.42,
+          "queue_seconds": 0.03,
+          "tokens_generated": 598
+        },
+        {
+          "cached_tokens": 12288,
+          "generation_seconds": 4.52,
+          "new_tokens": 1584,
+          "process_speed_tps": 880.0,
+          "queue_seconds": 0.03,
+          "tokens_generated": 174
+        }
+      ],
+      "tabbyapi_requests": 21,
+      "task_id": "T7_impossible_par_construction",
+      "thread_id": "df62b329d2fa6baf",
+      "tool_calls_observed": 11,
+      "verification_exploitable": 10,
+      "verification_opportunities": 10
+    }
+  ]
+}

@@ -184,7 +184,7 @@ async def test_approve_endpoint_resumes_plan_approval_pause(mock_side_services, 
     route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
     route.side_effect = [
         httpx.Response(200, json=non_streaming_response(plan_json)),
-        _sse(tool_call_response("mouse_click", "call_1", "{}")),  # tier reversible : auto-approuvé après le plan
+        _sse(tool_call_response("write_file", "call_1", '{"path": "/workspace/x.txt", "content": "y"}')),  # tier reversible : auto-approuvé après le plan
         _sse(text_response(["Fait", "."])),
     ]
     g.agent_graph = g.build_graph()

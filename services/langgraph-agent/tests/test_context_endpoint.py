@@ -38,8 +38,8 @@ async def test_context_decomposition_with_mixed_text_and_image_history():
                 200,
                 json={
                     "tools": [
-                        {"name": "screen_shot", "description": "Capture l'écran", "inputSchema": {}},
-                        {"name": "app_list", "description": "Liste les apps", "inputSchema": {}},
+                        {"name": "browser_take_screenshot", "description": "Capture l'écran", "inputSchema": {}},
+                        {"name": "read_file", "description": "Lit un fichier", "inputSchema": {}},
                     ]
                 },
             )
@@ -51,9 +51,9 @@ async def test_context_decomposition_with_mixed_text_and_image_history():
         )
         route = mock.post("http://fake-vllm/v1/chat/completions")
         route.side_effect = [
-            # screen_shot est tier lecture (approval_policy) : auto-approuvé,
-            # pas de pause d'approbation dans ce flux.
-            _sse_response(tool_call_response("screen_shot", "call_1", "{}")),
+            # browser_take_screenshot est tier lecture (approval_policy) :
+            # auto-approuvé, pas de pause d'approbation dans ce flux.
+            _sse_response(tool_call_response("browser_take_screenshot", "call_1", "{}")),
             _sse_response(text_response(["Voici", " l'écran."])),
         ]
 
@@ -82,11 +82,11 @@ async def test_context_decomposition_with_mixed_text_and_image_history():
         blocks = {b["kind"]: b for b in body["blocks"]}
 
         assert set(blocks) == {"system", "skills", "tools_schema", "history_text", "images"}
-        # system prompt transitoire (GROUNDING_DIRECTIVE + DOWNLOAD_DIRECTIVE +
-        # BULK_CHECK_DIRECTIVE + PEREMPTION_DIRECTIVE, voir Phase 1d-révisée
-        # puis conscience temporelle puis investigation T1) toujours présent,
-        # aucun contexte RAG/skill injecté dans ce flux (résultats vides).
-        assert blocks["system"]["count"] == 4
+        # system prompt transitoire (DOWNLOAD_DIRECTIVE + BULK_CHECK_DIRECTIVE +
+        # PEREMPTION_DIRECTIVE, voir Phase 1d-révisée puis conscience
+        # temporelle puis investigation T1) toujours présent, aucun contexte
+        # RAG/skill injecté dans ce flux (résultats vides).
+        assert blocks["system"]["count"] == 3
         assert blocks["skills"]["count"] == 0
         # Schéma d'outils mesuré depuis le cache _tools_schema_cache (2 outils
         # enregistrés côté mcp-client), jamais recalculé.

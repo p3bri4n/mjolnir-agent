@@ -52,23 +52,23 @@ async def test_tier_reversible_auto_approved_call_is_audited(mock_side_services)
 
     route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
     route.side_effect = [
-        _sse_response(tool_call_response("mouse_click", "call_1", '{"x": 1, "y": 2}')),
-        _sse_response(text_response(["Cliqué", "."])),
+        _sse_response(tool_call_response("write_file", "call_1", '{"path": "/workspace/x.txt", "content": "y"}')),
+        _sse_response(text_response(["Écrit", "."])),
     ]
     mock_side_services.post("http://fake-mcp-client/call").mock(
         return_value=httpx.Response(200, json={"content": [{"type": "text", "text": "ok"}]})
     )
     g.agent_graph = g.build_graph()
 
-    state = {"messages": [{"role": "user", "content": "Clique là"}], "tool_iterations": 0, "approved": None}
+    state = {"messages": [{"role": "user", "content": "Écris ce fichier"}], "tool_iterations": 0, "approved": None}
     await g.agent_graph.ainvoke(state, CONFIG)
 
     entries = _tool_call_entries(audit_log.read_entries())
     assert len(entries) == 1
     entry = entries[0]
     assert entry["thread_id"] == "test-thread-audit"
-    assert entry["tool"] == "mouse_click"
-    assert entry["arguments"] == {"x": 1, "y": 2}
+    assert entry["tool"] == "write_file"
+    assert entry["arguments"] == {"path": "/workspace/x.txt", "content": "y"}
     assert entry["tier"] == "reversible"
     assert "timestamp" in entry
     # Phase 1d-révisée : le résultat tel que renvoyé au modèle est archivé
@@ -83,14 +83,14 @@ async def test_tier_read_call_is_not_audited(mock_side_services):
     import app.graph as g
 
     mock_side_services.post("http://fake-vllm/v1/chat/completions").mock(
-        return_value=_sse_response(tool_call_response("run_command", "call_1", '{"command": "pwd"}'))
+        return_value=_sse_response(tool_call_response("read_file", "call_1", '{"path": "/workspace/x.txt"}'))
     )
     mock_side_services.post("http://fake-mcp-client/call").mock(
         return_value=httpx.Response(200, json={"content": [{"type": "text", "text": "ok"}]})
     )
     g.agent_graph = g.build_graph()
 
-    state = {"messages": [{"role": "user", "content": "pwd"}], "tool_iterations": 0, "approved": None}
+    state = {"messages": [{"role": "user", "content": "Lis le fichier"}], "tool_iterations": 0, "approved": None}
     await g.agent_graph.ainvoke(state, CONFIG)
 
     assert _tool_call_entries(audit_log.read_entries()) == []
@@ -185,7 +185,7 @@ async def test_audit_endpoint_filters_by_thread_id(mock_side_services):
 
     route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
     route.side_effect = [
-        _sse_response(tool_call_response("mouse_click", "call_1", '{"x": 1, "y": 2}')),
+        _sse_response(tool_call_response("write_file", "call_1", '{"path": "/workspace/x.txt", "content": "y"}')),
         _sse_response(text_response(["OK", "."])),
     ]
     mock_side_services.post("http://fake-mcp-client/call").mock(
@@ -225,15 +225,15 @@ async def test_call_llm_logs_assistant_message_every_turn(mock_side_services):
 
     route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
     route.side_effect = [
-        _sse_response(tool_call_response("mouse_click", "call_1", '{"x": 1, "y": 2}')),
-        _sse_response(text_response(["Cliqué", "."])),
+        _sse_response(tool_call_response("write_file", "call_1", '{"path": "/workspace/x.txt", "content": "y"}')),
+        _sse_response(text_response(["Écrit", "."])),
     ]
     mock_side_services.post("http://fake-mcp-client/call").mock(
         return_value=httpx.Response(200, json={"content": [{"type": "text", "text": "ok"}]})
     )
     g.agent_graph = g.build_graph()
 
-    state = {"messages": [{"role": "user", "content": "Clique là"}], "tool_iterations": 0, "approved": None}
+    state = {"messages": [{"role": "user", "content": "Écris ce fichier"}], "tool_iterations": 0, "approved": None}
     await g.agent_graph.ainvoke(state, CONFIG)
 
     entries = audit_log.read_entries()
@@ -246,8 +246,8 @@ async def test_call_llm_logs_assistant_message_every_turn(mock_side_services):
     assert len(messages) == 2  # un par appel à call_llm dans ce tour (tool_call puis réponse finale)
     assert all(e["thread_id"] == "test-thread-audit" for e in messages)
     assert all(e["role"] == "assistant" for e in messages)
-    assert messages[0]["content"]["tool_calls"][0]["name"] == "mouse_click"
-    assert "Cliqué" in messages[1]["content"]["content"]
+    assert messages[0]["content"]["tool_calls"][0]["name"] == "write_file"
+    assert "Écrit" in messages[1]["content"]["content"]
     assert not messages[1]["content"]["tool_calls"]
 
 

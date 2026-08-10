@@ -50,8 +50,8 @@ services:
       # llama-server, dont le fork llama.cpp décode le WebP nativement — voir
       # tableau des bugs du README.
       - IMAGE_FORMAT_PASSTHROUGH=${IMAGE_FORMAT_PASSTHROUGH:-}
-      # Qwen3.6 raisonne par défaut sur chaque tour : coûteux pour la boucle
-      # perception-action rapide capture/clic de GhostDesk. Injecte /no_think
+      # Qwen3.6 raisonne par défaut sur chaque tour : coûteux pour une
+      # boucle rapide d'outils auto-approuvés. Injecte /no_think
       # dans le system prompt quand tous les tool_calls du tour précédent
       # sont auto-approuvés (voir approval_policy.py) ; laisse le
       # raisonnement normal sinon (première décision d'un tour, tool
@@ -90,6 +90,11 @@ services:
       # explicite de l'activer avec les 3 flags ci-dessus, la campagne
       # finale 29/33 ayant mesuré les 4 flags actifs ensemble.
       - PLAN_JUDGE_ENABLED=${PLAN_JUDGE_ENABLED:-true}
+      # 5e condition du coeur cognitif (effort 2 point 3, voir
+      # docs/briefs/update-plan.md "2.1 addendum") : "nodes" (défaut,
+      # comportement inchangé) ou "merged" (planification fusionnée dans
+      # le tour principal via l'outil manage_plan, app/graph.py).
+      - PLANNING_MODE=${PLANNING_MODE:-nodes}
       # Budget de tokens dédié aux appels LLM auxiliaires (plan_task/
       # verify_action/replan_task/revise_plan/_judge_plan), SÉPARÉ de
       # LLM_MAX_TOKENS (boucle conversationnelle). Bug réel trouvé en
@@ -189,9 +194,14 @@ services:
       # brief) — d'où le montage plutôt qu'un appel réseau.
       - CAMPAIGNS_DIR=/campaigns
       - DURATION_ESTIMATE_CACHE_PATH=/duration-estimates.json
+      # Visual feedback (docs/briefs/campaign-visual-feedback.md, minimal
+      # subset) — same read-only principle: mcp-client writes, this
+      # service only reads.
+      - VISUAL_CAPTURE_DIR=/visual-capture
     volumes:
       - ./docs/campaigns:/campaigns:ro
       - ./services/langgraph-agent/tests_integration/DURATION_ESTIMATE_CACHE.json:/duration-estimates.json:ro
+      - ./workspace/visual-capture:/visual-capture:ro
     ports:
       - "${DASHBOARD_PORT:-8090}:8090"
     healthcheck:
@@ -272,31 +282,21 @@ services:
     container_name: mcp-client
     restart: unless-stopped
     environment:
-      # mcp-client spawne ces conteneurs à la demande via le socket Docker
+      # mcp-client spawne ce conteneur à la demande via le socket Docker
       # (transport stdio, conforme à l'usage officiel des images mcp/*)
       - MCP_FILESYSTEM_IMAGE=mcp/filesystem:latest
-      - MCP_GIT_IMAGE=mcp/git:latest
-      - MCP_TERMINAL_IMAGE=mcp-terminal:local   # construite localement, voir plus bas
       - WORKSPACE_HOST_PATH=${WORKSPACE_HOST_PATH}    # chemin HOTE requis par docker run -v
-      # GhostDesk (serveur "desktop") : contrairement aux autres, c'est un
-      # serveur HTTP persistant (bureau virtuel), pas un conteneur spawné à
-      # la demande — mcp-client s'y connecte en Streamable HTTP.
-      - MCP_GHOSTDESK_URL=http://ghostdesk:3000/mcp
-      # "browser" (Playwright) : serveur HTTP persistant lui aussi (service
+      # "browser" (Playwright) : serveur HTTP persistant (service
       # playwright-mcp ci-dessous), pas un spawn éphémère par appel — voir
       # docs/resolved-bugs.md (perte de continuité d'état entre deux appels d'outils).
       - MCP_PLAYWRIGHT_URL=http://playwright-mcp:8931/mcp
-      - GHOSTDESK_AUTH_TOKEN=${GHOSTDESK_AUTH_TOKEN}
-      # Requis par les modèles Qwen pour que leurs clics tombent sur la bonne
-      # cible (voir .env.example) ; ${VAR:-1000} plutôt que ${VAR} pour
-      # garder ce défaut même si la variable est absente du .env.
-      - GHOSTDESK_MODEL_SPACE=${GHOSTDESK_MODEL_SPACE:-1000}
-      # OCR d'appoint (services/ocr-service) : serveur HTTP persistant lui
-      # aussi, comme GhostDesk (voir plus bas). Pas de header
-      # GhostDesk-Model-Space pour ce serveur : ocr-service convertit déjà
-      # ses coordonnées vers 0-1000 lui-même avant de répondre.
-      - MCP_OCR_URL=http://ocr-service:8004/mcp
-      - OCR_AUTH_TOKEN=${OCR_AUTH_TOKEN}
+      # git/terminal/desktop(GhostDesk)/ocr retirés de ce registre (effort
+      # 1.2, docs/briefs/update-plan.md ; docs/history.md) : schéma d'outils
+      # lourd pour un usage quasi nul (44,9% du schéma pour 1,6% des appels
+      # réels sur 67 threads v2). GhostDesk et ocr-service restent déployés
+      # plus bas (ocr-service en dépend encore en interne) pour le
+      # rebranchement de l'effort 3 (OCR en capacité du graphe), mais
+      # mcp-client ne s'y connecte plus.
       # Stabilisation post-navigation (trouvé en investiguant T10, voir
       # docs/history.md « désynchronisation snapshot/URL ») : sur une page à
       # rendu client, browser_snapshot peut renvoyer le contenu de
@@ -304,32 +304,23 @@ services:
       # browser_wait_for est appelé automatiquement après ces deux outils
       # pour laisser le rendu se stabiliser. 0 désactive ce délai.
       - BROWSER_STABILIZE_WAIT_SECONDS=${BROWSER_STABILIZE_WAIT_SECONDS:-0.5}
+      # Visual feedback (docs/briefs/campaign-visual-feedback.md, minimal
+      # subset, see that file's "Status" section for the full design). On
+      # by default since 2026-08-10: with/without smoke measured negligible
+      # overhead on the declared judge (median task duration) — see
+      # docs/history.md, "VISUAL FEEDBACK MINIMAL", overhead smoke result.
+      - CAMPAIGN_VISUAL_CAPTURE=${CAMPAIGN_VISUAL_CAPTURE:-true}
+      - VISUAL_CAPTURE_DIR=/visual-capture
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock   # ⚠️ équivaut à un accès root sur l'hôte,
                                                        # voir avertissement de sécurité dans le README
       - ./workspace:/workspace
+      - ./workspace/visual-capture:/visual-capture
     depends_on:
-      ghostdesk:
-        condition: service_started
-      ocr-service:
-        condition: service_started
       playwright-mcp:
         condition: service_healthy
     networks:
       - agent-net
-
-  # --- Image du serveur MCP "Terminal" ---------------------------
-  # ⚠️ Il n'existe pas d'image MCP "Terminal" officielle (ni chez
-  # Anthropic/modelcontextprotocol, ni chez Docker) : l'exécution shell
-  # arbitraire est volontairement absente des serveurs de référence.
-  # Cette image est construite localement puis spawnée à la demande par
-  # mcp-client, avec le même hardening qu'un conteneur classique.
-  mcp-terminal-build:
-    build: ./services/mcp-terminal
-    image: mcp-terminal:local
-    container_name: mcp-terminal-build
-    profiles: ["build-only"]   # ce service ne se lance jamais, il sert juste à builder l'image
-    command: ["true"]
 
   # --- Playwright MCP : navigateur piloté par l'agent (serveur HTTP) --
   # ⚠️ Anciennement spawné à la demande par mcp-client (`docker run --rm`
@@ -337,7 +328,8 @@ services:
   # continuité d'état avec le précédent (voir docs/resolved-bugs.md). L'image officielle
   # mcp/playwright supporte un mode serveur HTTP natif (`--port`, endpoint
   # Streamable HTTP `/mcp`) ; on l'utilise ici comme service persistant,
-  # même patron que GhostDesk/OCR ci-dessous.
+  # même patron que GhostDesk/OCR plus bas (déployés mais plus enregistrés
+  # dans mcp-client, voir effort 1.2/3, docs/briefs/update-plan.md).
   # Un volume nommé Docker est créé root:root par défaut ; l'image
   # mcp/playwright tourne en "node" (uid 1000), qui ne peut donc PAS écrire
   # dans /downloads sans ce correctif — constaté en conditions réelles
@@ -392,8 +384,8 @@ services:
     # pas de port publié : uniquement accessible via le réseau interne (mcp-client)
 
   # --- GhostDesk : bureau virtuel complet piloté par l'agent ------
-  # ⚠️ Surface d'attaque bien plus large que mcp-terminal : SYS_ADMIN +
-  # exécution shell + contrôle GUI complet. Reste un serveur MCP HTTP
+  # ⚠️ Surface d'attaque large : SYS_ADMIN + exécution shell + contrôle
+  # GUI complet. Reste un serveur MCP HTTP
   # persistant avec état (pas un conteneur éphémère comme les autres) ;
   # voir avertissement détaillé et limites assumées dans le README.
   ghostdesk:
@@ -423,16 +415,18 @@ services:
       start_period: 10s
     networks:
       - agent-net
-    # Port MCP (3000) volontairement non publié sur l'hôte : seuls mcp-client
-    # et ocr-service doivent l'atteindre, via le réseau interne agent-net.
+    # Port MCP (3000) volontairement non publié sur l'hôte : seul
+    # ocr-service doit l'atteindre, via le réseau interne agent-net —
+    # mcp-client ne s'y connecte plus (effort 1.2, docs/briefs/update-plan.md).
 
   # --- OCR d'appoint : PaddleOCR CPU (find_text/read_screen) ------
   # Grounding du VLM (Qwen3.6 MoE) : raisonne bien mais localise mal un
   # élément à l'écran (sans OCR/détection d'éléments UI dédiée, voir README
   # section OCR d'appoint et Limites connues assumées). Serveur MCP HTTP
-  # persistant comme GhostDesk ci-dessus (pas un conteneur spawné à la
-  # demande par mcp-client) : il se connecte lui-même à GhostDesk pour
-  # capturer l'écran, indépendamment de mcp-client/langgraph-agent.
+  # déployé mais plus enregistré dans mcp-client (effort 1.2) : dormant
+  # jusqu'au rebranchement prévu par l'effort 3 (capacité du graphe plutôt
+  # qu'outil appelable par le modèle) — se connecte lui-même à GhostDesk
+  # pour capturer l'écran, indépendamment de mcp-client/langgraph-agent.
   ocr-service:
     build: ./services/ocr-service
     container_name: ocr-service
@@ -452,14 +446,14 @@ services:
         condition: service_healthy
     networks:
       - agent-net
-    # pas de port publié : uniquement accessible via le réseau interne (mcp-client)
+    # pas de port publié : uniquement accessible via le réseau interne agent-net
 
   # ──────────────────────────────────────────────────────────────
   # Inférence
   # ──────────────────────────────────────────────────────────────
   # Backend par défaut : TabbyAPI (image officielle ghcr.io/theroyallab/
   # tabbyapi, backend ExLlamaV3) servant Qwen3.6-27B en quantisation EXL3
-  # (variante VL, vision préservée pour GhostDesk/OCR) avec MTP natif
+  # (variante VL, vision préservée pour browser_take_screenshot) avec MTP natif
   # (draft_mode: mtp dans services/tabbyapi/config.yml, pas de modèle de
   # draft séparé). Remplace llama-server comme défaut : ce dernier restait
   # bloqué par un bug de synchronisation inter-GPU confirmé dans son fork
@@ -484,6 +478,13 @@ services:
     build: ./services/tabbyapi
     container_name: tabbyapi
     restart: unless-stopped
+    environment:
+      # Ordre PCI stable (sinon l'ordre CUDA n'est pas garanti d'un
+      # redémarrage à l'autre) — voir
+      # docs/briefs/deterministic-gpu-placement.md. Lu à l'initialisation
+      # CUDA : un --force-recreate est nécessaire, un simple restart ne
+      # suffit pas.
+      - CUDA_DEVICE_ORDER=PCI_BUS_ID
     # Explicite plutôt que de dépendre du défaut du daemon Docker de l'hôte
     # (souvent plus restrictif, ex. Desktop Linux : max-size 20m/max-file 5,
     # ~100 Mio — insuffisant pour garder les lignes "tokens generated"
@@ -557,7 +558,7 @@ services:
     networks:
       - agent-net
 
-  # Sonde de faisabilité canal visuel (docs/briefs/B5-security-hardening.md,
+  # Sonde de faisabilité canal visuel (docs/briefs/update-plan.md effort 3,
   # préalable au retrait de GhostDesk) : session technique, jamais mesurée
   # comme capacité agent — voir docs/architecture/visual-channel-feasibility.md.
   fixture-visual-probe:

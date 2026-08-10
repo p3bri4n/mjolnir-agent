@@ -20,7 +20,7 @@ rules:
   - tool: custom_tool
     matcher: any
     tier: reversible
-  - tool: run_command
+  - tool: custom_shell_tool
     matcher: command_prefix
     prefixes: ["ls", "git status"]
     tier: read
@@ -36,6 +36,9 @@ rules:
 
 
 def test_approval_rules_path_env_extends_default_rules(monkeypatch, tmp_path):
+    """DEFAULT_RULES is empty (no default argument rule today, see
+    approval_policy.py) — APPROVAL_RULES_PATH only ever ADDS rules, never
+    removes the (empty) default set."""
     yaml_path = tmp_path / "rules.yaml"
     yaml_path.write_text(
         """
@@ -47,39 +50,19 @@ rules:
     )
     monkeypatch.setenv("APPROVAL_RULES_PATH", str(yaml_path))
     rules = policy._load_rules()
-    assert policy.DEFAULT_RULES[0] in rules  # les règles par défaut restent présentes
+    assert len(rules) == len(policy.DEFAULT_RULES) + 1
     assert any(r.tool == "custom_tool" for r in rules)
 
 
-def test_key_type_short_text_is_reversible():
-    assert policy.effective_tier("key_type", {"text": "clique ici"}) == policy.TIER_REVERSIBLE
-
-
-def test_key_type_long_text_stays_sensitive():
-    long_text = "x" * 60
-    assert policy.effective_tier("key_type", {"text": long_text}) == policy.TIER_SENSITIVE
-
-
-def test_key_type_multiline_text_stays_sensitive_even_if_short():
-    """no_newline : un texte court mais multi-lignes (script collé, code) reste sensible."""
-    assert policy.effective_tier("key_type", {"text": "a\nb"}) == policy.TIER_SENSITIVE
-
-
-def test_key_type_boundary_at_fifty_chars():
-    exactly_fifty = "a" * 50
-    assert policy.effective_tier("key_type", {"text": exactly_fifty}) == policy.TIER_SENSITIVE
-    just_under = "a" * 49
-    assert policy.effective_tier("key_type", {"text": just_under}) == policy.TIER_REVERSIBLE
-
-
 def test_no_matching_rule_falls_back_to_static_tier():
-    """screen_shot n'a aucune règle : effective_tier retombe sur tool_tier()."""
-    assert policy.effective_tier("screen_shot", {}) == policy.TIER_READ
+    """read_file n'a aucune règle : effective_tier retombe sur tool_tier()."""
+    assert policy.effective_tier("read_file", {}) == policy.TIER_READ
 
 
-def test_rule_does_not_affect_other_tools():
-    """La règle key_type_short est nommée pour key_type : ne matche aucun autre outil."""
-    assert policy.effective_tier("some_other_tool", {"text": "court"}) == policy.TIER_SENSITIVE
+def test_rule_does_not_affect_other_tools(monkeypatch):
+    """Une règle nommée pour un outil ne matche aucun autre outil."""
+    monkeypatch.setattr(policy, "RULES", [policy.Rule("some_tool", policy._matcher_any, policy.TIER_REVERSIBLE)])
+    assert policy.effective_tier("some_other_tool", {}) == policy.TIER_SENSITIVE
 
 
 def test_command_prefix_matcher_factory():
@@ -99,9 +82,9 @@ def test_custom_rule_overrides_static_tier_in_either_direction(monkeypatch):
     monkeypatch.setattr(
         policy,
         "RULES",
-        [policy.Rule("screen_shot", policy._matcher_any, policy.TIER_SENSITIVE)],
+        [policy.Rule("read_file", policy._matcher_any, policy.TIER_SENSITIVE)],
     )
-    assert policy.effective_tier("screen_shot", {}) == policy.TIER_SENSITIVE
+    assert policy.effective_tier("read_file", {}) == policy.TIER_SENSITIVE
 
 
 def test_ambiguous_matching_rules_pick_the_most_restrictive(monkeypatch):
@@ -110,12 +93,12 @@ def test_ambiguous_matching_rules_pick_the_most_restrictive(monkeypatch):
         policy,
         "RULES",
         [
-            policy.Rule("key_type", policy._matcher_any, policy.TIER_REVERSIBLE),
-            policy.Rule("key_type", policy._matcher_key_type_short, policy.TIER_SENSITIVE),
+            policy.Rule("custom_tool", policy._matcher_any, policy.TIER_REVERSIBLE),
+            policy.Rule("custom_tool", policy._matcher_any, policy.TIER_SENSITIVE),
         ],
     )
-    # les deux règles matchent un texte court : reversible ET sensible -> sensible gagne
-    assert policy.effective_tier("key_type", {"text": "court"}) == policy.TIER_SENSITIVE
+    # les deux règles matchent : reversible ET sensible -> sensible gagne
+    assert policy.effective_tier("custom_tool", {}) == policy.TIER_SENSITIVE
 
 
 def test_session_grant_still_applies_after_rule_resolution(monkeypatch):
@@ -176,44 +159,32 @@ def mock_side_services():
 
 
 @pytest.mark.asyncio
-async def test_short_key_type_auto_approved_in_graph(mock_side_services):
+async def test_rule_relaxed_tool_auto_approved_in_graph(mock_side_services, monkeypatch):
+    """No default argument rule exists today (DEFAULT_RULES is empty, see
+    approval_policy.py) — this exercises the mechanism end-to-end via a
+    RULES override, the same shape an APPROVAL_RULES_PATH deployment
+    would produce."""
+    import app.approval_policy as policy
     import app.graph as g
+
+    monkeypatch.setattr(
+        policy, "RULES", [policy.Rule("browser_evaluate", policy._matcher_any, policy.TIER_REVERSIBLE)]
+    )
 
     route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
     route.side_effect = [
-        _sse_response(tool_call_response("key_type", "call_1", '{"text": "clique ici"}')),
-        _sse_response(text_response(["Tapé", "."])),
+        _sse_response(tool_call_response("browser_evaluate", "call_1", '{"code": "1+1"}')),
+        _sse_response(text_response(["Fait", "."])),
     ]
     mcp_route = mock_side_services.post("http://fake-mcp-client/call").mock(
         return_value=httpx.Response(200, json={"content": [{"type": "text", "text": "ok"}]})
     )
     g.agent_graph = g.build_graph()
 
-    state = {"messages": [{"role": "user", "content": "Tape clique ici"}], "tool_iterations": 0, "approved": None}
+    state = {"messages": [{"role": "user", "content": "Évalue 1+1"}], "tool_iterations": 0, "approved": None}
     result = await g.agent_graph.ainvoke(state, CONFIG)
 
     snapshot = await g.agent_graph.aget_state(CONFIG)
-    assert snapshot.next == ()  # aucune pause : texte court auto-approuvé par la règle
+    assert snapshot.next == ()  # aucune pause : assoupli par la règle
     assert mcp_route.call_count == 1
-    assert result["messages"][-1].content == "Tapé."
-
-
-@pytest.mark.asyncio
-async def test_long_key_type_interrupts_in_graph(mock_side_services):
-    import app.graph as g
-
-    long_text = "Un texte de plus de cinquante caracteres pour rester sensible par defaut"
-    mock_side_services.post("http://fake-vllm/v1/chat/completions").mock(
-        return_value=_sse_response(tool_call_response("key_type", "call_1", f'{{"text": "{long_text}"}}'))
-    )
-    mcp_route = mock_side_services.post("http://fake-mcp-client/call").mock(
-        return_value=httpx.Response(200, json={"content": [{"type": "text", "text": "ok"}]})
-    )
-    g.agent_graph = g.build_graph()
-
-    state = {"messages": [{"role": "user", "content": "Tape ce long texte"}], "tool_iterations": 0, "approved": None}
-    await g.agent_graph.ainvoke(state, CONFIG)
-
-    snapshot = await g.agent_graph.aget_state(CONFIG)
-    assert snapshot.next == ("require_approval",)
-    assert mcp_route.call_count == 0
+    assert result["messages"][-1].content == "Fait."

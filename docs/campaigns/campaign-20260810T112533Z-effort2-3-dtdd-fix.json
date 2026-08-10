@@ -1,0 +1,1196 @@
+{
+  "metadata": {
+    "commit": "98386e0a2d49833c66051a1ddffb224304bdd9e4",
+    "ended_at": "2026-08-10T11:35:20.955534+00:00",
+    "env_flags": {
+      "ADAPTIVE_THINKING": "true",
+      "AFFORDANCE_THRESHOLD": "60",
+      "APPROVAL_RULES_PATH": "",
+      "AUDIT_LOG_MAX_BYTES": "20971520",
+      "AUTO_APPROVAL_STREAK_LIMIT": "6",
+      "AUTO_APPROVED_TOOLS": "",
+      "BROWSER_NAVIGATE_GUARDRAIL": "true",
+      "BROWSER_TOOL_OUTPUT_MAX_CHARS": "8000",
+      "CAMPAIGN_VISUAL_CAPTURE": "true",
+      "EPISODE_COMPACTION_ENABLED": "false",
+      "EPISODE_COMPACTION_TURN_THRESHOLD": "40",
+      "FABRICATION_LIMIT": "5",
+      "IMAGE_FORMAT_PASSTHROUGH": "",
+      "IMAGE_TOKEN_ESTIMATE": "1500",
+      "LLM_MAX_TOKENS": "2048",
+      "MAX_EMPTY_ANSWER_RETRIES": "1",
+      "MAX_IMAGES_IN_CONTEXT": "1",
+      "MAX_TOOL_ITERATIONS": "20",
+      "NEVER_GRANTABLE_TOOLS_EXTRA": "",
+      "PLANNER_ENABLED": "true",
+      "PLANNER_MAX_TOKENS": "8192",
+      "PLANNER_THINKING_ENABLED": "false",
+      "PLANNING_MODE": "nodes",
+      "PLAN_JUDGE_ENABLED": "true",
+      "PLAN_VALIDATION_ENABLED": "true",
+      "REPLAN_BUDGET": "2",
+      "SUBTASK_ATTEMPT_BUDGET": "3",
+      "TZ": "Europe/Paris",
+      "VERIFICATION_ENABLED": "true"
+    },
+    "gpu_devices": [
+      {
+        "bus_id": "00000000:04:00.0",
+        "index": 0,
+        "memory_used_mib": 6454.0,
+        "name": "NVIDIA GeForce RTX 5060 Ti"
+      },
+      {
+        "bus_id": "00000000:08:00.0",
+        "index": 1,
+        "memory_used_mib": 13317.0,
+        "name": "NVIDIA GeForce RTX 4070 Ti SUPER"
+      }
+    ],
+    "image_ids": {
+      "langgraph-agent": "sha256:7e64f1d590bfa1e55a2cb89a899b394d88b6bd333305bbde36549b2678d6534c",
+      "mcp-client": "sha256:1161632aa5967a29910014b8ca60cfd583e224e9ad7f7fb158963ac9c87fccca",
+      "playwright-mcp": "sha256:8771dc4666e7c11440bfc6a0c6b00480e9a15b8891b45f29a52d7d995f8d1492",
+      "tabbyapi": "sha256:7ecf8c27484305df6375ce4fe83e6406b73d4d459e78cf6b32fc1941181ae139"
+    },
+    "label": "effort2.3-dtdd-fix",
+    "started_at": "2026-08-10T11:25:33.472193+00:00",
+    "tabbyapi_model_id": "agent-llm"
+  },
+  "runs": [
+    {
+      "approvals": 5,
+      "cache_zero_requests": 3,
+      "cup": null,
+      "detail": "attendu ['PX-1009', 'PX-1028'], trouvé []",
+      "duration_seconds": 71.8,
+      "episode_compaction_applied_count": 0,
+      "episode_compaction_messages_max": 19,
+      "fabricated_urls": [],
+      "failure_cause": "extraction",
+      "final_text": "Je n'ai pas pu terminer la tâche avec le budget de tentatives/replanifications disponible.\nÉtat atteint :\n- [échoué] Extraire les informations du produit actuel (Portable Chaise #2) visible sur la page : Référence (PX-1002), Catégorie (Mobilier) et Prix (145.50 €). — critère non atteint (constat intégré au tour)\n- [à faire] Vérifier si le produit PX-1002 répond aux critères (Catégorie 'Mobilier' ET Prix > 120.00 €).\n- [à faire] Retourner à la liste des produits pour vérifier s'il existe d'autres produits à analyser.\n- [à faire] Identifier les autres produits de la catégorie 'Mobilier' sur la page de liste et vérifier s'ils ont été traités. Si tous les produits ont été visités, passer à l'étape suivante.\n- [à faire] Pour chaque produit candidat identifié (ex: PX-1002), naviguer vers la documentation (http://fixture-docs/docs/index.html) et rechercher la référence dans les pages de configuration.\n- [à faire] Compiler la liste finale des références qui satisfont les deux conditions (prix/catégorie ET présence dans la documentation).",
+      "merged_plan_attempted": 0,
+      "merged_plan_calls": 0,
+      "merged_plan_completions": 0,
+      "merged_plan_heuristic_rejections": 0,
+      "merged_plan_initial_subtask_count": null,
+      "merged_plan_replans": 0,
+      "plan_initial_subtask_count": 4,
+      "plan_trivial": false,
+      "prefill_seconds": 18.28,
+      "prompt_tokens_total": 97077,
+      "repetition": 1,
+      "replan_events": 2,
+      "segment": 0,
+      "success": false,
+      "tabbyapi_raw_samples": [
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 5.49,
+          "new_tokens": 432,
+          "process_speed_tps": 664.62,
+          "queue_seconds": 0.0,
+          "tokens_generated": 340
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 2.98,
+          "new_tokens": 402,
+          "process_speed_tps": 508.86,
+          "queue_seconds": 0.03,
+          "tokens_generated": 114
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 3.32,
+          "new_tokens": 233,
+          "process_speed_tps": 629.73,
+          "queue_seconds": 0.03,
+          "tokens_generated": 202
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 1.84,
+          "new_tokens": 689,
+          "process_speed_tps": 717.71,
+          "queue_seconds": 0.03,
+          "tokens_generated": 61
+        },
+        {
+          "cached_tokens": 8448,
+          "generation_seconds": 2.18,
+          "new_tokens": 387,
+          "process_speed_tps": 586.36,
+          "queue_seconds": 0.03,
+          "tokens_generated": 115
+        },
+        {
+          "cached_tokens": 8704,
+          "generation_seconds": 1.34,
+          "new_tokens": 375,
+          "process_speed_tps": 595.24,
+          "queue_seconds": 0.03,
+          "tokens_generated": 56
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 8.35,
+          "new_tokens": 1234,
+          "process_speed_tps": 934.85,
+          "queue_seconds": 0.0,
+          "tokens_generated": 502
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 3.63,
+          "new_tokens": 1161,
+          "process_speed_tps": 928.8,
+          "queue_seconds": 0.03,
+          "tokens_generated": 118
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 6.78,
+          "new_tokens": 1861,
+          "process_speed_tps": 894.71,
+          "queue_seconds": 0.03,
+          "tokens_generated": 344
+        },
+        {
+          "cached_tokens": 9984,
+          "generation_seconds": 3.41,
+          "new_tokens": 899,
+          "process_speed_tps": 742.98,
+          "queue_seconds": 0.03,
+          "tokens_generated": 174
+        },
+        {
+          "cached_tokens": 10752,
+          "generation_seconds": 4.04,
+          "new_tokens": 953,
+          "process_speed_tps": 756.35,
+          "queue_seconds": 0.03,
+          "tokens_generated": 185
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 8.89,
+          "new_tokens": 856,
+          "process_speed_tps": 901.05,
+          "queue_seconds": 0.0,
+          "tokens_generated": 563
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 3.51,
+          "new_tokens": 802,
+          "process_speed_tps": 911.36,
+          "queue_seconds": 0.03,
+          "tokens_generated": 143
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 5.28,
+          "new_tokens": 4077,
+          "process_speed_tps": 900.0,
+          "queue_seconds": 0.03,
+          "tokens_generated": 55
+        },
+        {
+          "cached_tokens": 11776,
+          "generation_seconds": 3.15,
+          "new_tokens": 540,
+          "process_speed_tps": 729.73,
+          "queue_seconds": 0.03,
+          "tokens_generated": 196
+        }
+      ],
+      "tabbyapi_requests": 15,
+      "task_id": "A1_reconciliation_croisee",
+      "thread_id": "8fe8065ebd2e6b09",
+      "tool_calls_observed": 9,
+      "validation_heuristic_rejections": 0,
+      "validation_judge_invocations": 3,
+      "validation_judge_vetoes": 0,
+      "verification_exploitable": 9,
+      "verification_opportunities": 9
+    },
+    {
+      "approvals": 6,
+      "cache_zero_requests": 4,
+      "cup": null,
+      "detail": "attendu ['PX-1009', 'PX-1028'], trouvé []",
+      "duration_seconds": 114.8,
+      "episode_compaction_applied_count": 0,
+      "episode_compaction_messages_max": 19,
+      "fabricated_urls": [],
+      "failure_cause": "extraction",
+      "final_text": "Je n'ai pas pu terminer la tâche avec le budget de tentatives/replanifications disponible.\nÉtat atteint :\n- [échoué] Naviguer vers la page d'accueil du catalogue (http://fixture-catalog/catalog/index.html) pour obtenir la liste complète des produits ou la structure de navigation. — critère non atteint (constat intégré au tour)\n- [à faire] Extraire la liste de tous les liens vers les pages de produits disponibles dans le catalogue (en parcourant les pages si nécessaire) pour constituer une liste exhaustive des URLs à inspecter.\n- [à faire] Pour chaque produit identifié, accéder à sa page de détail individuelle pour extraire explicitement la catégorie et le prix.\n- [à faire] Filtrer les produits pour ne garder que ceux dont la catégorie est 'Mobilier' ET dont le prix est strictement supérieur à 120.00 €. Noter leurs références.\n- [à faire] Naviguer vers la page d'accueil de la documentation (http://fixture-docs/docs/index.html) et identifier la méthode de recherche (barre de recherche, index, ou navigation par liens).\n- [à faire] Pour chaque référence obtenue à l'étape 4, vérifier sa présence dans la documentation en utilisant la méthode identifiée (recherche ou navigation).\n- [à faire] Compiler la liste finale des références qui satisfont les deux conditions : catégorie 'Mobilier' avec prix > 120€ ET mentionnées dans la documentation.",
+      "merged_plan_attempted": 0,
+      "merged_plan_calls": 0,
+      "merged_plan_completions": 0,
+      "merged_plan_heuristic_rejections": 0,
+      "merged_plan_initial_subtask_count": null,
+      "merged_plan_replans": 0,
+      "plan_initial_subtask_count": 4,
+      "plan_trivial": false,
+      "prefill_seconds": 26.76,
+      "prompt_tokens_total": 129108,
+      "repetition": 2,
+      "replan_events": 2,
+      "segment": 0,
+      "success": false,
+      "tabbyapi_raw_samples": [
+        {
+          "cached_tokens": 12288,
+          "generation_seconds": 1.31,
+          "new_tokens": 354,
+          "process_speed_tps": 561.9,
+          "queue_seconds": 0.03,
+          "tokens_generated": 55
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 4.53,
+          "new_tokens": 177,
+          "process_speed_tps": 610.34,
+          "queue_seconds": 0.03,
+          "tokens_generated": 330
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 2.52,
+          "new_tokens": 409,
+          "process_speed_tps": 639.06,
+          "queue_seconds": 0.03,
+          "tokens_generated": 112
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 3.12,
+          "new_tokens": 234,
+          "process_speed_tps": 650.0,
+          "queue_seconds": 0.03,
+          "tokens_generated": 205
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 1.76,
+          "new_tokens": 693,
+          "process_speed_tps": 737.23,
+          "queue_seconds": 0.03,
+          "tokens_generated": 58
+        },
+        {
+          "cached_tokens": 8448,
+          "generation_seconds": 2.32,
+          "new_tokens": 388,
+          "process_speed_tps": 587.88,
+          "queue_seconds": 0.03,
+          "tokens_generated": 115
+        },
+        {
+          "cached_tokens": 8704,
+          "generation_seconds": 1.5,
+          "new_tokens": 379,
+          "process_speed_tps": 601.59,
+          "queue_seconds": 0.03,
+          "tokens_generated": 67
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 9.44,
+          "new_tokens": 1235,
+          "process_speed_tps": 935.61,
+          "queue_seconds": 0.0,
+          "tokens_generated": 586
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 1.65,
+          "new_tokens": 1227,
+          "process_speed_tps": 929.55,
+          "queue_seconds": 0.03,
+          "tokens_generated": 22
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 8.31,
+          "new_tokens": 1871,
+          "process_speed_tps": 899.52,
+          "queue_seconds": 0.03,
+          "tokens_generated": 443
+        },
+        {
+          "cached_tokens": 9984,
+          "generation_seconds": 1.66,
+          "new_tokens": 397,
+          "process_speed_tps": 583.82,
+          "queue_seconds": 0.03,
+          "tokens_generated": 66
+        },
+        {
+          "cached_tokens": 10240,
+          "generation_seconds": 2.7,
+          "new_tokens": 918,
+          "process_speed_tps": 734.4,
+          "queue_seconds": 0.03,
+          "tokens_generated": 118
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 9.78,
+          "new_tokens": 1276,
+          "process_speed_tps": 959.4,
+          "queue_seconds": 0.0,
+          "tokens_generated": 677
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 7.36,
+          "new_tokens": 1363,
+          "process_speed_tps": 973.57,
+          "queue_seconds": 0.03,
+          "tokens_generated": 337
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 11.09,
+          "new_tokens": 1527,
+          "process_speed_tps": 972.61,
+          "queue_seconds": 0.0,
+          "tokens_generated": 769
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 6.41,
+          "new_tokens": 1457,
+          "process_speed_tps": 946.1,
+          "queue_seconds": 0.03,
+          "tokens_generated": 258
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 9.94,
+          "new_tokens": 1447,
+          "process_speed_tps": 951.97,
+          "queue_seconds": 0.0,
+          "tokens_generated": 623
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 3.11,
+          "new_tokens": 1323,
+          "process_speed_tps": 994.74,
+          "queue_seconds": 0.03,
+          "tokens_generated": 89
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 4.77,
+          "new_tokens": 3464,
+          "process_speed_tps": 888.21,
+          "queue_seconds": 0.03,
+          "tokens_generated": 58
+        },
+        {
+          "cached_tokens": 11264,
+          "generation_seconds": 9.23,
+          "new_tokens": 869,
+          "process_speed_tps": 749.14,
+          "queue_seconds": 0.03,
+          "tokens_generated": 661
+        },
+        {
+          "cached_tokens": 12032,
+          "generation_seconds": 5.63,
+          "new_tokens": 1860,
+          "process_speed_tps": 841.63,
+          "queue_seconds": 0.03,
+          "tokens_generated": 269
+        }
+      ],
+      "tabbyapi_requests": 21,
+      "task_id": "A1_reconciliation_croisee",
+      "thread_id": "7ce529be2d938a29",
+      "tool_calls_observed": 10,
+      "validation_heuristic_rejections": 0,
+      "validation_judge_invocations": 5,
+      "validation_judge_vetoes": 2,
+      "verification_exploitable": 9,
+      "verification_opportunities": 9
+    },
+    {
+      "approvals": 5,
+      "cache_zero_requests": 4,
+      "cup": null,
+      "detail": "attendu ['PX-1009', 'PX-1028'], trouvé []",
+      "duration_seconds": 109.9,
+      "episode_compaction_applied_count": 0,
+      "episode_compaction_messages_max": 19,
+      "fabricated_urls": [],
+      "failure_cause": "extraction",
+      "final_text": "Je n'ai pas pu terminer la tâche avec le budget de tentatives/replanifications disponible.\nÉtat atteint :\n- [échoué] Extraire les données des produits visibles sur la page 3 actuelle (nom, URL, catégorie, prix) en utilisant browser_extract, puis naviguer vers la page 2 via le lien 'Précédent' pour continuer l'extraction. — critère non atteint (constat intégré au tour)\n- [à faire] Extraire les données des produits visibles sur la page 2, puis naviguer vers la page 1 via le lien 'Précédent' pour continuer l'extraction.\n- [à faire] Extraire les données des produits visibles sur la page 1. Une fois toutes les pages traitées, compiler une liste unique des références des produits de catégorie 'Mobilier' dont le prix est strictement supérieur à 120.00 €.\n- [à faire] Naviguer vers la documentation (http://fixture-docs/docs/index.html) et extraire le contenu de toutes les pages de configuration disponibles pour identifier les références de produits mentionnées.\n- [à faire] Comparer la liste des produits filtrés (catégorie/prix) avec la liste des produits mentionnés dans la documentation pour identifier les intersections.\n- [à faire] Présenter la liste finale des références qui remplissent les deux conditions à l'utilisateur.",
+      "merged_plan_attempted": 0,
+      "merged_plan_calls": 0,
+      "merged_plan_completions": 0,
+      "merged_plan_heuristic_rejections": 0,
+      "merged_plan_initial_subtask_count": null,
+      "merged_plan_replans": 0,
+      "plan_initial_subtask_count": 4,
+      "plan_trivial": false,
+      "prefill_seconds": 25.14,
+      "prompt_tokens_total": 114648,
+      "repetition": 3,
+      "replan_events": 2,
+      "segment": 0,
+      "success": false,
+      "tabbyapi_raw_samples": [
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 4.85,
+          "new_tokens": 178,
+          "process_speed_tps": 613.79,
+          "queue_seconds": 0.03,
+          "tokens_generated": 346
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 3.37,
+          "new_tokens": 426,
+          "process_speed_tps": 665.62,
+          "queue_seconds": 0.03,
+          "tokens_generated": 128
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 2.69,
+          "new_tokens": 235,
+          "process_speed_tps": 652.78,
+          "queue_seconds": 0.03,
+          "tokens_generated": 183
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 1.81,
+          "new_tokens": 672,
+          "process_speed_tps": 714.89,
+          "queue_seconds": 0.03,
+          "tokens_generated": 61
+        },
+        {
+          "cached_tokens": 8448,
+          "generation_seconds": 2.09,
+          "new_tokens": 370,
+          "process_speed_tps": 587.3,
+          "queue_seconds": 0.03,
+          "tokens_generated": 113
+        },
+        {
+          "cached_tokens": 8704,
+          "generation_seconds": 1.21,
+          "new_tokens": 356,
+          "process_speed_tps": 593.33,
+          "queue_seconds": 0.03,
+          "tokens_generated": 50
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 8.99,
+          "new_tokens": 1236,
+          "process_speed_tps": 936.36,
+          "queue_seconds": 0.0,
+          "tokens_generated": 581
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 4.19,
+          "new_tokens": 1225,
+          "process_speed_tps": 928.03,
+          "queue_seconds": 0.03,
+          "tokens_generated": 133
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 5.27,
+          "new_tokens": 1831,
+          "process_speed_tps": 906.44,
+          "queue_seconds": 0.03,
+          "tokens_generated": 213
+        },
+        {
+          "cached_tokens": 9728,
+          "generation_seconds": 1.46,
+          "new_tokens": 381,
+          "process_speed_tps": 595.31,
+          "queue_seconds": 0.03,
+          "tokens_generated": 66
+        },
+        {
+          "cached_tokens": 9984,
+          "generation_seconds": 2.25,
+          "new_tokens": 902,
+          "process_speed_tps": 745.45,
+          "queue_seconds": 0.03,
+          "tokens_generated": 91
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 8.36,
+          "new_tokens": 1282,
+          "process_speed_tps": 1017.46,
+          "queue_seconds": 0.0,
+          "tokens_generated": 540
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 5.65,
+          "new_tokens": 1238,
+          "process_speed_tps": 930.83,
+          "queue_seconds": 0.03,
+          "tokens_generated": 249
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 10.41,
+          "new_tokens": 1417,
+          "process_speed_tps": 957.43,
+          "queue_seconds": 0.0,
+          "tokens_generated": 701
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 7.69,
+          "new_tokens": 1377,
+          "process_speed_tps": 976.6,
+          "queue_seconds": 0.03,
+          "tokens_generated": 313
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 9.41,
+          "new_tokens": 1504,
+          "process_speed_tps": 964.1,
+          "queue_seconds": 0.0,
+          "tokens_generated": 566
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 5.92,
+          "new_tokens": 1264,
+          "process_speed_tps": 950.38,
+          "queue_seconds": 0.03,
+          "tokens_generated": 235
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 4.34,
+          "new_tokens": 3175,
+          "process_speed_tps": 889.36,
+          "queue_seconds": 0.03,
+          "tokens_generated": 61
+        },
+        {
+          "cached_tokens": 11008,
+          "generation_seconds": 8.73,
+          "new_tokens": 839,
+          "process_speed_tps": 755.86,
+          "queue_seconds": 0.03,
+          "tokens_generated": 643
+        },
+        {
+          "cached_tokens": 11776,
+          "generation_seconds": 4.96,
+          "new_tokens": 1812,
+          "process_speed_tps": 854.72,
+          "queue_seconds": 0.03,
+          "tokens_generated": 230
+        }
+      ],
+      "tabbyapi_requests": 20,
+      "task_id": "A1_reconciliation_croisee",
+      "thread_id": "28fc46325f3964a2",
+      "tool_calls_observed": 9,
+      "validation_heuristic_rejections": 0,
+      "validation_judge_invocations": 5,
+      "validation_judge_vetoes": 3,
+      "verification_exploitable": 9,
+      "verification_opportunities": 9
+    },
+    {
+      "approvals": 5,
+      "cache_zero_requests": 4,
+      "cup": null,
+      "detail": "attendu ['PX-102750', 'PX-77', 'REF-1023'], trouvé []",
+      "duration_seconds": 90.5,
+      "episode_compaction_applied_count": 0,
+      "episode_compaction_messages_max": 21,
+      "fabricated_urls": [],
+      "failure_cause": "extraction",
+      "final_text": "Je n'ai pas pu terminer la tâche avec le budget de tentatives/replanifications disponible.\nÉtat atteint :\n- [échoué] Naviguer vers la page de documentation (http://fixture-docs/docs/index.html) pour identifier le format attendu des références produits. — critère non atteint (constat intégré au tour)\n- [à faire] Naviguer vers la page 1 du catalogue (http://fixture-catalog/catalog/page-1.html) et extraire les liens vers les fiches produits individuelles.\n- [à faire] Pour chaque produit de la page 1, naviguer vers sa fiche individuelle, extraire la référence produit, puis revenir à la liste.\n- [à faire] Naviguer vers la page 2 du catalogue et extraire les liens vers les fiches produits individuelles.\n- [à faire] Pour chaque produit de la page 2, naviguer vers sa fiche individuelle, extraire la référence produit, puis revenir à la liste.\n- [à faire] Naviguer vers la page 3 du catalogue et extraire les liens vers les fiches produits individuelles.\n- [à faire] Pour chaque produit de la page 3, naviguer vers sa fiche individuelle, extraire la référence produit, puis revenir à la liste.\n- [à faire] Comparer toutes les références collectées avec le format défini dans la documentation et lister les trois références qui ne respectent pas ce format.",
+      "merged_plan_attempted": 0,
+      "merged_plan_calls": 0,
+      "merged_plan_completions": 0,
+      "merged_plan_heuristic_rejections": 0,
+      "merged_plan_initial_subtask_count": null,
+      "merged_plan_replans": 0,
+      "plan_initial_subtask_count": 1,
+      "plan_trivial": true,
+      "prefill_seconds": 28.8,
+      "prompt_tokens_total": 132131,
+      "repetition": 1,
+      "replan_events": 2,
+      "segment": 0,
+      "success": false,
+      "tabbyapi_raw_samples": [
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 7.63,
+          "new_tokens": 414,
+          "process_speed_tps": 646.88,
+          "queue_seconds": 0.0,
+          "tokens_generated": 555
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 5.04,
+          "new_tokens": 469,
+          "process_speed_tps": 689.71,
+          "queue_seconds": 0.0,
+          "tokens_generated": 384
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 3.23,
+          "new_tokens": 401,
+          "process_speed_tps": 668.33,
+          "queue_seconds": 0.03,
+          "tokens_generated": 127
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 1.42,
+          "new_tokens": 215,
+          "process_speed_tps": 614.29,
+          "queue_seconds": 0.03,
+          "tokens_generated": 88
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 1.5,
+          "new_tokens": 551,
+          "process_speed_tps": 754.79,
+          "queue_seconds": 0.03,
+          "tokens_generated": 52
+        },
+        {
+          "cached_tokens": 8448,
+          "generation_seconds": 3.67,
+          "new_tokens": 1924,
+          "process_speed_tps": 866.67,
+          "queue_seconds": 0.03,
+          "tokens_generated": 117
+        },
+        {
+          "cached_tokens": 10240,
+          "generation_seconds": 1.46,
+          "new_tokens": 383,
+          "process_speed_tps": 598.44,
+          "queue_seconds": 0.03,
+          "tokens_generated": 61
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 5.7,
+          "new_tokens": 920,
+          "process_speed_tps": 851.85,
+          "queue_seconds": 0.0,
+          "tokens_generated": 388
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 1.33,
+          "new_tokens": 738,
+          "process_speed_tps": 829.21,
+          "queue_seconds": 0.03,
+          "tokens_generated": 22
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 6.68,
+          "new_tokens": 3096,
+          "process_speed_tps": 902.62,
+          "queue_seconds": 0.03,
+          "tokens_generated": 236
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 5.0,
+          "new_tokens": 3506,
+          "process_speed_tps": 885.35,
+          "queue_seconds": 0.03,
+          "tokens_generated": 72
+        },
+        {
+          "cached_tokens": 11264,
+          "generation_seconds": 2.09,
+          "new_tokens": 399,
+          "process_speed_tps": 578.26,
+          "queue_seconds": 0.03,
+          "tokens_generated": 110
+        },
+        {
+          "cached_tokens": 11520,
+          "generation_seconds": 1.31,
+          "new_tokens": 382,
+          "process_speed_tps": 587.69,
+          "queue_seconds": 0.03,
+          "tokens_generated": 54
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 7.42,
+          "new_tokens": 1220,
+          "process_speed_tps": 797.39,
+          "queue_seconds": 0.0,
+          "tokens_generated": 396
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 5.37,
+          "new_tokens": 1121,
+          "process_speed_tps": 904.03,
+          "queue_seconds": 0.03,
+          "tokens_generated": 205
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 9.32,
+          "new_tokens": 1101,
+          "process_speed_tps": 965.79,
+          "queue_seconds": 0.03,
+          "tokens_generated": 697
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 1.81,
+          "new_tokens": 1273,
+          "process_speed_tps": 957.14,
+          "queue_seconds": 0.03,
+          "tokens_generated": 22
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 10.09,
+          "new_tokens": 4683,
+          "process_speed_tps": 892.0,
+          "queue_seconds": 0.03,
+          "tokens_generated": 310
+        },
+        {
+          "cached_tokens": 12544,
+          "generation_seconds": 1.81,
+          "new_tokens": 514,
+          "process_speed_tps": 734.29,
+          "queue_seconds": 0.03,
+          "tokens_generated": 74
+        },
+        {
+          "cached_tokens": 13056,
+          "generation_seconds": 3.13,
+          "new_tokens": 789,
+          "process_speed_tps": 751.43,
+          "queue_seconds": 0.03,
+          "tokens_generated": 162
+        }
+      ],
+      "tabbyapi_requests": 20,
+      "task_id": "A2_schema_references",
+      "thread_id": "67cbc95b585c7332",
+      "tool_calls_observed": 11,
+      "validation_heuristic_rejections": 1,
+      "validation_judge_invocations": 4,
+      "validation_judge_vetoes": 1,
+      "verification_exploitable": 10,
+      "verification_opportunities": 10
+    },
+    {
+      "approvals": 6,
+      "cache_zero_requests": 3,
+      "cup": null,
+      "detail": "attendu ['PX-102750', 'PX-77', 'REF-1023'], trouvé []",
+      "duration_seconds": 92.4,
+      "episode_compaction_applied_count": 0,
+      "episode_compaction_messages_max": 27,
+      "fabricated_urls": [],
+      "failure_cause": "extraction",
+      "final_text": "Je n'ai pas pu terminer la tâche avec le budget de tentatives/replanifications disponible.\nÉtat atteint :\n- [fait] Naviguer vers la documentation et extraire la règle de format des références produit. — critère atteint (constat intégré au tour)\n- [échoué] Extraire les références produit visibles sur la page 3 du catalogue à partir du snapshot actuel. — critère non atteint (constat intégré au tour)\n- [à faire] Naviguer vers la page 2 du catalogue en cliquant sur le lien 'Précédent'.\n- [à faire] Extraire les références produit visibles sur la page 2 du catalogue.\n- [à faire] Naviguer vers la page 1 du catalogue en cliquant sur le lien 'Précédent' de la page 2.\n- [à faire] Extraire les références produit visibles sur la page 1 du catalogue.\n- [à faire] Comparer toutes les références extraites (pages 1, 2 et 3) avec le format défini dans la documentation et identifier les 3 références non conformes.",
+      "merged_plan_attempted": 0,
+      "merged_plan_calls": 0,
+      "merged_plan_completions": 0,
+      "merged_plan_heuristic_rejections": 0,
+      "merged_plan_initial_subtask_count": null,
+      "merged_plan_replans": 0,
+      "plan_initial_subtask_count": 5,
+      "plan_trivial": false,
+      "prefill_seconds": 35.79,
+      "prompt_tokens_total": 176295,
+      "repetition": 2,
+      "replan_events": 2,
+      "segment": 0,
+      "success": false,
+      "tabbyapi_raw_samples": [
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 4.75,
+          "new_tokens": 415,
+          "process_speed_tps": 648.44,
+          "queue_seconds": 0.0,
+          "tokens_generated": 331
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 0.98,
+          "new_tokens": 393,
+          "process_speed_tps": 655.0,
+          "queue_seconds": 0.03,
+          "tokens_generated": 26
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 1.42,
+          "new_tokens": 216,
+          "process_speed_tps": 617.14,
+          "queue_seconds": 0.03,
+          "tokens_generated": 88
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 1.65,
+          "new_tokens": 560,
+          "process_speed_tps": 767.12,
+          "queue_seconds": 0.03,
+          "tokens_generated": 65
+        },
+        {
+          "cached_tokens": 8448,
+          "generation_seconds": 3.84,
+          "new_tokens": 1946,
+          "process_speed_tps": 864.89,
+          "queue_seconds": 0.03,
+          "tokens_generated": 114
+        },
+        {
+          "cached_tokens": 10496,
+          "generation_seconds": 0.97,
+          "new_tokens": 146,
+          "process_speed_tps": 470.97,
+          "queue_seconds": 0.03,
+          "tokens_generated": 51
+        },
+        {
+          "cached_tokens": 10496,
+          "generation_seconds": 3.77,
+          "new_tokens": 544,
+          "process_speed_tps": 745.21,
+          "queue_seconds": 0.03,
+          "tokens_generated": 230
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 4.93,
+          "new_tokens": 3501,
+          "process_speed_tps": 886.33,
+          "queue_seconds": 0.03,
+          "tokens_generated": 73
+        },
+        {
+          "cached_tokens": 11264,
+          "generation_seconds": 2.3,
+          "new_tokens": 395,
+          "process_speed_tps": 572.46,
+          "queue_seconds": 0.03,
+          "tokens_generated": 110
+        },
+        {
+          "cached_tokens": 11520,
+          "generation_seconds": 1.31,
+          "new_tokens": 378,
+          "process_speed_tps": 581.54,
+          "queue_seconds": 0.03,
+          "tokens_generated": 53
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 6.42,
+          "new_tokens": 1222,
+          "process_speed_tps": 932.82,
+          "queue_seconds": 0.0,
+          "tokens_generated": 437
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 4.51,
+          "new_tokens": 1159,
+          "process_speed_tps": 927.2,
+          "queue_seconds": 0.03,
+          "tokens_generated": 127
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 9.0,
+          "new_tokens": 4686,
+          "process_speed_tps": 892.57,
+          "queue_seconds": 0.03,
+          "tokens_generated": 235
+        },
+        {
+          "cached_tokens": 12544,
+          "generation_seconds": 1.47,
+          "new_tokens": 442,
+          "process_speed_tps": 597.3,
+          "queue_seconds": 0.03,
+          "tokens_generated": 56
+        },
+        {
+          "cached_tokens": 12800,
+          "generation_seconds": 2.89,
+          "new_tokens": 953,
+          "process_speed_tps": 733.08,
+          "queue_seconds": 0.03,
+          "tokens_generated": 112
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 6.47,
+          "new_tokens": 1242,
+          "process_speed_tps": 940.91,
+          "queue_seconds": 0.0,
+          "tokens_generated": 449
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 1.82,
+          "new_tokens": 1189,
+          "process_speed_tps": 921.71,
+          "queue_seconds": 0.03,
+          "tokens_generated": 22
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 7.59,
+          "new_tokens": 6061,
+          "process_speed_tps": 891.32,
+          "queue_seconds": 0.03,
+          "tokens_generated": 57
+        },
+        {
+          "cached_tokens": 13824,
+          "generation_seconds": 11.63,
+          "new_tokens": 905,
+          "process_speed_tps": 712.6,
+          "queue_seconds": 0.03,
+          "tokens_generated": 761
+        },
+        {
+          "cached_tokens": 14592,
+          "generation_seconds": 7.28,
+          "new_tokens": 3510,
+          "process_speed_tps": 805.05,
+          "queue_seconds": 0.03,
+          "tokens_generated": 177
+        }
+      ],
+      "tabbyapi_requests": 20,
+      "task_id": "A2_schema_references",
+      "thread_id": "7b43c664f869bff6",
+      "tool_calls_observed": 13,
+      "validation_heuristic_rejections": 0,
+      "validation_judge_invocations": 3,
+      "validation_judge_vetoes": 0,
+      "verification_exploitable": 13,
+      "verification_opportunities": 13
+    },
+    {
+      "approvals": 5,
+      "cache_zero_requests": 4,
+      "cup": null,
+      "detail": "attendu ['PX-102750', 'PX-77', 'REF-1023'], trouvé []",
+      "duration_seconds": 106.2,
+      "episode_compaction_applied_count": 0,
+      "episode_compaction_messages_max": 21,
+      "fabricated_urls": [],
+      "failure_cause": "extraction",
+      "final_text": "Je n'ai pas pu terminer la tâche avec le budget de tentatives/replanifications disponible.\nÉtat atteint :\n- [échoué] Naviguer vers la documentation (http://fixture-docs/docs/index.html) pour trouver et extraire la description du format attendu des références produit. — critère non atteint (constat intégré au tour)\n- [à faire] Pour chaque produit visible sur la page 1 du catalogue (produits 1 à 10), cliquer sur le lien pour accéder à la fiche produit individuelle, extraire la référence spécifique du champ dédié (et non le titre), puis revenir à la liste.\n- [à faire] Cliquer sur le lien 'Suivant' pour accéder à la page 2 du catalogue.\n- [à faire] Pour chaque produit visible sur la page 2 du catalogue (produits 11 à 20), cliquer sur le lien pour accéder à la fiche produit individuelle, extraire la référence spécifique du champ dédié, puis revenir à la liste.\n- [à faire] Cliquer sur le lien 'Suivant' pour accéder à la page 3 du catalogue.\n- [à faire] Pour chaque produit visible sur la page 3 du catalogue (produits 21 à 30), cliquer sur le lien pour accéder à la fiche produit individuelle, extraire la référence spécifique du champ dédié, puis revenir à la liste.\n- [à faire] Comparer toutes les références extraites avec le format attendu identifié dans la première étape pour identifier les trois références non conformes.\n- [à faire] Rendre les trois références non conformes trouvées.",
+      "merged_plan_attempted": 0,
+      "merged_plan_calls": 0,
+      "merged_plan_completions": 0,
+      "merged_plan_heuristic_rejections": 0,
+      "merged_plan_initial_subtask_count": null,
+      "merged_plan_replans": 0,
+      "plan_initial_subtask_count": 6,
+      "plan_trivial": false,
+      "prefill_seconds": 27.08,
+      "prompt_tokens_total": 118225,
+      "repetition": 3,
+      "replan_events": 2,
+      "segment": 0,
+      "success": false,
+      "tabbyapi_raw_samples": [
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 5.49,
+          "new_tokens": 414,
+          "process_speed_tps": 646.88,
+          "queue_seconds": 0.0,
+          "tokens_generated": 378
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 3.11,
+          "new_tokens": 434,
+          "process_speed_tps": 678.12,
+          "queue_seconds": 0.03,
+          "tokens_generated": 130
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 1.42,
+          "new_tokens": 215,
+          "process_speed_tps": 614.29,
+          "queue_seconds": 0.03,
+          "tokens_generated": 88
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 1.76,
+          "new_tokens": 559,
+          "process_speed_tps": 765.75,
+          "queue_seconds": 0.03,
+          "tokens_generated": 70
+        },
+        {
+          "cached_tokens": 8448,
+          "generation_seconds": 3.73,
+          "new_tokens": 1950,
+          "process_speed_tps": 866.67,
+          "queue_seconds": 0.03,
+          "tokens_generated": 122
+        },
+        {
+          "cached_tokens": 10496,
+          "generation_seconds": 1.35,
+          "new_tokens": 158,
+          "process_speed_tps": 493.75,
+          "queue_seconds": 0.03,
+          "tokens_generated": 74
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 5.69,
+          "new_tokens": 909,
+          "process_speed_tps": 882.52,
+          "queue_seconds": 0.0,
+          "tokens_generated": 394
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 1.36,
+          "new_tokens": 744,
+          "process_speed_tps": 845.45,
+          "queue_seconds": 0.03,
+          "tokens_generated": 22
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 6.72,
+          "new_tokens": 3132,
+          "process_speed_tps": 902.59,
+          "queue_seconds": 0.03,
+          "tokens_generated": 241
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 5.28,
+          "new_tokens": 3548,
+          "process_speed_tps": 889.22,
+          "queue_seconds": 0.03,
+          "tokens_generated": 77
+        },
+        {
+          "cached_tokens": 11264,
+          "generation_seconds": 2.29,
+          "new_tokens": 446,
+          "process_speed_tps": 610.96,
+          "queue_seconds": 0.03,
+          "tokens_generated": 108
+        },
+        {
+          "cached_tokens": 11520,
+          "generation_seconds": 1.81,
+          "new_tokens": 427,
+          "process_speed_tps": 584.93,
+          "queue_seconds": 0.03,
+          "tokens_generated": 83
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 6.37,
+          "new_tokens": 1221,
+          "process_speed_tps": 932.06,
+          "queue_seconds": 0.0,
+          "tokens_generated": 408
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 5.84,
+          "new_tokens": 1133,
+          "process_speed_tps": 952.1,
+          "queue_seconds": 0.03,
+          "tokens_generated": 238
+        },
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 9.69,
+          "new_tokens": 1390,
+          "process_speed_tps": 978.87,
+          "queue_seconds": 0.0,
+          "tokens_generated": 712
+        },
+        {
+          "cached_tokens": 256,
+          "generation_seconds": 25.84,
+          "new_tokens": 1300,
+          "process_speed_tps": 1000.0,
+          "queue_seconds": 0.03,
+          "tokens_generated": 1317
+        },
+        {
+          "cached_tokens": 7936,
+          "generation_seconds": 9.03,
+          "new_tokens": 4749,
+          "process_speed_tps": 882.71,
+          "queue_seconds": 0.03,
+          "tokens_generated": 250
+        },
+        {
+          "cached_tokens": 12544,
+          "generation_seconds": 1.34,
+          "new_tokens": 520,
+          "process_speed_tps": 722.22,
+          "queue_seconds": 0.03,
+          "tokens_generated": 52
+        }
+      ],
+      "tabbyapi_requests": 18,
+      "task_id": "A2_schema_references",
+      "thread_id": "a00eb06b224c93da",
+      "tool_calls_observed": 11,
+      "validation_heuristic_rejections": 0,
+      "validation_judge_invocations": 4,
+      "validation_judge_vetoes": 1,
+      "verification_exploitable": 10,
+      "verification_opportunities": 10
+    }
+  ]
+}

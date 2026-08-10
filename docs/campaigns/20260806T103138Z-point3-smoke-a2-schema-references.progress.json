@@ -1,0 +1,54 @@
+{
+  "campaign_id": "20260806T103138Z-point3-smoke-a2-schema-references",
+  "completed": [
+    {
+      "approvals": 5,
+      "cup": null,
+      "duration_s": 119.2,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A2_schema_references",
+      "thread_id": "09ad01c131161c71",
+      "tool_calls": 14
+    },
+    {
+      "approvals": 4,
+      "cup": null,
+      "duration_s": 95.1,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A2_schema_references",
+      "thread_id": "657df7dee00b9344",
+      "tool_calls": 11
+    }
+  ],
+  "config_digest": "45cdd2eb6e3095c1",
+  "current": null,
+  "label": "point3-smoke-A2_schema_references",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "A2_schema_references"
+    },
+    {
+      "repetition": 2,
+      "task_id": "A2_schema_references"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-08-06T10:35:13.159010+00:00",
+      "index": 0,
+      "started_at": "2026-08-06T10:31:38.152662+00:00"
+    }
+  ],
+  "started_at": "2026-08-06T10:31:38.152662+00:00",
+  "total_runs": 2
+}

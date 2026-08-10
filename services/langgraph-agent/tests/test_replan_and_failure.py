@@ -15,6 +15,14 @@ from langchain_core.messages import AIMessage, HumanMessage
 from tests.fixtures.llm_sse import non_streaming_response
 
 
+class _FakeConfig(dict):
+    """Minimal config expected by replan_task (thread_id, see app/audit_log.py) —
+    same pattern as tests/test_verify_action.py."""
+
+    def __init__(self, thread_id="thread-1"):
+        super().__init__(configurable={"thread_id": thread_id})
+
+
 def _subtask(description="A", success_criterion="critère A", status="a_faire", attempts=0, result=None):
     return {
         "description": description,
@@ -117,7 +125,7 @@ async def test_replan_task_rebuilds_plan_preserving_done_subtasks(monkeypatch):
             "plan": plan,
             "replan_count": 0,
         }
-        result = await g.replan_task(state)
+        result = await g.replan_task(state, _FakeConfig())
 
     new_plan = result["plan"]
     assert result["replan_count"] == 1
@@ -145,7 +153,7 @@ async def test_replan_task_falls_back_to_retry_on_llm_error(monkeypatch):
             "plan": plan,
             "replan_count": 0,
         }
-        result = await g.replan_task(state)
+        result = await g.replan_task(state, _FakeConfig())
 
     new_plan = result["plan"]
     assert result["replan_count"] == 1
@@ -165,10 +173,64 @@ async def test_replan_task_noop_without_failed_subtask():
             "plan": [_subtask(status="fait")],
             "replan_count": 0,
         }
-        result = await g.replan_task(state)
+        result = await g.replan_task(state, _FakeConfig())
 
     assert result == {"replan_count": 1}
     assert route.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_replan_task_logs_replanning_audit_entry_for_coverage(monkeypatch, tmp_path):
+    """Coverage counter (EFFORT 2 "judge validity check", docs/history.md):
+    replan_task now journalise a role="replanning" entry for every REAL
+    replan (a failed subtask found) — the defensive no-op above (no
+    failed subtask) stays unlogged, same convention as plan_task/
+    validate_plan."""
+    import app.graph as g
+    import app.audit_log as audit_log
+
+    monkeypatch.setattr(audit_log, "AUDIT_LOG_DIR", str(tmp_path))
+    new_plan_json = json.dumps(
+        {"sous_taches": [{"description": "Nouvelle approche", "critere_succes": "trouvé autrement"}]}
+    )
+    plan = [_subtask(description="Échouée", status="echoue", attempts=3, result="rien trouvé")]
+    with respx.mock(assert_all_called=False) as mock:
+        mock.get("http://fake-mcp-client/tools/schema").mock(return_value=httpx.Response(200, json={"tools": []}))
+        mock.post("http://fake-vllm/v1/chat/completions").mock(
+            return_value=httpx.Response(200, json=non_streaming_response(new_plan_json))
+        )
+        state = {
+            "messages": [HumanMessage(content="Trouve le produit")],
+            "plan": plan,
+            "replan_count": 0,
+        }
+        await g.replan_task(state, _FakeConfig("thread-replan-cov"))
+
+    entries = audit_log.read_entries("thread-replan-cov")
+    replans = [e for e in entries if e.get("kind") == "message" and e.get("role") == "replanning"]
+    assert len(replans) == 1
+    assert replans[0]["content"] == {"replan_index": 1, "failed_subtask_index": 0, "new_subtask_count": 1}
+
+
+@pytest.mark.asyncio
+async def test_replan_task_no_audit_entry_without_failed_subtask(monkeypatch, tmp_path):
+    """Symmetric negative case: the defensive early return (no subtask
+    actually "echoue") consumes replan_count budget but changes nothing —
+    must not be counted as a real replan in the coverage counter."""
+    import app.graph as g
+    import app.audit_log as audit_log
+
+    monkeypatch.setattr(audit_log, "AUDIT_LOG_DIR", str(tmp_path))
+    state = {
+        "messages": [HumanMessage(content="Trouve le produit")],
+        "plan": [_subtask(status="fait")],
+        "replan_count": 0,
+    }
+    await g.replan_task(state, _FakeConfig("thread-replan-noop"))
+
+    entries = audit_log.read_entries("thread-replan-noop")
+    replans = [e for e in entries if e.get("kind") == "message" and e.get("role") == "replanning"]
+    assert replans == []
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -199,7 +261,7 @@ async def test_replan_task_includes_page_snapshot_when_current_page_url_set():
             "replan_count": 0,
             "current_page_url": "http://fixture-catalog/catalog/page-2.html",
         }
-        await g.replan_task(state)
+        await g.replan_task(state, _FakeConfig())
 
     sent_content = llm_route.calls.last.request.content.decode()
     assert "pagination uniquement" in sent_content

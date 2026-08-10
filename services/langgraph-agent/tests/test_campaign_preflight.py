@@ -12,6 +12,20 @@ import pytest
 
 from tests_integration import campaign_preflight as preflight
 
+# A device reading that satisfies check_device_placement against
+# EXPECTED_GPU_DEVICES (identity + memory within tolerance) — distinct
+# from EXPECTED_GPU_DEVICES itself, which is the expected SPEC (no
+# memory_used_mib key), not a shape of what nvidia-smi actually reports.
+_OK_GPU_DEVICES = [
+    {"index": 0, "name": "NVIDIA GeForce RTX 5060 Ti", "bus_id": "00000000:04:00.0", "memory_used_mib": 6052.0},
+    {
+        "index": 1,
+        "name": "NVIDIA GeForce RTX 4070 Ti SUPER",
+        "bus_id": "00000000:08:00.0",
+        "memory_used_mib": 12616.0,
+    },
+]
+
 
 def test_check_tools_schema_ok_when_synced_and_complete():
     tools = preflight.EXPECTED_TOOLS | {"browser_extract", "browser_hover"}
@@ -51,6 +65,7 @@ def test_run_preflight_raises_before_any_reset_on_desync():
             fetch_mcp_tools=lambda: preflight.EXPECTED_TOOLS | {"nouvel_outil"},
             fetch_llm_ready=lambda: True,
             fetch_tabbyapi_image_ids=lambda: ("sha256:same", "sha256:same"),
+            fetch_device_placement=lambda: _OK_GPU_DEVICES,
             fetch_agent_env=lambda: dict(preflight.EXPECTED_AGENT_FLAGS),
         )
     assert calls == [], "purge/reset ne doivent jamais tourner si le préambule échoue"
@@ -66,6 +81,7 @@ def test_run_preflight_purges_and_resets_when_schema_ok():
         fetch_mcp_tools=lambda: preflight.EXPECTED_TOOLS,
         fetch_llm_ready=lambda: True,
         fetch_tabbyapi_image_ids=lambda: ("sha256:same", "sha256:same"),
+        fetch_device_placement=lambda: _OK_GPU_DEVICES,
         fetch_agent_env=lambda: dict(preflight.EXPECTED_AGENT_FLAGS),
         fetch_fixtures_reachable=lambda: {name: True for name in preflight.FIXTURE_URLS},
     )
@@ -96,6 +112,72 @@ def test_run_preflight_checks_llm_ready_before_schema():
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# check_device_placement (docs/briefs/deterministic-gpu-placement.md, step 5)
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_check_device_placement_ok_when_within_tolerance():
+    assert preflight.check_device_placement(_OK_GPU_DEVICES) is None
+
+
+def test_check_device_placement_flags_missing_device():
+    devices = [preflight.EXPECTED_GPU_DEVICES[0] | {"memory_used_mib": 5 * 1024}]
+    error = preflight.check_device_placement(devices)
+    assert error is not None
+    assert "carte absente" in error
+    assert "RTX 4070 Ti SUPER" in error
+
+
+def test_check_device_placement_flags_wrong_identity():
+    devices = [
+        {"index": 0, "name": "NVIDIA GeForce RTX 5060 Ti", "bus_id": "00000000:04:00.0", "memory_used_mib": 5 * 1024},
+        {"index": 1, "name": "NVIDIA GeForce RTX 4070 Ti SUPER", "bus_id": "00000000:04:00.0", "memory_used_mib": 14 * 1024},
+    ]
+    error = preflight.check_device_placement(devices)
+    assert error is not None
+    assert "index 1" in error
+    assert "00000000:08:00.0" in error
+
+
+def test_check_device_placement_flags_reverted_to_autosplit():
+    """The exact regression this check exists for: gpu_split_auto flipped
+    back to true reproduces the ORIGINAL finding this whole brief fixes
+    (14 GB on the 5060 Ti, 4.4 GB on the 4070 Ti SUPER) — both devices land
+    far outside their configured tolerance band."""
+    devices = [
+        {"index": 0, "name": "NVIDIA GeForce RTX 5060 Ti", "bus_id": "00000000:04:00.0", "memory_used_mib": 14131.0},
+        {
+            "index": 1,
+            "name": "NVIDIA GeForce RTX 4070 Ti SUPER",
+            "bus_id": "00000000:08:00.0",
+            "memory_used_mib": 4424.0,
+        },
+    ]
+    error = preflight.check_device_placement(devices)
+    assert error is not None
+    assert "index 0" in error
+    assert "index 1" in error
+    assert "services/tabbyapi/config.yml" in error
+
+
+def test_run_preflight_checks_device_placement_before_flags():
+    flags_calls = []
+
+    with pytest.raises(preflight.PreflightError, match="carte absente"):
+        preflight.run_preflight(
+            purge_downloads=lambda: None,
+            reset_browser_session=lambda: None,
+            fetch_agent_tools=lambda: preflight.EXPECTED_TOOLS,
+            fetch_mcp_tools=lambda: preflight.EXPECTED_TOOLS,
+            fetch_llm_ready=lambda: True,
+            fetch_tabbyapi_image_ids=lambda: ("sha256:same", "sha256:same"),
+            fetch_device_placement=lambda: [],
+            fetch_agent_env=lambda: flags_calls.append("flags") or dict(preflight.EXPECTED_AGENT_FLAGS),
+        )
+    assert flags_calls == [], "les flags ne doivent pas être comparés si le placement GPU a dérivé"
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # check_agent_flags (docs/briefs/flags-du-coeur-cognitif.md, point 2)
 # ─────────────────────────────────────────────────────────────────────────
 
@@ -121,6 +203,43 @@ def test_check_agent_flags_treats_missing_key_as_empty_string():
     assert preflight.check_agent_flags(actual) is None, "APPROVAL_RULES_PATH attendu est déjà '' "
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# CAMPAIGN_EXPECTED_FLAGS_OVERRIDE (effort 2's ablation campaigns) — the
+# _fetch_agent_env fix (effort 2 point 3): a key introduced PURELY via the
+# override, not already present in the base EXPECTED_AGENT_FLAGS, must
+# still be fetched from the container. Every prior override use only
+# flipped an existing key's value, so this path was untested until
+# PLANNING_MODE (a genuinely new key) needed it.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_expected_agent_flags_merges_override(monkeypatch):
+    monkeypatch.setenv("CAMPAIGN_EXPECTED_FLAGS_OVERRIDE", '{"PLANNING_MODE": "merged", "PLANNER_ENABLED": "false"}')
+    merged = preflight._expected_agent_flags()
+    assert merged["PLANNING_MODE"] == "merged"
+    assert merged["PLANNER_ENABLED"] == "false"
+    # every other base key untouched
+    assert merged["VERIFICATION_ENABLED"] == preflight.EXPECTED_AGENT_FLAGS["VERIFICATION_ENABLED"]
+
+
+def test_fetch_agent_env_queries_override_only_keys(monkeypatch):
+    """Regression for the gap fixed in effort 2 point 3: before the fix,
+    _fetch_agent_env() queried list(EXPECTED_AGENT_FLAGS) (the base dict
+    only) — an override-introduced key not already in that base dict
+    would never be requested from the container, so check_agent_flags
+    would always compare it against "" regardless of the real value."""
+    monkeypatch.setenv("CAMPAIGN_EXPECTED_FLAGS_OVERRIDE", '{"PLANNING_MODE": "merged"}')
+    captured = {}
+
+    def fake_collect_env_flags(container, flags):
+        captured["flags"] = flags
+        return {}
+
+    monkeypatch.setattr(preflight.campaign_persistence, "collect_env_flags", fake_collect_env_flags)
+    preflight._fetch_agent_env()
+    assert "PLANNING_MODE" in captured["flags"]
+
+
 def test_run_preflight_checks_flags_before_schema_but_after_image_freshness():
     schema_calls = []
 
@@ -132,6 +251,7 @@ def test_run_preflight_checks_flags_before_schema_but_after_image_freshness():
             fetch_mcp_tools=lambda: schema_calls.append("mcp") or preflight.EXPECTED_TOOLS,
             fetch_llm_ready=lambda: True,
             fetch_tabbyapi_image_ids=lambda: ("sha256:same", "sha256:same"),
+            fetch_device_placement=lambda: _OK_GPU_DEVICES,
             fetch_agent_env=lambda: {**preflight.EXPECTED_AGENT_FLAGS, "PLANNER_ENABLED": "false"},
         )
     assert schema_calls == [], "le schéma ne doit pas être comparé si les flags sont désynchronisés"
@@ -239,6 +359,7 @@ def test_run_preflight_checks_fixtures_after_schema_before_purge():
             fetch_mcp_tools=lambda: preflight.EXPECTED_TOOLS,
             fetch_llm_ready=lambda: True,
             fetch_tabbyapi_image_ids=lambda: ("sha256:same", "sha256:same"),
+            fetch_device_placement=lambda: _OK_GPU_DEVICES,
             fetch_agent_env=lambda: dict(preflight.EXPECTED_AGENT_FLAGS),
             fetch_fixtures_reachable=lambda: {},
         )

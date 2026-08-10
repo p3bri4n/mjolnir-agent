@@ -66,39 +66,6 @@ def echo_http_server():
         proc.wait(timeout=5)
 
 
-@pytest.fixture
-def echo_http_server_with_model_space():
-    """Comme echo_http_server, mais exige en plus GhostDesk-Model-Space: '1000'."""
-    port = _free_port()
-    token = "secret-token"
-    model_space = "1000"
-    proc = subprocess.Popen(
-        [sys.executable, str(TEST_HTTP_SERVER_PATH), str(port), token, model_space]
-    )
-    try:
-        _wait_for_port(port)
-        yield {"url": f"http://127.0.0.1:{port}/mcp", "token": token, "model_space": model_space}
-    finally:
-        proc.terminate()
-        proc.wait(timeout=5)
-
-
-@pytest.fixture
-def echo_http_server_rejecting_model_space_header():
-    """Comme echo_http_server, mais échoue si un header GhostDesk-Model-Space est reçu."""
-    port = _free_port()
-    token = "secret-token"
-    proc = subprocess.Popen(
-        [sys.executable, str(TEST_HTTP_SERVER_PATH), str(port), token, ""]
-    )
-    try:
-        _wait_for_port(port)
-        yield {"url": f"http://127.0.0.1:{port}/mcp", "token": token}
-    finally:
-        proc.terminate()
-        proc.wait(timeout=5)
-
-
 def _client():
     import app.main as main_mod
     return TestClient(main_mod.app)
@@ -157,7 +124,7 @@ def test_call_unknown_tool_returns_404():
 def test_http_server_list_and_call_with_valid_token(echo_http_server):
     import app.main as main_mod
 
-    main_mod.SERVERS["desktop"] = {
+    main_mod.SERVERS["http_example"] = {
         "transport": "http",
         "url": echo_http_server["url"],
         "token": echo_http_server["token"],
@@ -165,50 +132,7 @@ def test_http_server_list_and_call_with_valid_token(echo_http_server):
 
     resp = _client().get("/tools")
     assert resp.status_code == 200
-    assert resp.json()["tools"]["echo"] == "desktop"
-
-    resp = _client().post("/call", json={"tool": "echo", "arguments": {"message": "bonjour"}})
-    assert resp.status_code == 200
-    assert resp.json()["content"][0]["text"] == "echo: bonjour"
-
-
-def test_http_server_sends_model_space_header(echo_http_server_with_model_space):
-    """
-    Nécessaire aux modèles Qwen (voir GHOSTDESK_MODEL_SPACE dans app/main.py) :
-    sans ce header, GhostDesk interprète les coordonnées de clic en pixels
-    écran natifs au lieu du repère normalisé 0-1000 utilisé par ces modèles,
-    et les clics atterrissent à côté de leur cible.
-    """
-    import app.main as main_mod
-
-    main_mod.SERVERS["desktop"] = {
-        "transport": "http",
-        "url": echo_http_server_with_model_space["url"],
-        "token": echo_http_server_with_model_space["token"],
-        "model_space": echo_http_server_with_model_space["model_space"],
-    }
-
-    resp = _client().post("/call", json={"tool": "echo", "arguments": {"message": "bonjour"}})
-    assert resp.status_code == 200
-    assert resp.json()["content"][0]["text"] == "echo: bonjour"
-
-
-def test_http_server_omits_model_space_header_when_unset(echo_http_server_rejecting_model_space_header):
-    """
-    GHOSTDESK_MODEL_SPACE="" (modèle frontière travaillant nativement en
-    pixels écran, ex. Claude/GPT-4o) : le header ne doit JAMAIS être envoyé,
-    pas seulement être absent de la config par défaut — server["model_space"]
-    falsy (chaîne vide) doit empêcher tout ajout du header, voir
-    _run_on_server dans app/main.py.
-    """
-    import app.main as main_mod
-
-    main_mod.SERVERS["desktop"] = {
-        "transport": "http",
-        "url": echo_http_server_rejecting_model_space_header["url"],
-        "token": echo_http_server_rejecting_model_space_header["token"],
-        "model_space": "",
-    }
+    assert resp.json()["tools"]["echo"] == "http_example"
 
     resp = _client().post("/call", json={"tool": "echo", "arguments": {"message": "bonjour"}})
     assert resp.status_code == 200
@@ -219,54 +143,7 @@ def test_http_server_wrong_token_fails(echo_http_server):
     import app.main as main_mod
 
     main_mod.SERVERS = {
-        "desktop": {
-            "transport": "http",
-            "url": echo_http_server["url"],
-            "token": "mauvais-token",
-        },
-    }
-
-    resp = _client().get("/tools")
-    assert resp.status_code == 200
-    assert resp.json()["tools"] == {}
-
-
-def test_ocr_server_schema_exposed_and_callable(echo_http_server):
-    """
-    Le serveur "ocr" (services/ocr-service, find_text/read_screen) suit le
-    même mécanisme que "desktop"/GhostDesk : connexion HTTP persistante
-    plutôt qu'un conteneur spawné à la demande. Le faux serveur echo tient
-    lieu d'ocr-service ici : ce test vérifie le câblage générique de
-    mcp-client (registre, schéma, appel), pas la logique OCR elle-même
-    (couverte par la suite de tests d'ocr-service).
-    """
-    import app.main as main_mod
-
-    main_mod.SERVERS["ocr"] = {
-        "transport": "http",
-        "url": echo_http_server["url"],
-        "token": echo_http_server["token"],
-    }
-
-    resp = _client().get("/tools")
-    assert resp.status_code == 200
-    assert resp.json()["tools"]["echo"] == "ocr"
-
-    resp = _client().get("/tools/schema")
-    assert resp.status_code == 200
-    names = [t["function"]["name"] for t in resp.json()["tools"]]
-    assert "echo" in names
-
-    resp = _client().post("/call", json={"tool": "echo", "arguments": {"message": "bonjour"}})
-    assert resp.status_code == 200
-    assert resp.json()["content"][0]["text"] == "echo: bonjour"
-
-
-def test_ocr_server_wrong_token_fails(echo_http_server):
-    import app.main as main_mod
-
-    main_mod.SERVERS = {
-        "ocr": {
+        "http_example": {
             "transport": "http",
             "url": echo_http_server["url"],
             "token": "mauvais-token",
@@ -334,7 +211,7 @@ def test_ephemeral_server_opens_new_session_per_call(monkeypatch):
     import app.main as main_mod
 
     main_mod.SERVERS = {
-        "desktop": {"transport": "http", "url": "http://unused", "token": ""},
+        "http_example": {"transport": "http", "url": "http://unused", "token": ""},
     }
     calls = _patch_open_session(main_mod, monkeypatch)
 
@@ -342,8 +219,8 @@ def test_ephemeral_server_opens_new_session_per_call(monkeypatch):
         return session.id
 
     async def run():
-        first = await main_mod._run_on_server("desktop", action)
-        second = await main_mod._run_on_server("desktop", action)
+        first = await main_mod._run_on_server("http_example", action)
+        second = await main_mod._run_on_server("http_example", action)
         return first, second
 
     first, second = asyncio.run(run())
@@ -494,6 +371,51 @@ def test_browser_extract_schema_declares_optional_urls_array(browser_evaluate_ec
     props = tool["function"]["parameters"]["properties"]
     assert props["urls"]["type"] == "array"
     assert tool["function"]["parameters"]["required"] == ["query"]  # urls reste optionnel
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# adjacent_value (docs/briefs/update-plan.md 2.3, A1 trajectory diagnostic,
+# docs/history.md): browser_extract used to return a matched LABEL
+# ("Référence", "Prix") but never the structured VALUE next to it, forcing
+# a browser_run_code_unsafe (NEVER_GRANTABLE) workaround on A2 and a slow
+# per-page re-navigation fallback on A1. Only string-content assertions
+# here (no real DOM in this suite, same limit as every other
+# _build_extract_function test above) — the dt/dd and td/th matching logic
+# itself was verified functionally against jsdom outside this suite before
+# writing these, not guessed: "Référence"/"Prix" (dt) correctly resolve to
+# their dd's text, a docs table row's first cell correctly resolves to its
+# sibling cells joined with " | ".
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_build_extract_function_single_page_includes_adjacent_value_logic():
+    import app.main as main_mod
+
+    js = main_mod._build_extract_function("Référence")
+    assert "adjacent_value" in js
+    assert "nextElementSibling" in js
+    assert "tag === 'dt'" in js
+    assert "closest('tr')" in js
+
+
+def test_build_extract_function_bulk_includes_adjacent_value_logic():
+    import app.main as main_mod
+
+    js = main_mod._build_extract_function("Référence", ["http://catalog/product-1.html"])
+    assert "adjacent_value" in js
+    assert "nextElementSibling" in js
+    assert "tag === 'dt'" in js
+    assert "closest('tr')" in js
+
+
+def test_browser_extract_tool_description_mentions_adjacent_value():
+    """Discoverability: the model must know this field exists to stop
+    reaching for browser_run_code_unsafe/manual re-navigation as a
+    workaround — the exact failure mode this fix targets (A1/A2
+    trajectory diagnostic, docs/history.md)."""
+    import app.main as main_mod
+
+    assert "adjacent" in main_mod._BROWSER_EXTRACT_TOOL["description"].lower()
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -827,3 +749,263 @@ def test_browser_inspect_with_target_dispatches_single_element_template(browser_
     assert resp.status_code == 200
     text = resp.json()["content"][0]["text"]
     assert text == main_mod._BROWSER_INSPECT_JS_SINGLE
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Visual feedback (docs/briefs/campaign-visual-feedback.md, minimal
+# subset): a side-channel screenshot fired after every "browser" tool
+# call, written straight to disk, CAMPAIGN_VISUAL_CAPTURE-gated.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def _tiny_image_b64() -> str:
+    """A real, tiny, decodable image — exercises _write_visual_capture's
+    actual decode/re-encode path rather than a fake byte string."""
+    import base64
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (2, 2), color=(200, 30, 30)).save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+class _RecordingSessionWithScreenshot:
+    """Like _RecordingSession (above), but returns a real tiny image for
+    browser_take_screenshot specifically — every other tool keeps the
+    plain-text behavior, matching what a real MCP browser session does."""
+
+    def __init__(self, calls, image_b64):
+        self.calls = calls
+        self.image_b64 = image_b64
+
+    async def call_tool(self, name, arguments):
+        from mcp.types import ImageContent, TextContent
+
+        self.calls.append((name, arguments))
+
+        class _Result:
+            pass
+
+        if name == "browser_take_screenshot":
+            _Result.content = [ImageContent(type="image", data=self.image_b64, mimeType="image/webp")]
+        else:
+            _Result.content = [TextContent(type="text", text=f"ok:{name}")]
+        return _Result()
+
+
+def _patch_run_on_server_with_screenshot(main_mod, monkeypatch):
+    calls = []
+    session = _RecordingSessionWithScreenshot(calls, _tiny_image_b64())
+
+    async def fake_run_on_server(server_name, action):
+        return await action(session)
+
+    monkeypatch.setattr(main_mod, "_run_on_server", fake_run_on_server)
+    return calls
+
+
+def test_visual_capture_response_never_contains_the_screenshot_image_block(monkeypatch, tmp_path):
+    """THE non-negotiable test (docs/briefs/campaign-visual-feedback.md):
+    an image captured for observability must never reach the /call
+    response — that's the only channel through which it could ever end
+    up in the model's context (app/graph.py's _split_image_blocks turns
+    ANY "type":"image" block in this response into a multimodal
+    message). browser_navigate's own result here is plain TextContent
+    (see _RecordingSessionWithScreenshot) — if the assertion below ever
+    failed, it could ONLY be because the screenshot leaked in."""
+    import app.main as main_mod
+
+    monkeypatch.setattr(main_mod, "CAMPAIGN_VISUAL_CAPTURE", True)
+    monkeypatch.setattr(main_mod, "VISUAL_CAPTURE_DIR", tmp_path)
+    main_mod._tool_registry.clear()
+    _register_fake_browser_tool(main_mod, "browser_navigate", ["url"])
+    _patch_run_on_server_with_screenshot(main_mod, monkeypatch)
+
+    resp = _client().post(
+        "/call",
+        json={"tool": "browser_navigate", "arguments": {"url": "https://exemple.com"}, "thread_id": "abc123"},
+    )
+
+    assert resp.status_code == 200
+    content = resp.json()["content"]
+    assert all(block.get("type") != "image" for block in content)
+    assert len(content) == 1
+    assert content[0]["type"] == "text"
+    assert content[0]["text"] == "ok:browser_navigate"
+    # The capture DID happen (side channel, on disk) — the test above is
+    # meaningless if it silently never fired.
+    assert (tmp_path / "abc123" / "latest.jpg").exists()
+
+
+def test_visual_capture_writes_a_valid_jpeg_keyed_by_thread_id(monkeypatch, tmp_path):
+    import app.main as main_mod
+    from PIL import Image
+
+    monkeypatch.setattr(main_mod, "CAMPAIGN_VISUAL_CAPTURE", True)
+    monkeypatch.setattr(main_mod, "VISUAL_CAPTURE_DIR", tmp_path)
+    main_mod._tool_registry.clear()
+    _register_fake_browser_tool(main_mod, "browser_navigate", ["url"])
+    _patch_run_on_server_with_screenshot(main_mod, monkeypatch)
+
+    _client().post(
+        "/call",
+        json={"tool": "browser_navigate", "arguments": {"url": "https://exemple.com"}, "thread_id": "thread-42"},
+    )
+
+    out_path = tmp_path / "thread-42" / "latest.jpg"
+    assert out_path.exists()
+    img = Image.open(out_path)
+    assert img.format == "JPEG"
+
+
+def test_visual_capture_overwrites_in_place_no_history(monkeypatch, tmp_path):
+    """UN SEUL FICHIER, écrasé — deux actions du même thread ne laissent
+    qu'un seul latest.jpg, pas un par action."""
+    import app.main as main_mod
+
+    monkeypatch.setattr(main_mod, "CAMPAIGN_VISUAL_CAPTURE", True)
+    monkeypatch.setattr(main_mod, "VISUAL_CAPTURE_DIR", tmp_path)
+    main_mod._tool_registry.clear()
+    _register_fake_browser_tool(main_mod, "browser_navigate", ["url"])
+    _patch_run_on_server_with_screenshot(main_mod, monkeypatch)
+
+    for _ in range(2):
+        _client().post(
+            "/call",
+            json={"tool": "browser_navigate", "arguments": {"url": "https://exemple.com"}, "thread_id": "t1"},
+        )
+
+    assert list((tmp_path / "t1").iterdir()) == [tmp_path / "t1" / "latest.jpg"]
+
+
+def test_visual_capture_off_by_default_no_call_no_file(monkeypatch, tmp_path):
+    import app.main as main_mod
+
+    monkeypatch.setattr(main_mod, "VISUAL_CAPTURE_DIR", tmp_path)
+    assert main_mod.CAMPAIGN_VISUAL_CAPTURE is False  # the actual default, not monkeypatched here
+    main_mod._tool_registry.clear()
+    # browser_snapshot, not browser_navigate: not in _STABILIZE_AFTER_TOOLS,
+    # keeps the calls list a clean reflection of capture behavior alone.
+    _register_fake_browser_tool(main_mod, "browser_snapshot")
+    calls = _patch_run_on_server_with_screenshot(main_mod, monkeypatch)
+
+    _client().post("/call", json={"tool": "browser_snapshot", "arguments": {}, "thread_id": "abc123"})
+
+    assert calls == [("browser_snapshot", {})]
+    assert not (tmp_path / "abc123").exists()
+
+
+def test_visual_capture_skipped_without_thread_id(monkeypatch, tmp_path):
+    """Un appelant qui ne fournit pas thread_id (ex. _fetch_verification_snapshot,
+    app/graph.py) ne doit rien écrire — pas d'erreur, juste un no-op."""
+    import app.main as main_mod
+
+    monkeypatch.setattr(main_mod, "CAMPAIGN_VISUAL_CAPTURE", True)
+    monkeypatch.setattr(main_mod, "VISUAL_CAPTURE_DIR", tmp_path)
+    main_mod._tool_registry.clear()
+    _register_fake_browser_tool(main_mod, "browser_snapshot")
+    calls = _patch_run_on_server_with_screenshot(main_mod, monkeypatch)
+
+    resp = _client().post("/call", json={"tool": "browser_snapshot", "arguments": {}})
+
+    assert resp.status_code == 200
+    assert calls == [("browser_snapshot", {})]  # no browser_take_screenshot call
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_visual_capture_skipped_for_non_browser_tool(monkeypatch, tmp_path):
+    """Un outil filesystem ne doit jamais déclencher de capture — la
+    session "browser" n'a aucun rapport avec ce que fait cet outil."""
+    import app.main as main_mod
+
+    monkeypatch.setattr(main_mod, "CAMPAIGN_VISUAL_CAPTURE", True)
+    monkeypatch.setattr(main_mod, "VISUAL_CAPTURE_DIR", tmp_path)
+    main_mod._tool_registry.clear()
+    main_mod._tool_registry["read_file"] = {
+        "server": "filesystem",
+        "description": "",
+        "inputSchema": {"type": "object", "properties": {}, "required": []},
+    }
+    calls = _patch_run_on_server_with_screenshot(main_mod, monkeypatch)
+
+    resp = _client().post(
+        "/call", json={"tool": "read_file", "arguments": {}, "thread_id": "abc123"}
+    )
+
+    assert resp.status_code == 200
+    assert calls == [("read_file", {})]
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_visual_capture_fires_after_browser_extract(monkeypatch, tmp_path):
+    import app.main as main_mod
+
+    monkeypatch.setattr(main_mod, "CAMPAIGN_VISUAL_CAPTURE", True)
+    monkeypatch.setattr(main_mod, "VISUAL_CAPTURE_DIR", tmp_path)
+    main_mod._tool_registry.clear()
+    main_mod._tool_registry["browser_extract"] = main_mod._BROWSER_EXTRACT_TOOL
+    _patch_run_on_server_with_screenshot(main_mod, monkeypatch)
+
+    resp = _client().post(
+        "/call", json={"tool": "browser_extract", "arguments": {"query": "prix"}, "thread_id": "abc123"}
+    )
+
+    assert resp.status_code == 200
+    assert (tmp_path / "abc123" / "latest.jpg").exists()
+
+
+def test_visual_capture_fires_after_browser_inspect(monkeypatch, tmp_path):
+    import app.main as main_mod
+
+    monkeypatch.setattr(main_mod, "CAMPAIGN_VISUAL_CAPTURE", True)
+    monkeypatch.setattr(main_mod, "VISUAL_CAPTURE_DIR", tmp_path)
+    main_mod._tool_registry.clear()
+    main_mod._tool_registry["browser_inspect"] = main_mod._BROWSER_INSPECT_TOOL
+    _patch_run_on_server_with_screenshot(main_mod, monkeypatch)
+
+    resp = _client().post("/call", json={"tool": "browser_inspect", "arguments": {}, "thread_id": "abc123"})
+
+    assert resp.status_code == 200
+    assert (tmp_path / "abc123" / "latest.jpg").exists()
+
+
+def test_visual_capture_never_breaks_the_real_call_on_screenshot_failure(monkeypatch, tmp_path):
+    """Best-effort : si browser_take_screenshot échoue (session morte,
+    format inattendu...), l'appel réel doit quand même aboutir."""
+    import app.main as main_mod
+
+    monkeypatch.setattr(main_mod, "CAMPAIGN_VISUAL_CAPTURE", True)
+    monkeypatch.setattr(main_mod, "VISUAL_CAPTURE_DIR", tmp_path)
+    main_mod._tool_registry.clear()
+    _register_fake_browser_tool(main_mod, "browser_navigate", ["url"])
+
+    class _FailingScreenshotSession:
+        async def call_tool(self, name, arguments):
+            from mcp.types import TextContent
+
+            if name == "browser_take_screenshot":
+                raise RuntimeError("session morte")
+
+            class _Result:
+                content = [TextContent(type="text", text=f"ok:{name}")]
+
+            return _Result()
+
+    async def fake_run_on_server(server_name, action):
+        return await action(_FailingScreenshotSession())
+
+    monkeypatch.setattr(main_mod, "_run_on_server", fake_run_on_server)
+
+    resp = _client().post(
+        "/call",
+        json={"tool": "browser_navigate", "arguments": {"url": "https://exemple.com"}, "thread_id": "abc123"},
+    )
+
+    assert resp.status_code == 200
+    content = resp.json()["content"]
+    assert len(content) == 1
+    assert content[0]["type"] == "text"
+    assert content[0]["text"] == "ok:browser_navigate"
+    assert not (tmp_path / "abc123").exists()

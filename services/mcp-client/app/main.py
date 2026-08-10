@@ -1,11 +1,10 @@
 """
 MCP Client: LangGraph Agent's single entry point to the MCP servers.
 
-The official mcp/* images (filesystem, git, playwright) and the locally
-built mcp-terminal image communicate over STDIO. This service therefore
-spawns them on demand, via `docker run -i --rm ...` on the Docker socket
-mounted from the host, rather than treating them as persistent network
-servers.
+The official mcp/filesystem image communicates over STDIO: this service
+spawns it on demand, via `docker run -i --rm ...` on the Docker socket
+mounted from the host, rather than treating it as a persistent network
+server.
 
 ⚠️ Mounting /var/run/docker.sock into a container is equivalent to giving
 it root access on the host (the container can launch any other
@@ -14,26 +13,46 @@ socket proxy alternative (e.g. tecnativa/docker-socket-proxy) that
 restricts allowed operations (only `create`/`start`/`attach` on
 whitelisted images), rather than exposing the raw socket.
 
-GhostDesk (the "desktop" server) is different from the others: it's a
-persistent, stateful HTTP server (virtual desktop, VNC session), not a
-one-off process. It runs continuously as its own docker-compose service,
-and mcp-client connects to it over Streamable HTTP instead of spawning a
-container.
+"browser" (Playwright) is different: it's a persistent HTTP server (see
+docker-compose.yml's `playwright-mcp` service), and mcp-client connects
+to it over Streamable HTTP instead of spawning a container.
+
+git/terminal/desktop(GhostDesk)/ocr were removed from this registry
+(docs/briefs/update-plan.md effort 1.2, docs/history.md): schema-weight
+audit found desktop+git+ocr+terminal cost 44.9% of the tool schema for
+1.6% of real usage across 67 v2 campaign threads. ocr-service and
+GhostDesk stay deployed (docker-compose.yml) for effort 3's future
+graph-capability rework — just no longer reachable through this
+registry.
 """
 
 import asyncio
+import base64
+import io
 import json
 import os
 import re
 from contextlib import AsyncExitStack
+from pathlib import Path
+from typing import Optional
 
 from fastapi import FastAPI, HTTPException
+from PIL import Image
 from pydantic import BaseModel
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 
 WORKSPACE_HOST_PATH = os.environ.get("WORKSPACE_HOST_PATH", "./workspace")
+
+# Visual feedback (docs/briefs/campaign-visual-feedback.md, minimal subset,
+# see that file's "Status" section for the full design and the two
+# deviations from its literal text — thread_id keying, workspace/ path).
+# Off by default: overhead not yet measured (point 6 of the implementation
+# instruction) — flip only after a with/without smoke names a real number.
+CAMPAIGN_VISUAL_CAPTURE = os.environ.get("CAMPAIGN_VISUAL_CAPTURE", "false").lower() == "true"
+VISUAL_CAPTURE_DIR = Path(os.environ.get("VISUAL_CAPTURE_DIR", "/visual-capture"))
+VISUAL_CAPTURE_JPEG_QUALITY = 60
 
 SERVERS = {
     "filesystem": {
@@ -57,21 +76,10 @@ SERVERS = {
             ],
         ),
     },
-    "git": {
-        "transport": "stdio",
-        "params": StdioServerParameters(
-            command="docker",
-            args=[
-                "run", "-i", "--rm",
-                "-v", f"{WORKSPACE_HOST_PATH}:/workspace",
-                os.environ.get("MCP_GIT_IMAGE", "mcp/git:latest"),
-            ],
-        ),
-    },
     "browser": {
-        # Unlike the other stdio servers above, "browser" is a persistent
-        # HTTP server (like "desktop"/"ocr" below): an ephemeral spawn
-        # (`docker run --rm` per call) would restart a brand-new browser
+        # Unlike "filesystem" above, "browser" is a persistent HTTP
+        # server: an ephemeral spawn (`docker run --rm` per call) would
+        # restart a brand-new browser
         # on EVERY tool call, with no state continuity between
         # `browser_navigate` and the next call — see docs/resolved-bugs.md.
         # The official mcp/playwright image supports a native HTTP server
@@ -88,43 +96,6 @@ SERVERS = {
         # need to keep a session open across calls, see
         # `_get_persistent_session` below.
         "persistent_session": True,
-    },
-    "terminal": {
-        "transport": "stdio",
-        "params": StdioServerParameters(
-            command="docker",
-            args=[
-                "run", "-i", "--rm",
-                "--read-only", "--tmpfs", "/tmp:rw,nosuid,nodev",
-                "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
-                "-v", f"{WORKSPACE_HOST_PATH}:/workspace",
-                os.environ.get("MCP_TERMINAL_IMAGE", "mcp-terminal:local"),
-            ],
-        ),
-    },
-    "desktop": {
-        "transport": "http",
-        "url": os.environ.get("MCP_GHOSTDESK_URL", "http://ghostdesk:3000/mcp"),
-        "token": os.environ.get("GHOSTDESK_AUTH_TOKEN", ""),
-        # Without this header, GhostDesk expects coordinates in native
-        # screen pixels (1280x1024 here); Qwen models natively reason in
-        # a normalized 0-1000 coordinate space, so their clicks land
-        # completely off target (documented by GhostDesk). Frontier
-        # models (Claude, GPT-4o) work natively in screen pixels and
-        # don't need it — hence the env var rather than a fixed value, to
-        # clear if the served model changes.
-        "model_space": os.environ.get("GHOSTDESK_MODEL_SPACE", "1000"),
-    },
-    "ocr": {
-        # Like "desktop" above: persistent HTTP server (ocr-service), not
-        # an on-demand spawned container. No GhostDesk-Model-Space header
-        # here: ocr-service already converts its own coordinates to the
-        # 0-1000 space before responding (OCR_COORD_SPACE, see
-        # services/ocr-service/app/coords.py), this header only makes
-        # sense for calls addressed directly to GhostDesk.
-        "transport": "http",
-        "url": os.environ.get("MCP_OCR_URL", "http://ocr-service:8004/mcp"),
-        "token": os.environ.get("OCR_AUTH_TOKEN", ""),
     },
 }
 
@@ -144,6 +115,19 @@ SERVERS = {
 # possible) that walks the page's text nodes and returns the occurrences
 # with their nearby context (parent text, enclosing link if any). The
 # model never sees this template, only the "query" parameter.
+#
+# adjacent_value (docs/briefs/update-plan.md 2.3, A1 trajectory diagnostic,
+# docs/history.md): the walker above matches a LABEL text node
+# ("Référence", "Prix") but, before this field existed, never returned the
+# structured VALUE next to it — confirmed verbatim in the model's own
+# reasoning ("le mot 'Prix' est trouvé mais pas la valeur"), which forced a
+# `browser_run_code_unsafe` (NEVER_GRANTABLE) workaround on A2 and an
+# 8-turn per-page re-navigation fallback on A1. Fixtures checked before
+# writing this (not guessed): `dt`/`dd` (catalog product pages) and `td`
+# siblings within the same `tr` (docs parameter table, hr-app listings)
+# are the two patterns actually used; `label`/`input` was considered and
+# dropped — every fixture `<input>` is an unfilled form field, never a
+# value to read.
 _BROWSER_EXTRACT_JS_TEMPLATE = """() => {{
   const query = {query_json};
   const q = query.toLowerCase();
@@ -155,11 +139,25 @@ _BROWSER_EXTRACT_JS_TEMPLATE = """() => {{
     if (!text || !text.toLowerCase().includes(q)) continue;
     const parent = node.parentElement;
     const link = parent ? parent.closest('a') : null;
+    let adjacent_value = null;
+    if (parent) {{
+      const tag = parent.tagName.toLowerCase();
+      if (tag === 'dt' && parent.nextElementSibling && parent.nextElementSibling.tagName.toLowerCase() === 'dd') {{
+        adjacent_value = parent.nextElementSibling.textContent.trim();
+      }} else if (tag === 'td' || tag === 'th') {{
+        const row = parent.closest('tr');
+        if (row) {{
+          const cells = Array.from(row.children).filter((c) => c !== parent);
+          adjacent_value = cells.map((c) => c.textContent.trim()).join(' | ');
+        }}
+      }}
+    }}
     results.push({{
       text: text.slice(0, 300),
       parent_tag: parent ? parent.tagName.toLowerCase() : null,
       parent_text: parent ? parent.textContent.trim().slice(0, 300) : null,
       link_href: link ? link.getAttribute('href') : null,
+      adjacent_value: adjacent_value,
     }});
     if (results.length >= 20) break;
   }}
@@ -196,11 +194,25 @@ _BROWSER_EXTRACT_BULK_JS_TEMPLATE = """async () => {{
       if (!text || !text.toLowerCase().includes(q)) continue;
       const parent = node.parentElement;
       const link = parent ? parent.closest('a') : null;
+      let adjacent_value = null;
+      if (parent) {{
+        const tag = parent.tagName.toLowerCase();
+        if (tag === 'dt' && parent.nextElementSibling && parent.nextElementSibling.tagName.toLowerCase() === 'dd') {{
+          adjacent_value = parent.nextElementSibling.textContent.trim();
+        }} else if (tag === 'td' || tag === 'th') {{
+          const row = parent.closest('tr');
+          if (row) {{
+            const cells = Array.from(row.children).filter((c) => c !== parent);
+            adjacent_value = cells.map((c) => c.textContent.trim()).join(' | ');
+          }}
+        }}
+      }}
       results.push({{
         text: text.slice(0, 300),
         parent_tag: parent ? parent.tagName.toLowerCase() : null,
         parent_text: parent ? parent.textContent.trim().slice(0, 300) : null,
         link_href: link ? link.getAttribute('href') : null,
+        adjacent_value: adjacent_value,
       }});
       if (results.length >= MAX_PER_PAGE) break;
     }}
@@ -240,7 +252,11 @@ _BROWSER_EXTRACT_TOOL = {
     "description": (
         "Cherche un TEXTE (pas du code) dans la page actuelle — référence "
         "produit, prix, nom, mot-clé — et renvoie les occurrences avec leur "
-        "contexte proche (texte du parent, lien englobant si présent). "
+        "contexte proche (texte du parent, lien englobant si présent, "
+        "valeur adjacente si le texte trouvé est un label structuré : "
+        "value du <dd> pour une paire <dt>/<dd>, autres cellules de la "
+        "ligne pour un <td>/<th> de tableau — ne re-navigue jamais pour "
+        "lire cette valeur, elle est déjà dans le résultat). "
         "Pour trouver une valeur précise dans une page, utilise CET outil : "
         "pas de parcours manuel page par page, pas de raccourci "
         "clavier de recherche (ctrl+f). Si l'information n'apparaît que sur "
@@ -440,8 +456,6 @@ def _http_headers(server: dict) -> dict:
     headers = {}
     if server.get("token"):
         headers["Authorization"] = f"Bearer {server['token']}"
-    if server.get("model_space"):
-        headers["GhostDesk-Model-Space"] = server["model_space"]
     return headers
 
 
@@ -503,6 +517,52 @@ async def _close_persistent_sessions():
         await _drop_persistent_session(server_name)
 
 
+def _write_visual_capture(data_b64: str, thread_id: str) -> None:
+    """
+    Re-encodes to JPEG q60 regardless of the source format (Playwright's
+    own default is WebP, see app/graph.py's IMAGE_FORMAT_PASSTHROUGH
+    comment) — guarantees the target format without depending on
+    browser_take_screenshot's exact parameter support, which isn't
+    reliably introspectable ahead of the live image (verify against the
+    running playwright-mcp image if that ever needs tightening).
+    Atomic write (temp + os.replace, same directory/filesystem) so the
+    dashboard never serves a half-written file.
+    """
+    raw = base64.b64decode(data_b64)
+    img = Image.open(io.BytesIO(raw)).convert("RGB")
+    out_dir = VISUAL_CAPTURE_DIR / thread_id
+    out_dir.mkdir(parents=True, exist_ok=True)
+    tmp_path = out_dir / "latest.jpg.tmp"
+    final_path = out_dir / "latest.jpg"
+    img.save(tmp_path, format="JPEG", quality=VISUAL_CAPTURE_JPEG_QUALITY)
+    os.replace(tmp_path, final_path)
+
+
+async def _maybe_capture_visual(thread_id: Optional[str]) -> None:
+    """
+    Best-effort observability side channel (docs/briefs/
+    campaign-visual-feedback.md): fires an INTERNAL follow-up
+    browser_take_screenshot call on the same persistent "browser" session
+    (same precedent as the existing stabilization browser_wait_for call
+    below) and writes it straight to disk — never appended to any /call
+    response, never seen by langgraph-agent, structurally unable to reach
+    the model's context (see tests/test_main.py's non-negotiable test).
+    No-op when the flag is off or no thread_id was supplied (e.g. the
+    verification-snapshot helper in app/graph.py, which has no thread_id
+    in scope) — never allowed to fail the real tool call it rides along.
+    """
+    if not CAMPAIGN_VISUAL_CAPTURE or not thread_id:
+        return
+    try:
+        result = await _run_on_server("browser", lambda s: s.call_tool("browser_take_screenshot", {}))
+        for block in result.content:
+            if getattr(block, "type", None) == "image":
+                _write_visual_capture(block.data, thread_id)
+                break
+    except Exception:
+        pass
+
+
 async def _refresh_registry():
     for server_name in SERVERS:
         try:
@@ -527,6 +587,11 @@ async def _refresh_registry():
 class CallRequest(BaseModel):
     tool: str
     arguments: dict = {}
+    # Visual feedback (docs/briefs/campaign-visual-feedback.md): optional,
+    # only used to key _maybe_capture_visual's output directory — absent
+    # for callers that don't have one (e.g. app/graph.py's
+    # _fetch_verification_snapshot), which simply skips the capture.
+    thread_id: Optional[str] = None
 
 
 @app.get("/health")
@@ -626,11 +691,13 @@ async def call_tool(request: CallRequest):
         result = await _run_on_server(
             "browser", lambda s: s.call_tool("browser_evaluate", {"function": js_function})
         )
+        await _maybe_capture_visual(request.thread_id)
         return {"content": [block.model_dump() for block in result.content]}
 
     if request.tool == "browser_inspect":
         eval_tool, eval_args = _build_inspect_call(arguments.get("target"), arguments.get("element"))
         result = await _run_on_server("browser", lambda s: s.call_tool(eval_tool, eval_args))
+        await _maybe_capture_visual(request.thread_id)
         return {"content": [block.model_dump() for block in _rewrite_ref_error(result.content)]}
 
     result = await _run_on_server(tool_info["server"], lambda s: s.call_tool(request.tool, arguments))
@@ -638,4 +705,10 @@ async def call_tool(request: CallRequest):
         await _run_on_server(
             "browser", lambda s: s.call_tool("browser_wait_for", {"time": BROWSER_STABILIZE_WAIT_SECONDS})
         )
+    # Captured for every "browser" tool (not just navigate/click): a
+    # snapshot/extract/fill_form call is still "what the agent is looking
+    # at" for the dashboard's purposes (docs/briefs/
+    # campaign-visual-feedback.md, §1's DOM-first framing).
+    if tool_info["server"] == "browser":
+        await _maybe_capture_visual(request.thread_id)
     return {"content": [block.model_dump() for block in _rewrite_ref_error(result.content)]}

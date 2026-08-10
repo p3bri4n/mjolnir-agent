@@ -130,7 +130,6 @@ from tests_integration.test_web_tasks import (
     _http_call,
     _purge_downloads_volume,
     _reset_browser_session,
-    _reset_ghostdesk_desktop,
     _t11_task,
     _update_duration_stats,
     generate_catalog,
@@ -993,7 +992,6 @@ def _run_campaign_v2(resume_cid: str = None):
         _purge_downloads_volume()
         _purge_admin_stock_file()
         _reset_browser_session()
-        _reset_ghostdesk_desktop()
         result = run_task(prompt)
         ok, detail = (False, result.error) if result.error else assert_fn(result.final_text, prompt)
         cause = _classify_failure_cause_v2(task_id, result, ok, detail)
@@ -1023,6 +1021,18 @@ def _run_campaign_v2(resume_cid: str = None):
             "tool_calls_observed": result.tool_calls_observed,
             "verification_opportunities": result.verification_opportunities,
             "verification_exploitable": result.verification_exploitable,
+            "plan_initial_subtask_count": result.plan_initial_subtask_count,
+            "plan_trivial": result.plan_trivial,
+            "replan_events": result.replan_events,
+            "validation_heuristic_rejections": result.validation_heuristic_rejections,
+            "validation_judge_invocations": result.validation_judge_invocations,
+            "validation_judge_vetoes": result.validation_judge_vetoes,
+            "merged_plan_calls": result.merged_plan_calls,
+            "merged_plan_attempted": result.merged_plan_attempted,
+            "merged_plan_initial_subtask_count": result.merged_plan_initial_subtask_count,
+            "merged_plan_heuristic_rejections": result.merged_plan_heuristic_rejections,
+            "merged_plan_replans": result.merged_plan_replans,
+            "merged_plan_completions": result.merged_plan_completions,
             "prefill_seconds": result.prefill_seconds,
             "cache_zero_requests": result.cache_zero_requests,
             "tabbyapi_requests": result.tabbyapi_requests,

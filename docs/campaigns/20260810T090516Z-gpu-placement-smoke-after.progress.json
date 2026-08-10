@@ -1,0 +1,224 @@
+{
+  "campaign_id": "20260810T090516Z-gpu-placement-smoke-after",
+  "completed": [
+    {
+      "approvals": 5,
+      "cup": null,
+      "duration_s": 156.9,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A2_schema_references",
+      "thread_id": "1fca7e740a63c1a6",
+      "tool_calls": 13
+    },
+    {
+      "approvals": 4,
+      "cup": null,
+      "duration_s": 129.8,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A2_schema_references",
+      "thread_id": "c8540ef6f67ebb1c",
+      "tool_calls": 11
+    },
+    {
+      "approvals": 6,
+      "cup": null,
+      "duration_s": 89.8,
+      "fabricated_urls_count": 0,
+      "failure_cause": "extraction",
+      "repetition": 3,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "A2_schema_references",
+      "thread_id": "158da34bdc3f84b3",
+      "tool_calls": 10
+    },
+    {
+      "approvals": 2,
+      "cup": null,
+      "duration_s": 32.4,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A3_contact_conges",
+      "thread_id": "b663ce9755c273f3",
+      "tool_calls": 4
+    },
+    {
+      "approvals": 3,
+      "cup": null,
+      "duration_s": 68.0,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A3_contact_conges",
+      "thread_id": "bee87b65d6235dab",
+      "tool_calls": 9
+    },
+    {
+      "approvals": 3,
+      "cup": null,
+      "duration_s": 41.0,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A3_contact_conges",
+      "thread_id": "71868946b1645957",
+      "tool_calls": 6
+    },
+    {
+      "approvals": 5,
+      "cup": false,
+      "duration_s": 42.8,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B1_conge_hard",
+      "thread_id": "d503acbce5f152f0",
+      "tool_calls": 10
+    },
+    {
+      "approvals": 5,
+      "cup": false,
+      "duration_s": 41.2,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B1_conge_hard",
+      "thread_id": "49d554b1a5fd079b",
+      "tool_calls": 10
+    },
+    {
+      "approvals": 4,
+      "cup": false,
+      "duration_s": 37.1,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B1_conge_hard",
+      "thread_id": "5033937660ad0cee",
+      "tool_calls": 7
+    },
+    {
+      "approvals": 6,
+      "cup": null,
+      "duration_s": 168.6,
+      "fabricated_urls_count": 1,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "D1_cible_inexistante",
+      "thread_id": "3eb3589a83abb029",
+      "tool_calls": 12
+    },
+    {
+      "approvals": 7,
+      "cup": null,
+      "duration_s": 212.0,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "D1_cible_inexistante",
+      "thread_id": "d10f2bfe1d602d3a",
+      "tool_calls": 14
+    },
+    {
+      "approvals": 6,
+      "cup": null,
+      "duration_s": 140.3,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "D1_cible_inexistante",
+      "thread_id": "24668ec54a4a4010",
+      "tool_calls": 11
+    }
+  ],
+  "config_digest": "5b79dcb44a118966",
+  "current": null,
+  "label": "gpu-placement-smoke-after",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "A2_schema_references"
+    },
+    {
+      "repetition": 2,
+      "task_id": "A2_schema_references"
+    },
+    {
+      "repetition": 3,
+      "task_id": "A2_schema_references"
+    },
+    {
+      "repetition": 1,
+      "task_id": "A3_contact_conges"
+    },
+    {
+      "repetition": 2,
+      "task_id": "A3_contact_conges"
+    },
+    {
+      "repetition": 3,
+      "task_id": "A3_contact_conges"
+    },
+    {
+      "repetition": 1,
+      "task_id": "B1_conge_hard"
+    },
+    {
+      "repetition": 2,
+      "task_id": "B1_conge_hard"
+    },
+    {
+      "repetition": 3,
+      "task_id": "B1_conge_hard"
+    },
+    {
+      "repetition": 1,
+      "task_id": "D1_cible_inexistante"
+    },
+    {
+      "repetition": 2,
+      "task_id": "D1_cible_inexistante"
+    },
+    {
+      "repetition": 3,
+      "task_id": "D1_cible_inexistante"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-08-10T09:24:40.657550+00:00",
+      "index": 0,
+      "started_at": "2026-08-10T09:05:16.443074+00:00"
+    }
+  ],
+  "started_at": "2026-08-10T09:05:16.443074+00:00",
+  "total_runs": 12
+}

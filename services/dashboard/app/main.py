@@ -22,7 +22,7 @@ from typing import Optional
 
 import httpx
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
 from app.gpu import parse_nvidia_smi_csv, run_nvidia_smi
 from app.prometheus import extract_llama_metrics, normalize_slots
@@ -38,6 +38,11 @@ ENABLE_GPU_STATS = os.environ.get("ENABLE_GPU_STATS", "false").lower() == "true"
 # no HTTP coupling between the two, per the brief's design principle.
 CAMPAIGNS_DIR = Path(os.environ.get("CAMPAIGNS_DIR", "/campaigns"))
 DURATION_ESTIMATE_CACHE_PATH = Path(os.environ.get("DURATION_ESTIMATE_CACHE_PATH", "/duration-estimates.json"))
+# Visual feedback (docs/briefs/campaign-visual-feedback.md, minimal
+# subset): mcp-client writes here (CAMPAIGN_VISUAL_CAPTURE), this service
+# only reads (bind mount, read-only) — same "harness writes, dashboard
+# reads" principle as CAMPAIGNS_DIR above.
+VISUAL_CAPTURE_DIR = Path(os.environ.get("VISUAL_CAPTURE_DIR", "/visual-capture"))
 # Short: /api/snapshot is polled every 2s by the page (see static/
 # index.html) — a slow source must never blow this budget, even if it
 # means returning this section as null for THIS snapshot.
@@ -59,6 +64,22 @@ async def index():
 @app.get("/campaign", response_class=HTMLResponse)
 async def campaign_page():
     return (_STATIC_DIR / "campaign.html").read_text(encoding="utf-8")
+
+
+@app.get("/api/visual/{thread_id}")
+async def visual_capture(thread_id: str):
+    """
+    Serves the single overwritten latest.jpg mcp-client writes per thread
+    (docs/briefs/campaign-visual-feedback.md) — 404 when absent (capture
+    disabled, or this thread hasn't taken a browser action yet), never a
+    500. no-store: the URL is stable (same filename every poll) but the
+    bytes behind it change — browsers must re-fetch every time, not serve
+    a cached first frame for the rest of the run.
+    """
+    path = VISUAL_CAPTURE_DIR / thread_id / "latest.jpg"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="pas de capture pour ce thread")
+    return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
 
 async def _fetch_llama_metrics(client: httpx.AsyncClient) -> Optional[dict]:
