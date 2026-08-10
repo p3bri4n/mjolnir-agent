@@ -57,20 +57,24 @@ services:
       # raisonnement normal sinon (première décision d'un tour, tool
       # sensible...). Voir app/graph.py, _adaptive_thinking_directive.
       - ADAPTIVE_THINKING=${ADAPTIVE_THINKING:-true}
-      # Plan explicite (Phase 1 « cœur cognitif », Itération 1 — voir
-      # docs/briefs/phase-1-coeur-cognitif.md et README, section "Plan
-      # explicite"). DÉFAUT INVERSÉ (docs/briefs/flags-du-coeur-cognitif.md,
-      # voir app/graph.py) : le cœur cognitif est mesuré et adopté (campagne
-      # finale 29/33), c'est la DÉSACTIVATION qui doit être explicite —
-      # ATTENTION : ce défaut doit rester cohérent avec celui d'app/graph.py
-      # ($PLANNER_ENABLED non défini dans .env retomberait sinon sur CE
-      # défaut-ci, pas sur celui du code Python).
-      - PLANNER_ENABLED=${PLANNER_ENABLED:-true}
-      # Vérification post-action + budget d'échec (Itération 2 — voir
-      # docs/briefs/phase-1-coeur-cognitif.md et README, section "Plan
-      # explicite"). N'A D'EFFET QUE SI PLANNER_ENABLED EST AUSSI true.
-      # DÉFAUT INVERSÉ, même justification que PLANNER_ENABLED ci-dessus.
-      - VERIFICATION_ENABLED=${VERIFICATION_ENABLED:-true}
+      # Explicit plan (Phase 1 "cognitive core", Iteration 1 — see
+      # docs/briefs/phase-1-coeur-cognitif.md). DEFAULT FLIPPED BACK TO
+      # false (EFFORT 2.4, docs/history.md/docs/briefs/update-plan.md):
+      # the decisive cfg1-vs-cfg8 measurement showed cfg1 (all 4 flags
+      # off) never losing to cfg8 (all on, the PREVIOUS default) at 43%
+      # less cumulative time for the same real work, and the A1
+      # trajectory + #51 diagnostics both found the mechanism actively
+      # discarding correct progress via attempt/replan-budget churn, not
+      # just costing more for the same result — ATTENTION: this default
+      # must stay consistent with app/graph.py's own
+      # ($PLANNER_ENABLED unset in .env would otherwise fall back to
+      # THIS default, not the Python code's).
+      - PLANNER_ENABLED=${PLANNER_ENABLED:-false}
+      # Post-action verification + failure budget (Iteration 2 — see
+      # docs/briefs/phase-1-coeur-cognitif.md). ONLY HAS AN EFFECT IF
+      # PLANNER_ENABLED IS ALSO true. DEFAULT FLIPPED BACK TO false, same
+      # EFFORT 2.4 justification as PLANNER_ENABLED above.
+      - VERIFICATION_ENABLED=${VERIFICATION_ENABLED:-false}
       # Tentatives par sous-tâche avant de la marquer "echoue" (voir
       # verify_action, app/graph.py).
       - SUBTASK_ATTEMPT_BUDGET=${SUBTASK_ATTEMPT_BUDGET:-3}
@@ -78,18 +82,18 @@ services:
       # d'échec honnête plutôt qu'une boucle infinie (voir replan_task/
       # report_failure, app/graph.py).
       - REPLAN_BUDGET=${REPLAN_BUDGET:-2}
-      # Pipeline de validation du plan (Itération 3 — voir
-      # docs/briefs/phase-1-coeur-cognitif.md et README, section "Plan
-      # explicite"). N'A D'EFFET QUE SI PLANNER_ENABLED EST AUSSI true.
-      # DÉFAUT INVERSÉ, même justification que PLANNER_ENABLED ci-dessus.
+      # Plan validation pipeline (Iteration 3 — see
+      # docs/briefs/phase-1-coeur-cognitif.md). ONLY HAS AN EFFECT IF
+      # PLANNER_ENABLED IS ALSO true. KEPT true, UNLIKE the 3 siblings
+      # above (EFFORT 2.4 safety-value exception — a programmatic
+      # heuristic, not a score-driven mechanism, untouched by the CuP
+      # reading that justified flipping the others back).
       - PLAN_VALIDATION_ENABLED=${PLAN_VALIDATION_ENABLED:-true}
-      # Juge LLM du plan (heuristiques déjà passées, coûteux). Clause de
-      # retrait mesurée (voir docs/history.md, Itération 3) : a réellement
-      # vétoté un plan que les heuristiques laissaient passer. DÉFAUT
-      # INVERSÉ (docs/briefs/flags-du-coeur-cognitif.md) : décision
-      # explicite de l'activer avec les 3 flags ci-dessus, la campagne
-      # finale 29/33 ayant mesuré les 4 flags actifs ensemble.
-      - PLAN_JUDGE_ENABLED=${PLAN_JUDGE_ENABLED:-true}
+      # LLM judge of the plan (heuristics already passed, costly). DEFAULT
+      # FLIPPED BACK TO false (EFFORT 2.4): only has an effect if
+      # PLANNER_ENABLED is also true, which is now false by default —
+      # same justification as PLANNER_ENABLED/VERIFICATION_ENABLED above.
+      - PLAN_JUDGE_ENABLED=${PLAN_JUDGE_ENABLED:-false}
       # 5e condition du coeur cognitif (effort 2 point 3, voir
       # docs/briefs/update-plan.md "2.1 addendum") : "nodes" (défaut,
       # comportement inchangé) ou "merged" (planification fusionnée dans

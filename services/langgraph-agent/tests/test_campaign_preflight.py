@@ -188,12 +188,12 @@ def test_check_agent_flags_ok_when_matching_expected():
 
 def test_check_agent_flags_flags_stale_override():
     actual = dict(preflight.EXPECTED_AGENT_FLAGS)
-    actual["PLANNER_ENABLED"] = "false"
+    actual["PLANNER_ENABLED"] = "true"
     error = preflight.check_agent_flags(actual)
     assert error is not None
     assert "PLANNER_ENABLED" in error
-    assert "attendu='true'" in error
-    assert "effectif='false'" in error
+    assert "attendu='false'" in error
+    assert "effectif='true'" in error
     assert "docker compose up -d --force-recreate langgraph-agent" in error
 
 
@@ -252,7 +252,7 @@ def test_run_preflight_checks_flags_before_schema_but_after_image_freshness():
             fetch_llm_ready=lambda: True,
             fetch_tabbyapi_image_ids=lambda: ("sha256:same", "sha256:same"),
             fetch_device_placement=lambda: _OK_GPU_DEVICES,
-            fetch_agent_env=lambda: {**preflight.EXPECTED_AGENT_FLAGS, "PLANNER_ENABLED": "false"},
+            fetch_agent_env=lambda: {**preflight.EXPECTED_AGENT_FLAGS, "PLANNER_ENABLED": "true"},
         )
     assert schema_calls == [], "le schéma ne doit pas être comparé si les flags sont désynchronisés"
 

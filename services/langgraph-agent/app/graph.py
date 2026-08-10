@@ -455,26 +455,30 @@ EPISODE_COMPACTION_ENABLED = os.environ.get("EPISODE_COMPACTION_ENABLED", "false
 EPISODE_COMPACTION_TURN_THRESHOLD = int(os.environ.get("EPISODE_COMPACTION_TURN_THRESHOLD", "40"))
 
 # Planner node (Iteration 1, Phase 1 "cognitive core" — see
-# docs/briefs/phase-1-coeur-cognitif.md). DEFAULT FLIPPED (docs/briefs/
-# flags-du-coeur-cognitif.md): the "false" default dated back to
-# iteration-by-iteration validation, where an extra LLM call at the start
-# of EVERY task would have broken almost all existing tests, which
-# mocked a FIXED sequence of replies. The cognitive core is now measured
-# (final campaign 29/33, consistent with pre-cognitive-core Campaign A at
-# 30/33 — see docs/history.md/README) and adopted: the NOMINAL behavior
-# must be the default, it's DISABLING it that must be explicit. Tests
-# that depend on pre-cognitive-core behavior now explicitly force
-# "false", they no longer rely on the default.
-PLANNER_ENABLED = os.environ.get("PLANNER_ENABLED", "true").lower() == "true"
+# docs/briefs/phase-1-coeur-cognitif.md). DEFAULT FLIPPED BACK TO false
+# (EFFORT 2.4, docs/history.md "EFFORT 2 — DECISIVE MEASUREMENT"): the
+# "true" default (docs/briefs/flags-du-coeur-cognitif.md) held while the
+# mechanism was measured and adopted (final campaign 29/33, consistent
+# with pre-cognitive-core Campaign A at 30/33), but the later decisive
+# cfg1-vs-cfg8 ablation (36 runs, discriminating 5-task subset) found
+# cfg1 (all 4 flags off) never losing to cfg8 (all on) at 43% less
+# cumulative time for essentially identical real work — and the A1
+# trajectory diagnostic plus `docs/resolved-bugs.md` #51 both found the
+# mechanism actively discarding genuine progress via attempt/replan-
+# budget churn on multi-page tasks, not merely costing more for the same
+# result. Tests that depend on cognitive-core behavior now explicitly
+# force "true" (already the pattern used by the pre-adoption tests this
+# same comment used to describe, just mirrored).
+PLANNER_ENABLED = os.environ.get("PLANNER_ENABLED", "false").lower() == "true"
 
 # Post-action verification + failure budget (Iteration 2, Phase 1
 # "cognitive core" — see docs/briefs/phase-1-coeur-cognitif.md). ONLY HAS
 # AN EFFECT IF PLANNER_ENABLED IS ALSO ON: verification compares a
 # tool-call turn's result to the ACTIVE subtask's success_criterion (see
 # verify_action below) — nothing to verify without a plan. DEFAULT
-# FLIPPED, same justification as PLANNER_ENABLED above (measured and
-# adopted, see docs/briefs/flags-du-coeur-cognitif.md).
-VERIFICATION_ENABLED = os.environ.get("VERIFICATION_ENABLED", "true").lower() == "true"
+# FLIPPED BACK TO false, same EFFORT 2.4 justification as PLANNER_ENABLED
+# above.
+VERIFICATION_ENABLED = os.environ.get("VERIFICATION_ENABLED", "false").lower() == "true"
 # Attempts per subtask before marking it "echoue" (see verify_action).
 SUBTASK_ATTEMPT_BUDGET = int(os.environ.get("SUBTASK_ATTEMPT_BUDGET", "3"))
 # Replans tolerated for a single task before honestly giving up (see
@@ -484,20 +488,22 @@ REPLAN_BUDGET = int(os.environ.get("REPLAN_BUDGET", "2"))
 
 # Plan validation pipeline (Iteration 3, Phase 1 "cognitive core" — see
 # docs/briefs/phase-1-coeur-cognitif.md and app/plan_validation.py). ONLY
-# HAS AN EFFECT IF PLANNER_ENABLED IS ALSO ON. DEFAULT FLIPPED, same
-# justification as PLANNER_ENABLED/VERIFICATION_ENABLED above (see
-# docs/briefs/flags-du-coeur-cognitif.md).
+# HAS AN EFFECT IF PLANNER_ENABLED IS ALSO ON. KEPT true, UNLIKE
+# PLANNER_ENABLED/VERIFICATION_ENABLED/PLAN_JUDGE_ENABLED above (EFFORT
+# 2.4 safety-value exception: a programmatic heuristic gate, not a
+# score-driven mechanism — untouched by the CuP reading that justified
+# flipping the other three back to false).
 PLAN_VALIDATION_ENABLED = os.environ.get("PLAN_VALIDATION_ENABLED", "true").lower() == "true"
 # LLM judge of the plan (heuristics already passed, costly — one LLM call
 # per validation). WITHDRAWAL CLAUSE (Iteration 3 brief) measured under
 # real conditions (see docs/history.md, Iteration 3): it did really veto a
 # plan the heuristics let through, for semantic reasons beyond their
 # reach (proof of real usefulness, not a "theater" validator), at the
-# cost of noticeable latency. DEFAULT FLIPPED (docs/briefs/
-# flags-du-coeur-cognitif.md): explicit decision to enable it by default
-# along with the 3 flags above, the final campaign at 29/33 having
-# measured all 4 flags active together.
-PLAN_JUDGE_ENABLED = os.environ.get("PLAN_JUDGE_ENABLED", "true").lower() == "true"
+# cost of noticeable latency. DEFAULT FLIPPED BACK TO false (EFFORT 2.4):
+# only has an effect if PLANNER_ENABLED is also true, which is now false
+# by default — same justification as PLANNER_ENABLED/VERIFICATION_ENABLED
+# above.
+PLAN_JUDGE_ENABLED = os.environ.get("PLAN_JUDGE_ENABLED", "false").lower() == "true"
 # "Justified rejection → back to the planner, max 2 cycles then human
 # escalation" (brief): number of rejections (heuristics OR judge)
 # tolerated before a human decides (require_plan_approval, with the
