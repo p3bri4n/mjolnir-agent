@@ -569,3 +569,34 @@ under the now-abandoned config) stopped via an unidentified path, not
 `report_failure`, not the iteration limit — stays recorded at
 `docs/resolved-bugs.md` #49, informational only now that cfg8 is no
 longer the default.
+
+## Effort 3 — GhostDesk removal + proactive OCR scaffolding (`docs/briefs/update-plan.md`)
+
+**GhostDesk removed entirely** (container, image, `ghostdesk-home`
+volume, `.env.example` secrets) — zero remaining references anywhere in
+the repo outside historical archive entries. `ocr-service` redesigned
+as a plain-FastAPI graph capability (`POST /ocr`, image-in/text-out, no
+more GhostDesk self-capture, no more click-targeting coordinates/query
+matching) — 6/6 tests. `langgraph-agent`'s proactive-OCR enrichment
+wired in (`_maybe_enrich_with_ocr`, inline in `_execute_tool_calls`,
+day-one `role="proactive_ocr"` trigger-rate audit counter) but shipped
+**default-off**: `_detect_visual_signal` is a stub, deliberately not
+guessing what `browser_snapshot` emits for a canvas/PDF/alt-less-img
+element ahead of an empirical check. Design deviation from the original
+brief found before coding: the brief's reactive trigger (hooked to
+`verify_action`'s verdict) is dead on arrival now that
+`VERIFICATION_ENABLED` defaults to `false` (effort 2.4) — a proactive
+trigger was built instead, per the brief's own named alternative. Full
+`langgraph-agent` suite 466 → 471 passed. Docs corrected for rule 9
+across 9 files — `docs/architecture/tool-supervision.md` turned out
+bigger than expected (`DEFAULT_RULES` is empty today; the doc's example
+default rule was entirely fictional, not just GhostDesk wording).
+Incidental fix: `.env.example` still showed the pre-2.4 `true` defaults
+for the cognitive-core flags (only `docker-compose.yml`/`app/graph.py`
+were updated that session) — corrected. Full detail: docs/history.md,
+"EFFORT 3". 🧑 **Next**: live verification (`docker compose build
+ocr-service langgraph-agent && docker compose up -d`, confirm
+`ocr-service` healthy and `campaign_preflight.py` green), then the
+explicit next checkpoint — resolve `_detect_visual_signal` empirically
+against the `fixture-visual-probe` fixtures before implementing it and
+flipping `PROACTIVE_OCR_ENABLED`, with its own restricted smoke.

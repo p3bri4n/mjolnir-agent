@@ -5526,3 +5526,102 @@ that. No family regressed. `PLANNER_ENABLED`/`VERIFICATION_ENABLED`/
 `PLAN_JUDGE_ENABLED` stay `false` by default; `PLAN_VALIDATION_ENABLED`
 stays `true` (safety-value exception, untouched by this result either
 way).
+
+## EFFORT 3 — GHOSTDESK REMOVAL + PROACTIVE OCR SCAFFOLDING
+
+Decision already taken and probed (`docs/architecture/visual-channel-feasibility.md`):
+removal loses nothing tested, every visual-only pattern (canvas, WebGL,
+alt-less image, native PDF) is already covered by Playwright's own
+`browser_take_screenshot`. Sequenced after user decision to fold effort
+1.3 (parallel campaigns) behind this one first: 1.3's isolation work
+would otherwise have had to cover GhostDesk's own contamination source
+(#42) only to throw that work away once GhostDesk was removed anyway.
+
+**Design deviation from the original brief, found before writing code**:
+the brief's reactive OCR trigger ("after a `not_reached` verify_action
+verdict, enrich the next observation") depends on `VERIFICATION_ENABLED`,
+which now defaults to `false` (effort 2.4, this same session) — dead on
+arrival. User chose a **proactive** trigger instead (canvas/PDF/alt-less-
+image detection), independent of the disabled verification mechanism —
+the brief's own explicitly-named alternative.
+
+**GhostDesk removed entirely**: `docker-compose.yml` service + `ghostdesk-home`
+volume deleted, `.env.example`'s `GHOSTDESK_AUTH_TOKEN`/
+`GHOSTDESK_VNC_PASSWORD` deleted. Zero remaining references to
+"ghostdesk" anywhere in the repo outside historical archive entries
+(`docs/history.md`/`docs/resolved-bugs.md`/`docs/lessons-learned.md`,
+correctly left untouched).
+
+**`ocr-service` redesigned as an image-input graph capability**
+(`services/ocr-service/app/main.py`): FastMCP (Streamable-HTTP MCP
+server, self-capturing via GhostDesk's `screen_shot`) replaced by plain
+FastAPI, matching `context-manager`/`skill-manager`'s shape exactly —
+`POST /ocr {image_base64, mime_type}` -> detected text sorted by
+confidence, capped at `OCR_MAX_ELEMENTS` (80). `find_text`/`read_screen`'s
+query-matching and coordinate normalization dropped entirely
+(`app/matching.py`, `app/coords.py` deleted) — both existed solely to
+support click-targeting, a use case that no longer applies once nothing
+clicks on OCR output; `app/ocr_engine.py` (the actual PaddleOCR wrapper)
+was already GhostDesk-free, untouched. `OCR_AUTH_TOKEN` dropped (no auth,
+matching `context-manager`/`skill-manager`'s existing precedent — the
+only possible caller is now `langgraph-agent` itself). Test suite fully
+rewritten (`TestClient`, no more fake-GhostDesk subprocess): 6/6 passed.
+
+**Proactive OCR enrichment wired into `langgraph-agent`, shipped
+default-off**: `_maybe_enrich_with_ocr` (`app/graph.py`), modeled on
+`_fetch_verification_snapshot`'s best-effort/try-except shape, called
+inline from `_execute_tool_calls` right after the existing `browser_*`
+post-processing block — no new `StateGraph` node, no new `AgentState`
+field (enrichment folds into the SAME tool result before the turn ends).
+`_detect_visual_signal` is a deliberate stub (always returns `None`):
+what `browser_snapshot` actually emits for a canvas/PDF/alt-less-img
+element is an open empirical question, not guessed — resolve against the
+existing `fixture-visual-probe` fixtures before implementing it for
+real. New flags `OCR_SERVICE_URL`/`PROACTIVE_OCR_ENABLED`/
+`PROACTIVE_OCR_MAX_CHARS`, `campaign_preflight.py`'s `EXPECTED_AGENT_FLAGS`
+and `campaign_persistence.py`'s `CAMPAIGN_ENV_FLAGS` both updated (the
+exact two-lists-must-stay-in-sync gap already fixed once, #48 — not
+reintroduced here). **Day-one trigger-rate counter**: a `role="proactive_ocr"`
+audit entry logged on every `browser_*` result processed while the flag
+is on, not just when it fires — the denominator needed to read any
+future campaign honestly. 5 new tests (`tests/test_proactive_ocr.py`):
+no-op when disabled, coverage-entry-logged-even-without-a-signal, full
+enrichment path (signal forced via monkeypatch, since the real detector
+is still a stub), and a `ocr-service`-failure case confirming the
+observation is left unchanged. Full `langgraph-agent` suite 466 → 471
+passed, no regressions.
+
+**Docs corrected for rule 9** (capability claims verified against
+installed code, not assumed): `README.md`, `docs/architecture/autonomy.md`
+(full rewrite of the OCR section — it described a `GROUNDING_DIRECTIVE`
+that never existed in code), `docs/architecture/tool-supervision.md`
+(bigger than expected once opened: `DEFAULT_RULES` turned out to be
+empty today, the doc's "default rule: `key_type(...)`" example was
+entirely fictional — not just GhostDesk wording but a materially false
+claim, corrected along with the tier table and the dead
+`_reset_ghostdesk_desktop()` paragraph), `docs/architecture/inference-backend.md`,
+`docs/architecture/mcp-client-concurrency.md` (three isolation resets ->
+two, `_reset_ghostdesk_desktop` was already deleted independently in a
+past commit), `services/tabbyapi/config.yml`, `services/mcp-client/app/main.py`'s
+docstring, `docs/architecture/visual-channel-feasibility.md` (records the
+`browser_snapshot`/`browser_take_screenshot` TIER_READ fix as already
+done, commit `6b4264e` — found already shipped while researching this
+effort, not something this pass needed to do), `docs/operations/testing.md`.
+
+**Also fixed while in `.env.example`, unrelated to GhostDesk but same
+class of staleness**: `PLANNER_ENABLED`/`VERIFICATION_ENABLED`/
+`PLAN_JUDGE_ENABLED` still showed `true` there (effort 2.4, earlier this
+session, only updated `docker-compose.yml`/`app/graph.py` — `.env.example`
+was missed). Corrected to `false` with the EFFORT 2.4 rationale,
+`PLAN_VALIDATION_ENABLED` kept `true`.
+
+**Not yet done, explicit next checkpoint**: `_detect_visual_signal`'s
+real implementation (needs the empirical `browser_snapshot` check above)
+and flipping `PROACTIVE_OCR_ENABLED` to `true`, gated on that plus its
+own restricted smoke — separate judge from this pass, which only needed
+to show family-wide non-regression with the flag off (structurally
+guaranteed, nothing model-visible changed). 🧑 Live verification still
+needed: `docker compose build ocr-service langgraph-agent && docker
+compose up -d` (no `ghostdesk` in the compose file anymore), confirm
+`ocr-service`'s `/health` and `campaign_preflight.py` both green, then a
+restricted smoke before any campaign.

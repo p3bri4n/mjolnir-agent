@@ -268,42 +268,52 @@ A materially improved. Full detail: docs/history.md, "EFFORT 2.4". See
 (informational only, since cfg8 is no longer the default it was found
 under).
 
-## Effort 3 — GhostDesk removal
+## Effort 3 — GhostDesk removal — scaffolding DELIVERED, mechanism not yet live
 
 Decision taken (Mjolnir is a web agent), and the feasibility probe
 confirms nothing tested is lost: canvas, WebGL, images and native PDF
 are all readable via `browser_take_screenshot`, which is Playwright's own
-tool. E4 is permanently out of scope by explicit decision.
+tool. E4 is permanently out of scope by explicit decision. Sequenced
+before effort 1.3 (parallel campaigns) rather than after, at user
+request: 1.3's per-worker isolation work would otherwise have had to
+cover GhostDesk's own contamination source (#42) only to discard that
+work once GhostDesk was removed anyway.
 
-Removal closes an entire uninspectable channel — no URL argument to
-validate, no per-task scope enforceable — and deletes a container, an
-image, and a contamination source. It also **simplifies B6**: no kiosk
-mode, no per-channel proxy rules, no address-bar OCR.
+**GhostDesk removed** — container, image, volume, secrets, every
+reference in the repo outside historical archives. Closes an entire
+uninspectable channel and deletes a contamination source, as planned.
 
-**`ocr-service` is kept, but changes hands.** It stops being a tool the
-model can call and becomes a **graph capability**: the graph decides when
-a visual reading is needed, takes a `browser_take_screenshot`, runs OCR,
-and attaches the result to the observation. Three gains at once — the
-schema loses its OCR and capture tools (effort 1), the model loses a
-choice it demonstrably made badly (E2's 1/3 was an audit-verified
-confusion between `screen_shot` and `browser_take_screenshot`), and the
-decision moves to where the information actually is: the graph can *see*
-whether the DOM snapshot is usable, the model can only guess.
+**`ocr-service` kept, changes hands** — delivered as designed: no longer
+a model-callable tool, a plain-HTTP graph capability
+(`docs/architecture/autonomy.md`, "Proactive OCR enrichment").
 
-**Trigger — reactive, not proactive.** "The DOM doesn't contain what's
-needed" is a judgement, not an observable fact, and a heuristic guessing
-it will be wrong in both directions. Use a signal already produced: after
-a `not_reached` verdict on a read action, the graph enriches the *next*
-turn's observation with an OCR'd capture. Wrong only by one turn's delay,
-and it reuses post-action verification rather than inventing a detector.
-A proactive variant (detecting `<canvas>`, PDF `<embed>`, alt-less images)
-may be added later as an optimisation, measured separately.
+**Trigger — PROACTIVE, not reactive (deviation from this brief, decided
+before coding).** The reactive design above ("after a `not_reached`
+verdict on a read action...") depends on `verify_action`/
+`VERIFICATION_ENABLED`, which now defaults to `false` (effort 2.4,
+landed in the same session as this effort) — dead on arrival, nothing
+would ever trigger it. Built the proactive variant this brief already
+named as the fallback instead (`<canvas>`/PDF `<embed>`/alt-less images).
+Ships as scaffolding only: `_detect_visual_signal` is a stub (always
+`None`), `PROACTIVE_OCR_ENABLED` defaults `false` — the real detection
+signal needs an empirical check against `browser_snapshot`'s actual
+output (`fixture-visual-probe` fixtures) before it can be implemented
+honestly, deliberately not guessed. See docs/history.md, "EFFORT 3" for
+the full implementation detail and the tool-supervision.md doc-drift
+found along the way (`DEFAULT_RULES` turned out empty, an existing
+example rule was fictional).
 
-E2 is re-measured after this change rather than left standing as a
-capability limit — its failure mode is exactly what this removes.
+E2 will be re-measured once the trigger is live — not yet, since it
+never fires with the flag off.
 
-Judge: full campaign unchanged outside family E; E2 improves; median time
-slightly improved; container count, schema weight and VRAM down.
+**Judge, split from the original single-judge text above**: this pass's
+own judge (full campaign unchanged outside family E, container
+count/image count down) is structurally guaranteed by construction
+(flag off, nothing model-visible changed) — not separately re-run.
+E2-improves/median-time-improves is deferred to a SEPARATE judge, gated
+on `_detect_visual_signal`'s real implementation and its own restricted
+smoke, once `PROACTIVE_OCR_ENABLED` is flipped. 🧑 Next: live deploy +
+verification, then that checkpoint.
 
 ## Effort 4 — Scaffolding improvements (B7 efforts 2 and 3)
 
