@@ -30,12 +30,14 @@ TASKS="A2_schema_references,A3_contact_conges,B1_conge_hard,D1_cible_inexistante
 REPS=3
 
 wait_for_container_ready() {
-  local container="$1" waited=0 timeout=90 interval=3
+  # port must match the service's own EXPOSE/uvicorn --port (Dockerfile) —
+  # mcp-client is 8003, langgraph-agent is 8000, they are NOT the same.
+  local container="$1" port="$2" waited=0 timeout=90 interval=3
   until docker exec "$container" python3 -c \
-    "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)" \
+    "import urllib.request; urllib.request.urlopen('http://localhost:${port}/health', timeout=3)" \
     &>/dev/null; do
     if (( waited >= timeout )); then
-      echo "$container ne répond pas sur /health après ${timeout}s — voir docker logs $container" >&2
+      echo "$container ne répond pas sur :${port}/health après ${timeout}s — voir docker logs $container" >&2
       exit 1
     fi
     sleep "$interval"
@@ -55,8 +57,8 @@ for capture in false true; do
   echo "=== CAMPAIGN_VISUAL_CAPTURE=${capture} ==="
   export CAMPAIGN_VISUAL_CAPTURE="$capture"
   docker compose up -d --force-recreate mcp-client langgraph-agent
-  wait_for_container_ready mcp-client
-  wait_for_container_ready langgraph-agent
+  wait_for_container_ready mcp-client 8003
+  wait_for_container_ready langgraph-agent 8000
   scripts/run-campaign.sh --suite v2 --tasks "$TASKS" --reps "$REPS" --label "$label"
 done
 
@@ -72,5 +74,5 @@ echo ""
 echo "=== Restoring mcp-client/langgraph-agent to their default config ==="
 unset CAMPAIGN_VISUAL_CAPTURE
 docker compose up -d --force-recreate mcp-client langgraph-agent
-wait_for_container_ready mcp-client
-wait_for_container_ready langgraph-agent
+wait_for_container_ready mcp-client 8003
+wait_for_container_ready langgraph-agent 8000
