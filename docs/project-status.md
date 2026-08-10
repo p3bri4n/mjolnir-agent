@@ -522,14 +522,24 @@ memory used) into every campaign's metadata. Regression-tested against
 the original pre-fix reading (14131/4424 MiB) — correctly flagged. Full
 suite 458→466 passed. **Brief fully delivered (steps 1-5).**
 
-**Planned, not started** (`docs/briefs/update-plan.md`, "2.3"/"2.4"):
-(1) a surgical `browser_extract` dt/dd fix in `mcp-client`, judged on
-A1/A2 at 3 reps, blocking (2) the cognitive-core removal PR itself —
+**2.3 delivered, not yet measured live** (`docs/briefs/update-plan.md`):
+`browser_extract`'s `dt`/`dd` + table-row `adjacent_value` fix
+(`services/mcp-client/app/main.py`) — fixture inventory done first (only
+`dt`/`dd` and `td`/`th` are real patterns; `label`/`input` checked and
+dropped, every fixture `<input>` is unfilled), functionally verified
+against a real DOM via `jsdom` outside the committed suite, 3 new unit
+tests, full `mcp-client` suite 45→48 passed. See docs/history.md,
+"EFFORT 2.3 — BROWSER_EXTRACT DT/DD FIX". 🧑 **Next**: the brief's own
+judge (A1 and A2, 3 reps each, one variable, non-regression on the rest
+of the suite) needs Docker/GPU — live campaign before 2.4 proceeds.
+
+**2.4 planned, not started** (`docs/briefs/update-plan.md`): the
+cognitive-core removal PR itself, blocked on 2.3's live measurement —
 sequenced fix-then-removal so the removal dossier isn't measuring a
 tool-level defect it never needed to inherit. The A1 diagnostic's
 cfg8-specific finding is added to that PR's justification regardless of
-(1)'s outcome. A 4.2 candidate ("structured values from N pages") is
-named but explicitly not built ahead of (1) and the frequency analysis
+2.3's outcome. A 4.2 candidate ("structured values from N pages") is
+named but explicitly not built ahead of 2.3 and the frequency analysis
 that effort already calls for. An open, unresolved question from the
 same diagnostic — 2 of A1's cfg8 runs stop via an unidentified path,
 not `report_failure`, not the iteration limit — is recorded at

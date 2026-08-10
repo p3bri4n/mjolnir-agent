@@ -5196,3 +5196,79 @@ regressions.
 
 Brief `docs/briefs/deterministic-gpu-placement.md` is now fully delivered
 (steps 1-5).
+
+## EFFORT 2.3 — BROWSER_EXTRACT DT/DD FIX (docs/briefs/update-plan.md)
+
+Implemented the fix named by the A1 trajectory diagnostic
+(docs/history.md, "A1 — TRAJECTORY DIAGNOSTIC"): `browser_extract`
+matched a structured LABEL text node (`dt`, or a table's first `td`) but
+never returned the VALUE next to it, forcing a `browser_run_code_unsafe`
+(NEVER_GRANTABLE) workaround on A2 and an 8-turn per-page re-navigation
+fallback on A1.
+
+**Fixture inventory done first, per the brief's own instruction ("list
+what the fixtures really use before writing the match logic, don't
+guess")**: `dt`/`dd` (catalog product pages — Référence/Prix/Catégorie/
+Stock/Description, `catalog/generate_catalog.py`) and `td`-siblings-in-
+the-same-`tr` (docs parameter table — A1's phase-2 target,
+`docs/generate_docs.py`; hr-app listings) are genuinely used.
+`label`/`input`, named in the brief as a candidate third pattern, was
+checked and dropped: every fixture `<input>` (hr-app, admin) is an
+unfilled form field the agent WRITES to, never a pre-filled value to
+read (`grep value=` on those files finds only `<option value=...>` in
+select dropdowns, never a populated `<input value=...>`) — building a
+match rule for it would have been exactly the guess the brief's
+instruction warns against.
+
+**Scope decision made with the user before writing code**: build dt/dd +
+td/th, skip label/input. Kept th/td in scope despite the judge naming
+only "A1 and A2" — reasoning: if the dt/dd fix frees phase 1's budget on
+A1 (per the diagnostic, very likely: it's the redundant re-navigation
+tail that exhausts the budget, not phase 1's minimum cost), A1 would for
+the first time actually reach phase 2 (docs cross-check) and hit the
+identical blind spot there — fixing dt/dd alone risks moving the failure
+point deeper into the task rather than resolving it.
+
+**Implementation** (`services/mcp-client/app/main.py`,
+`_BROWSER_EXTRACT_JS_TEMPLATE` and `_BROWSER_EXTRACT_BULK_JS_TEMPLATE`,
+both templates updated identically — they already duplicated the walker
+logic before this change, not a new debt introduced here): a new
+`adjacent_value` field added to each match result. When the matched
+node's parent is a `dt` with a `dd` `nextElementSibling`, `adjacent_value`
+is that `dd`'s text. When the parent is a `td`/`th`, `adjacent_value` is
+the other cells of the same `tr` joined with `" | "` (the row IS the
+label/value pair here — searching a parameter name in its own `td`,
+same shape as dt/dd once you see the row as the container instead of a
+single sibling). `null` when neither pattern applies, same convention as
+the existing `link_href` field. Tool description
+(`_BROWSER_EXTRACT_TOOL`) updated to mention the field explicitly — the
+model needs to know it exists to stop reaching for the workaround this
+fix targets.
+
+**Verified functionally, not just for JS syntax** (this suite only ever
+asserts on generated JS as a string — no real DOM available in these
+Python tests, a pre-existing limit of every `_build_extract_function`
+test): manually checked against a real DOM via `jsdom` (Node, outside
+the committed test suite) before writing the Python tests — querying
+"Référence"/"Prix" against a `dt`/`dd` fixture correctly resolves to the
+`dd`'s value; querying a docs table's parameter name correctly resolves
+to the sibling cells including the target default value. Both templates
+also passed a plain `node --check` syntax sanity check (a template
+string with unbalanced `{{`/`}}` would otherwise fail silently in
+production, on every future `browser_extract` call, not just at review
+time).
+
+3 new unit tests (string-content assertions on the generated JS, single-
+page + bulk + tool description, matching this suite's existing style for
+`_build_extract_function`). Full `mcp-client` suite: 45→48 passed, 0
+regressions (run against a throwaway venv with the real `mcp`/`fastapi`
+deps installed — the sandbox's default `PYTHONPATH` trick fails 8
+subprocess-based tests because `mcp.client.stdio`'s `StdioServerParameters`
+spawns its echo-server fixtures with `get_default_environment()`, a
+minimal env that does NOT inherit `PYTHONPATH` by design; unrelated to
+this change, confirmed by the same 8 failing identically before it too).
+
+**Not yet measured live**: the brief's own judge (A1 and A2, 3 reps
+each, one variable, non-regression on the rest of the suite) needs
+Docker/GPU — 🧑 next: user runs the live campaign before 2.4 (the
+cognitive-core removal PR) proceeds.

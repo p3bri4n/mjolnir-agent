@@ -177,7 +177,13 @@ this reading.
 
 🧑 Checkpoint before any removal — reported, not yet acted on.
 
-**2.3 — planned, not started: `browser_extract` dt/dd fix (blocks 2.4).**
+**2.3 — delivered, not yet measured live (blocks 2.4).**
+`services/mcp-client/app/main.py`'s `adjacent_value` field, fixture
+inventory done first (dt/dd + td/th real, label/input dropped — checked,
+not guessed), verified against jsdom, 3 new unit tests, suite 45→48
+passed. Full detail: docs/history.md, "EFFORT 2.3 — BROWSER_EXTRACT
+DT/DD FIX". 🧑 Next: the judge below, live, before 2.4.
+Original brief text kept below as the design record.
 Named by the A1 trajectory diagnostic (docs/history.md, "A1 — TRAJECTORY
 DIAGNOSTIC"): `browser_extract`'s query-matching returns a matched label
 (`Prix`, `Référence`) but not its adjacent value, forcing every run
