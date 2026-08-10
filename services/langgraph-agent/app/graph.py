@@ -137,6 +137,10 @@ LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://tabbyapi:5000/v1")
 CONTEXT_MANAGER_URL = os.environ.get("CONTEXT_MANAGER_URL", "http://context-manager:8002")
 SKILL_MANAGER_URL = os.environ.get("SKILL_MANAGER_URL", "http://skill-manager:8001")
 MCP_CLIENT_URL = os.environ.get("MCP_CLIENT_URL", "http://mcp-client:8003")
+# Graph-internal OCR capability (effort 3, GhostDesk removal — see
+# docs/history.md "EFFORT 3"): called directly, never through mcp-client,
+# same pattern as CONTEXT_MANAGER_URL/SKILL_MANAGER_URL above.
+OCR_SERVICE_URL = os.environ.get("OCR_SERVICE_URL", "http://ocr-service:8004")
 
 # URL-fabrication guardrail (Phase 1, see PLAN.md/docs/history.md — target
 # #1 of the Phase 0 point zero: the agent regularly invents plausible URLs
@@ -453,6 +457,22 @@ IMAGE_RETENTION_PLACEHOLDER = "[screenshot antérieure supprimée]"
 # value.
 EPISODE_COMPACTION_ENABLED = os.environ.get("EPISODE_COMPACTION_ENABLED", "false").lower() == "true"
 EPISODE_COMPACTION_TURN_THRESHOLD = int(os.environ.get("EPISODE_COMPACTION_TURN_THRESHOLD", "40"))
+
+# Proactive OCR enrichment (effort 3, GhostDesk removal — see
+# docs/history.md "EFFORT 3"): after a browser_* result showing a signal
+# that a visual-only element (canvas/PDF/alt-less image) is present,
+# enrich that SAME result with a browser_take_screenshot + OCR pass
+# before the model sees it — see _maybe_enrich_with_ocr below. Ships OFF
+# by default: _detect_visual_signal is a stub in this pass (always
+# returns None), pending an empirical check of what browser_snapshot
+# actually emits for these elements (docs/briefs/update-plan.md, effort
+# 3's "explicit next checkpoint"). Flip only after that check and its own
+# restricted smoke, same discipline as every other conditional mechanism
+# in this file.
+PROACTIVE_OCR_ENABLED = os.environ.get("PROACTIVE_OCR_ENABLED", "false").lower() == "true"
+# Caps how much OCR text gets appended to a single tool result, same
+# philosophy as BROWSER_TOOL_OUTPUT_MAX_CHARS.
+PROACTIVE_OCR_MAX_CHARS = int(os.environ.get("PROACTIVE_OCR_MAX_CHARS", "2000"))
 
 # Planner node (Iteration 1, Phase 1 "cognitive core" — see
 # docs/briefs/phase-1-coeur-cognitif.md). DEFAULT FLIPPED BACK TO false
@@ -1136,6 +1156,91 @@ async def _grounding_snapshot(state: dict, objective: str) -> Optional[str]:
     if not state.get("current_page_url"):
         return None
     return await _fetch_verification_snapshot(objective) or None
+
+
+def _detect_visual_signal(text: str) -> Optional[str]:
+    """
+    Best-effort heuristic over an already-fetched browser_* result's text:
+    returns a signal kind ("canvas" | "pdf_embed" | "alt_less_img") if the
+    text plausibly indicates a visual-only element (see
+    docs/architecture/visual-channel-feasibility.md, VP1-VP4), None
+    otherwise.
+
+    STUB (effort 3, GhostDesk removal — see docs/history.md "EFFORT 3"):
+    always returns None in this pass. What browser_snapshot actually
+    emits for a canvas/PDF-embed/alt-less-img element (a detectable
+    unlabeled node vs. nothing at all) is an open empirical question,
+    deliberately not guessed here — see docs/briefs/update-plan.md,
+    effort 3's "explicit next checkpoint". Implement only after checking
+    against the existing fixture-visual-probe fixtures
+    (tests_integration/fixtures/visual-probe/).
+    """
+    return None
+
+
+async def _maybe_enrich_with_ocr(
+    client: httpx.AsyncClient, tool_name: str, result: dict, thread_id: str
+) -> dict:
+    """
+    Proactive OCR enrichment (effort 3, GhostDesk removal — see
+    docs/history.md "EFFORT 3"): if `_detect_visual_signal` flags the
+    just-fetched browser_* result as plausibly visual-only, take a
+    browser_take_screenshot and run it through ocr-service, appending the
+    detected text to the SAME result before the model sees it — replaces
+    the original brief's reactive design (auto-triggered on a
+    verify_action "not_reached" verdict), dead on arrival since
+    VERIFICATION_ENABLED now defaults to false (EFFORT 2.4).
+
+    No-op if PROACTIVE_OCR_ENABLED is false (default) — same convention
+    as every other conditional mechanism in this file. Best-effort,
+    try/except-wrapped, never blocks the task on a side-capability
+    failure, same philosophy as `_fetch_verification_snapshot`.
+
+    ALWAYS logs a `role="proactive_ocr"` audit entry while the flag is
+    on, even when no signal is detected — the day-one trigger-rate
+    counter this mechanism ships with (CLAUDE.md: a conditional
+    mechanism ships with its coverage counter from day one), not bolted
+    on after a campaign comes back unreadable.
+    """
+    if not PROACTIVE_OCR_ENABLED:
+        return result
+    text = "\n".join(
+        b["text"] for b in result.get("content", []) if isinstance(b, dict) and b.get("type") == "text"
+    )
+    signal = _detect_visual_signal(text)
+    ocr_ran = False
+    detections_count = 0
+    chars_attached = 0
+    if signal:
+        try:
+            _screenshot_result, images = await _call_mcp_tool(client, "browser_take_screenshot", {}, thread_id)
+            if images:
+                resp = await client.post(
+                    f"{OCR_SERVICE_URL}/ocr",
+                    json={"image_base64": images[0]["data"], "mime_type": images[0].get("mimeType", "image/png")},
+                )
+                resp.raise_for_status()
+                detections = resp.json()
+                ocr_ran = True
+                detections_count = len(detections)
+                joined = "; ".join(d["text"] for d in detections)[:PROACTIVE_OCR_MAX_CHARS]
+                chars_attached = len(joined)
+                if joined and isinstance(result.get("content"), list):
+                    result = {**result, "content": [*result["content"], {"type": "text", "text": f"[OCR enrichment] {joined}"}]}
+        except Exception:
+            logger.warning("Proactive OCR enrichment unavailable, observation left as-is.", exc_info=True)
+    audit_log.log_message(
+        thread_id, "proactive_ocr",
+        {
+            "tool": tool_name,
+            "signal_detected": bool(signal),
+            "signal_kind": signal,
+            "ocr_ran": ocr_ran,
+            "detections_count": detections_count,
+            "chars_attached": chars_attached,
+        },
+    )
+    return result
 
 
 class AgentState(TypedDict):
@@ -2520,6 +2625,8 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
                     if tool_call["name"] == "browser_navigate" and not blocked:
                         observed_urls.add(tool_call["args"]["url"])
                         current_page_url = tool_call["args"]["url"]
+                    if current_page_url:
+                        result = await _maybe_enrich_with_ocr(client, tool_call["name"], result, thread_id)
 
             if audit_tier is not None:
                 # Logged AFTER execution (see above) to carry the result

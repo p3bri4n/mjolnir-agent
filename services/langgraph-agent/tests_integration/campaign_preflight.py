@@ -101,6 +101,9 @@ EXPECTED_AGENT_FLAGS = {
     "REPLAN_BUDGET": "2",
     "PLAN_VALIDATION_ENABLED": "true",
     "PLAN_JUDGE_ENABLED": "false",
+    # EFFORT 3 (GhostDesk removal, docs/history.md "EFFORT 3"): ships
+    # default-off, detection heuristic stubbed pending its own checkpoint.
+    "PROACTIVE_OCR_ENABLED": "false",
     "PLANNING_MODE": "nodes",
     "ADAPTIVE_THINKING": "true",
     "MAX_IMAGES_IN_CONTEXT": "1",
