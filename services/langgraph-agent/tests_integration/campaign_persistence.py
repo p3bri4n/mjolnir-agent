@@ -164,6 +164,43 @@ with urllib.request.urlopen('http://localhost:5000/v1/model', timeout=10) as r:
     return out or None
 
 
+def collect_gpu_devices(container: str = TABBYAPI_CONTAINER) -> list:
+    """One dict per GPU visible to `container` (index, name, bus_id,
+    memory_used_mib), via `nvidia-smi` run INSIDE it rather than the host
+    (docs/briefs/deterministic-gpu-placement.md, step 5) — index/order as
+    CUDA_DEVICE_ORDER pins them for the container, which may not match
+    what a host-side nvidia-smi enumerates. Same best-effort philosophy as
+    the rest of this module (collect_tabbyapi_raw_samples): [] on any
+    failure, never an exception — a campaign's hardware layout is context
+    to persist, not a hard requirement. Reused by
+    campaign_preflight._fetch_device_placement (same DRY precedent as
+    _fetch_agent_env delegating to collect_env_flags above) rather than
+    duplicated."""
+    out = _run([
+        "docker", "exec", container, "nvidia-smi",
+        "--query-gpu=index,name,memory.used,pci.bus_id",
+        "--format=csv,noheader,nounits",
+    ])
+    if not out:
+        return []
+    devices = []
+    for line in out.splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) != 4:
+            continue
+        index, name, memory_used, bus_id = parts
+        try:
+            devices.append({
+                "index": int(index),
+                "name": name,
+                "memory_used_mib": float(memory_used),
+                "bus_id": bus_id,
+            })
+        except ValueError:
+            continue
+    return devices
+
+
 def collect_env_flags(container: str = AGENT_CONTAINER, flags: list = None) -> dict:
     """Flags D'ENV TELS QUE VUS PAR LE CONTENEUR qui tourne (pas le process
     hôte qui lance pytest, qui peut ne pas les avoir/en avoir des périmés) —
@@ -197,6 +234,10 @@ def collect_metadata(label: str, repo_dir: Optional[Path] = None) -> dict:
         "image_ids": collect_image_digests(),
         "tabbyapi_model_id": fetch_tabbyapi_model_id(),
         "env_flags": env_flags,
+        # Deterministic GPU placement (docs/briefs/
+        # deterministic-gpu-placement.md, step 5): a campaign must be able
+        # to say which hardware layout it measured, not just which flags.
+        "gpu_devices": collect_gpu_devices(),
         "label": label,
     }
 

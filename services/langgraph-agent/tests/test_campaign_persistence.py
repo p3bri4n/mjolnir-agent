@@ -141,6 +141,62 @@ def test_collect_metadata_never_raises_when_everything_unreachable(monkeypatch):
     assert metadata["env_flags"] == {}
     assert metadata["label"] == "Campagne test"
     assert set(metadata["image_ids"]) == set(cp.CAMPAIGN_IMAGE_CONTAINERS)
+    assert metadata["gpu_devices"] == []
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# GPU devices (docs/briefs/deterministic-gpu-placement.md, step 5)
+# ─────────────────────────────────────────────────────────────────────────
+
+_GPU_SMI_CSV = (
+    "0, NVIDIA GeForce RTX 5060 Ti, 6052, 00000000:04:00.0\n"
+    "1, NVIDIA GeForce RTX 4070 Ti SUPER, 12616, 00000000:08:00.0\n"
+)
+
+
+def test_collect_gpu_devices_parses_csv_output(monkeypatch):
+    class _Result:
+        returncode = 0
+        stdout = _GPU_SMI_CSV
+
+    monkeypatch.setattr(cp.subprocess, "run", lambda *a, **k: _Result())
+    devices = cp.collect_gpu_devices()
+    assert devices == [
+        {"index": 0, "name": "NVIDIA GeForce RTX 5060 Ti", "memory_used_mib": 6052.0, "bus_id": "00000000:04:00.0"},
+        {
+            "index": 1,
+            "name": "NVIDIA GeForce RTX 4070 Ti SUPER",
+            "memory_used_mib": 12616.0,
+            "bus_id": "00000000:08:00.0",
+        },
+    ]
+
+
+def test_collect_gpu_devices_empty_on_docker_failure(monkeypatch):
+    class _Result:
+        returncode = 1
+        stdout = ""
+
+    monkeypatch.setattr(cp.subprocess, "run", lambda *a, **k: _Result())
+    assert cp.collect_gpu_devices() == []
+
+
+def test_collect_metadata_includes_gpu_devices(monkeypatch):
+    class _Result:
+        returncode = 0
+
+        def __init__(self, stdout):
+            self.stdout = stdout
+
+    def fake_run(args, **kwargs):
+        if len(args) >= 4 and args[0] == "docker" and args[1] == "exec" and args[3] == "nvidia-smi":
+            return _Result(_GPU_SMI_CSV)
+        return _Result("")
+
+    monkeypatch.setattr(cp.subprocess, "run", fake_run)
+    metadata = cp.collect_metadata("Campagne test")
+    assert len(metadata["gpu_devices"]) == 2
+    assert metadata["gpu_devices"][1]["name"] == "NVIDIA GeForce RTX 4070 Ti SUPER"
 
 
 # ─────────────────────────────────────────────────────────────────────────
