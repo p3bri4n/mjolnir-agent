@@ -21,6 +21,10 @@ intermittent multi-GPU crash isolated to a prefill batch-size threshold.
 
 Scores went from 16/33 to 30/33 over eleven campaigns — [docs/notes/agent-benchmarking.md](https://github.com/p3bri4n/mjolnir-agent/discussions/12). 
 
+Forty-two engineering rules, each with the incident and the numbers that
+produced it — including the one where we measured that our own cognitive
+core did nothing: [docs/lessons-learned.md](docs/lessons-learned.md).
+
 ## Features
 
 ### Autonomy that reports its own failures
@@ -206,6 +210,8 @@ models/     weights (exl3) of the model and multimodal projector served by
 - `docs/operations/testing.md` — per-service test suites, SSE streaming.
 - `docs/operations/runbook.md` — rebuild/restart commands.
 - `docs/project-status.md` — progress status (changes at every checkpoint).
+- `docs/lessons-learned.md` — 42 engineering rules, each anchored to the
+  incident and numbers that produced it.
 - `PLAN.md` — roadmap (changes rarely, source of truth).
 - `docs/history.md` / `docs/resolved-bugs.md` — progress log and resolved bugs
   (consult by targeted search, never read in full — see `CLAUDE.md`).
