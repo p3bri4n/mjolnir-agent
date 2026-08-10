@@ -5272,3 +5272,23 @@ this change, confirmed by the same 8 failing identically before it too).
 each, one variable, non-regression on the rest of the suite) needs
 Docker/GPU — 🧑 next: user runs the live campaign before 2.4 (the
 cognitive-core removal PR) proceeds.
+
+**First live attempt (2026-08-10) — invalid, operational mistake, not a
+behavioral regression**: campaign `effort2.3-dtdd-fix` came back 0/3 on
+both A1 and A2, every run `cause=extraction`. Checked before reading
+anything into it: `docker inspect --format='{{.Created}}' $(docker
+inspect --format='{{.Image}}' mcp-client)` → `2026-08-06T15:56:49` (built
+4 days before the fix), and `docker exec mcp-client grep -c
+adjacent_value /app/app/main.py` → `0` — the container was never
+rebuilt, so the campaign measured the OLD pre-fix code, not the fix.
+Same class of gap as the 2026-07-28 invalid 14/33 run (fixtures not
+started before launch): `campaign_preflight.check_tabbyapi_image_fresh`
+only ever covers `tabbyapi`'s image freshness (documented scope
+decision, B5's implementation record) — nothing preflight-checks
+`mcp-client`'s, so a stale image here passes silently. Not fixed now
+(would be its own generalization effort, out of scope for 2.3); noted as
+a live gap this incident just made concrete rather than hypothetical.
+Artifacts kept for the record (`docs/campaigns/2026-08-10_campaign-v2_
+effort2.3-dtdd-fix.md` and siblings), excluded from any read of the
+fix's effect. 🧑 Next: rebuild `mcp-client`, confirm `adjacent_value`
+present in the running container, rerun under a new label.
