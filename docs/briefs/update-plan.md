@@ -13,7 +13,16 @@
 
 ---
 
-## First: correct `PLAN.md`, it is stale
+## First: correct `PLAN.md`, it is stale — DONE
+
+Already delivered (commit `a71902b`, "docs: correct PLAN.md's 3 stale
+claims, point to update-plan.md") — predates this consolidated plan's
+own tracking of it, only noticed stale-on-stale while reviewing this
+section itself. All 3 points below are annotated "Superseded" in
+`PLAN.md` today (PromptGuard/egress firewall correctly described as not
+existing yet; GhostDesk's Phase 1 point 6 annotated with the removal
+decision; Phase 3 point 4's "11 → 13 tasks" annotated as covered by v2
+family C, 9/9). Kept below for the historical record of what was wrong.
 
 Three factual errors, each already contradicted by the repository — fix
 before anything else, they are actively misleading:
