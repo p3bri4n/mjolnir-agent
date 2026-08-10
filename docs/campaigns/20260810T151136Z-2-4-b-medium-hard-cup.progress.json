@@ -1,0 +1,224 @@
+{
+  "campaign_id": "20260810T151136Z-2-4-b-medium-hard-cup",
+  "completed": [
+    {
+      "approvals": 4,
+      "cup": true,
+      "duration_s": 23.4,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B1_conge_medium",
+      "thread_id": "bb02ad231e0e93f5",
+      "tool_calls": 8
+    },
+    {
+      "approvals": 4,
+      "cup": true,
+      "duration_s": 23.3,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B1_conge_medium",
+      "thread_id": "4a8f676965ccc1b1",
+      "tool_calls": 8
+    },
+    {
+      "approvals": 4,
+      "cup": true,
+      "duration_s": 22.4,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B1_conge_medium",
+      "thread_id": "1933bdfbf2217878",
+      "tool_calls": 8
+    },
+    {
+      "approvals": 4,
+      "cup": true,
+      "duration_s": 22.3,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B1_conge_hard",
+      "thread_id": "3584ff6daebb2239",
+      "tool_calls": 8
+    },
+    {
+      "approvals": 4,
+      "cup": true,
+      "duration_s": 23.6,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B1_conge_hard",
+      "thread_id": "22a82b86bdabb000",
+      "tool_calls": 8
+    },
+    {
+      "approvals": 4,
+      "cup": true,
+      "duration_s": 22.2,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B1_conge_hard",
+      "thread_id": "7b69ade596a9816f",
+      "tool_calls": 8
+    },
+    {
+      "approvals": 3,
+      "cup": true,
+      "duration_s": 17.0,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B2_stock_medium",
+      "thread_id": "5ca335184294473e",
+      "tool_calls": 6
+    },
+    {
+      "approvals": 3,
+      "cup": true,
+      "duration_s": 14.3,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B2_stock_medium",
+      "thread_id": "b3016bc6828ef586",
+      "tool_calls": 6
+    },
+    {
+      "approvals": 3,
+      "cup": true,
+      "duration_s": 16.2,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B2_stock_medium",
+      "thread_id": "2931310d69d8b2c5",
+      "tool_calls": 6
+    },
+    {
+      "approvals": 3,
+      "cup": true,
+      "duration_s": 15.5,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B2_stock_hard",
+      "thread_id": "4b813d5def3c4352",
+      "tool_calls": 6
+    },
+    {
+      "approvals": 3,
+      "cup": true,
+      "duration_s": 16.3,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B2_stock_hard",
+      "thread_id": "4630f6c97b2dcf40",
+      "tool_calls": 6
+    },
+    {
+      "approvals": 3,
+      "cup": true,
+      "duration_s": 15.7,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B2_stock_hard",
+      "thread_id": "ce7a1bfc4c3a619c",
+      "tool_calls": 6
+    }
+  ],
+  "config_digest": "69dd05baf9d0b2c6",
+  "current": null,
+  "label": "2.4-b-medium-hard-cup",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "B1_conge_medium"
+    },
+    {
+      "repetition": 2,
+      "task_id": "B1_conge_medium"
+    },
+    {
+      "repetition": 3,
+      "task_id": "B1_conge_medium"
+    },
+    {
+      "repetition": 1,
+      "task_id": "B1_conge_hard"
+    },
+    {
+      "repetition": 2,
+      "task_id": "B1_conge_hard"
+    },
+    {
+      "repetition": 3,
+      "task_id": "B1_conge_hard"
+    },
+    {
+      "repetition": 1,
+      "task_id": "B2_stock_medium"
+    },
+    {
+      "repetition": 2,
+      "task_id": "B2_stock_medium"
+    },
+    {
+      "repetition": 3,
+      "task_id": "B2_stock_medium"
+    },
+    {
+      "repetition": 1,
+      "task_id": "B2_stock_hard"
+    },
+    {
+      "repetition": 2,
+      "task_id": "B2_stock_hard"
+    },
+    {
+      "repetition": 3,
+      "task_id": "B2_stock_hard"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-08-10T15:15:35.472685+00:00",
+      "index": 0,
+      "started_at": "2026-08-10T15:11:36.612271+00:00"
+    }
+  ],
+  "started_at": "2026-08-10T15:11:36.612271+00:00",
+  "total_runs": 12
+}

@@ -137,6 +137,10 @@ LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://tabbyapi:5000/v1")
 CONTEXT_MANAGER_URL = os.environ.get("CONTEXT_MANAGER_URL", "http://context-manager:8002")
 SKILL_MANAGER_URL = os.environ.get("SKILL_MANAGER_URL", "http://skill-manager:8001")
 MCP_CLIENT_URL = os.environ.get("MCP_CLIENT_URL", "http://mcp-client:8003")
+# Graph-internal OCR capability (effort 3, GhostDesk removal — see
+# docs/history.md "EFFORT 3"): called directly, never through mcp-client,
+# same pattern as CONTEXT_MANAGER_URL/SKILL_MANAGER_URL above.
+OCR_SERVICE_URL = os.environ.get("OCR_SERVICE_URL", "http://ocr-service:8004")
 
 # URL-fabrication guardrail (Phase 1, see PLAN.md/docs/history.md — target
 # #1 of the Phase 0 point zero: the agent regularly invents plausible URLs
@@ -454,27 +458,47 @@ IMAGE_RETENTION_PLACEHOLDER = "[screenshot antérieure supprimée]"
 EPISODE_COMPACTION_ENABLED = os.environ.get("EPISODE_COMPACTION_ENABLED", "false").lower() == "true"
 EPISODE_COMPACTION_TURN_THRESHOLD = int(os.environ.get("EPISODE_COMPACTION_TURN_THRESHOLD", "40"))
 
+# Proactive OCR enrichment (effort 3, GhostDesk removal — see
+# docs/history.md "EFFORT 3"): after a browser_* result showing a signal
+# that a visual-only element (canvas/PDF/alt-less image) is present,
+# enrich that SAME result with a browser_take_screenshot + OCR pass
+# before the model sees it — see _maybe_enrich_with_ocr below. Ships OFF
+# by default: _detect_visual_signal is a stub in this pass (always
+# returns None), pending an empirical check of what browser_snapshot
+# actually emits for these elements (docs/briefs/update-plan.md, effort
+# 3's "explicit next checkpoint"). Flip only after that check and its own
+# restricted smoke, same discipline as every other conditional mechanism
+# in this file.
+PROACTIVE_OCR_ENABLED = os.environ.get("PROACTIVE_OCR_ENABLED", "false").lower() == "true"
+# Caps how much OCR text gets appended to a single tool result, same
+# philosophy as BROWSER_TOOL_OUTPUT_MAX_CHARS.
+PROACTIVE_OCR_MAX_CHARS = int(os.environ.get("PROACTIVE_OCR_MAX_CHARS", "2000"))
+
 # Planner node (Iteration 1, Phase 1 "cognitive core" — see
-# docs/briefs/phase-1-coeur-cognitif.md). DEFAULT FLIPPED (docs/briefs/
-# flags-du-coeur-cognitif.md): the "false" default dated back to
-# iteration-by-iteration validation, where an extra LLM call at the start
-# of EVERY task would have broken almost all existing tests, which
-# mocked a FIXED sequence of replies. The cognitive core is now measured
-# (final campaign 29/33, consistent with pre-cognitive-core Campaign A at
-# 30/33 — see docs/history.md/README) and adopted: the NOMINAL behavior
-# must be the default, it's DISABLING it that must be explicit. Tests
-# that depend on pre-cognitive-core behavior now explicitly force
-# "false", they no longer rely on the default.
-PLANNER_ENABLED = os.environ.get("PLANNER_ENABLED", "true").lower() == "true"
+# docs/briefs/phase-1-coeur-cognitif.md). DEFAULT FLIPPED BACK TO false
+# (EFFORT 2.4, docs/history.md "EFFORT 2 — DECISIVE MEASUREMENT"): the
+# "true" default (docs/briefs/flags-du-coeur-cognitif.md) held while the
+# mechanism was measured and adopted (final campaign 29/33, consistent
+# with pre-cognitive-core Campaign A at 30/33), but the later decisive
+# cfg1-vs-cfg8 ablation (36 runs, discriminating 5-task subset) found
+# cfg1 (all 4 flags off) never losing to cfg8 (all on) at 43% less
+# cumulative time for essentially identical real work — and the A1
+# trajectory diagnostic plus `docs/resolved-bugs.md` #51 both found the
+# mechanism actively discarding genuine progress via attempt/replan-
+# budget churn on multi-page tasks, not merely costing more for the same
+# result. Tests that depend on cognitive-core behavior now explicitly
+# force "true" (already the pattern used by the pre-adoption tests this
+# same comment used to describe, just mirrored).
+PLANNER_ENABLED = os.environ.get("PLANNER_ENABLED", "false").lower() == "true"
 
 # Post-action verification + failure budget (Iteration 2, Phase 1
 # "cognitive core" — see docs/briefs/phase-1-coeur-cognitif.md). ONLY HAS
 # AN EFFECT IF PLANNER_ENABLED IS ALSO ON: verification compares a
 # tool-call turn's result to the ACTIVE subtask's success_criterion (see
 # verify_action below) — nothing to verify without a plan. DEFAULT
-# FLIPPED, same justification as PLANNER_ENABLED above (measured and
-# adopted, see docs/briefs/flags-du-coeur-cognitif.md).
-VERIFICATION_ENABLED = os.environ.get("VERIFICATION_ENABLED", "true").lower() == "true"
+# FLIPPED BACK TO false, same EFFORT 2.4 justification as PLANNER_ENABLED
+# above.
+VERIFICATION_ENABLED = os.environ.get("VERIFICATION_ENABLED", "false").lower() == "true"
 # Attempts per subtask before marking it "echoue" (see verify_action).
 SUBTASK_ATTEMPT_BUDGET = int(os.environ.get("SUBTASK_ATTEMPT_BUDGET", "3"))
 # Replans tolerated for a single task before honestly giving up (see
@@ -484,20 +508,22 @@ REPLAN_BUDGET = int(os.environ.get("REPLAN_BUDGET", "2"))
 
 # Plan validation pipeline (Iteration 3, Phase 1 "cognitive core" — see
 # docs/briefs/phase-1-coeur-cognitif.md and app/plan_validation.py). ONLY
-# HAS AN EFFECT IF PLANNER_ENABLED IS ALSO ON. DEFAULT FLIPPED, same
-# justification as PLANNER_ENABLED/VERIFICATION_ENABLED above (see
-# docs/briefs/flags-du-coeur-cognitif.md).
+# HAS AN EFFECT IF PLANNER_ENABLED IS ALSO ON. KEPT true, UNLIKE
+# PLANNER_ENABLED/VERIFICATION_ENABLED/PLAN_JUDGE_ENABLED above (EFFORT
+# 2.4 safety-value exception: a programmatic heuristic gate, not a
+# score-driven mechanism — untouched by the CuP reading that justified
+# flipping the other three back to false).
 PLAN_VALIDATION_ENABLED = os.environ.get("PLAN_VALIDATION_ENABLED", "true").lower() == "true"
 # LLM judge of the plan (heuristics already passed, costly — one LLM call
 # per validation). WITHDRAWAL CLAUSE (Iteration 3 brief) measured under
 # real conditions (see docs/history.md, Iteration 3): it did really veto a
 # plan the heuristics let through, for semantic reasons beyond their
 # reach (proof of real usefulness, not a "theater" validator), at the
-# cost of noticeable latency. DEFAULT FLIPPED (docs/briefs/
-# flags-du-coeur-cognitif.md): explicit decision to enable it by default
-# along with the 3 flags above, the final campaign at 29/33 having
-# measured all 4 flags active together.
-PLAN_JUDGE_ENABLED = os.environ.get("PLAN_JUDGE_ENABLED", "true").lower() == "true"
+# cost of noticeable latency. DEFAULT FLIPPED BACK TO false (EFFORT 2.4):
+# only has an effect if PLANNER_ENABLED is also true, which is now false
+# by default — same justification as PLANNER_ENABLED/VERIFICATION_ENABLED
+# above.
+PLAN_JUDGE_ENABLED = os.environ.get("PLAN_JUDGE_ENABLED", "false").lower() == "true"
 # "Justified rejection → back to the planner, max 2 cycles then human
 # escalation" (brief): number of rejections (heuristics OR judge)
 # tolerated before a human decides (require_plan_approval, with the
@@ -1132,6 +1158,91 @@ async def _grounding_snapshot(state: dict, objective: str) -> Optional[str]:
     return await _fetch_verification_snapshot(objective) or None
 
 
+def _detect_visual_signal(text: str) -> Optional[str]:
+    """
+    Best-effort heuristic over an already-fetched browser_* result's text:
+    returns a signal kind ("canvas" | "pdf_embed" | "alt_less_img") if the
+    text plausibly indicates a visual-only element (see
+    docs/architecture/visual-channel-feasibility.md, VP1-VP4), None
+    otherwise.
+
+    STUB (effort 3, GhostDesk removal — see docs/history.md "EFFORT 3"):
+    always returns None in this pass. What browser_snapshot actually
+    emits for a canvas/PDF-embed/alt-less-img element (a detectable
+    unlabeled node vs. nothing at all) is an open empirical question,
+    deliberately not guessed here — see docs/briefs/update-plan.md,
+    effort 3's "explicit next checkpoint". Implement only after checking
+    against the existing fixture-visual-probe fixtures
+    (tests_integration/fixtures/visual-probe/).
+    """
+    return None
+
+
+async def _maybe_enrich_with_ocr(
+    client: httpx.AsyncClient, tool_name: str, result: dict, thread_id: str
+) -> dict:
+    """
+    Proactive OCR enrichment (effort 3, GhostDesk removal — see
+    docs/history.md "EFFORT 3"): if `_detect_visual_signal` flags the
+    just-fetched browser_* result as plausibly visual-only, take a
+    browser_take_screenshot and run it through ocr-service, appending the
+    detected text to the SAME result before the model sees it — replaces
+    the original brief's reactive design (auto-triggered on a
+    verify_action "not_reached" verdict), dead on arrival since
+    VERIFICATION_ENABLED now defaults to false (EFFORT 2.4).
+
+    No-op if PROACTIVE_OCR_ENABLED is false (default) — same convention
+    as every other conditional mechanism in this file. Best-effort,
+    try/except-wrapped, never blocks the task on a side-capability
+    failure, same philosophy as `_fetch_verification_snapshot`.
+
+    ALWAYS logs a `role="proactive_ocr"` audit entry while the flag is
+    on, even when no signal is detected — the day-one trigger-rate
+    counter this mechanism ships with (CLAUDE.md: a conditional
+    mechanism ships with its coverage counter from day one), not bolted
+    on after a campaign comes back unreadable.
+    """
+    if not PROACTIVE_OCR_ENABLED:
+        return result
+    text = "\n".join(
+        b["text"] for b in result.get("content", []) if isinstance(b, dict) and b.get("type") == "text"
+    )
+    signal = _detect_visual_signal(text)
+    ocr_ran = False
+    detections_count = 0
+    chars_attached = 0
+    if signal:
+        try:
+            _screenshot_result, images = await _call_mcp_tool(client, "browser_take_screenshot", {}, thread_id)
+            if images:
+                resp = await client.post(
+                    f"{OCR_SERVICE_URL}/ocr",
+                    json={"image_base64": images[0]["data"], "mime_type": images[0].get("mimeType", "image/png")},
+                )
+                resp.raise_for_status()
+                detections = resp.json()
+                ocr_ran = True
+                detections_count = len(detections)
+                joined = "; ".join(d["text"] for d in detections)[:PROACTIVE_OCR_MAX_CHARS]
+                chars_attached = len(joined)
+                if joined and isinstance(result.get("content"), list):
+                    result = {**result, "content": [*result["content"], {"type": "text", "text": f"[OCR enrichment] {joined}"}]}
+        except Exception:
+            logger.warning("Proactive OCR enrichment unavailable, observation left as-is.", exc_info=True)
+    audit_log.log_message(
+        thread_id, "proactive_ocr",
+        {
+            "tool": tool_name,
+            "signal_detected": bool(signal),
+            "signal_kind": signal,
+            "ocr_ran": ocr_ran,
+            "detections_count": detections_count,
+            "chars_attached": chars_attached,
+        },
+    )
+    return result
+
+
 class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
     tool_iterations: int
@@ -1493,7 +1604,10 @@ async def plan_task(state: AgentState, config: dict) -> dict:
         plan[0]["status"] = "en_cours"
     logger.info("Initial plan (%d subtask(s)): %s", len(plan), plan)
     thread_id = config.get("configurable", {}).get("thread_id", "")
-    audit_log.log_message(thread_id, "planning", {"subtask_count": len(plan), "trivial": len(plan) <= 1})
+    audit_log.log_message(
+        thread_id, "planning",
+        {"subtask_count": len(plan), "trivial": len(plan) <= 1, "subtasks": _render_plan(plan)},
+    )
     return {"plan": plan, "subtask_message_start": [len(state["messages"])] if plan else []}
 
 
@@ -2511,6 +2625,8 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
                     if tool_call["name"] == "browser_navigate" and not blocked:
                         observed_urls.add(tool_call["args"]["url"])
                         current_page_url = tool_call["args"]["url"]
+                    if current_page_url:
+                        result = await _maybe_enrich_with_ocr(client, tool_call["name"], result, thread_id)
 
             if audit_tier is not None:
                 # Logged AFTER execution (see above) to carry the result
@@ -2657,7 +2773,15 @@ async def verify_action(state: AgentState, config: dict) -> dict:
     last = state["messages"][-1]
     verdict, exploitable = _parse_constat(getattr(last, "tool_calls", None))
     thread_id = config.get("configurable", {}).get("thread_id", "")
-    audit_log.log_message(thread_id, "verification", {"exploitable": exploitable, "verdict": verdict})
+    audit_log.log_message(
+        thread_id, "verification",
+        {
+            "exploitable": exploitable,
+            "verdict": verdict,
+            "subtask_index": active_index,
+            "success_criterion": plan[active_index]["success_criterion"],
+        },
+    )
 
     if not exploitable:
         logger.warning(
@@ -2769,7 +2893,15 @@ async def replan_task(state: AgentState, config: dict) -> dict:
         boundaries.append(len(state["messages"]))
         audit_log.log_message(
             thread_id, "replanning",
-            {"replan_index": replan_count, "failed_subtask_index": failed_index, "new_subtask_count": None},
+            {
+                "replan_index": replan_count,
+                "failed_subtask_index": failed_index,
+                "failed_subtask": {
+                    "description": plan[failed_index]["description"],
+                    "success_criterion": plan[failed_index]["success_criterion"],
+                },
+                "new_subtask_count": None,
+            },
         )
         return {"plan": new_plan, "replan_count": replan_count, "subtask_message_start": boundaries}
 
@@ -2784,7 +2916,19 @@ async def replan_task(state: AgentState, config: dict) -> dict:
     )
     audit_log.log_message(
         thread_id, "replanning",
-        {"replan_index": replan_count, "failed_subtask_index": failed_index, "new_subtask_count": len(new_subtasks)},
+        {
+            "replan_index": replan_count,
+            "failed_subtask_index": failed_index,
+            "failed_subtask": {
+                "description": plan[failed_index]["description"],
+                "success_criterion": plan[failed_index]["success_criterion"],
+            },
+            "new_subtask_count": len(new_subtasks),
+            "new_subtasks": [
+                {"description": st["description"], "success_criterion": st["success_criterion"]}
+                for st in new_subtasks
+            ],
+        },
     )
     return {"plan": rebuilt, "replan_count": replan_count, "subtask_message_start": boundaries}
 

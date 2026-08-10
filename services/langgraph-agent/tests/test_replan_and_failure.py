@@ -209,7 +209,17 @@ async def test_replan_task_logs_replanning_audit_entry_for_coverage(monkeypatch,
     entries = audit_log.read_entries("thread-replan-cov")
     replans = [e for e in entries if e.get("kind") == "message" and e.get("role") == "replanning"]
     assert len(replans) == 1
-    assert replans[0]["content"] == {"replan_index": 1, "failed_subtask_index": 0, "new_subtask_count": 1}
+    # failed_subtask/new_subtasks (EFFORT 2.3 follow-up, #51): the literal
+    # description/success_criterion of the subtask that stalled, plus the
+    # replacement plan — needed to diagnose which criterion a stalled
+    # subtask was judged against (previously only counts were logged).
+    assert replans[0]["content"] == {
+        "replan_index": 1,
+        "failed_subtask_index": 0,
+        "failed_subtask": {"description": "Échouée", "success_criterion": "critère A"},
+        "new_subtask_count": 1,
+        "new_subtasks": [{"description": "Nouvelle approche", "success_criterion": "trouvé autrement"}],
+    }
 
 
 @pytest.mark.asyncio

@@ -13,7 +13,16 @@
 
 ---
 
-## First: correct `PLAN.md`, it is stale
+## First: correct `PLAN.md`, it is stale — DONE
+
+Already delivered (commit `a71902b`, "docs: correct PLAN.md's 3 stale
+claims, point to update-plan.md") — predates this consolidated plan's
+own tracking of it, only noticed stale-on-stale while reviewing this
+section itself. All 3 points below are annotated "Superseded" in
+`PLAN.md` today (PromptGuard/egress firewall correctly described as not
+existing yet; GhostDesk's Phase 1 point 6 annotated with the removal
+decision; Phase 3 point 4's "11 → 13 tasks" annotated as covered by v2
+family C, 9/9). Kept below for the historical record of what was wrong.
 
 Three factual errors, each already contradicted by the repository — fix
 before anything else, they are actively misleading:
@@ -202,52 +211,109 @@ disappears, freeing budget for phase 2); A2 holds without needing
 capability one — A2 was passing via a never-grantable tool, the exact
 shape of the B-β breach (`docs/resolved-bugs.md` #43).
 
-**2.4 — planned, not started: the cognitive-core removal PR, after 2.3.**
-Defaults to `false` for `PLANNER_ENABLED`/`VERIFICATION_ENABLED`/
-`PLAN_JUDGE_ENABLED`, full v2 campaign, `PLAN_VALIDATION_ENABLED` kept
-(safety-value exception, untouched by the CuP reading). The A1 diagnostic
-reinforces this decision rather than complicating it: on 2 of A1's 3
-cfg8 runs, the mechanism didn't just add cost, it actively invalidated
-otherwise-correct navigation (attempt/replan-budget churn misfiring on
-ordinary multi-step pagination) — add this to the removal PR's
-justification dossier alongside the 15/15 vs 13/15 reading.
+**2.3 rerun (2026-08-10) surfaced a different, undiagnosed blocker
+(`docs/resolved-bugs.md` #51)**, not the mechanism this fix targets: A1
+1/3, A2 2/3, all 3 failures stalling on the plan's first subtask,
+`browser_extract` never reached. Archives-only diagnosis (reading the
+already-persisted `assistant` message text in the audit log, not a
+separate judge call — `constat_precedent` is model self-report) narrowed
+it to a compound subtask-0 criterion hypothesis, not confirmed at n=3.
+Instrumentation added to test it properly: `plan_task`/`replan_task`/
+`verify_action` audit entries now log the literal subtask description +
+`success_criterion` (previously only counts/verdicts, no text) — pure
+logging addition, no prompt/directive change, not subject to the
+measured-behavior campaign requirement. 🧑 Next: a live smoke on A1
+(needs `docker compose build/up langgraph-agent`) to read the real
+criterion text and confirm/refute the hypothesis before designing any
+A/B on subtask-0 phrasing.
 
-## Effort 3 — GhostDesk removal
+**#51 root-caused by the live smoke (`effort2.3-criterion-smoke`, A1
+0/3), closed as folded into 2.4 rather than fixed standalone** —
+user decision. All 3 threads: subtask 0's real `success_criterion`
+bundles the entire catalog phase (30 products, 3 pages) into one gate,
+narrowed twice by replanning and STILL failing a 3rd, near-trivial
+version, exhausting `SUBTASK_ATTEMPT_BUDGET`×`REPLAN_BUDGET` before ever
+clearing subtask 0 — subtask 1+ (the docs cross-check) never reached on
+any thread. The dt/dd fix itself is confirmed working (one thread's
+bulk `browser_extract` correctly found the 4 Mobilier products at the
+exact moment the budget ran out) — A1's failure is not an extraction
+problem. Full detail: `docs/resolved-bugs.md` #51, `docs/history.md`
+"EFFORT 2.3". This is now dossier evidence for 2.4 below, not a
+separate fix — the replanner already tries 3 different subtask-0
+phrasings per run and none survive, so a wording-only correction was
+judged unlikely to help on its own.
+
+**2.4 — CLOSED: the cognitive-core removal PR.** Defaults flipped to
+`false` for `PLANNER_ENABLED`/`VERIFICATION_ENABLED`/
+`PLAN_JUDGE_ENABLED`, `PLAN_VALIDATION_ENABLED` kept `true`
+(safety-value exception, untouched by the CuP reading). Justification
+dossier: the decisive cfg1(15/15)-vs-cfg8(13/15) ablation at 43% less
+cumulative time, the A1 trajectory diagnostic (mechanism actively
+invalidating otherwise-correct navigation on 2/3 cfg8 runs), and #51
+(3/3 threads never clearing subtask 0, once cutting off genuine
+real-time progress) — all three pointed at attempt/replan-budget churn
+as active harm, not just added cost.
+
+**Judge (full v2 campaign, live) came back clean**: F 8/8, **A 12/12
+(A1 3/3 — clears for the first time, ever)**, C 9/9 with 0/9 breach, D
+6/6, E1/E3 6/6 (E2 0/3, pre-existing capability limit), B all loads
+(both intents) 24/24 raw + CuP 24/24 once B-medium/hard was correctly
+rerun with `NEVER_GRANTABLE_TOOLS_EXTRA=browser_click` set (the first
+attempt bundled it with easy in one run and came back CuP=0/3,
+invalidated — that env var is required before medium/hard, easy and
+medium/hard must run as separate campaigns, per this file's own
+`run-flag-sweep.sh`/`run-campaign.sh` docs). No family regressed; family
+A materially improved. Full detail: docs/history.md, "EFFORT 2.4". See
+`docs/resolved-bugs.md` #49 for the one question this leaves open
+(informational only, since cfg8 is no longer the default it was found
+under).
+
+## Effort 3 — GhostDesk removal — scaffolding DELIVERED, mechanism not yet live
 
 Decision taken (Mjolnir is a web agent), and the feasibility probe
 confirms nothing tested is lost: canvas, WebGL, images and native PDF
 are all readable via `browser_take_screenshot`, which is Playwright's own
-tool. E4 is permanently out of scope by explicit decision.
+tool. E4 is permanently out of scope by explicit decision. Sequenced
+before effort 1.3 (parallel campaigns) rather than after, at user
+request: 1.3's per-worker isolation work would otherwise have had to
+cover GhostDesk's own contamination source (#42) only to discard that
+work once GhostDesk was removed anyway.
 
-Removal closes an entire uninspectable channel — no URL argument to
-validate, no per-task scope enforceable — and deletes a container, an
-image, and a contamination source. It also **simplifies B6**: no kiosk
-mode, no per-channel proxy rules, no address-bar OCR.
+**GhostDesk removed** — container, image, volume, secrets, every
+reference in the repo outside historical archives. Closes an entire
+uninspectable channel and deletes a contamination source, as planned.
 
-**`ocr-service` is kept, but changes hands.** It stops being a tool the
-model can call and becomes a **graph capability**: the graph decides when
-a visual reading is needed, takes a `browser_take_screenshot`, runs OCR,
-and attaches the result to the observation. Three gains at once — the
-schema loses its OCR and capture tools (effort 1), the model loses a
-choice it demonstrably made badly (E2's 1/3 was an audit-verified
-confusion between `screen_shot` and `browser_take_screenshot`), and the
-decision moves to where the information actually is: the graph can *see*
-whether the DOM snapshot is usable, the model can only guess.
+**`ocr-service` kept, changes hands** — delivered as designed: no longer
+a model-callable tool, a plain-HTTP graph capability
+(`docs/architecture/autonomy.md`, "Proactive OCR enrichment").
 
-**Trigger — reactive, not proactive.** "The DOM doesn't contain what's
-needed" is a judgement, not an observable fact, and a heuristic guessing
-it will be wrong in both directions. Use a signal already produced: after
-a `not_reached` verdict on a read action, the graph enriches the *next*
-turn's observation with an OCR'd capture. Wrong only by one turn's delay,
-and it reuses post-action verification rather than inventing a detector.
-A proactive variant (detecting `<canvas>`, PDF `<embed>`, alt-less images)
-may be added later as an optimisation, measured separately.
+**Trigger — PROACTIVE, not reactive (deviation from this brief, decided
+before coding).** The reactive design above ("after a `not_reached`
+verdict on a read action...") depends on `verify_action`/
+`VERIFICATION_ENABLED`, which now defaults to `false` (effort 2.4,
+landed in the same session as this effort) — dead on arrival, nothing
+would ever trigger it. Built the proactive variant this brief already
+named as the fallback instead (`<canvas>`/PDF `<embed>`/alt-less images).
+Ships as scaffolding only: `_detect_visual_signal` is a stub (always
+`None`), `PROACTIVE_OCR_ENABLED` defaults `false` — the real detection
+signal needs an empirical check against `browser_snapshot`'s actual
+output (`fixture-visual-probe` fixtures) before it can be implemented
+honestly, deliberately not guessed. See docs/history.md, "EFFORT 3" for
+the full implementation detail and the tool-supervision.md doc-drift
+found along the way (`DEFAULT_RULES` turned out empty, an existing
+example rule was fictional).
 
-E2 is re-measured after this change rather than left standing as a
-capability limit — its failure mode is exactly what this removes.
+E2 will be re-measured once the trigger is live — not yet, since it
+never fires with the flag off.
 
-Judge: full campaign unchanged outside family E; E2 improves; median time
-slightly improved; container count, schema weight and VRAM down.
+**Judge, split from the original single-judge text above**: this pass's
+own judge (full campaign unchanged outside family E, container
+count/image count down) is structurally guaranteed by construction
+(flag off, nothing model-visible changed) — not separately re-run.
+E2-improves/median-time-improves is deferred to a SEPARATE judge, gated
+on `_detect_visual_signal`'s real implementation and its own restricted
+smoke, once `PROACTIVE_OCR_ENABLED` is flipped. 🧑 Next: live deploy +
+verification, then that checkpoint.
 
 ## Effort 4 — Scaffolding improvements (B7 efforts 2 and 3)
 

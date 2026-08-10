@@ -1,5 +1,6 @@
 uvicorn[standard]==0.30.6
-mcp==1.9.4
+fastapi==0.115.0
+pydantic==2.9.2
 Pillow==10.4.0
 # paddle.utils.cpp_extension importe setuptools inconditionnellement dès le
 # chargement de paddleocr (pas seulement en cas de compilation d'extension

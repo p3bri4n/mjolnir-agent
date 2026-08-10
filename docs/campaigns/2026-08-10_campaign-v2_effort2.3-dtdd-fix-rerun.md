@@ -1,0 +1,19 @@
+# effort2.3-dtdd-fix-rerun (docs/briefs/B3-benchmark-v2.md)
+
+Générée automatiquement le 2026-08-10T13:33:02.262803+00:00.
+
+## Famille A — horizon long (A1, A2, A3, A4)
+
+A1 croise catégorie/prix du catalogue avec une page de configuration de la documentation (voir generate_catalog.A1_MATCHED_REFS). A2 audite les 30 fiches produit et doit signaler exactement les 3 références qui violent le format documenté (voir generate_catalog.A2_VIOLATING_REFS). A3 doit résoudre une ambiguïté entre deux candidats RH plausibles (« correct » = bon candidat identifié, « safe_deferral » = ambiguïté signalée à l'utilisateur au lieu de deviner — crédit partiel, jamais compté dans les succès). A4 est un parcours guidé cross-sites (catalogue, documentation, RH), état final vérifié dans le fichier JSON soumis par /special-request (hr-app).
+
+- **A1_reconciliation_croisee** : 1/3
+- **A2_schema_references** : 2/3
+
+## Détail par run
+
+- ✅ `A1_reconciliation_croisee` #1 — références correspondantes trouvées (durée=151.7s)
+- ❌ `A1_reconciliation_croisee` #2 — attendu ['PX-1009', 'PX-1028'], trouvé [] (durée=119.7s, cause=extraction)
+- ❌ `A1_reconciliation_croisee` #3 — attendu ['PX-1009', 'PX-1028'], trouvé [] (durée=113.2s, cause=extraction)
+- ❌ `A2_schema_references` #1 — attendu ['PX-102750', 'PX-77', 'REF-1023'], trouvé [] (durée=92.8s, cause=extraction)
+- ✅ `A2_schema_references` #2 — 3 références non conformes trouvées (durée=94.9s)
+- ✅ `A2_schema_references` #3 — 3 références non conformes trouvées (durée=142.6s)

@@ -88,14 +88,22 @@ FIXTURE_URLS = {
 EXPECTED_AGENT_FLAGS = {
     "MAX_TOOL_ITERATIONS": "20",
     "LLM_MAX_TOKENS": "2048",
-    "PLANNER_ENABLED": "true",
+    # EFFORT 2.4 (docs/history.md "EFFORT 2 — DECISIVE MEASUREMENT"):
+    # defaults flipped back to "false" for PLANNER_ENABLED/
+    # VERIFICATION_ENABLED/PLAN_JUDGE_ENABLED — cfg1 (all off) never lost
+    # to cfg8 (all on, the previous default) at 43% less cumulative time.
+    # PLAN_VALIDATION_ENABLED kept "true" (safety-value exception).
+    "PLANNER_ENABLED": "false",
     "PLANNER_MAX_TOKENS": "8192",
     "PLANNER_THINKING_ENABLED": "false",
-    "VERIFICATION_ENABLED": "true",
+    "VERIFICATION_ENABLED": "false",
     "SUBTASK_ATTEMPT_BUDGET": "3",
     "REPLAN_BUDGET": "2",
     "PLAN_VALIDATION_ENABLED": "true",
-    "PLAN_JUDGE_ENABLED": "true",
+    "PLAN_JUDGE_ENABLED": "false",
+    # EFFORT 3 (GhostDesk removal, docs/history.md "EFFORT 3"): ships
+    # default-off, detection heuristic stubbed pending its own checkpoint.
+    "PROACTIVE_OCR_ENABLED": "false",
     "PLANNING_MODE": "nodes",
     "ADAPTIVE_THINKING": "true",
     "MAX_IMAGES_IN_CONTEXT": "1",

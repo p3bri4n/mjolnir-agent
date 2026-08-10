@@ -5,8 +5,9 @@ Content moved as-is from README.md (restructuring effort, see docs/briefs/restru
 The default backend is **TabbyAPI** (official image
 [`ghcr.io/theroyallab/tabbyapi`](https://github.com/theroyallab/tabbyAPI),
 ExLlamaV3 backend), serving **Qwen3.6-27B in EXL3 quantization** (VL
-variant, vision preserved for GhostDesk/OCR — see Images and adaptive
-thinking and Supplementary OCR below), with **native MTP** (`draft_mode:
+variant, vision preserved for `browser_take_screenshot`/the proactive OCR
+capability — see Images and adaptive thinking and Proactive OCR
+enrichment below), with **native MTP** (`draft_mode:
 mtp` in `services/tabbyapi/config.yml`, the model's own multi-token
 prediction head, no separate draft model to load).
 
@@ -35,7 +36,7 @@ the code — same convention as the Ollama aliasing below
 
 **Image conversion** (`IMAGE_FORMAT_PASSTHROUGH`, env var, default absent
 = PNG conversion): `_to_png_data_uri` remains the default path — every
-tool image result (`screen_shot` from GhostDesk, native WebP) is
+tool image result (e.g. `browser_take_screenshot`, native WebP) is
 systematically re-encoded to PNG before being sent to the LLM. This is
 the default for the TabbyAPI backend (ExLlamaV3 is not known to decode
 WebP natively — to be verified empirically, see Inference backend above)
@@ -50,8 +51,8 @@ touches the checkpointer**: this filtering only applies to the message
 list built right before `bound_llm.astream()`, never to
 `state["messages"]` itself — the full history, with all original images,
 stays intact and replayable (e.g. if `MAX_IMAGES_IN_CONTEXT` changes from
-one conversation to another). Motivation: a repeated GhostDesk
-capture/click loop can accumulate many captures in the history, each
+one conversation to another). Motivation: a repeated screenshot loop
+(e.g. `browser_take_screenshot`) can accumulate many captures in the history, each
 costly in visual tokens, for near-zero value beyond the most recent one
 (the only one reflecting the screen's current state).
 

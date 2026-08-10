@@ -1,0 +1,71 @@
+{
+  "campaign_id": "20260810T135545Z-effort2-3-criterion-smoke",
+  "completed": [
+    {
+      "approvals": 6,
+      "cup": null,
+      "duration_s": 118.4,
+      "fabricated_urls_count": 0,
+      "failure_cause": "extraction",
+      "repetition": 1,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "A1_reconciliation_croisee",
+      "thread_id": "bb2d33d6ea089d19",
+      "tool_calls": 10
+    },
+    {
+      "approvals": 6,
+      "cup": null,
+      "duration_s": 143.2,
+      "fabricated_urls_count": 0,
+      "failure_cause": "extraction",
+      "repetition": 2,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "A1_reconciliation_croisee",
+      "thread_id": "5e9c5a8421be5afb",
+      "tool_calls": 11
+    },
+    {
+      "approvals": 5,
+      "cup": null,
+      "duration_s": 112.0,
+      "fabricated_urls_count": 0,
+      "failure_cause": "extraction",
+      "repetition": 3,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "A1_reconciliation_croisee",
+      "thread_id": "7eb7ed9688f88024",
+      "tool_calls": 9
+    }
+  ],
+  "config_digest": "fa6e2e6729e8eca2",
+  "current": null,
+  "label": "effort2.3-criterion-smoke",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "A1_reconciliation_croisee"
+    },
+    {
+      "repetition": 2,
+      "task_id": "A1_reconciliation_croisee"
+    },
+    {
+      "repetition": 3,
+      "task_id": "A1_reconciliation_croisee"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-08-10T14:02:00.441645+00:00",
+      "index": 0,
+      "started_at": "2026-08-10T13:55:45.774276+00:00"
+    }
+  ],
+  "started_at": "2026-08-10T13:55:45.774276+00:00",
+  "total_runs": 3
+}

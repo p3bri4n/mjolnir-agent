@@ -2,23 +2,22 @@
 
 Content moved as-is from README.md (restructuring effort, see docs/briefs/restructuration-et-anglais.md, phase 3) — no rewrite at this stage.
 
-Every tool call requested by the LLM (`terminal`, `filesystem`, `git`,
-`browser`, `desktop`/GhostDesk) suspends the LangGraph graph instead of
-running automatically (`require_approval` node,
-`services/langgraph-agent/app/graph.py`). The agent then replies in the
-conversation with a `⚠️ Approbation requise pour : ...` message offering
-three replies: "approuver" (once), "approuver pour la session" (see
-Session grants below), or "refuser" (a "Rejected by the user" error
+Every tool call requested by the LLM (`filesystem`, `browser`) suspends
+the LangGraph graph instead of running automatically (`require_approval`
+node, `services/langgraph-agent/app/graph.py`). The agent then replies in
+the conversation with a `⚠️ Approbation requise pour : ...` message
+offering three replies: "approuver" (once), "approuver pour la session"
+(see Session grants below), or "refuser" (a "Rejected by the user" error
 `ToolMessage` is sent back to the LLM, which can react normally).
 
 **Reversibility-tier policy** (`services/langgraph-agent/app/
 approval_policy.py`), which replaces the old binary whitelist:
 
-| Tier | Behavior | Default examples |
+| Tier | Behavior | Default members |
 |---|---|---|
-| `TIER_READ` (read) | auto, silent | `screen_shot`, `mouse_move`, `app_list`, `app_running`, `app_status`, filesystem/git reads (`read_file`, `git_status`, `git_log`...), `run_command` (mcp-terminal, already a strict read-only allowlist) |
-| `TIER_REVERSIBLE` (reversible) | auto + logging (see Phase 2, audit log) | `mouse_click`, `mouse_double_click`, `mouse_drag`, `mouse_scroll`, `key_press`, `app_launch`, `clipboard_set`, confined filesystem/git writes (`write_file`, `git_commit`...) |
-| `TIER_SENSITIVE` (sensitive) | human approval required | `key_type` (free-text input), everything else, **and any unknown tool** |
+| `TIER_READ` (read) | auto, silent | `browser_extract`, `browser_inspect`, `browser_snapshot`, `browser_take_screenshot`, filesystem reads (`read_file`, `read_multiple_files`, `list_directory`, `directory_tree`, `search_files`, `get_file_info`, `list_allowed_directories`) |
+| `TIER_REVERSIBLE` (reversible) | auto + logging (see Phase 2, audit log) | confined filesystem writes (`write_file`, `edit_file`, `create_directory`, `move_file`) |
+| `TIER_SENSITIVE` (sensitive) | human approval required | `browser_navigate`, `browser_click`, `browser_fill_form`, `browser_run_code_unsafe`, `browser_evaluate`, everything else, **and any unknown tool** |
 
 **`NEVER_GRANTABLE_TOOLS`** (Phase 1d-revised, see docs/history.md, T5):
 `browser_run_code_unsafe` and `browser_evaluate` stay `TIER_SENSITIVE`
@@ -43,19 +42,15 @@ so no escalation, unlike `browser_evaluate` which stays `NEVER_GRANTABLE`.
 tool's tier based on ITS ARGUMENTS rather than its name alone.
 Implemented as named matchers in Python (no generic pattern DSL), not as
 a simple AND with the static tier — a matching rule fully overrides
-`tool_tier()`. Default rule: `key_type(len<50,no_newline)` →
-`TIER_REVERSIBLE` (short, single-line input, harmless enough not to
-warrant approval on every keystroke), whereas `key_type` stays
-`TIER_SENSITIVE` by default for everything else (long or multi-line text
-— pasted script, code...). A `command_prefix` matcher is also provided
-(command prefixes, e.g. for `run_command` on the mcp-terminal side) but
-with no default rule, since that server already only exposes a read-only
-allowlist. In case of ambiguity (several named rules for the same tool
-match at once), the most restrictive tier wins. `APPROVAL_RULES_PATH`
-(env var, optional) points to a YAML file that supplements these default
-rules (never replaces them) — see `_load_rules_from_yaml` for the exact
-format (`tool`/`matcher`/`tier`, `command_prefix` additionally taking
-`prefixes`).
+`tool_tier()`. `DEFAULT_RULES` is empty today (its GhostDesk-era example,
+a `key_type` length/newline matcher, was removed along with that tool —
+see docs/history.md, effort 1.2). `APPROVAL_RULES_PATH` (env var,
+optional) points to a YAML file that ADDS rules on top of this empty
+base — see `_load_rules_from_yaml` for the exact format
+(`tool`/`matcher`/`tier`). A `command_prefix` matcher is implemented (for
+a future `run_command`-style tool) but currently unused by any default
+or example rule. In case of ambiguity (several rules matching the same
+tool at once), the most restrictive tier wins.
 
 The default is always the most restrictive tier, never the opposite: a
 tool that appears in neither `TIER_READ_TOOLS` nor `TIER_REVERSIBLE_TOOLS`
@@ -67,27 +62,13 @@ per-tool approval.
 
 `AUTO_APPROVED_TOOLS` (old env var) remains usable as a backward-compatible
 override: any tool listed there is treated as `TIER_REVERSIBLE` even if
-it's in neither list above. Empty by default now — the old historical
-defaults (`app_list, app_running, screen_shot, mouse_move, mouse_click,
-mouse_double_click, mouse_drag, mouse_scroll`) are already covered by the
-default tiers above, so this new empty default reproduces the same
-behavior for a deployment that doesn't set this variable.
+it's in neither list above. Empty by default — every tool it used to
+cover for GhostDesk is gone; a fresh deployment has nothing to add here
+unless a new tool needs an ad hoc reversible-tier override.
 
-One deliberate exclusion despite its misleading name: `clipboard_get`
-stays `TIER_SENSITIVE` despite its "read" name — it can exfiltrate
-sensitive data copied by the user (password, token...), no less
-sensitive than `clipboard_set`.
-
-`key_type`/`key_press` stay outside `TIER_READ`, but a **sequence** of
-auto-approved `mouse_click` calls could in theory compose arbitrary input
-via an on-screen virtual keyboard, effectively bypassing this exclusion —
-see `AUTO_APPROVAL_STREAK_LIMIT` right below, which applies to any
-auto-approved tool (read or reversible tier), not just the old
-`AUTO_APPROVED_TOOLS` list.
-
-**Virtual-keyboard guardrail** (`AUTO_APPROVAL_STREAK_LIMIT`, env var,
-default `6`): beyond this many consecutive auto-approved turns *without a
-human pass*, `has_tool_calls` forces the next turn back through
+**Repeated-auto-approval guardrail** (`AUTO_APPROVAL_STREAK_LIMIT`, env
+var, default `6`): beyond this many consecutive auto-approved turns
+*without a human pass*, `has_tool_calls` forces the next turn back through
 `require_approval` — even if it only contains normally auto-approved
 tools. `auto_approval_streak` counter in `AgentState`, incremented on
 every executed turn (`call_tools`) and reset to 0 as soon as a human
@@ -105,7 +86,7 @@ conversation — `approval_policy.effective_tier()` accounts for this on
 top of the tool's static tier. A grant never applies retroactively: the
 turn that requests it stays subject to THIS approval, only *subsequent*
 calls of the same tool benefit from it. Scope strictly per tool: granting
-`key_type` does not exempt `browser_navigate`.
+`browser_click` does not exempt `browser_navigate`.
 
 These grants live in the graph's state, hence in the same `MemorySaver`
 checkpointer (in-memory only, see the Data persistence section) as the
@@ -171,14 +152,6 @@ different, later task, potentially hours later. `POST
 next call reopens a fresh one); the web-task harness calls it before
 every repetition (see `tests_integration/test_web_tasks.py`,
 `_reset_browser_session`).
-
-Same problem, different channel (T9 investigation, see docs/history.md):
-GhostDesk drives a real MACHINE-wide desktop (`app_launch`), with no
-relation whatsoever to the Playwright session above nor to the current
-thread — a window left open by one task stays readable (via
-`screen_shot`) by a later task, hours after. `_reset_ghostdesk_desktop()`
-(`pkill -f firefox` on the `ghostdesk` container) called before every
-repetition, same guarantee as the Playwright reset.
 
 **UI-button approval, without going through a text message**: two
 endpoints complement the "approuver"/"approuver pour la session"/"refuser"
@@ -256,5 +229,5 @@ above for streaming was therefore left untouched.
   `has_tool_calls`/`require_approval`/`call_tools` remain based on
   simulated LLM responses, see the Tests section) **and native WebP
   decoding under real conditions** (`IMAGE_FORMAT_PASSTHROUGH=webp` —
-  tested only in plain-text conversation, never with a real GhostDesk
-  `screen_shot`); no load testing either.
+  tested only in plain-text conversation, never with a real
+  `browser_take_screenshot` capture); no load testing either.

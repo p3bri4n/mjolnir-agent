@@ -1,6 +1,6 @@
 # Autonomy — plan → act → verify → replan loop
 
-Content moved as-is from README.md (restructuring effort, see docs/briefs/restructuration-et-anglais.md, phase 3), Supplementary OCR included (a grounding tool serving the same loop) — no rewrite at this stage.
+Content moved as-is from README.md (restructuring effort, see docs/briefs/restructuration-et-anglais.md, phase 3) — no rewrite at this stage, except the "Proactive OCR enrichment" section (effort 3, GhostDesk removal), rewritten in full to match the current design.
 
 **Loop architecture** (see `docs/briefs/phase-1-coeur-cognitif.md` for the
 full effort, sequenced in 4 iterations, one iteration = one mechanism =
@@ -12,11 +12,22 @@ compares each result against the active subtask's criterion,
 `replan_task` takes back over on budget failure, `report_failure` ends
 honestly if the replanning budget is exhausted. The 4 mechanisms are
 independently toggleable (`PLANNER_ENABLED`/`VERIFICATION_ENABLED`/
-`PLAN_VALIDATION_ENABLED`/`PLAN_JUDGE_ENABLED`) — **defaults FLIPPED to
-`true`** since the final campaign (29/33, consistent with pre-cognitive-core
-Campaign A at 30/33 — see docs/briefs/flags-du-coeur-cognitif.md and
-docs/history.md): the cognitive core is measured and adopted, it's now
-DISABLING it that must be explicit. See each one's detail below.
+`PLAN_VALIDATION_ENABLED`/`PLAN_JUDGE_ENABLED`). History: defaults were
+FLIPPED to `true` after the initial campaign (29/33, consistent with
+pre-cognitive-core Campaign A at 30/33 — see
+docs/briefs/flags-du-coeur-cognitif.md), then **flipped back to `false`
+for `PLANNER_ENABLED`/`VERIFICATION_ENABLED`/`PLAN_JUDGE_ENABLED`
+(EFFORT 2.4)**: a later decisive ablation (36 runs, discriminating
+5-task subset) found cfg1 (all 4 flags off) never losing to cfg8 (all
+on, the interim default) at 43% less cumulative time for essentially
+identical real work, and separate diagnostics (the A1 trajectory
+diagnostic, `docs/resolved-bugs.md` #51) found the mechanism actively
+discarding genuine progress via attempt/replan-budget churn on
+multi-page tasks, not merely costing more for the same result — see
+docs/history.md, "EFFORT 2 — DECISIVE MEASUREMENT". `PLAN_VALIDATION_ENABLED`
+alone is KEPT `true` (safety-value exception: a programmatic heuristic
+gate, not a score-driven mechanism, untouched by that reading). See each
+one's detail below.
 
 **⚠️ Operational trap**: these 4 flags (as well as
 `MAX_TOOL_ITERATIONS`/the attempt and replanning budgets/
@@ -65,7 +76,7 @@ test (`_default_cognitive_core_flags_to_false` fixture,
 `tests/conftest.py`) rather than depending on the default.
 
 **Post-action verification + failure budget** (`VERIFICATION_ENABLED`,
-default `true` — Iteration 2): **only has an effect if `PLANNER_ENABLED`
+default `false` since EFFORT 2.4, see above — Iteration 2): **only has an effect if `PLANNER_ENABLED`
 is also on** (nothing to verify without a plan). After every tool-call
 turn, `verify_action` (`app/graph.py`) compares the result to the ACTIVE
 subtask's `success_criterion`, via a dedicated LLM judge call
@@ -90,9 +101,9 @@ Iteration 3): **only has an effect if `PLANNER_ENABLED` is also on**.
 `call_llm`) first applies programmatic heuristics
 (`app/plan_validation.py`: 2-12 subtask bounds, no duplicates, existing
 referenced tools, domains within the declared scope), then, if
-`PLAN_JUDGE_ENABLED` (default `true` since docs/briefs/
-flags-du-coeur-cognitif.md — measured withdrawal clause, see docs/history.md
-Iteration 3: it did really veto a plan the heuristics let through), an
+`PLAN_JUDGE_ENABLED` (default `false` since EFFORT 2.4, see above —
+measured withdrawal clause, see docs/history.md Iteration 3: it did
+really veto a plan the heuristics let through), an
 LLM judge (`{"faisable": bool, "risques": [...], "etapes_manquantes":
 [...]}`, FAIL-OPEN on error). Rejection → `revise_plan` (max
 `PLAN_VALIDATION_CYCLES_MAX` = 2 cycles) → beyond that, human escalation
@@ -321,52 +332,67 @@ campaign was starting, which then ran ~20s too early against a server not
 yet listening (30 near-instant failures, no assertion to flag it) — hence
 its systematic check at the head of the preamble now.
 
-## Supplementary OCR (`services/ocr-service`)
+## Proactive OCR enrichment (`services/ocr-service`, effort 3)
 
-**Why**: the default served VLM (Qwen3.6 MoE) reasons well but localizes
-poorly — its visual grounding (aiming at the right on-screen pixel for an
-element) remains imprecise, with no dedicated OCR or UI-element detection
-(see Known, accepted limitations below). `ocr-service` compensates by
-giving the agent EXACT text coordinates via two MCP tools: `find_text
-(query, fuzzy=true)` (matches sorted by confidence, empty list if none —
-never an error) and `read_screen()` (all detected text, capped at 80
-elements). A grounding instruction is injected into langgraph-agent's
-system prompt (`GROUNDING_DIRECTIVE`, `app/graph.py`): prefer `find_text`
-over visual estimation to click on text, reserve the latter for elements
-without text (icons).
+**Why**: some page content is unreadable by any DOM channel
+(`browser_snapshot`/`browser_extract`) — canvas 2D, WebGL, `<img>` with no
+`alt`, a native PDF viewer — confirmed structural, not a tooling gap, by
+the visual-channel feasibility probe (`docs/architecture/visual-channel-feasibility.md`,
+cases VP1-VP4). Playwright's own `browser_take_screenshot` already reads
+all four cleanly; `ocr-service` turns that capture into text the model
+can act on without ever choosing a capture tool itself — the model
+demonstrably chose badly when given that choice (family E's E2, an
+audit-verified confusion between GhostDesk's `screen_shot` and
+Playwright's `browser_take_screenshot`, one of the findings that
+motivated GhostDesk's removal).
 
-Persistent HTTP MCP server (Streamable HTTP, `OCR_AUTH_TOKEN` bearer), on
-the same model as `desktop`/GhostDesk on the `mcp-client` side — not a
-container spawned on demand. `find_text`/`read_screen` are read tier
-(`approval_policy.py`): pure read, no side effect, auto-approved and
-silent.
+**Not a model-callable tool — a graph capability.** `ocr-service` is a
+plain HTTP service (`POST /ocr`, `{image_base64, mime_type}` ->
+detected text sorted by confidence), never registered in `mcp-client`,
+called directly by `langgraph-agent` (`OCR_SERVICE_URL`, same pattern as
+`CONTEXT_MANAGER_URL`/`SKILL_MANAGER_URL`). It never captures anything
+itself — the caller supplies the image. This replaces GhostDesk as the
+service's only capture source; GhostDesk itself has been removed
+entirely (its only unique capability, out-of-browser interaction, is
+`E4`'s territory, already out of scope by explicit decision).
 
-**Capture**: `ocr-service` itself connects over Streamable HTTP to
-GhostDesk (internal `agent-net` network, `GHOSTDESK_AUTH_TOKEN` bearer,
-explicit `format="png"` — no dependency on llama-server's native WebP
-decoding, irrelevant here) to call `screen_shot` on every
-`find_text`/`read_screen`. No image ever passes through `mcp-client` nor
-the LLM for this flow, entirely internal to `ocr-service`.
+**Trigger — proactive, gated on `PROACTIVE_OCR_ENABLED` (default
+`false`)**: `_maybe_enrich_with_ocr` (`app/graph.py`), called from
+`_execute_tool_calls` right after a `browser_*` result is post-processed.
+If `_detect_visual_signal` flags the result's text as plausibly showing a
+canvas/PDF-embed/alt-less-image, the graph takes a
+`browser_take_screenshot`, POSTs it to `ocr-service`, and appends the
+detected text to the SAME tool result before the model ever sees it — no
+extra turn, no model choice involved. Best-effort throughout: any
+failure (screenshot, network, `ocr-service` down) leaves the observation
+unchanged, same philosophy as `_fetch_verification_snapshot` above.
+Superseded design, for the record: the original brief specified a
+REACTIVE trigger (auto-fire after a `verify_action` "not_reached"
+verdict) — dropped because it depends on `VERIFICATION_ENABLED`, which
+defaults to `false` since the cognitive-core removal (effort 2.4) and
+was not flipped back.
 
-**Coordinate mapping — a classic source of off-target clicks**: PaddleOCR
-works in the capture's real pixels, whereas `mouse_click` on the
-GhostDesk side expects the normalized 0-1000 frame (same frame as
-`GHOSTDESK_MODEL_SPACE` on the `mcp-client` side, see Human supervision
-below). `ocr-service` therefore systematically converts its coordinates
-before answering (`x_norm = round(x_px * 1000 / image_width)`, see
-`app/coords.py`) — without this conversion, the coordinates returned by
-`find_text` would be in pixels while the model (and GhostDesk) interpret
-them as 0-1000, guaranteeing off-target clicks. `OCR_COORD_SPACE` (default
-`"1000"`) disables this conversion (`"pixels"`) if the caller itself
-works in pixels.
+**Ships as scaffolding, not yet live**: `_detect_visual_signal` is
+currently a stub that always returns `None` — what `browser_snapshot`
+actually emits for a canvas/PDF/alt-less-img element (a detectable
+unlabeled node vs. nothing at all) is an open empirical question,
+deliberately not guessed (`docs/briefs/update-plan.md`, effort 3's
+"explicit next checkpoint"). `PROACTIVE_OCR_ENABLED` stays `false` until
+that's resolved and the mechanism has its own restricted smoke.
 
-**PaddleOCR**: PaddleOCR groups French and English under a single
-recognition model (shared Latin alphabet), no need to run two separate
-OCR passes for this project. Models downloaded **at build time** of the
-Docker image (`ARG OCR_LANGS`, see `services/ocr-service/Dockerfile`),
-never on the first call — avoids a network access and several seconds of
-latency in production.
+**Trigger-rate counter, from day one**: every `browser_*` result
+processed while the flag is on logs a `role="proactive_ocr"` audit entry
+(`{tool, signal_detected, signal_kind, ocr_ran, detections_count,
+chars_attached}`) — the denominator needed to read any future E2 result
+honestly, not bolted on after the fact (CLAUDE.md's rule on this, named
+after the episode-compaction precedent).
 
-Explicitly out of scope (future iteration): text-free icon/UI-element
-detection (OmniParser-style), Set-of-Marks annotation of screenshots, GPU
-OCR, caching of results between calls.
+**PaddleOCR**: groups French and English under a single recognition
+model (shared Latin alphabet), no need for two separate OCR passes.
+Models downloaded **at build time** of the Docker image (`ARG OCR_LANGS`,
+see `services/ocr-service/Dockerfile`), never on the first call.
+
+Explicitly out of scope: text-free icon/UI-element detection
+(OmniParser-style), Set-of-Marks annotation, GPU OCR, result caching, and
+click-targeting (no coordinates are returned — nothing acts on OCR
+output, it's read-only enrichment of an observation).

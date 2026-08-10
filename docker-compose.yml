@@ -39,6 +39,10 @@ services:
       - SKILL_MANAGER_URL=http://skill-manager:8001
       - CONTEXT_MANAGER_URL=http://context-manager:8002
       - MCP_CLIENT_URL=http://mcp-client:8003
+      # Capacité OCR proactive (effort 3, GhostDesk removal) : appelée
+      # directement par le graphe, jamais via mcp-client — même patron que
+      # CONTEXT_MANAGER_URL/SKILL_MANAGER_URL ci-dessus.
+      - OCR_SERVICE_URL=http://ocr-service:8004
       # Journal d'audit des tool_calls TIER_REVERSIBLE (Phase 2, voir README
       # section Supervision humaine) : /workspace/.audit, sur le même bind
       # mount que les autres serveurs MCP filesystem/git/terminal.
@@ -57,20 +61,24 @@ services:
       # raisonnement normal sinon (première décision d'un tour, tool
       # sensible...). Voir app/graph.py, _adaptive_thinking_directive.
       - ADAPTIVE_THINKING=${ADAPTIVE_THINKING:-true}
-      # Plan explicite (Phase 1 « cœur cognitif », Itération 1 — voir
-      # docs/briefs/phase-1-coeur-cognitif.md et README, section "Plan
-      # explicite"). DÉFAUT INVERSÉ (docs/briefs/flags-du-coeur-cognitif.md,
-      # voir app/graph.py) : le cœur cognitif est mesuré et adopté (campagne
-      # finale 29/33), c'est la DÉSACTIVATION qui doit être explicite —
-      # ATTENTION : ce défaut doit rester cohérent avec celui d'app/graph.py
-      # ($PLANNER_ENABLED non défini dans .env retomberait sinon sur CE
-      # défaut-ci, pas sur celui du code Python).
-      - PLANNER_ENABLED=${PLANNER_ENABLED:-true}
-      # Vérification post-action + budget d'échec (Itération 2 — voir
-      # docs/briefs/phase-1-coeur-cognitif.md et README, section "Plan
-      # explicite"). N'A D'EFFET QUE SI PLANNER_ENABLED EST AUSSI true.
-      # DÉFAUT INVERSÉ, même justification que PLANNER_ENABLED ci-dessus.
-      - VERIFICATION_ENABLED=${VERIFICATION_ENABLED:-true}
+      # Explicit plan (Phase 1 "cognitive core", Iteration 1 — see
+      # docs/briefs/phase-1-coeur-cognitif.md). DEFAULT FLIPPED BACK TO
+      # false (EFFORT 2.4, docs/history.md/docs/briefs/update-plan.md):
+      # the decisive cfg1-vs-cfg8 measurement showed cfg1 (all 4 flags
+      # off) never losing to cfg8 (all on, the PREVIOUS default) at 43%
+      # less cumulative time for the same real work, and the A1
+      # trajectory + #51 diagnostics both found the mechanism actively
+      # discarding correct progress via attempt/replan-budget churn, not
+      # just costing more for the same result — ATTENTION: this default
+      # must stay consistent with app/graph.py's own
+      # ($PLANNER_ENABLED unset in .env would otherwise fall back to
+      # THIS default, not the Python code's).
+      - PLANNER_ENABLED=${PLANNER_ENABLED:-false}
+      # Post-action verification + failure budget (Iteration 2 — see
+      # docs/briefs/phase-1-coeur-cognitif.md). ONLY HAS AN EFFECT IF
+      # PLANNER_ENABLED IS ALSO true. DEFAULT FLIPPED BACK TO false, same
+      # EFFORT 2.4 justification as PLANNER_ENABLED above.
+      - VERIFICATION_ENABLED=${VERIFICATION_ENABLED:-false}
       # Tentatives par sous-tâche avant de la marquer "echoue" (voir
       # verify_action, app/graph.py).
       - SUBTASK_ATTEMPT_BUDGET=${SUBTASK_ATTEMPT_BUDGET:-3}
@@ -78,18 +86,18 @@ services:
       # d'échec honnête plutôt qu'une boucle infinie (voir replan_task/
       # report_failure, app/graph.py).
       - REPLAN_BUDGET=${REPLAN_BUDGET:-2}
-      # Pipeline de validation du plan (Itération 3 — voir
-      # docs/briefs/phase-1-coeur-cognitif.md et README, section "Plan
-      # explicite"). N'A D'EFFET QUE SI PLANNER_ENABLED EST AUSSI true.
-      # DÉFAUT INVERSÉ, même justification que PLANNER_ENABLED ci-dessus.
+      # Plan validation pipeline (Iteration 3 — see
+      # docs/briefs/phase-1-coeur-cognitif.md). ONLY HAS AN EFFECT IF
+      # PLANNER_ENABLED IS ALSO true. KEPT true, UNLIKE the 3 siblings
+      # above (EFFORT 2.4 safety-value exception — a programmatic
+      # heuristic, not a score-driven mechanism, untouched by the CuP
+      # reading that justified flipping the others back).
       - PLAN_VALIDATION_ENABLED=${PLAN_VALIDATION_ENABLED:-true}
-      # Juge LLM du plan (heuristiques déjà passées, coûteux). Clause de
-      # retrait mesurée (voir docs/history.md, Itération 3) : a réellement
-      # vétoté un plan que les heuristiques laissaient passer. DÉFAUT
-      # INVERSÉ (docs/briefs/flags-du-coeur-cognitif.md) : décision
-      # explicite de l'activer avec les 3 flags ci-dessus, la campagne
-      # finale 29/33 ayant mesuré les 4 flags actifs ensemble.
-      - PLAN_JUDGE_ENABLED=${PLAN_JUDGE_ENABLED:-true}
+      # LLM judge of the plan (heuristics already passed, costly). DEFAULT
+      # FLIPPED BACK TO false (EFFORT 2.4): only has an effect if
+      # PLANNER_ENABLED is also true, which is now false by default —
+      # same justification as PLANNER_ENABLED/VERIFICATION_ENABLED above.
+      - PLAN_JUDGE_ENABLED=${PLAN_JUDGE_ENABLED:-false}
       # 5e condition du coeur cognitif (effort 2 point 3, voir
       # docs/briefs/update-plan.md "2.1 addendum") : "nodes" (défaut,
       # comportement inchangé) ou "merged" (planification fusionnée dans
@@ -150,12 +158,20 @@ services:
       - AUDIT_LOG_MAX_BYTES=${AUDIT_LOG_MAX_BYTES:-20971520}
       - EPISODE_COMPACTION_ENABLED=${EPISODE_COMPACTION_ENABLED:-false}
       - EPISODE_COMPACTION_TURN_THRESHOLD=${EPISODE_COMPACTION_TURN_THRESHOLD:-40}
+      # Proactive OCR enrichment (effort 3): default OFF, scaffolding only
+      # in this pass — the detection heuristic (_detect_visual_signal) is
+      # stubbed to always return None pending an empirical DOM-signal
+      # check (see docs/history.md, "EFFORT 3"). Flip only after that
+      # check and its own restricted smoke.
+      - PROACTIVE_OCR_ENABLED=${PROACTIVE_OCR_ENABLED:-false}
+      - PROACTIVE_OCR_MAX_CHARS=${PROACTIVE_OCR_MAX_CHARS:-2000}
     volumes:
       - ./workspace:/workspace
     depends_on:
       - skill-manager
       - context-manager
       - mcp-client
+      - ocr-service
       - tabbyapi
     networks:
       - agent-net
@@ -293,10 +309,10 @@ services:
       # git/terminal/desktop(GhostDesk)/ocr retirés de ce registre (effort
       # 1.2, docs/briefs/update-plan.md ; docs/history.md) : schéma d'outils
       # lourd pour un usage quasi nul (44,9% du schéma pour 1,6% des appels
-      # réels sur 67 threads v2). GhostDesk et ocr-service restent déployés
-      # plus bas (ocr-service en dépend encore en interne) pour le
-      # rebranchement de l'effort 3 (OCR en capacité du graphe), mais
-      # mcp-client ne s'y connecte plus.
+      # réels sur 67 threads v2). GhostDesk supprimé (effort 3) ; ocr-service
+      # reste déployé mais jamais enregistré ici — ce n'est plus un serveur
+      # MCP, c'est une capacité interne appelée directement par
+      # langgraph-agent (voir plus bas).
       # Stabilisation post-navigation (trouvé en investiguant T10, voir
       # docs/history.md « désynchronisation snapshot/URL ») : sur une page à
       # rendu client, browser_snapshot peut renvoyer le contenu de
@@ -327,9 +343,7 @@ services:
   # par appel d'outil) : chaque appel repartait sur `about:blank` sans
   # continuité d'état avec le précédent (voir docs/resolved-bugs.md). L'image officielle
   # mcp/playwright supporte un mode serveur HTTP natif (`--port`, endpoint
-  # Streamable HTTP `/mcp`) ; on l'utilise ici comme service persistant,
-  # même patron que GhostDesk/OCR plus bas (déployés mais plus enregistrés
-  # dans mcp-client, voir effort 1.2/3, docs/briefs/update-plan.md).
+  # Streamable HTTP `/mcp`) ; on l'utilise ici comme service persistant.
   # Un volume nommé Docker est créé root:root par défaut ; l'image
   # mcp/playwright tourne en "node" (uid 1000), qui ne peut donc PAS écrire
   # dans /downloads sans ce correctif — constaté en conditions réelles
@@ -383,67 +397,27 @@ services:
       - agent-net
     # pas de port publié : uniquement accessible via le réseau interne (mcp-client)
 
-  # --- GhostDesk : bureau virtuel complet piloté par l'agent ------
-  # ⚠️ Surface d'attaque large : SYS_ADMIN + exécution shell + contrôle
-  # GUI complet. Reste un serveur MCP HTTP
-  # persistant avec état (pas un conteneur éphémère comme les autres) ;
-  # voir avertissement détaillé et limites assumées dans le README.
-  ghostdesk:
-    image: ghcr.io/yv17labs/ghostdesk:latest
-    container_name: ghostdesk
-    restart: unless-stopped
-    shm_size: 2gb
-    cap_add:
-      - SYS_ADMIN   # requis par Electron/apps complexes dans le bureau virtuel
-    environment:
-      - GHOSTDESK_AUTH_TOKEN=${GHOSTDESK_AUTH_TOKEN}
-      - GHOSTDESK_VNC_PASSWORD=${GHOSTDESK_VNC_PASSWORD}
-    volumes:
-      - ghostdesk-home:/home/agent   # persiste le bureau/apps entre redémarrages
-    ports:
-      - "6080:6080"   # noVNC — exposé par défaut pour observer l'agent piloter le bureau
-    healthcheck:
-      # Port MCP (3000, voir plus bas) : ocr-service en dépend (condition
-      # service_healthy) pour ne capturer qu'une fois GhostDesk réellement prêt
-      # à répondre, pas seulement démarré (depends_on seul ne garantit que
-      # l'ordre de démarrage des conteneurs, voir README tableau des bugs pour
-      # un précédent similaire avec Qdrant).
-      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/3000' || exit 1"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-      start_period: 10s
-    networks:
-      - agent-net
-    # Port MCP (3000) volontairement non publié sur l'hôte : seul
-    # ocr-service doit l'atteindre, via le réseau interne agent-net —
-    # mcp-client ne s'y connecte plus (effort 1.2, docs/briefs/update-plan.md).
-
-  # --- OCR d'appoint : PaddleOCR CPU (find_text/read_screen) ------
-  # Grounding du VLM (Qwen3.6 MoE) : raisonne bien mais localise mal un
-  # élément à l'écran (sans OCR/détection d'éléments UI dédiée, voir README
-  # section OCR d'appoint et Limites connues assumées). Serveur MCP HTTP
-  # déployé mais plus enregistré dans mcp-client (effort 1.2) : dormant
-  # jusqu'au rebranchement prévu par l'effort 3 (capacité du graphe plutôt
-  # qu'outil appelable par le modèle) — se connecte lui-même à GhostDesk
-  # pour capturer l'écran, indépendamment de mcp-client/langgraph-agent.
+  # --- OCR proactif : PaddleOCR CPU, capacité interne du graphe --------
+  # Grounding du VLM (Qwen3.6 MoE) sur canvas/WebGL/image/PDF natif : ces
+  # contenus sont illisibles par tout canal DOM (browser_snapshot/
+  # browser_extract), seule la capture visuelle les lit (voir
+  # docs/architecture/visual-channel-feasibility.md, VP1-VP4). GhostDesk a
+  # été retiré (effort 3) : ce service n'auto-capture plus rien lui-même —
+  # l'appelant (langgraph-agent) lui fournit l'image (base64), typiquement
+  # une capture browser_take_screenshot (Playwright, sans dépendance à
+  # GhostDesk). N'est plus un serveur MCP, jamais enregistré dans
+  # mcp-client — HTTP direct depuis langgraph-agent (OCR_SERVICE_URL), même
+  # patron que context-manager/skill-manager.
   ocr-service:
     build: ./services/ocr-service
     container_name: ocr-service
     restart: unless-stopped
-    environment:
-      - MCP_GHOSTDESK_URL=http://ghostdesk:3000/mcp
-      - GHOSTDESK_AUTH_TOKEN=${GHOSTDESK_AUTH_TOKEN}
-      - OCR_AUTH_TOKEN=${OCR_AUTH_TOKEN}
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8004/health', timeout=3)\" || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
-    depends_on:
-      ghostdesk:
-        condition: service_healthy
     networks:
       - agent-net
     # pas de port publié : uniquement accessible via le réseau interne agent-net
@@ -616,7 +590,6 @@ networks:
 volumes:
   open-webui-data:
   qdrant-data:
-  ghostdesk-home:
   # Volume PARTAGÉ entre playwright-mcp (écriture) et le serveur MCP
   # filesystem spawné par mcp-client (lecture seule) — voir playwright-mcp
   # (--output-dir) et services/mcp-client/app/main.py (SERVERS["filesystem"])
