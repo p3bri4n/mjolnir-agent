@@ -415,6 +415,45 @@ already at 65536) with the fixed instrumentation for a trustworthy read
 on whether raising `cache_size` actually helps, before deciding whether
 the full 6-task×3-rep decisive re-measurement is warranted.
 
+**Re-run result (2026-08-11, trustworthy instrumentation this time):
+`cache_size: 65536` does not move the wall-clock bottleneck.** Both
+tasks succeeded (1/1 each — n=1, no statistical weight, but the
+wall-clock comparison doesn't need it). Campaign-level aggregate now
+correct (`metadata.campaign_prefill_stats`: 39 requests, 56.34s prefill,
+444,159 tokens — matches A1's own window almost exactly, since A2's
+overlapping window is a subset of it, exactly the shape the fix
+predicts). The number that matters:
+
+| | sequential (N=1, sum of A1+A2 alone) | parallel (N=3, cache_size=65536) |
+|---|---|---|
+| wall-clock, both tasks | 110.0 + 60.5 = 170.5s | max(154.7, 117.3) = **154.7s** |
+
+**×1.10 — identical to the full 18-run decisive measurement's own
+ratio**, on a task pair small enough to be cheap to re-check. Real work
+volume did grow modestly under concurrency (39 requests vs ~27 summed
+from the two sequential runs, +38% tokens), matching the corrected
+archives-only dedup reading, not the original inflated one — but the
+EXTRA cache headroom bought nothing: if `cache_size` were the binding
+constraint, more of it should have measurably helped. It didn't move at
+all.
+
+**Reading, not yet a decision**: this is consistent with Phase 0's own
+honest finding (×2.0 real speedup, not the ×3.0 optimistic bracket — "
+TabbyAPI serializes more of the work than the optimistic scenario
+assumed") pointing to a **compute-bound** ceiling (TabbyAPI's inference
+engine itself, under this GPU split) rather than a **memory/cache-bound**
+one — cache_size was very plausibly never the actual lever. Three paths
+were laid out and NONE has been chosen yet: (a) test `N_WORKERS=2`
+(two concurrent requests may still see a real, smaller gain where three
+saturate compute entirely), (b) close now as a documented hardware-bound
+capability limit (mechanism stays — worker_id isolation is validated and
+useful on its own merit, matching `docs/architecture/
+mcp-client-concurrency.md`'s general concurrent-usage fix — only the
+throughput promise doesn't materialize on this hardware), (c) revert
+`cache_size` to 49152 first (no measured benefit to keep the extra VRAM
+committed) then close. **Recorded here for continuity, decision deferred
+to a future session.**
+
 ## Risks flagged, not resolved here
 
 - The download-serialization lock (point 2) only knows about T5 today —

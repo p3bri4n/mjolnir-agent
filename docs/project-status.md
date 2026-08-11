@@ -382,8 +382,21 @@ wipe. The wall-clock ×1.10 result itself stands, unaffected by the bug.
 `cache_size` raised 49152→65536 (candidate from already-measured GPU
 margins) pending a clean re-read. Full detail: docs/history.md, "EFFORT
 1.3 — PHASE 3 DECISIVE MEASUREMENT, MISSED, THEN A METRIC BUG
-CORRECTED". 🧑 **Next**: re-run the 2-task smoke with fixed
-instrumentation, then decide on the full re-measurement.
+CORRECTED".
+
+**Cache_size re-check (2026-08-11), with the fixed instrumentation: no
+effect.** Same 2-task pair, wall-clock ×1.10 — identical to the full
+18-run result, extra cache headroom bought nothing. Reading: consistent
+with a COMPUTE-bound ceiling (Phase 0's own ×2.0, not ×3.0), not a
+memory/cache-bound one — `cache_size` was plausibly never the real
+lever. **Decision deferred at explicit user request** ("consigne tout
+ça" — record only, decide later). Three paths on the table, none chosen:
+test `N_WORKERS=2`, close now as a documented hardware-bound limit
+(mechanism stays — `worker_id` isolation is independently valid, see
+`docs/architecture/mcp-client-concurrency.md`'s general concurrent-usage
+fix), or revert `cache_size` to 49152 first. `N_WORKERS` stays `1` by
+default. Full detail: docs/history.md, "EFFORT 1.3 — CACHE_SIZE
+RE-CHECK: NO EFFECT, DECISION DEFERRED".
 
 **Effort 2 (factorial ablation of the cognitive-core flags) measured, at
 a checkpoint** — see docs/history.md, "EFFORT 2". All 8 coherent

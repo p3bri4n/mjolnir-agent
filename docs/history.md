@@ -5938,3 +5938,39 @@ default. 6 new/updated tests, `langgraph-agent` suite 478→479.
 already at 65536) with the now-fixed instrumentation for a trustworthy
 read, before deciding whether the full 6-task×3-rep decisive
 re-measurement is warranted.
+
+## EFFORT 1.3 — CACHE_SIZE RE-CHECK: NO EFFECT, DECISION DEFERRED
+
+Re-ran the same 2-task smoke (A1+A2, N=3, `cache_size` already at 65536)
+with the now-correct campaign-level instrumentation. Both tasks
+succeeded (1/1 each, n=1). The fix behaves exactly as designed:
+`metadata.campaign_prefill_stats` (39 requests, 56.34s prefill, 444,159
+tokens) matches A1's own individually-collected window almost exactly,
+consistent with A2's window being a subset of A1's longer one — no more
+double counting.
+
+**The number that matters — wall-clock, both tasks**: sequential sum
+(110.0s + 60.5s) = 170.5s vs parallel max(154.7s, 117.3s) = 154.7s →
+**×1.10, identical to the full 18-run decisive measurement's own ratio**.
+Real work volume grew modestly under concurrency (39 requests vs ~27
+summed sequentially, +38% tokens — matching the corrected archives-only
+dedup reading from the previous entry, not the original inflated one),
+but the extra `cache_size` headroom bought nothing measurable on the
+actual bottleneck (wall-clock time). If cache capacity were the binding
+constraint, more of it should have helped; it didn't move at all.
+
+**Reading**: consistent with Phase 0's own honest finding (×2.0 real
+speedup on short prompts, not the ×3.0 optimistic bracket) pointing to a
+COMPUTE-bound ceiling (TabbyAPI's inference engine itself) rather than a
+MEMORY/cache-bound one — `cache_size` was plausibly never the real
+lever. **Decision deferred, per explicit user instruction ("consigne
+tout ça") — this entry records the finding, nothing more.** Three paths
+remain open, none chosen: test `N_WORKERS=2` (compute contention halved
+might still show a real, smaller gain), close now as a documented
+hardware-bound capability limit (the worker_id-isolation mechanism
+itself stays valid and useful independent of this specific throughput
+question — it's also the fix for `docs/architecture/
+mcp-client-concurrency.md`'s general concurrent-usage risk, not just
+campaigns), or revert `cache_size` to 49152 first (no measured benefit
+to justify keeping the extra VRAM committed) then close. `N_WORKERS`
+stays `1` by default; `run-campaign.sh` still doesn't set it.
