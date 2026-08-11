@@ -81,17 +81,32 @@ guess.
   `_run_on_server` the same way `thread_id` already is for
   `_maybe_capture_visual`.
 
-**2. Downloads volume (`agent-downloads`, shared bind mount)** — open
-design question, not resolved in this brief. `_purge_downloads_volume`
-today does a blanket `rm -rf /downloads/*` inside `playwright-mcp`,
-called before every repetition; two workers downloading concurrently
-would have worker A's purge delete worker B's in-flight file. Needs
-either (a) a per-`worker_id` subdirectory if playwright-mcp's own
-download path is configurable per session (unconfirmed — check against
-the installed `mcp/playwright` image, not assumed), or (b) purge by
-filename set (snapshot the directory before the task, delete only files
-absent from that snapshot after). Resolve empirically in Phase 1, not
-guessed here.
+**2. Downloads volume (`agent-downloads`, shared bind mount) — RESOLVED
+by config inspection, no live run needed.** `docker-compose.yml`'s
+`playwright-mcp` service sets `--output-dir=/downloads` as a container-
+launch CLI flag, not a per-MCP-session parameter — unlike the browser
+CONTEXT (isolated per session, point 1 above), the download DIRECTORY is
+one shared path for the whole process, with no per-session override
+exposed by the image. Option (a) from the original open question (a
+per-`worker_id` subdirectory) is therefore not available without N
+separate `playwright-mcp` containers, which the brief already rejects as
+heavier than worker-scoping. Option (b) (snapshot-diff purge) has its own
+real hazard: if the SAME task_id (e.g. T5, the only download-touching
+task today) ever lands on two workers in the same round, both would
+write to the SAME filename in the SAME shared directory regardless of
+purge timing — a content collision, not just a purge race.
+
+**Chosen design: serialize only the download-touching task(s) across
+workers, at the harness level (Phase 2), not the volume.** A single
+`threading.Lock` held for the duration of any task tagged
+download-touching (currently only T5) turns that narrow slice back to
+sequential while every other task stays parallel — `_purge_downloads_volume`
+stays exactly as it is today (no snapshot-diff, no worker-scoping),
+correct by construction since only one worker is ever inside that
+critical section. Cheaper and more robust than trying to make a
+single shared directory safe under real concurrent writers. Moves this
+point out of Phase 1's scope entirely — `mcp-client` needs no downloads-
+related change.
 
 **3. Test harness (`tests_integration/test_web_tasks.py`)** — the
 sequential `for entry in remaining:` loop (`_run_campaign`) becomes an
@@ -175,16 +190,37 @@ worth building at all.
   threshold rather than the more optimistic number. Phase 1 is confirmed
   worth building.
 
-**Phase 1 — `mcp-client` worker-scoping** (point 1 above) + downloads
-volume scheme (point 2, resolved empirically here). Unit-tested the same
-way the existing session-persistence tests are (`tests/test_main.py`),
+**Phase 1 — `mcp-client` worker-scoping** (point 1 above only — point 2's
+downloads question is resolved above and moves to Phase 2, no
+`mcp-client` change needed for it). Unit-tested the same way the
+existing session-persistence tests are (`tests/test_main.py`),
 default-caller (`worker_id` absent) behavior covered by a regression test
 proving zero change for every existing caller.
 
-**Phase 2 — harness N-worker runner** (points 3-4). Pause/resume
-correctness (point 4) is testable without live Docker — the cursor logic
-is pure data manipulation, unit-testable against a synthetic
-`planned`/`completed` state.
+**Phase 1 delivered**: `_persistent_sessions`/`_persistent_locks` rekeyed
+`(server_name, worker_id)` (`_persistent_locks` now a lazily-populated
+`defaultdict`, safe without an extra guard lock — single-process uvicorn,
+no `await` inside `defaultdict.__missing__`); `_worker_key` normalizes a
+missing/empty `worker_id` to the same `"default"` bucket every existing
+caller has always used. `POST /reset-session/{server_name}` gained an
+optional `worker_id` query param; `CallRequest` gained an optional
+`worker_id`, threaded through every `_run_on_server`/`_maybe_capture_visual`
+call site in `call_tool`. Caught while fixing the tests: two existing
+assertions (`"browser" not in _persistent_sessions`,
+`_persistent_locks["browser"] = asyncio.Lock()`) referenced the OLD
+bare-string key — the first would have silently become a vacuous pass
+after this change (never matching any real key again) rather than a
+loud failure; both fixed, one turned into a real worker-isolation
+regression test. 5 new tests, `mcp-client` suite 55→60 passed, 0
+regressions in `langgraph-agent` (466/466, untouched by this phase).
+
+**Phase 2 — harness N-worker runner** (points 2-4: the download-task
+serialization lock, the N-worker pool, and the pause/resume cursor fix).
+Pause/resume correctness (point 4) is testable without live Docker — the
+cursor logic is pure data manipulation, unit-testable against a
+synthetic `planned`/`completed` state. Same for the download-lock logic
+(point 2) — a synthetic task list with an interleaved download-touching
+entry is enough to prove serialization without live Docker.
 
 **Phase 3 — measurement.** One parallel campaign (N=3, the same declared
 subset already used for effort 2's decisive measurement — a subset
@@ -203,10 +239,9 @@ every other effort in this plan.
 
 ## Risks flagged, not resolved here
 
-- Downloads volume scheme (point 2) is the least-derisked part of this
-  design — resolve empirically in Phase 1, first candidate to invalidate
-  the "worker_id-scoping, no N containers" preference if playwright-mcp's
-  download path turns out not configurable per session.
+- The download-serialization lock (point 2) only knows about T5 today —
+  if a future task also touches downloads, it must be added to the
+  tagged set explicitly; nothing detects this automatically.
 - `AUTO_APPROVAL_STREAK_LIMIT`/session grants
   (`app/approval_policy.py`) are per-`thread_id`, already independent per
   task — no new risk expected here, but not explicitly re-verified for
