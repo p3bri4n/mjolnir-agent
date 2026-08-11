@@ -108,6 +108,7 @@ async def test_slash_command_calls_tool_directly_without_llm(mock_side_services)
         "tool": "read_file",
         "arguments": {},
         "thread_id": "test-thread-slash",
+        "worker_id": None,
     }
     assert result["messages"][-1].content == "app1\napp2"
 
@@ -133,6 +134,7 @@ async def test_slash_command_with_arguments_sends_typed_values(mock_side_service
         "tool": "write_file",
         "arguments": {"path": "/workspace/x.txt", "content": "y"},
         "thread_id": "test-thread-slash",
+        "worker_id": None,
     }
 
 
@@ -261,6 +263,7 @@ async def test_slash_command_on_sensitive_tool_pauses_for_approval(mock_side_ser
         "tool": "browser_evaluate",
         "arguments": {"code": "document.title"},
         "thread_id": "test-thread-slash",
+        "worker_id": None,
     }
 
 

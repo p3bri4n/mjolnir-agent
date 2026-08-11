@@ -31,7 +31,29 @@ async def test_call_mcp_tool_forwards_thread_id():
         "tool": "browser_navigate",
         "arguments": {"url": "https://exemple.com"},
         "thread_id": "thread-abc",
+        "worker_id": None,
     }
+
+
+@pytest.mark.asyncio
+async def test_call_mcp_tool_forwards_worker_id():
+    """Effort 1.3 (docs/briefs/effort-1.3-parallel-campaigns.md): a
+    parallel campaign worker's identity must reach mcp-client so its
+    persistent "browser" session isolation actually has something to key
+    on — see services/mcp-client/tests/test_main.py for the other side."""
+    import app.graph as g
+
+    with respx.mock(assert_all_called=True) as mock:
+        route = mock.post("http://fake-mcp-client/call").mock(
+            return_value=httpx.Response(200, json={"content": [{"type": "text", "text": "ok"}]})
+        )
+        async with httpx.AsyncClient() as client:
+            await g._call_mcp_tool(
+                client, "browser_navigate", {"url": "https://exemple.com"}, "thread-abc", "worker-2"
+            )
+
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["worker_id"] == "worker-2"
 
 
 @pytest.mark.asyncio

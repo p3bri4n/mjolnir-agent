@@ -2256,7 +2256,11 @@ def _split_image_blocks(result: dict) -> tuple[dict, list[dict]]:
 
 
 async def _call_mcp_tool(
-    client: httpx.AsyncClient, tool_name: str, args: dict, thread_id: Optional[str] = None
+    client: httpx.AsyncClient,
+    tool_name: str,
+    args: dict,
+    thread_id: Optional[str] = None,
+    worker_id: Optional[str] = None,
 ) -> tuple[dict, list]:
     """
     Single HTTP call to mcp-client:/call, factored out between
@@ -2270,11 +2274,19 @@ async def _call_mcp_tool(
     image-block splitting below. Omitted by callers with no thread_id in
     scope (e.g. _fetch_verification_snapshot), which simply get no
     capture for that call.
+
+    worker_id (optional, effort 1.3, docs/briefs/
+    effort-1.3-parallel-campaigns.md): forwarded so mcp-client can scope
+    its persistent "browser" session per parallel-campaign worker instead
+    of one shared session for every caller. Omitted (the overwhelming
+    common case — interactive Open WebUI, a non-parallel campaign) falls
+    back to mcp-client's own "default" bucket, identical to pre-effort-1.3
+    behavior.
     """
     try:
         resp = await client.post(
             f"{MCP_CLIENT_URL}/call",
-            json={"tool": tool_name, "arguments": args, "thread_id": thread_id},
+            json={"tool": tool_name, "arguments": args, "thread_id": thread_id, "worker_id": worker_id},
         )
         resp.raise_for_status()
         result = resp.json()
@@ -2307,6 +2319,7 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
     new_messages = []
     grants = state.get("session_grants") or []
     thread_id = config.get("configurable", {}).get("thread_id", "")
+    worker_id = config.get("configurable", {}).get("worker_id")
 
     # URL-fabrication guardrail (Phase 1): scope = URLs already observed
     # THIS turn/previous turns of the task + scope roots (1st human
@@ -2504,7 +2517,9 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
                 result = {"content": [{"type": "text", "text": _repeated_strategy_feedback(tool_call["name"])}]}
                 images = []
             else:
-                result, images = await _call_mcp_tool(client, tool_call["name"], tool_call["args"], thread_id)
+                result, images = await _call_mcp_tool(
+                    client, tool_call["name"], tool_call["args"], thread_id, worker_id
+                )
                 if tool_call["name"].startswith("browser_"):
                     result = _truncate_browser_result(result, BROWSER_TOOL_OUTPUT_MAX_CHARS, objective)
                     for block in result.get("content", []) if isinstance(result.get("content"), list) else []:
@@ -2984,9 +2999,10 @@ async def run_slash_command_direct(state: AgentState, config: dict) -> dict:
     grants = state.get("session_grants") or []
     tier = approval_policy.effective_tier(tool_name, args, grants)
     thread_id = config.get("configurable", {}).get("thread_id", "")
+    worker_id = config.get("configurable", {}).get("worker_id")
 
     async with httpx.AsyncClient(timeout=60) as client:
-        result, images = await _call_mcp_tool(client, tool_name, args, thread_id)
+        result, images = await _call_mcp_tool(client, tool_name, args, thread_id, worker_id)
 
     if tier == approval_policy.TIER_REVERSIBLE:
         audit_log.log_tool_call(thread_id, tool_name, args, tier, result)

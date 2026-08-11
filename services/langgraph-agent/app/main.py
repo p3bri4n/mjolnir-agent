@@ -48,6 +48,13 @@ class ChatCompletionRequest(BaseModel):
     model: str = "agent-llm"
     messages: List[ChatMessage]
     stream: Optional[bool] = False
+    # Persistent MCP session isolation (effort 1.3, docs/briefs/
+    # effort-1.3-parallel-campaigns.md): absent for every real client
+    # (Open WebUI never sends it) — only a parallel campaign runner sets
+    # this, one distinct value per worker, forwarded to mcp-client via
+    # config["configurable"] so N workers each get their own isolated
+    # Playwright session instead of fighting over the single shared one.
+    worker_id: Optional[str] = None
 
 
 class PendingCheckRequest(BaseModel):
@@ -90,6 +97,10 @@ class ApprovalDecisionRequest(BaseModel):
     # thread rather than just this turn — see AgentState.session_grants,
     # app/graph.py. Ignored if approved=False.
     grant_session: bool = False
+    # Same worker-scoping as ChatCompletionRequest.worker_id (effort 1.3)
+    # — an approval follow-up resumes the SAME task, must reuse the SAME
+    # worker's session, not fall back to the shared default one.
+    worker_id: Optional[str] = None
 
 
 def _derive_thread_id(messages: List[ChatMessage]) -> str:
@@ -264,7 +275,7 @@ async def _resolve_run(request: ChatCompletionRequest):
     thread_id = _derive_thread_id(request.messages)
     _touch_thread(thread_id)
     config = {
-        "configurable": {"thread_id": thread_id},
+        "configurable": {"thread_id": thread_id, "worker_id": request.worker_id},
         "recursion_limit": MAX_TOOL_ITERATIONS * 4 + 10,
     }
     snapshot = await agent_graph.aget_state(config)
@@ -661,7 +672,7 @@ async def approve(request: ApprovalDecisionRequest):
     thread_id = _derive_thread_id(request.messages)
     _touch_thread(thread_id)
     config = {
-        "configurable": {"thread_id": thread_id},
+        "configurable": {"thread_id": thread_id, "worker_id": request.worker_id},
         "recursion_limit": MAX_TOOL_ITERATIONS * 4 + 10,
     }
     snapshot = await agent_graph.aget_state(config)
