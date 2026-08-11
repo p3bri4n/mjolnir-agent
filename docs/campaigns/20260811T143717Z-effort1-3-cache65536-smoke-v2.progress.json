@@ -1,0 +1,55 @@
+{
+  "active": [],
+  "campaign_id": "20260811T143717Z-effort1-3-cache65536-smoke-v2",
+  "completed": [
+    {
+      "approvals": 4,
+      "cup": null,
+      "duration_s": 117.3,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A2_schema_references",
+      "thread_id": "c79f66e70cf8dd55",
+      "tool_calls": 12
+    },
+    {
+      "approvals": 5,
+      "cup": null,
+      "duration_s": 154.7,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A1_reconciliation_croisee",
+      "thread_id": "5e965e779cbb032a",
+      "tool_calls": 15
+    }
+  ],
+  "config_digest": "5c2cb97e4d28ee71",
+  "current": null,
+  "label": "effort1-3-cache65536-smoke-v2",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "A1_reconciliation_croisee"
+    },
+    {
+      "repetition": 1,
+      "task_id": "A2_schema_references"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-08-11T14:39:52.837408+00:00",
+      "index": 0,
+      "started_at": "2026-08-11T14:37:17.803719+00:00"
+    }
+  ],
+  "started_at": "2026-08-11T14:37:17.803719+00:00",
+  "total_runs": 2
+}
