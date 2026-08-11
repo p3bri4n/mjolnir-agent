@@ -342,8 +342,33 @@ bracket, not optimistic — sets the realistic Phase 3 target at ~×2, not
 ×3), and `playwright-mcp` session isolation under real concurrent load is
 confirmed (context scoped per MCP session, matching the already-verified
 `docs/resolved-bugs.md` finding). See docs/history.md, "EFFORT 1.3 —
-PHASE 0 LIVE RESULT". 🧑 Next: Phase 1 (`mcp-client` worker-scoping +
-downloads-volume scheme), on explicit go-ahead.
+PHASE 0 LIVE RESULT".
+
+**Phases 1 and 2 delivered (2026-08-11), nothing live-run yet.** Phase 1:
+`mcp-client`'s persistent sessions scoped by `worker_id`
+(`(server_name, worker_id)` keying), `worker_id` threaded all the way
+from `ChatCompletionRequest`/`ApprovalDecisionRequest` through
+`config["configurable"]` to `_call_mcp_tool` — a gap the brief hadn't
+named (nothing on `langgraph-agent`'s side read the parameter Phase 1
+gave `mcp-client`). Phase 2: the harness's sequential loop replaced by a
+shared `_run_planned_tasks` N-worker pool (`test_web_tasks.py`, used by
+both v1's `_run_campaign` and v2's `_run_campaign_v2`); scope grew
+mid-implementation (checkpoint reported, user: "continuer maintenant,
+périmètre élargi") once the pause/resume cursor turned out to be
+`campaign_persistence.py`'s own documented contract, also depended on by
+the dashboard's live ETA — fixed with `remaining_runs()` (a set
+difference, safe under out-of-order completions) in both
+`campaign_persistence.py` and its deliberate dashboard mirror. A second
+shared-fixture hazard (`stock_updates.json`, family B-β) was found and
+serialized the same way as T5's downloads while porting the loop, not
+anticipated in the brief. Test suites: `mcp-client` 55→60,
+`langgraph-agent` 466→478, `dashboard` 19→22, all green — everything
+verified against synthetic state only, no live Docker run in this phase.
+Full detail: docs/history.md, "EFFORT 1.3 — PHASES 1-2 DELIVERED". 🧑
+**Checkpoint before Phase 3's live measurement** (N=3 parallel campaign
+vs. sequential, same declared subset as effort 2's decisive measurement,
+judged on wall-clock time primarily and score/CuP non-regression with
+veto power).
 
 **Effort 2 (factorial ablation of the cognitive-core flags) measured, at
 a checkpoint** — see docs/history.md, "EFFORT 2". All 8 coherent

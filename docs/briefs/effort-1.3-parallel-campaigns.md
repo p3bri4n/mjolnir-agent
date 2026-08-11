@@ -222,6 +222,60 @@ synthetic `planned`/`completed` state. Same for the download-lock logic
 (point 2) — a synthetic task list with an interleaved download-touching
 entry is enough to prove serialization without live Docker.
 
+**Gap found and closed before Phase 2 could start: `worker_id` had
+nowhere to travel from the harness to `mcp-client`.** Phase 1 gave
+`mcp-client` the parameter; nothing on `langgraph-agent`'s side read it
+from an HTTP request. `ChatCompletionRequest`/`ApprovalDecisionRequest`
+gained an optional `worker_id` (absent for every real client — Open WebUI
+never sends it), forwarded into `config["configurable"]` by
+`_resolve_run`/`/approve`, extracted there by
+`_execute_tool_calls`/`run_slash_command_direct`, passed through
+`_call_mcp_tool`. Planner/verification nodes left unscoped (cognitive-
+core flags default off since effort 2.4, the config parallel campaigns
+actually run under). 4 tests fixed (exact-match `/call` payload
+assertions now include `"worker_id": None`), 4 new (forwarding through
+`_call_mcp_tool` directly, the non-streaming endpoint, and `/approve`'s
+resume path). `langgraph-agent` suite 466→469 passed.
+
+**Phase 2 scope grew mid-implementation, reported at the checkpoint
+before continuing (user: "continuer maintenant, périmètre élargi"):**
+the pause/resume cursor (`planned[len(completed):]`) turned out to be
+`campaign_persistence.py`'s own documented contract
+(`init_progress_state`'s docstring), also depended on by
+`compute_remaining_eta()` (the dashboard's live ETA) — fixing it for real
+meant `remaining_runs()` (a set difference on `(task_id, repetition)`,
+safe under out-of-order completions) landing in `campaign_persistence.py`
+itself, PLUS its deliberately-duplicated mirror in
+`services/dashboard/app/main.py` (`_remaining_runs`, same "harness
+writes, dashboard reads" decoupling as `_normalize_duration_estimate`).
+7 tests across both (4 + 3), both suites green.
+
+**Phase 2 delivered.** `_run_planned_tasks` (`test_web_tasks.py`) is the
+shared N-worker loop both `_run_campaign` (v1) and `_run_campaign_v2`
+call, parameterized by a `build_row` callback (each suite's own row
+fields) and `purge_fns`/`serialized_task_ids` (which shared fixtures need
+exclusive access — v1: `_purge_downloads_volume`/T5 only; **v2 also needs
+`_purge_admin_stock_file`/`FAMILY_B_BETA_TASK_IDS`**, `stock_updates.json`
+turned out to be the exact same shared-single-file hazard as T5's
+`/downloads`, found while porting the loop, not anticipated in this
+brief's original point 2). `n_workers=1` (`WEB_TASKS_WORKERS`, default)
+passes `worker_id=None` throughout — verified as a real, separate
+invariant (a first draft always generated `"worker-1"` even at
+`n_workers=1`, caught by its own regression test, fixed). `state["current"]`
+kept as a single dict (dashboard `campaign.html` untouched) — "whichever
+run was claimed most recently," a documented degradation for
+`n_workers>1` (shows one of the active runs, not all); `state["active"]`
+(new) carries the full in-flight list for a future dashboard enhancement,
+explicitly out of scope here. 5 new tests
+(`tests/test_run_planned_tasks.py`, no Docker/HTTP), including a real-
+threading proof that the download lock blocks another worker's purge
+until the serialized task's ENTIRE run finishes, not just its own purge.
+`langgraph-agent` suite 469→478 passed overall.
+
+🧑 **Checkpoint before Phase 3's live measurement** — nothing live-run
+yet in this phase; everything above is unit-tested against synthetic
+state only, per the brief's own discipline.
+
 **Phase 3 — measurement.** One parallel campaign (N=3, the same declared
 subset already used for effort 2's decisive measurement — a subset
 already trusted for discriminating power) vs. its sequential equivalent,

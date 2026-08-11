@@ -5790,3 +5790,86 @@ the more optimistic ×3 — still a real, worthwhile win. Phase 1
 (`mcp-client` worker-scoping) confirmed worth building. 🧑 Checkpoint
 passed, both Phase 0 conditions met — next: Phase 1 implementation, on
 explicit go-ahead.
+
+## EFFORT 1.3 — PHASES 1-2 DELIVERED (parallel campaign execution)
+
+See `docs/briefs/effort-1.3-parallel-campaigns.md` for the full design
+and every status update below, in place. Summary here for the
+chronological record.
+
+**Phase 1 — `mcp-client` worker-scoping.** `_persistent_sessions`/
+`_persistent_locks` rekeyed `(server_name, worker_id)` instead of
+`server_name` alone (`_persistent_locks` a lazily-populated `defaultdict`,
+safe without an extra guard lock — single-process uvicorn, no `await`
+inside `defaultdict.__missing__`); `_worker_key` normalizes a
+missing/empty `worker_id` to the same `"default"` bucket every existing
+caller has always used. `POST /reset-session/{server_name}` gained an
+optional `worker_id` query param; `CallRequest` gained an optional
+`worker_id`. Caught fixing the tests: two existing assertions referenced
+the OLD bare-string key — one (`"browser" not in _persistent_sessions`)
+would have silently become a vacuous pass rather than a loud failure
+under the new tuple keying, not just broken loudly. `mcp-client` suite
+55→60 passed.
+
+**Gap found before Phase 2 could start**: Phase 1 gave `mcp-client` the
+`worker_id` parameter, but nothing on `langgraph-agent`'s side populated
+it from a real HTTP request — `ChatCompletionRequest`/
+`ApprovalDecisionRequest` gained an optional `worker_id`, threaded
+through `config["configurable"]` (`_resolve_run`/`/approve`) to
+`_execute_tool_calls`/`run_slash_command_direct` to `_call_mcp_tool`.
+Planner/verification nodes left unscoped (cognitive-core flags default
+off since effort 2.4, the config parallel campaigns actually run under —
+revisit only if that combination becomes real). `langgraph-agent` suite
+466→469 passed.
+
+**Scope grew mid-Phase-2, checkpoint reported before continuing** (user:
+"continuer maintenant, périmètre élargi"): the pause/resume cursor
+(`planned[len(completed):]`) turned out to be `campaign_persistence.py`'s
+own documented contract (`init_progress_state`'s docstring), also relied
+on by `compute_remaining_eta()` — the dashboard's live ETA. Fixed with
+`remaining_runs()` (a set difference on `(task_id, repetition)`, correct
+under out-of-order completions) in `campaign_persistence.py`, mirrored in
+`services/dashboard/app/main.py`'s deliberately-duplicated `_remaining_runs`
+(same "harness writes, dashboard reads" decoupling as
+`_normalize_duration_estimate`, kept in sync manually). 4 tests in
+`langgraph-agent` (44→48 on that file), 3 mirrored in `dashboard` (19→22).
+
+**Phase 2 — harness N-worker runner, delivered.** `_run_planned_tasks`
+(`test_web_tasks.py`) is the shared N-worker execution loop both
+`_run_campaign` (v1) and `_run_campaign_v2` now call — parameterized by
+a `build_row` callback (each suite keeps its own row/CuP/policy fields)
+and `purge_fns`/`serialized_task_ids` (which shared fixtures a task needs
+exclusive access to). A SECOND shared-single-file hazard was found while
+porting v2's loop, not anticipated in the brief: `_purge_admin_stock_file`
+(`stock_updates.json`, family B-β's sole success criterion) is the exact
+same race as T5's `/downloads` — added to the serialization set alongside
+it (`FAMILY_B_BETA_TASK_IDS`).
+
+`n_workers=1` (`WEB_TASKS_WORKERS`, default) passes `worker_id=None`
+throughout — verified as a real, separate invariant: a first draft always
+generated `"worker-1"` even at `n_workers=1`, caught by its own
+regression test (`test_missing_worker_id_default_bucket_semantics_unchanged`),
+fixed to special-case `n_workers == 1` explicitly rather than merely
+document the claim. `state["current"]` stays a single dict (dashboard's
+`campaign.html` untouched) — "whichever run was claimed most recently,"
+a documented degradation for `n_workers>1` (shows one of the active runs,
+not all); the new `state["active"]` list carries the full in-flight
+picture for a future dashboard enhancement, explicitly out of scope here.
+
+5 new tests (`services/langgraph-agent/tests/test_run_planned_tasks.py`,
+no Docker/HTTP — `run_task`/purge/reset monkeypatched, run 5x in a row to
+check for threading flakiness, none observed): sequential order preserved
+at `n_workers=1`, every planned entry claimed exactly once under N
+workers, the `worker_id=None` invariant, pause stops new claims but lets
+in-flight work finish (paused=True reported only once every worker has
+actually stopped, not merely requested), and — the one requiring real
+`threading.Event`-based synchronization, not just call-order inspection —
+the download lock provably blocks another worker's purge until the
+serialized task's ENTIRE run finishes, not just its own purge.
+
+`langgraph-agent` suite 469→478 passed overall (473 baseline this
+session + the campaign_persistence/N-worker additions). `run-campaign.sh`
+does NOT set `WEB_TASKS_WORKERS` yet — Phase 3's own checkpoint decides
+that. 🧑 **Checkpoint before Phase 3's live measurement**: nothing
+live-run in Phases 1-2, everything verified against synthetic state only,
+per the brief's own discipline (unit-testable without live Docker).
