@@ -39,10 +39,6 @@ services:
       - SKILL_MANAGER_URL=http://skill-manager:8001
       - CONTEXT_MANAGER_URL=http://context-manager:8002
       - MCP_CLIENT_URL=http://mcp-client:8003
-      # Capacité OCR proactive (effort 3, GhostDesk removal) : appelée
-      # directement par le graphe, jamais via mcp-client — même patron que
-      # CONTEXT_MANAGER_URL/SKILL_MANAGER_URL ci-dessus.
-      - OCR_SERVICE_URL=http://ocr-service:8004
       # Journal d'audit des tool_calls TIER_REVERSIBLE (Phase 2, voir README
       # section Supervision humaine) : /workspace/.audit, sur le même bind
       # mount que les autres serveurs MCP filesystem/git/terminal.
@@ -158,20 +154,12 @@ services:
       - AUDIT_LOG_MAX_BYTES=${AUDIT_LOG_MAX_BYTES:-20971520}
       - EPISODE_COMPACTION_ENABLED=${EPISODE_COMPACTION_ENABLED:-false}
       - EPISODE_COMPACTION_TURN_THRESHOLD=${EPISODE_COMPACTION_TURN_THRESHOLD:-40}
-      # Proactive OCR enrichment (effort 3): default OFF, scaffolding only
-      # in this pass — the detection heuristic (_detect_visual_signal) is
-      # stubbed to always return None pending an empirical DOM-signal
-      # check (see docs/history.md, "EFFORT 3"). Flip only after that
-      # check and its own restricted smoke.
-      - PROACTIVE_OCR_ENABLED=${PROACTIVE_OCR_ENABLED:-false}
-      - PROACTIVE_OCR_MAX_CHARS=${PROACTIVE_OCR_MAX_CHARS:-2000}
     volumes:
       - ./workspace:/workspace
     depends_on:
       - skill-manager
       - context-manager
       - mcp-client
-      - ocr-service
       - tabbyapi
     networks:
       - agent-net

@@ -8,7 +8,6 @@ os.environ["LLM_BASE_URL"] = "http://fake-vllm/v1"
 os.environ["CONTEXT_MANAGER_URL"] = "http://fake-context-manager"
 os.environ["SKILL_MANAGER_URL"] = "http://fake-skill-manager"
 os.environ["MCP_CLIENT_URL"] = "http://fake-mcp-client"
-os.environ["OCR_SERVICE_URL"] = "http://fake-ocr-service"
 # Le défaut de production (/workspace/.audit) n'existe pas dans l'environnement
 # de test et ne doit de toute façon jamais être touché par les tests — voir
 # app/audit_log.py. Un répertoire temporaire dédié, nettoyé à la fin de la
