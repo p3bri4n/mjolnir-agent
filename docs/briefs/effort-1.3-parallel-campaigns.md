@@ -364,6 +364,57 @@ campaigns), `N_WORKERS` stays `1` by default, and the cache-size ceiling
 gets recorded so it isn't rediscovered from scratch without new
 hardware.
 
+**CORRECTION (2026-08-11): the "KV cache eviction" root cause above was
+built on a flawed metric — the `cache_size: 65536` reload happened as
+planned, but the diagnostic smoke that was meant to validate it exposed
+a deeper, previously-unknown bug instead.** `collect_tabbyapi_raw_samples`
+(`campaign_persistence.py`) scrapes `docker logs tabbyapi` by WALL-CLOCK
+WINDOW — correct at `N_WORKERS=1` (no two tasks' windows can ever
+overlap), silently wrong at `N>1`: two concurrently-run tasks' windows
+overlap by construction, and BOTH end up scraping (and getting
+attributed) the SAME shared log lines. Found live: the cache-size
+smoke's two runs (A1+A2, concurrent) came back with **byte-identical**
+`tabbyapi_raw_samples` for their first 27 entries. TabbyAPI's log line
+carries no per-request identifier and there is no `/metrics` endpoint to
+fall back on (already verified against the installed image,
+`campaign_persistence.py`'s own module docstring) — external log
+scraping cannot attribute per-task under real concurrency, full stop.
+
+**Archives-only correction (dedup by exact sample-tuple identity across
+the already-collected Phase 3 decisive-measurement data, no re-run
+needed):** pooling all 18 parallel-arm runs' samples and keeping each
+unique `(cached_tokens, new_tokens, generation_seconds, queue_seconds,
+tokens_generated, process_speed_tps)` tuple once collapses 910 raw
+samples to **313** genuinely distinct ones. Corrected totals: prefill
+**633.1s** (not 1848.5s) and tokens **3.51M** (not 10.1M) — against the
+sequential arm's already-correct 324.4s / 2.53M. That's **×1.95 prefill
+time for ×1.39 the real token volume** — consistent with ordinary
+GPU-sharing contention under 3x concurrent load (Phase 0's own ×2.0
+finding) plus a modest, real amount of extra work, **not** the dramatic
+"complete cache wipe, full reprocess" story the uncorrected 4x/5.7x
+figures told. The dedup is a best-effort approximation (exact-tuple
+matching across independently-timed samples), kept only as a sanity
+check — not a substitute for the real fix below.
+
+**Fix delivered, not a re-run yet.** `_run_planned_tasks` now collects a
+SECOND, campaign-level `tabbyapi_raw_samples`/`aggregate_prefill_stats`
+pass, bracketing the wall-clock window of the WHOLE worker pool (all N
+threads) rather than each task's own window — every real log line is
+captured exactly once regardless of overlap, correct at any `N_WORKERS`.
+Persisted into the campaign JSON's `metadata.campaign_prefill_stats` and
+printed at the end of the run. Per-task `tabbyapi_raw_samples`/
+`prefill_seconds`/etc. (`run_task`'s own collection) are UNCHANGED and
+now documented as an upper bound, not a precise per-task figure, at
+`N_WORKERS > 1` — still exactly correct at the default `N_WORKERS=1`. 6
+new/updated tests (`tests/test_run_planned_tasks.py`, including one
+proving `collect_tabbyapi_raw_samples` is called exactly once per pool
+run, not once per claimed task), `langgraph-agent` suite 478→479.
+
+🧑 **Next**: re-run the same 2-task smoke (A1+A2, N=3, `cache_size`
+already at 65536) with the fixed instrumentation for a trustworthy read
+on whether raising `cache_size` actually helps, before deciding whether
+the full 6-task×3-rep decisive re-measurement is warranted.
+
 ## Risks flagged, not resolved here
 
 - The download-serialization lock (point 2) only knows about T5 today —
