@@ -36,28 +36,53 @@ for c in langgraph-agent tabbyapi mcp-client playwright-mcp fixture-visual-probe
   fi
 done
 
-echo "=== Check 1: TabbyAPI concurrent vs sequential (3 requests each) ==="
+echo "=== Check 1: TabbyAPI concurrent vs sequential (3 requests each, distinct prompts) ==="
 docker compose exec -T langgraph-agent python3 - <<'PYEOF'
 import time
+import uuid
 import httpx
 
 URL = "http://tabbyapi:5000/v1/chat/completions"
-PAYLOAD = {
-    "model": "agent-llm",
-    "messages": [{"role": "user", "content": "Reply with the single word: ok."}],
-    "max_tokens": 8,
-    "temperature": 0,
-}
 
-def one_request(client):
-    r = client.post(URL, json=PAYLOAD, timeout=60)
+# TabbyAPI/ExLlamaV3 does prefix-cache reuse (this project already tracks
+# it, see campaign_persistence.aggregate_prefill_stats's cache_zero_rate)
+# — an IDENTICAL prompt repeated 3x mostly measures cache-hit latency, not
+# concurrent-load behavior. Each prompt below starts with a distinct UUID
+# (defeats prefix reuse from position 0) plus ~150 words of filler (real
+# prefill volume, closer to an actual campaign turn than a 10-token toy
+# prompt) — two disjoint sets of 3, sequential and concurrent arms never
+# share a prompt either.
+FILLER = (
+    "Consider the following unrelated passage and then answer plainly. "
+    "The passage describes a small coastal town where fishing boats "
+    "return at dusk, market stalls close around a central square, and "
+    "the evening air carries salt and diesel in equal measure. Local "
+    "residents debate an upcoming harbor renovation, weighing tourism "
+    "revenue against the loss of the old stone pier that has stood for "
+    "generations. None of this passage matters to your answer."
+)
+
+def make_prompt():
+    return f"[{uuid.uuid4().hex}] {FILLER} Reply with the single word: ok."
+
+PROMPTS_SEQUENTIAL = [make_prompt() for _ in range(3)]
+PROMPTS_CONCURRENT = [make_prompt() for _ in range(3)]
+
+def one_request(client, prompt):
+    payload = {
+        "model": "agent-llm",
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 64,
+        "temperature": 0,
+    }
+    r = client.post(URL, json=payload, timeout=60)
     r.raise_for_status()
     return r.json()
 
 with httpx.Client() as client:
     t0 = time.monotonic()
-    for _ in range(3):
-        one_request(client)
+    for p in PROMPTS_SEQUENTIAL:
+        one_request(client, p)
     sequential_s = time.monotonic() - t0
 
 import concurrent.futures
@@ -65,11 +90,11 @@ import concurrent.futures
 with httpx.Client() as client:
     t0 = time.monotonic()
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
-        list(pool.map(lambda _: one_request(client), range(3)))
+        list(pool.map(lambda p: one_request(client, p), PROMPTS_CONCURRENT))
     concurrent_s = time.monotonic() - t0
 
-print(f"sequential (3 requests): {sequential_s:.2f}s")
-print(f"concurrent (3 requests): {concurrent_s:.2f}s")
+print(f"sequential (3 distinct prompts): {sequential_s:.2f}s")
+print(f"concurrent (3 distinct prompts): {concurrent_s:.2f}s")
 print(f"speedup: {sequential_s / concurrent_s:.2f}x (1.0x = fully serialized, 3.0x = fully parallel)")
 PYEOF
 
