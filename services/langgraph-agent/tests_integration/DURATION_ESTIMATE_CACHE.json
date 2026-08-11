@@ -92,21 +92,21 @@
       "n": 3
     },
     "E1_dom_only": {
-      "max": 9.5,
-      "median": 9.4,
-      "min": 5.1,
+      "max": 15.7,
+      "median": 9.0,
+      "min": 8.0,
       "n": 3
     },
     "E2_visual_only": {
-      "max": 145.4,
-      "median": 85.3,
-      "min": 39.4,
+      "max": 29.1,
+      "median": 14.3,
+      "min": 13.0,
       "n": 3
     },
     "E3_routing_equivalence": {
-      "max": 10.0,
-      "median": 9.6,
-      "min": 9.6,
+      "max": 8.1,
+      "median": 8.0,
+      "min": 7.9,
       "n": 3
     },
     "T10_books_toscrape": {
