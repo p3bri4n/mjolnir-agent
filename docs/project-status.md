@@ -601,8 +601,37 @@ ocr-service langgraph-agent && docker compose up -d` — `ocr-service`
 reports `healthy` (`docker compose ps`), `GET /health` -> `{"status":
 "ok"}` (PaddleOCR engine loaded, not just the process up), `POST /ocr`
 against a real 1x1 PNG -> `[]` (correctly decodes, zero false
-detections). No GhostDesk container left running. 🧑 **Next, the
-explicit checkpoint**: resolve `_detect_visual_signal` empirically
-against the `fixture-visual-probe` fixtures before implementing it for
-real and flipping `PROACTIVE_OCR_ENABLED`, with its own restricted smoke
-— nothing else blocking.
+detections). No GhostDesk container left running.
+
+**Checkpoint resolved (2026-08-11): `_detect_visual_signal` abandoned,
+not implemented.** The empirical check (`scripts/probe-visual-snapshot-
+signal.sh` against `fixture-visual-probe`) falsified the mechanism's own
+premise — canvas/WebGL/alt-less-img leave zero trace in
+`browser_snapshot`'s text, and a candidate `role: img` heuristic proved a
+false positive on SVG text (control case). `_detect_visual_signal`/
+`_maybe_enrich_with_ocr`/`PROACTIVE_OCR_ENABLED` removed entirely
+(`app/graph.py`, `docker-compose.yml`, `tests/test_proactive_ocr.py`).
+Replaced by a tool-description routing hint on `browser_take_screenshot`
+(`_tool_description_with_appends`, `services/mcp-client/app/main.py`) —
+the routing decision moves to BEFORE the fact, since there is nothing
+detectable AFTER it — plus a real, structural redirect for the one
+pattern that IS detectable (a native PDF's entirely empty snapshot,
+`_flag_empty_snapshot`, same file). `mcp-client` suite 48→55 passed,
+`langgraph-agent` 471→466 (5 removed with the abandoned mechanism's
+tests). `ocr-service` stays deployed but now has zero callers in the
+codebase — an open question (possible future role vs. retirement), not
+decided in this pass. Full detail: docs/history.md, "PROBE VISUEL —
+SIGNAL BROWSER_SNAPSHOT".
+
+**Restricted smoke (2026-08-11, n=3/task), Effort 3 now fully closed**:
+E1 3/3, E2 2/3, E3 3/3 (visual capture used in 0/3 — no capture-reflex
+regression). Audit-log-verified: **all 3/3 E2 runs correctly called
+`browser_take_screenshot`** after finding `browser_snapshot` sparse —
+the description-only routing hint fully resolved the prior 1/3
+baseline's failure mode (tool confusion between GhostDesk and
+Playwright, now moot since GhostDesk is gone). The one E2 failure is a
+genuine vision misread of the screenshot's text (model reported
+`f209163a` against the fixed ground truth `ZK-3392`), not a routing
+defect — a different, downstream capability limit, outside this
+checkpoint. Full detail: docs/history.md, "PROBE VISUEL — SIGNAL
+BROWSER_SNAPSHOT".

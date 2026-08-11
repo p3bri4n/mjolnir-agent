@@ -5636,3 +5636,123 @@ attempt sent non-image bytes and got a 500, expected given invalid
 input, not a service defect). No GhostDesk container left running.
 `PROACTIVE_OCR_ENABLED` stays `false` — the explicit next checkpoint
 (`_detect_visual_signal`'s real implementation) is unblocked and open.
+
+## PROBE VISUEL — SIGNAL BROWSER_SNAPSHOT (effort 3 checkpoint closed, 2026-08-11)
+
+The explicit next checkpoint above: what `browser_snapshot` actually
+emits for a canvas/WebGL/alt-less-img/native-PDF element, needed before
+implementing `_detect_visual_signal` for real. Same technique as the
+original visual-channel feasibility probe (direct `mcp-client` calls, no
+LLM), run by the user on their machine via a new one-off script
+(`scripts/probe-visual-snapshot-signal.sh`): raw `browser_snapshot` text
+captured for VP1 (canvas), VP2 (WebGL), VP3 (`<img alt="">`), VP4 (PDF),
+plus VP7 (SVG text) and VP8 (off-viewport) as false-positive controls.
+First run 404'd on all 6 (wrong URL prefix — the fixture's Dockerfile
+generates into `/site/visual-probe/`, not the fixture root, same pattern
+as `fixture-docs`/`fixture-perception`); fixed, second run returned real
+data.
+
+**Result, falsifying the mechanism's own premise**: VP1/VP2/VP3 come
+back as heading + intro paragraph ONLY — the element itself produces
+ZERO accessibility nodes, not even an unlabeled placeholder. A page with
+a canvas is text-identical to a page without one: nothing for a text
+heuristic to grep for. VP4 is the one exception — the entire response is
+empty, no page-title line even — a real signal, but an ABSENCE tied to
+navigation context, not a keyword to match. VP7 (control) renders as
+role `img` wrapping a `generic` node with the real text: a naive
+`role: img` heuristic would have false-positived on inline SVG text,
+which needs no capture at all. VP8 (control) renders as an ordinary
+`generic` node, correctly indistinguishable from any other DOM text.
+Full matrix and reading: `docs/architecture/visual-channel-feasibility.md`,
+"Follow-up — browser_snapshot's raw signal".
+
+**Checkpoint decision (user, same session)**: abandon
+`_detect_visual_signal`/`_maybe_enrich_with_ocr` entirely rather than
+implement a partial or false-positive-prone detector — "ce n'est pas au
+harnais de deviner qu'un canvas invisible existe, c'est à l'agent de
+constater qu'il n'a pas trouvé sa cible et de changer de canal." Replaced
+by the capability and its own criterion, not detection:
+
+1. **`_detect_visual_signal`/`_maybe_enrich_with_ocr` removed**
+   (`app/graph.py`), along with `PROACTIVE_OCR_ENABLED`/
+   `PROACTIVE_OCR_MAX_CHARS`/`OCR_SERVICE_URL` and their
+   `docker-compose.yml`/`campaign_preflight.py`/`campaign_persistence.py`
+   entries, and `tests/test_proactive_ocr.py` (5 tests, all specific to
+   the removed mechanism). `langgraph-agent`'s `depends_on`/env no longer
+   reference `ocr-service`.
+2. **Tool-description routing hint**: `_tool_description_with_appends`
+   (`services/mcp-client/app/main.py`) appends a short French hint to
+   `browser_take_screenshot`'s real, upstream Playwright description —
+   use this tool when `browser_snapshot` doesn't carry canvas/WebGL/
+   alt-less-image/PDF content. Appended, never replacing the upstream
+   text (`_refresh_registry`'s per-tool loop). Tool-catalog position
+   check (the "position affects adoption" finding, EFFORT 2 point 3)
+   deferred to the live smoke below rather than reordered blind — no live
+   `/tools/schema` access from this environment to measure current
+   position first.
+3. **Empty-snapshot redirect**: `_flag_empty_snapshot`/
+   `_is_empty_snapshot_text` (`services/mcp-client/app/main.py`) detect
+   VP4's specific shape — an entirely empty ` ```yaml ``` ` block in
+   `browser_snapshot`'s own response — and append a redirect hint to the
+   SAME result; the call still succeeds, this is guidance, not a block.
+4. **Docs updated for rule 9**: `docs/architecture/autonomy.md`'s
+   "Proactive OCR enrichment" section rewritten in full as "Visual-only
+   content: tool description, not detection"; README's file-tree entry
+   and "Known, accepted limitations" bullet corrected;
+   `docs/architecture/visual-channel-feasibility.md` gets the new
+   follow-up section (raw-signal matrix, above).
+5. **Judge, not yet run**: family E's E2 (visual-only task) re-measured,
+   3 repetitions — its earlier 1/3 was an audit-verified channel
+   confusion between GhostDesk's `screen_shot` and Playwright's
+   `browser_take_screenshot`, which the corrected description should
+   resolve now that GhostDesk is gone and the description names the
+   right tool by name. E1/E3 non-regression required, in particular E3
+   staying at 0/3 capture recourse (DOM-first routing must not degrade
+   into a capture reflex). If the description alone is enough to route
+   correctly, detection was never the missing piece.
+
+**Tests**: `mcp-client` 48 → 55 passed (7 new: description-append pure
+function, empty-snapshot pure functions, `/call` integration for both
+the redirect and the untouched-on-populated-result case, using the real
+captured VP1/VP4 text as fixtures, not guessed shapes).
+`langgraph-agent` 471 → 466 passed (5 removed with `test_proactive_ocr.py`,
+0 new failures elsewhere). `ocr-service` itself is untouched and still
+builds/serves `POST /ocr`, but now has **zero callers** in the codebase —
+kept deployed as a standalone capability (a possible future role, e.g.
+effort 8's visual-only navigation mode), not removed — flagged as an
+open question, not decided in this pass (CLAUDE.md rule 7, no
+opportunistic removal outside scope). Live deploy (`docker compose build
+mcp-client langgraph-agent && docker compose up -d` — both images
+changed, a plain restart was needed) done by the user, restricted smoke
+run.
+
+**Restricted smoke result (2026-08-11, user's machine, n=3/task)**:
+E1 3/3, E2 2/3, E3 3/3 with visual capture used in 0/3 — see
+`docs/campaigns/2026-08-11_campaign-v2_visual-routing-smoke.md`. Cross-
+checked against the raw audit log (not just the harness report, per
+CLAUDE.md discipline): the description-only routing hint worked
+perfectly on the mechanism it targets — **all 3 of 3 E2 runs correctly
+called `browser_take_screenshot`** after finding `browser_snapshot`
+sparse, including the one that ultimately scored a failure. That
+failure is NOT a routing regression: the model read the screenshot and
+reported `f209163a` instead of the fixed, build-time ground truth
+`ZK-3392` (`generate_perception.py`, `E2_VALUE`) — a genuine vision
+misread, the model explicitly stated it read that (wrong) text off the
+capture. E3's 3/3 runs never called `browser_take_screenshot` (verified
+via each run's `assistant`-role tool_calls in the audit log) — DOM-first
+routing preserved, no capture-reflex regression. E1's 3/3 unaffected (no
+screenshot tool exists in that task's viable path).
+
+**Reading**: point 5's real test — "if the description alone is enough
+to route correctly, detection was never the missing piece" — is
+confirmed. The prior E2 1/3 baseline's failure mode was tool confusion
+(GhostDesk's `screen_shot` vs Playwright's `browser_take_screenshot`,
+now moot since GhostDesk is removed); this pass's failure mode is a
+different, downstream one (vision-reading accuracy on a taken
+screenshot), outside this checkpoint's scope to fix. Tool-catalog
+position for `browser_take_screenshot` was not touched — the description
+alone reached 3/3 correct routing without it, so the "position affects
+adoption" lever was never needed here. **Effort 3's explicit checkpoint
+is closed**: scaffolding delivered, mechanism redesigned after empirical
+falsification, live-verified, no flag left to flip (the routing hint is
+unconditional, not gated).

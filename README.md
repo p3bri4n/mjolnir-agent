@@ -175,9 +175,9 @@ services/
   playwright-mcp/      official mcp/playwright image, browser driven by
                        the agent (separate docker-compose service, native HTTP
                        server — see docs/resolved-bugs.md)
-  ocr-service/         graph-internal OCR capability (PaddleOCR CPU),
-                       called directly by langgraph-agent over plain
-                       HTTP — not an MCP server, no mcp-client registration
+  ocr-service/         OCR capability (PaddleOCR CPU), POST /ocr — not an
+                       MCP server; currently has no caller in the
+                       codebase (see "Known, accepted limitations" below)
     app/
     tests/
   dashboard/           local observability cockpit — see
@@ -221,15 +221,17 @@ models/     weights (exl3) of the model and multimodal projector served by
 - **Skill matching and RAG are deliberately simplistic** (naive keyword
   match, no reranker) — to be strengthened if the volume of skills/documents
   grows.
-- **`ocr-service`'s proactive trigger is unvalidated and ships default-off**
-  (`PROACTIVE_OCR_ENABLED=false`): the graph is meant to call it after
-  detecting a visual-only element (canvas/PDF/alt-less image) in a page,
-  but the exact detection signal (`_detect_visual_signal`,
-  `app/graph.py`) is a stub pending an empirical check against
-  `browser_snapshot`'s real output — see `docs/architecture/autonomy.md`
-  and `docs/briefs/update-plan.md`, effort 3. `ocr-service` itself never
-  captures anything on its own (GhostDesk, its former capture source, is
-  removed) — it only OCRs an image the caller supplies.
+- **`ocr-service` currently has no caller**: a proactive trigger
+  (auto-OCR after detecting a visual-only element in a `browser_*`
+  result) was built, then abandoned before going live — an empirical
+  check against `fixture-visual-probe` found that canvas/WebGL/alt-less
+  images leave no trace in `browser_snapshot`'s text for any after-the-
+  fact heuristic to catch. Replaced by a tool-description routing hint on
+  `browser_take_screenshot` instead (`mcp-client`, see
+  `docs/architecture/autonomy.md`) — the model reads a screenshot
+  directly rather than an OCR pass. `ocr-service` stays deployed as a
+  standalone capability, kept for a possible future role, not currently
+  wired into the agent loop.
 - **`playwright-mcp` (the "browser" server) has been a persistent HTTP
   server since the fix documented in detail in `docs/resolved-bugs.md`** —
   it used to be spawned as an ephemeral STDIO process
