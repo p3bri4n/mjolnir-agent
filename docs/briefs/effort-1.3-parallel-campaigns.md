@@ -139,12 +139,18 @@ archives alone:
   `/v1/chat/completions` requests against the real server, compare
   latency to 3 sequential — confirms or corrects the pessimistic/
   optimistic bracket above with a real number instead of two guesses.
-- `playwright-mcp` session isolation under real concurrent load: 2
-  concurrent MCP sessions (already possible today via 2 raw HTTP clients
-  to `mcp-client`, no code change needed), each navigating to a
-  DIFFERENT URL, confirm both `browser_snapshot`s show their own page,
-  not a shared/overwritten one. Verifies the architecture argument above
-  empirically, not just by reading a resolved-bugs entry.
+- `playwright-mcp` session isolation under real concurrent load: **must
+  bypass `mcp-client`** — its own `_persistent_sessions` is still keyed
+  by `server_name` alone today (Phase 1 hasn't landed), so two calls
+  through `mcp-client`'s `/call` would reuse the SAME shared session and
+  test nothing new. Open 2 independent MCP client sessions DIRECTLY
+  against `playwright-mcp`'s Streamable HTTP endpoint
+  (`http://playwright-mcp:8931/mcp`, the same `mcp` Python package
+  `mcp-client` itself already depends on — no new code, a throwaway
+  script), each navigating to a DIFFERENT URL, confirm both
+  `browser_snapshot`s show their own page, not a shared/overwritten one.
+  Verifies the architecture argument above empirically, not just by
+  reading a resolved-bugs entry.
 
 🧑 **Checkpoint after Phase 0** — both checks gate whether Phase 1 is
 worth building at all.
