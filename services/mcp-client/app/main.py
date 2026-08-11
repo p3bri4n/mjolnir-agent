@@ -352,6 +352,40 @@ def _rewrite_ref_error(content_blocks):
     return content_blocks
 
 
+# EMPTY-SNAPSHOT REDIRECT (docs/history.md, "PROBE VISUEL — SIGNAL
+# BROWSER_SNAPSHOT"): of the 4 visual-only patterns probed against
+# fixture-visual-probe, only ONE (a page navigated to directly as a
+# native PDF) produces a distinctive signal — the response's own
+# "```yaml ... ```" block comes back entirely empty (no node at all, not
+# even a page title line above it), unlike canvas/WebGL/alt-less-img
+# which sit on an otherwise normal page and leave no trace to grep for.
+# This is a genuine, structural signal (verified against the real
+# Playwright MCP server's own response format, CLAUDE.md #8), not a
+# guess — a redirect hint, not a block: the tool call still succeeds and
+# returns its (empty) result, this only appends guidance.
+_SNAPSHOT_YAML_RE = re.compile(r"```yaml\n(.*?)```", re.DOTALL)
+
+_EMPTY_SNAPSHOT_HINT = (
+    "\n\n(Snapshot vide — aucun contenu accessible sur cette page. Cas "
+    "vérifié : PDF affiché nativement dans le navigateur, ou tout autre "
+    "contenu hors de l'arbre d'accessibilité. browser_take_screenshot "
+    "peut être nécessaire.)"
+)
+
+
+def _is_empty_snapshot_text(text: str) -> bool:
+    match = _SNAPSHOT_YAML_RE.search(text)
+    return bool(match) and not match.group(1).strip()
+
+
+def _flag_empty_snapshot(content_blocks):
+    for block in content_blocks:
+        text = getattr(block, "text", None)
+        if text and _is_empty_snapshot_text(text):
+            block.text = text + _EMPTY_SNAPSHOT_HINT
+    return content_blocks
+
+
 # CAPACITÉ D'INTROSPECTION MANQUANTE (même diagnostic que ci-dessus,
 # 2026-07-31) : une fois le défaut ref= corrigé, le repli légitime du
 # modèle face à un sélecteur qu'il ignore encore reste l'introspection du
@@ -565,6 +599,36 @@ async def _maybe_capture_visual(thread_id: Optional[str]) -> None:
         pass
 
 
+# Routing hint for browser_take_screenshot (docs/history.md, "PROBE
+# VISUEL — SIGNAL BROWSER_SNAPSHOT"): a direct empirical probe against
+# fixture-visual-probe (canvas 2D, WebGL, alt-less img, native PDF)
+# showed these elements leave ZERO trace in browser_snapshot's
+# accessibility-tree text — a page with a canvas is text-identical to one
+# without. No after-the-fact heuristic can catch this (a role:"img" match
+# was tried against a control case and produced a proven false positive
+# on inline SVG text, which needs no OCR at all) — the routing decision
+# has to happen BEFORE the fact, in the tool's own description, so the
+# model knows to reach for this tool when browser_snapshot comes up
+# short. Appended to whatever the real Playwright server declares, never
+# replacing it (upstream wording may change independently).
+_TOOL_DESCRIPTION_APPENDS = {
+    "browser_take_screenshot": (
+        " Utilise cet outil si browser_snapshot ne contient pas "
+        "l'information attendue : contenu affiché via <canvas> ou WebGL, "
+        "image sans texte alternatif, ou PDF affiché directement dans le "
+        "navigateur — ces cas n'apparaissent dans AUCUN arbre "
+        "d'accessibilité, browser_snapshot ne le signale pas lui-même."
+    ),
+}
+
+
+def _tool_description_with_appends(name: str, description: str) -> str:
+    """Pure function (testable with no real MCP server): appends this
+    project's own routing hint, if any, to whatever the upstream server
+    declared — never replaces it."""
+    return description + _TOOL_DESCRIPTION_APPENDS.get(name, "")
+
+
 async def _refresh_registry():
     for server_name in SERVERS:
         try:
@@ -572,7 +636,7 @@ async def _refresh_registry():
             for tool in tools.tools:
                 _tool_registry[tool.name] = {
                     "server": server_name,
-                    "description": tool.description or "",
+                    "description": _tool_description_with_appends(tool.name, tool.description or ""),
                     "inputSchema": tool.inputSchema or {"type": "object", "properties": {}},
                 }
         except Exception:
@@ -713,4 +777,7 @@ async def call_tool(request: CallRequest):
     # campaign-visual-feedback.md, §1's DOM-first framing).
     if tool_info["server"] == "browser":
         await _maybe_capture_visual(request.thread_id)
-    return {"content": [block.model_dump() for block in _rewrite_ref_error(result.content)]}
+    content_blocks = _rewrite_ref_error(result.content)
+    if request.tool == "browser_snapshot":
+        content_blocks = _flag_empty_snapshot(content_blocks)
+    return {"content": [block.model_dump() for block in content_blocks]}

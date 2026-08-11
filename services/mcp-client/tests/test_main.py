@@ -419,6 +419,109 @@ def test_browser_extract_tool_description_mentions_adjacent_value():
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# Routing hint for browser_take_screenshot + empty-snapshot redirect
+# (docs/history.md, "PROBE VISUEL — SIGNAL BROWSER_SNAPSHOT"): canvas/
+# WebGL/alt-less-img leave no trace in browser_snapshot's text (probed
+# empirically against fixture-visual-probe), so the routing decision
+# moves into the tool's own description instead of an after-the-fact
+# heuristic. The one case that IS detectable (a native PDF navigation,
+# entirely empty accessibility tree) gets a redirect hint appended to
+# browser_snapshot's own result.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_tool_description_with_appends_adds_hint_to_upstream_text():
+    import app.main as main_mod
+
+    result = main_mod._tool_description_with_appends("browser_take_screenshot", "Prend une capture d'écran.")
+    assert result.startswith("Prend une capture d'écran.")
+    assert "canvas" in result.lower()
+    assert "browser_snapshot" in result
+
+
+def test_tool_description_with_appends_leaves_other_tools_untouched():
+    import app.main as main_mod
+
+    assert main_mod._tool_description_with_appends("browser_click", "Clique un élément.") == "Clique un élément."
+
+
+def test_is_empty_snapshot_text_true_for_blank_yaml_block():
+    """Real capture (VP4, native PDF navigation): no page title line
+    even, an entirely empty ```yaml block — see docs/history.md."""
+    import app.main as main_mod
+
+    text = "### Page\n- Page URL: http://fixture-visual-probe/visual-probe/vp4-document.pdf\n### Snapshot\n```yaml\n\n```"
+    assert main_mod._is_empty_snapshot_text(text) is True
+
+
+def test_is_empty_snapshot_text_false_for_populated_yaml_block():
+    """Real capture (VP1, canvas page): heading/paragraph present — the
+    canvas itself is invisible, but the page is NOT empty, so this must
+    NOT fire (canvas needs the tool-description hint above, not this)."""
+    import app.main as main_mod
+
+    text = (
+        "### Page\n- Page URL: http://fixture-visual-probe/visual-probe/vp1-canvas2d.html\n"
+        "- Page Title: Sonde visuelle — vp1-canvas2d\n### Snapshot\n```yaml\n"
+        '- generic [active] [ref=e1]:\n  - heading "Sonde visuelle — vp1-canvas2d" [level=1] [ref=e2]\n```'
+    )
+    assert main_mod._is_empty_snapshot_text(text) is False
+
+
+def test_flag_empty_snapshot_appends_hint_only_to_blank_blocks():
+    import app.main as main_mod
+    from mcp.types import TextContent
+
+    blank = TextContent(type="text", text="### Snapshot\n```yaml\n\n```")
+    populated = TextContent(type="text", text='### Snapshot\n```yaml\n- heading "x"\n```')
+
+    main_mod._flag_empty_snapshot([blank, populated])
+
+    assert "browser_take_screenshot" in blank.text
+    assert populated.text == '### Snapshot\n```yaml\n- heading "x"\n```'
+
+
+def test_call_tool_browser_snapshot_appends_redirect_hint_on_empty_result(monkeypatch):
+    import app.main as main_mod
+
+    main_mod._tool_registry.clear()
+    _register_fake_browser_tool(main_mod, "browser_snapshot")
+    calls = []
+    session = _RecordingSessionWithFixedText(calls, "### Snapshot\n```yaml\n\n```")
+
+    async def fake_run_on_server(server_name, action):
+        return await action(session)
+
+    monkeypatch.setattr(main_mod, "_run_on_server", fake_run_on_server)
+
+    resp = _client().post("/call", json={"tool": "browser_snapshot", "arguments": {}})
+
+    assert resp.status_code == 200
+    text = resp.json()["content"][0]["text"]
+    assert "browser_take_screenshot" in text
+
+
+def test_call_tool_browser_snapshot_leaves_populated_result_untouched(monkeypatch):
+    import app.main as main_mod
+
+    main_mod._tool_registry.clear()
+    _register_fake_browser_tool(main_mod, "browser_snapshot")
+    fixed_text = '### Snapshot\n```yaml\n- heading "Accueil" [level=1] [ref=e1]\n```'
+    calls = []
+    session = _RecordingSessionWithFixedText(calls, fixed_text)
+
+    async def fake_run_on_server(server_name, action):
+        return await action(session)
+
+    monkeypatch.setattr(main_mod, "_run_on_server", fake_run_on_server)
+
+    resp = _client().post("/call", json={"tool": "browser_snapshot", "arguments": {}})
+
+    assert resp.status_code == 200
+    assert resp.json()["content"][0]["text"] == fixed_text
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # POST /reset-session/{server_name} (Phase 1d-révisée, voir docs/history.md
 # "isolation entre tâches") : purge une session persistante (état
 # navigateur/onglets pour "browser") entre deux tâches du harnais.
@@ -792,6 +895,27 @@ class _RecordingSessionWithScreenshot:
             _Result.content = [ImageContent(type="image", data=self.image_b64, mimeType="image/webp")]
         else:
             _Result.content = [TextContent(type="text", text=f"ok:{name}")]
+        return _Result()
+
+
+class _RecordingSessionWithFixedText:
+    """Like _RecordingSession, but returns a FIXED text for the tool under
+    test (browser_snapshot) — used to control the exact response shape
+    for the empty-snapshot-redirect tests below, which need real
+    ```yaml block content, not the generic "ok:{name}" placeholder."""
+
+    def __init__(self, calls, fixed_text):
+        self.calls = calls
+        self.fixed_text = fixed_text
+
+    async def call_tool(self, name, arguments):
+        from mcp.types import TextContent
+
+        self.calls.append((name, arguments))
+
+        class _Result:
+            content = [TextContent(type="text", text=self.fixed_text)]
+
         return _Result()
 
 
