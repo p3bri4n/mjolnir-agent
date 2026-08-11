@@ -1,0 +1,10 @@
+### Page
+- Page URL: http://fixture-visual-probe/visual-probe/vp8-offviewport.html
+- Page Title: Sonde visuelle — vp8-offviewport
+### Snapshot
+```yaml
+- generic [active] [ref=e1]:
+  - heading "Sonde visuelle — vp8-offviewport" [level=1] [ref=e2]
+  - paragraph [ref=e3]: Contenu hors viewport ci-dessous (texte DOM réel, jamais rendu à l'écran).
+  - generic [ref=e4]: VP-1008
+```

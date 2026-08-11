@@ -1,0 +1,6 @@
+### Page
+- Page URL: http://fixture-visual-probe/visual-probe/vp4-document.pdf
+### Snapshot
+```yaml
+
+```

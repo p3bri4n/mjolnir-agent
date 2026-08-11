@@ -1,0 +1,11 @@
+### Page
+- Page URL: http://fixture-visual-probe/visual-probe/vp7-svg-text.html
+- Page Title: Sonde visuelle — vp7-svg-text
+### Snapshot
+```yaml
+- generic [active] [ref=e1]:
+  - heading "Sonde visuelle — vp7-svg-text" [level=1] [ref=e2]
+  - paragraph [ref=e3]: "Texte SVG ci-dessous (cas de contrôle : attendu lisible en DOM, aucune capture nécessaire)."
+  - img [ref=e4]:
+    - generic [ref=e5]: VP-1007
+```

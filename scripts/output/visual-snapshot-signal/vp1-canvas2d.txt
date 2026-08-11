@@ -1,0 +1,9 @@
+### Page
+- Page URL: http://fixture-visual-probe/visual-probe/vp1-canvas2d.html
+- Page Title: Sonde visuelle — vp1-canvas2d
+### Snapshot
+```yaml
+- generic [active] [ref=e1]:
+  - heading "Sonde visuelle — vp1-canvas2d" [level=1] [ref=e2]
+  - paragraph [ref=e3]: Le tableau ci-dessous affiche un code de suivi.
+```
