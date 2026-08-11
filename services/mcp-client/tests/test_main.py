@@ -159,6 +159,15 @@ class _FakeSession:
     def __init__(self, id_: int):
         self.id = id_
 
+    async def call_tool(self, name, arguments):
+        # Minimal real-shaped result (empty content) — enough for /call's
+        # dispatch path to complete; tests using this care about WHICH
+        # session object got used, not the tool result itself.
+        class _Result:
+            content = []
+
+        return _Result()
+
 
 def _patch_open_session(main_mod, monkeypatch):
     """
@@ -190,7 +199,6 @@ def test_persistent_session_reused_across_calls(monkeypatch):
         "browser": {"transport": "http", "url": "http://unused", "token": "", "persistent_session": True},
     }
     main_mod._persistent_sessions.clear()
-    main_mod._persistent_locks["browser"] = asyncio.Lock()
     calls = _patch_open_session(main_mod, monkeypatch)
 
     async def action(session):
@@ -240,7 +248,6 @@ def test_persistent_session_dropped_and_reopened_after_error(monkeypatch):
         "browser": {"transport": "http", "url": "http://unused", "token": "", "persistent_session": True},
     }
     main_mod._persistent_sessions.clear()
-    main_mod._persistent_locks["browser"] = asyncio.Lock()
     calls = _patch_open_session(main_mod, monkeypatch)
 
     async def failing_action(session):
@@ -257,8 +264,119 @@ def test_persistent_session_dropped_and_reopened_after_error(monkeypatch):
     result = asyncio.run(run())
     assert result == 2  # nouvelle session rouverte, pas la première réutilisée
     assert calls["n"] == 2
-    # la session rouverte (la 2e) est bien celle mise en cache pour le prochain appel
-    assert main_mod._persistent_sessions["browser"][1].id == 2
+    # la session rouverte (la 2e) est bien celle mise en cache pour le prochain appel,
+    # sous la clé (server_name, worker_id) — "default" ici (worker_id omis, effort 1.3)
+    assert main_mod._persistent_sessions[("browser", "default")][1].id == 2
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Worker-scoped sessions (effort 1.3, docs/briefs/
+# effort-1.3-parallel-campaigns.md): _persistent_sessions/_persistent_locks
+# keyed by (server_name, worker_id) instead of server_name alone, so N
+# parallel campaign workers each get their own isolated Playwright
+# session/browser context (context is scoped per MCP session already —
+# docs/resolved-bugs.md, confirmed live by scripts/probe-parallel-phase0.sh).
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_distinct_worker_ids_get_distinct_sessions(monkeypatch):
+    import app.main as main_mod
+
+    main_mod.SERVERS = {
+        "browser": {"transport": "http", "url": "http://unused", "token": "", "persistent_session": True},
+    }
+    main_mod._persistent_sessions.clear()
+    calls = _patch_open_session(main_mod, monkeypatch)
+
+    async def action(session):
+        return session.id
+
+    async def run():
+        worker_a = await main_mod._run_on_server("browser", action, "worker-A")
+        worker_b = await main_mod._run_on_server("browser", action, "worker-B")
+        return worker_a, worker_b
+
+    worker_a, worker_b = asyncio.run(run())
+    assert worker_a != worker_b  # two distinct sessions, not one shared
+    assert calls["n"] == 2
+
+
+def test_same_worker_id_reuses_its_own_session_across_calls(monkeypatch):
+    import app.main as main_mod
+
+    main_mod.SERVERS = {
+        "browser": {"transport": "http", "url": "http://unused", "token": "", "persistent_session": True},
+    }
+    main_mod._persistent_sessions.clear()
+    calls = _patch_open_session(main_mod, monkeypatch)
+
+    async def action(session):
+        return session.id
+
+    async def run():
+        first = await main_mod._run_on_server("browser", action, "worker-A")
+        second = await main_mod._run_on_server("browser", action, "worker-A")
+        return first, second
+
+    first, second = asyncio.run(run())
+    assert first == second
+    assert calls["n"] == 1
+
+
+def test_missing_worker_id_behaves_exactly_like_pre_effort_1_3(monkeypatch):
+    """Regression test (brief-mandated): every existing caller (interactive
+    Open WebUI, a non-parallel campaign) never sends worker_id — must see
+    the SAME single shared session as before this change, zero behavior
+    difference for not opting in."""
+    import app.main as main_mod
+
+    main_mod.SERVERS = {
+        "browser": {"transport": "http", "url": "http://unused", "token": "", "persistent_session": True},
+    }
+    main_mod._persistent_sessions.clear()
+    calls = _patch_open_session(main_mod, monkeypatch)
+
+    async def action(session):
+        return session.id
+
+    async def run():
+        no_worker_id = await main_mod._run_on_server("browser", action)
+        explicit_none = await main_mod._run_on_server("browser", action, None)
+        return no_worker_id, explicit_none
+
+    no_worker_id, explicit_none = asyncio.run(run())
+    assert no_worker_id == explicit_none  # same "default" bucket either way
+    assert calls["n"] == 1
+
+
+def test_call_endpoint_isolates_sessions_by_worker_id(monkeypatch):
+    """End-to-end through POST /call, not just _run_on_server directly:
+    two /call requests carrying different worker_id must open two
+    genuinely distinct persistent sessions, not share one."""
+    import app.main as main_mod
+
+    main_mod.SERVERS = {
+        "browser": {"transport": "http", "url": "http://unused", "token": "", "persistent_session": True},
+    }
+    main_mod._tool_registry.clear()
+    _register_fake_browser_tool(main_mod, "browser_navigate", ["url"])
+    main_mod._persistent_sessions.clear()
+    _patch_open_session(main_mod, monkeypatch)
+
+    _client().post(
+        "/call",
+        json={"tool": "browser_navigate", "arguments": {"url": "https://exemple.com"}, "worker_id": "worker-A"},
+    )
+    _client().post(
+        "/call",
+        json={"tool": "browser_navigate", "arguments": {"url": "https://exemple.com"}, "worker_id": "worker-B"},
+    )
+    assert ("browser", "worker-A") in main_mod._persistent_sessions
+    assert ("browser", "worker-B") in main_mod._persistent_sessions
+    assert (
+        main_mod._persistent_sessions[("browser", "worker-A")][1].id
+        != main_mod._persistent_sessions[("browser", "worker-B")][1].id
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -489,7 +607,7 @@ def test_call_tool_browser_snapshot_appends_redirect_hint_on_empty_result(monkey
     calls = []
     session = _RecordingSessionWithFixedText(calls, "### Snapshot\n```yaml\n\n```")
 
-    async def fake_run_on_server(server_name, action):
+    async def fake_run_on_server(server_name, action, worker_id=None):
         return await action(session)
 
     monkeypatch.setattr(main_mod, "_run_on_server", fake_run_on_server)
@@ -510,7 +628,7 @@ def test_call_tool_browser_snapshot_leaves_populated_result_untouched(monkeypatc
     calls = []
     session = _RecordingSessionWithFixedText(calls, fixed_text)
 
-    async def fake_run_on_server(server_name, action):
+    async def fake_run_on_server(server_name, action, worker_id=None):
         return await action(session)
 
     monkeypatch.setattr(main_mod, "_run_on_server", fake_run_on_server)
@@ -535,7 +653,6 @@ def test_reset_session_drops_cache_and_next_call_reopens_fresh(monkeypatch):
         "browser": {"transport": "http", "url": "http://unused", "token": "", "persistent_session": True},
     }
     main_mod._persistent_sessions.clear()
-    main_mod._persistent_locks["browser"] = asyncio.Lock()
     calls = _patch_open_session(main_mod, monkeypatch)
 
     async def action(session):
@@ -550,11 +667,40 @@ def test_reset_session_drops_cache_and_next_call_reopens_fresh(monkeypatch):
 
     resp = _client().post("/reset-session/browser")
     assert resp.status_code == 200
-    assert "browser" not in main_mod._persistent_sessions
+    assert ("browser", "default") not in main_mod._persistent_sessions
 
     second = asyncio.run(run())
     assert second == 2  # nouvelle session rouverte, pas l'ancienne réutilisée
     assert calls["n"] == 2
+
+
+def test_reset_session_worker_id_resets_only_that_worker(monkeypatch):
+    """Effort 1.3 (docs/briefs/effort-1.3-parallel-campaigns.md): a
+    worker's cross-task reset must not blow away every OTHER worker's
+    live browser session mid-campaign."""
+    import app.main as main_mod
+
+    main_mod.SERVERS = {
+        "browser": {"transport": "http", "url": "http://unused", "token": "", "persistent_session": True},
+    }
+    main_mod._persistent_sessions.clear()
+    _patch_open_session(main_mod, monkeypatch)
+
+    async def action(session):
+        return session.id
+
+    async def run(worker_id):
+        return await main_mod._run_on_server("browser", action, worker_id)
+
+    asyncio.run(run("worker-A"))
+    asyncio.run(run("worker-B"))
+    assert ("browser", "worker-A") in main_mod._persistent_sessions
+    assert ("browser", "worker-B") in main_mod._persistent_sessions
+
+    resp = _client().post("/reset-session/browser", params={"worker_id": "worker-A"})
+    assert resp.status_code == 200
+    assert ("browser", "worker-A") not in main_mod._persistent_sessions
+    assert ("browser", "worker-B") in main_mod._persistent_sessions  # untouched
 
 
 def test_reset_session_unknown_server_is_404():
@@ -605,7 +751,7 @@ def _patch_run_on_server_recording(main_mod, monkeypatch):
     calls = []
     session = _RecordingSession(calls)
 
-    async def fake_run_on_server(server_name, action):
+    async def fake_run_on_server(server_name, action, worker_id=None):
         return await action(session)
 
     monkeypatch.setattr(main_mod, "_run_on_server", fake_run_on_server)
@@ -783,7 +929,7 @@ def test_call_tool_rewrites_unknown_ref_engine_error_into_friendly_message(monke
 
             return _Result()
 
-    async def fake_run_on_server(server_name, action):
+    async def fake_run_on_server(server_name, action, worker_id=None):
         return await action(_ErrorSession())
 
     monkeypatch.setattr(main_mod, "_run_on_server", fake_run_on_server)
@@ -923,7 +1069,7 @@ def _patch_run_on_server_with_screenshot(main_mod, monkeypatch):
     calls = []
     session = _RecordingSessionWithScreenshot(calls, _tiny_image_b64())
 
-    async def fake_run_on_server(server_name, action):
+    async def fake_run_on_server(server_name, action, worker_id=None):
         return await action(session)
 
     monkeypatch.setattr(main_mod, "_run_on_server", fake_run_on_server)
@@ -1117,7 +1263,7 @@ def test_visual_capture_never_breaks_the_real_call_on_screenshot_failure(monkeyp
 
             return _Result()
 
-    async def fake_run_on_server(server_name, action):
+    async def fake_run_on_server(server_name, action, worker_id=None):
         return await action(_FailingScreenshotSession())
 
     monkeypatch.setattr(main_mod, "_run_on_server", fake_run_on_server)

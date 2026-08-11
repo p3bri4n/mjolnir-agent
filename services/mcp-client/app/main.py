@@ -24,8 +24,7 @@ audit found desktop+git+ocr+terminal cost 44.9% of the tool schema for
 later removed entirely (effort 3, docs/history.md). ocr-service is not
 a tool server and never will be reachable through this registry — it's
 a graph-internal capability, called directly by langgraph-agent over
-plain HTTP (see docs/architecture/autonomy.md, "Proactive OCR
-enrichment").
+plain HTTP (see docs/architecture/autonomy.md).
 """
 
 import asyncio
@@ -34,6 +33,7 @@ import io
 import json
 import os
 import re
+from collections import defaultdict
 from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import Optional
@@ -482,10 +482,31 @@ _tool_registry: dict[str, dict] = {}
 # MCP sessions kept open across HTTP calls, for servers where state
 # (browser, page) lives in the session rather than the server process —
 # see "persistent_session" on the "browser" entry above.
-_persistent_sessions: dict[str, tuple[AsyncExitStack, ClientSession]] = {}
-_persistent_locks: dict[str, asyncio.Lock] = {
-    name: asyncio.Lock() for name, server in SERVERS.items() if server.get("persistent_session")
-}
+#
+# Keyed by (server_name, worker_id) — effort 1.3 (docs/briefs/
+# effort-1.3-parallel-campaigns.md): Playwright MCP scopes its browser
+# context (page, cookies, history) to the MCP SESSION, not the process
+# (docs/resolved-bugs.md, session-continuity entry, verified against the
+# installed image) — a distinct worker_id therefore gets a genuinely
+# isolated browser context for free, confirmed live
+# (scripts/probe-parallel-phase0.sh, Phase 0). `worker_id` is always
+# normalized through `_worker_key` before touching either dict below: a
+# missing/empty worker_id maps to the SAME `"default"` bucket every
+# existing caller (interactive Open WebUI, a non-parallel campaign) has
+# always used — zero behavior change for anyone who doesn't opt in.
+_persistent_sessions: dict[tuple[str, str], tuple[AsyncExitStack, ClientSession]] = {}
+# Lazily created per (server_name, worker_id): worker_id is arbitrary
+# caller-supplied text, not enumerable up front like SERVERS is. Safe
+# without an extra guard lock — defaultdict's __missing__ runs
+# synchronously (no `await` inside it), so two concurrent coroutines
+# requesting the same NEW key on this single-process/single-event-loop
+# service (see Dockerfile: uvicorn, no --workers) can never race each
+# other into creating two different Lock objects for it.
+_persistent_locks: dict[tuple[str, str], asyncio.Lock] = defaultdict(asyncio.Lock)
+
+
+def _worker_key(worker_id: Optional[str]) -> str:
+    return worker_id or "default"
 
 
 def _http_headers(server: dict) -> dict:
@@ -508,10 +529,11 @@ async def _open_session(server_name: str, stack: AsyncExitStack) -> ClientSessio
     return session
 
 
-async def _get_persistent_session(server_name: str) -> ClientSession:
-    """Reuses the existing session if alive, opens a new one otherwise."""
-    async with _persistent_locks[server_name]:
-        cached = _persistent_sessions.get(server_name)
+async def _get_persistent_session(server_name: str, worker_id: Optional[str] = None) -> ClientSession:
+    """Reuses this worker's existing session if alive, opens a new one otherwise."""
+    key = (server_name, _worker_key(worker_id))
+    async with _persistent_locks[key]:
+        cached = _persistent_sessions.get(key)
         if cached is not None:
             return cached[1]
         stack = AsyncExitStack()
@@ -520,27 +542,27 @@ async def _get_persistent_session(server_name: str) -> ClientSession:
         except Exception:
             await stack.aclose()
             raise
-        _persistent_sessions[server_name] = (stack, session)
+        _persistent_sessions[key] = (stack, session)
         return session
 
 
-async def _drop_persistent_session(server_name: str) -> None:
-    cached = _persistent_sessions.pop(server_name, None)
+async def _drop_persistent_session(server_name: str, worker_id: Optional[str] = None) -> None:
+    cached = _persistent_sessions.pop((server_name, _worker_key(worker_id)), None)
     if cached is not None:
         await cached[0].aclose()
 
 
-async def _run_on_server(server_name: str, action):
+async def _run_on_server(server_name: str, action, worker_id: Optional[str] = None):
     """Runs `action` on the server: persistent session if configured, ephemeral otherwise."""
     server = SERVERS[server_name]
     if server.get("persistent_session"):
-        session = await _get_persistent_session(server_name)
+        session = await _get_persistent_session(server_name, worker_id)
         try:
             return await action(session)
         except Exception:
             # connection probably dead (server restarted...): drop it, the
             # next call will reopen a fresh one rather than staying stuck
-            await _drop_persistent_session(server_name)
+            await _drop_persistent_session(server_name, worker_id)
             raise
     async with AsyncExitStack() as stack:
         session = await _open_session(server_name, stack)
@@ -549,8 +571,8 @@ async def _run_on_server(server_name: str, action):
 
 @app.on_event("shutdown")
 async def _close_persistent_sessions():
-    for server_name in list(_persistent_sessions):
-        await _drop_persistent_session(server_name)
+    for server_name, worker_id in list(_persistent_sessions):
+        await _drop_persistent_session(server_name, worker_id)
 
 
 def _write_visual_capture(data_b64: str, thread_id: str) -> None:
@@ -574,7 +596,7 @@ def _write_visual_capture(data_b64: str, thread_id: str) -> None:
     os.replace(tmp_path, final_path)
 
 
-async def _maybe_capture_visual(thread_id: Optional[str]) -> None:
+async def _maybe_capture_visual(thread_id: Optional[str], worker_id: Optional[str] = None) -> None:
     """
     Best-effort observability side channel (docs/briefs/
     campaign-visual-feedback.md): fires an INTERNAL follow-up
@@ -586,11 +608,15 @@ async def _maybe_capture_visual(thread_id: Optional[str]) -> None:
     No-op when the flag is off or no thread_id was supplied (e.g. the
     verification-snapshot helper in app/graph.py, which has no thread_id
     in scope) — never allowed to fail the real tool call it rides along.
+    `worker_id` (effort 1.3) must match the request it rides along: an
+    unscoped capture would silently screenshot a DIFFERENT worker's page.
     """
     if not CAMPAIGN_VISUAL_CAPTURE or not thread_id:
         return
     try:
-        result = await _run_on_server("browser", lambda s: s.call_tool("browser_take_screenshot", {}))
+        result = await _run_on_server(
+            "browser", lambda s: s.call_tool("browser_take_screenshot", {}), worker_id
+        )
         for block in result.content:
             if getattr(block, "type", None) == "image":
                 _write_visual_capture(block.data, thread_id)
@@ -658,6 +684,12 @@ class CallRequest(BaseModel):
     # for callers that don't have one (e.g. app/graph.py's
     # _fetch_verification_snapshot), which simply skips the capture.
     thread_id: Optional[str] = None
+    # Persistent-session isolation (effort 1.3, docs/briefs/
+    # effort-1.3-parallel-campaigns.md): absent for every existing caller
+    # (interactive Open WebUI, a non-parallel campaign) — same shared
+    # "default" session as before _worker_key normalizes it. Only a
+    # parallel campaign runner sets this, one distinct value per worker.
+    worker_id: Optional[str] = None
 
 
 @app.get("/health")
@@ -666,7 +698,7 @@ async def health():
 
 
 @app.post("/reset-session/{server_name}")
-async def reset_session(server_name: str):
+async def reset_session(server_name: str, worker_id: Optional[str] = None):
     """
     Explicit reset of a PERSISTENT session (revised Phase 1d, see
     docs/history.md "cross-task isolation"): drops the cached session
@@ -682,13 +714,20 @@ async def reset_session(server_name: str):
     (nothing to reset) rather than a silent no-op — prevents a misspelled
     server name from going unnoticed on the caller side (the web-task
     harness, see tests_integration/test_web_tasks.py).
+
+    `worker_id` (effort 1.3, optional query param): resets only that
+    worker's session. Omitted, resets the shared "default" session — the
+    exact pre-effort-1.3 behavior, unchanged for every caller that
+    doesn't pass it. Without this parameter, one worker's cross-task
+    reset would blow away every other worker's live browser session
+    mid-campaign.
     """
     if not SERVERS.get(server_name, {}).get("persistent_session"):
         raise HTTPException(
             status_code=404,
             detail=f"'{server_name}' n'est pas configuré en session persistante.",
         )
-    await _drop_persistent_session(server_name)
+    await _drop_persistent_session(server_name, worker_id)
     return {"status": "reset"}
 
 
@@ -755,28 +794,32 @@ async def call_tool(request: CallRequest):
         # the list of URLs to check).
         js_function = _build_extract_function(arguments.get("query", ""), arguments.get("urls"))
         result = await _run_on_server(
-            "browser", lambda s: s.call_tool("browser_evaluate", {"function": js_function})
+            "browser", lambda s: s.call_tool("browser_evaluate", {"function": js_function}), request.worker_id
         )
-        await _maybe_capture_visual(request.thread_id)
+        await _maybe_capture_visual(request.thread_id, request.worker_id)
         return {"content": [block.model_dump() for block in result.content]}
 
     if request.tool == "browser_inspect":
         eval_tool, eval_args = _build_inspect_call(arguments.get("target"), arguments.get("element"))
-        result = await _run_on_server("browser", lambda s: s.call_tool(eval_tool, eval_args))
-        await _maybe_capture_visual(request.thread_id)
+        result = await _run_on_server("browser", lambda s: s.call_tool(eval_tool, eval_args), request.worker_id)
+        await _maybe_capture_visual(request.thread_id, request.worker_id)
         return {"content": [block.model_dump() for block in _rewrite_ref_error(result.content)]}
 
-    result = await _run_on_server(tool_info["server"], lambda s: s.call_tool(request.tool, arguments))
+    result = await _run_on_server(
+        tool_info["server"], lambda s: s.call_tool(request.tool, arguments), request.worker_id
+    )
     if request.tool in _STABILIZE_AFTER_TOOLS and BROWSER_STABILIZE_WAIT_SECONDS > 0:
         await _run_on_server(
-            "browser", lambda s: s.call_tool("browser_wait_for", {"time": BROWSER_STABILIZE_WAIT_SECONDS})
+            "browser",
+            lambda s: s.call_tool("browser_wait_for", {"time": BROWSER_STABILIZE_WAIT_SECONDS}),
+            request.worker_id,
         )
     # Captured for every "browser" tool (not just navigate/click): a
     # snapshot/extract/fill_form call is still "what the agent is looking
     # at" for the dashboard's purposes (docs/briefs/
     # campaign-visual-feedback.md, §1's DOM-first framing).
     if tool_info["server"] == "browser":
-        await _maybe_capture_visual(request.thread_id)
+        await _maybe_capture_visual(request.thread_id, request.worker_id)
     content_blocks = _rewrite_ref_error(result.content)
     if request.tool == "browser_snapshot":
         content_blocks = _flag_empty_snapshot(content_blocks)
