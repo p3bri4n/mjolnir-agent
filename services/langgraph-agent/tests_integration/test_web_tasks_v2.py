@@ -118,9 +118,11 @@ from tests_integration.test_web_tasks import (
     HR_APP_SPECIAL_REQUEST_FILE,
     HR_APP_URL,
     KNOWN_URLS_BY_TASK,
+    N_WORKERS,
     PERCEPTION_URL,
     WORKSPACE_HOST_PATH,
     TASKS as V1_TASKS,
+    _DOWNLOAD_TOUCHING_TASK_IDS,
     _audit_entries,
     _catalog_known_urls,
     _classify_failure_cause,
@@ -130,6 +132,7 @@ from tests_integration.test_web_tasks import (
     _http_call,
     _purge_downloads_volume,
     _reset_browser_session,
+    _run_planned_tasks,
     _t11_task,
     _update_duration_stats,
     generate_catalog,
@@ -940,7 +943,7 @@ def _run_campaign_v2(resume_cid: str = None):
 
         json_path = campaign_persistence.campaign_json_path(CAMPAIGNS_DIR, cid)
         campaign_data = campaign_persistence.read_campaign_json(json_path)
-        rows = campaign_data["runs"]
+        previous_rows = campaign_data["runs"]
         metadata = campaign_data["metadata"]
         started_at = metadata["started_at"]
 
@@ -969,30 +972,13 @@ def _run_campaign_v2(resume_cid: str = None):
         ]
         state = campaign_persistence.init_progress_state(cid, CAMPAIGN_LABEL_V2, started_at, digest_now, planned)
         campaign_persistence.write_progress_json(progress_path, state)
-        rows = []
+        previous_rows = []
         segment_index = 0
 
     pause_path = campaign_persistence.pause_sentinel_path(CAMPAIGNS_DIR, cid)
-    remaining = state["planned"][len(state["completed"]):]
 
-    for entry in remaining:
-        task_id, rep = entry["task_id"], entry["repetition"]
-        base_prompt, assert_fn = tasks_by_id[task_id][1], tasks_by_id[task_id][2]
-
-        prompt = f"{base_prompt} (essai {uuid.uuid4().hex[:8]})"
-        thread_id = _derive_thread_id(prompt)
-        state["current"] = {
-            "task_id": task_id,
-            "repetition": rep,
-            "thread_id": thread_id,
-            "started_at": datetime.now(timezone.utc).isoformat(),
-        }
-        campaign_persistence.write_progress_json(progress_path, state)
-
-        _purge_downloads_volume()
-        _purge_admin_stock_file()
-        _reset_browser_session()
-        result = run_task(prompt)
+    def build_row(task_id, rep, prompt, thread_id, worker_id, result):
+        assert_fn = tasks_by_id[task_id][2]
         ok, detail = (False, result.error) if result.error else assert_fn(result.final_text, prompt)
         cause = _classify_failure_cause_v2(task_id, result, ok, detail)
         fabricated_urls = [
@@ -1050,38 +1036,46 @@ def _run_campaign_v2(resume_cid: str = None):
             **outcome_fields,
             **channel_fields,
         }
-        rows.append(row)
-        campaign_persistence.append_campaign_row(json_path, metadata, started_at, row)
+        completed_entry = {
+            "task_id": task_id,
+            "repetition": rep,
+            "status": "success" if ok else "failure",
+            "failure_cause": cause,
+            "duration_s": row["duration_seconds"],
+            "tool_calls": row["tool_calls_observed"],
+            "thread_id": thread_id,
+            "approvals": row["approvals"],
+            "fabricated_urls_count": len(row["fabricated_urls"]),
+            "segment": segment_index,
+            "cup": cup,
+        }
+        return row, completed_entry
 
-        state["completed"].append(
-            {
-                "task_id": task_id,
-                "repetition": rep,
-                "status": "success" if ok else "failure",
-                "failure_cause": cause,
-                "duration_s": row["duration_seconds"],
-                "tool_calls": row["tool_calls_observed"],
-                "thread_id": thread_id,
-                "approvals": row["approvals"],
-                "fabricated_urls_count": len(row["fabricated_urls"]),
-                "segment": segment_index,
-                "cup": cup,
-            }
-        )
-        state["current"] = None
+    new_rows, paused = _run_planned_tasks(
+        state, tasks_by_id, progress_path, json_path, metadata, started_at,
+        segment_index, pause_path, build_row, n_workers=N_WORKERS,
+        # Two shared fixtures need purging before every repetition here,
+        # not just downloads (_purge_admin_stock_file: stock_updates.json,
+        # family B-β's sole success criterion, same race as T5's
+        # /downloads if two workers ever touch it concurrently) —
+        # serialize both purges and BOTH families' touching tasks, see
+        # docs/briefs/effort-1.3-parallel-campaigns.md.
+        purge_fns=(_purge_downloads_volume, _purge_admin_stock_file),
+        serialized_task_ids=_DOWNLOAD_TOUCHING_TASK_IDS | set(FAMILY_B_BETA_TASK_IDS),
+    )
+    rows = previous_rows + new_rows
+
+    if paused:
+        pause_path.unlink(missing_ok=True)
+        campaign_persistence.close_current_segment(state)
+        state["paused"] = True
         campaign_persistence.write_progress_json(progress_path, state)
-
-        if pause_path.exists():
-            pause_path.unlink(missing_ok=True)
-            campaign_persistence.close_current_segment(state)
-            state["paused"] = True
-            campaign_persistence.write_progress_json(progress_path, state)
-            _update_duration_stats(rows)  # shared ESTIMATE_CACHE_PATH.estimates keyed by task_id — no v1/v2 clash
-            pytest.exit(
-                f"Campagne v2 {cid} mise en pause après {len(state['completed'])}/{state['total_runs']} runs "
-                f"(segment {segment_index})",
-                returncode=CAMPAIGN_PAUSED_EXIT_CODE,
-            )
+        _update_duration_stats(rows)  # shared ESTIMATE_CACHE_PATH.estimates keyed by task_id — no v1/v2 clash
+        pytest.exit(
+            f"Campagne v2 {cid} mise en pause après {len(state['completed'])}/{state['total_runs']} runs "
+            f"(segment {segment_index})",
+            returncode=CAMPAIGN_PAUSED_EXIT_CODE,
+        )
 
     _update_duration_stats(rows)
     campaign_persistence.close_current_segment(state)

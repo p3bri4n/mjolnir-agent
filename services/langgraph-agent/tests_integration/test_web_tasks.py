@@ -77,6 +77,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -98,6 +99,13 @@ pytestmark = pytest.mark.skipif(
 AGENT_CONTAINER = os.environ.get("LANGGRAPH_AGENT_CONTAINER", "langgraph-agent")
 MCP_CLIENT_CONTAINER = os.environ.get("MCP_CLIENT_CONTAINER", "mcp-client")
 N_REPETITIONS = int(os.environ.get("WEB_TASKS_REPETITIONS", "3"))
+# Parallel campaign execution (effort 1.3, docs/briefs/
+# effort-1.3-parallel-campaigns.md): 1 (default) is the exact pre-effort-
+# 1.3 sequential behavior — no worker_id ever set, single shared
+# mcp-client session. run-campaign.sh does not set this yet (Phase 3's
+# live measurement, gated on its own checkpoint, is what decides whether
+# to wire it into the script's normal invocation).
+N_WORKERS = int(os.environ.get("WEB_TASKS_WORKERS", "1"))
 MAX_APPROVAL_ROUNDS = int(os.environ.get("WEB_TASKS_MAX_APPROVAL_ROUNDS", "40"))
 CHAT_TIMEOUT_SECONDS = int(os.environ.get("WEB_TASKS_CHAT_TIMEOUT", "240"))
 # Smoke mode (campaign tooling, see docs/history.md and run-campaign.sh):
@@ -223,19 +231,34 @@ except urllib.error.HTTPError as e:
     return json.loads(result["raw"])
 
 
-def _chat(prompt: str) -> str:
+def _chat(prompt: str, worker_id: str = None) -> str:
+    # worker_id (effort 1.3, docs/briefs/effort-1.3-parallel-campaigns.md):
+    # absent (None) for every sequential/interactive caller, unchanged
+    # behavior — only a parallel campaign worker sets it, so mcp-client
+    # scopes its persistent "browser" session to THIS worker instead of
+    # the single shared default one.
     data = _http_call(
         "/v1/chat/completions",
-        {"model": "agent-llm", "messages": [{"role": "user", "content": prompt}], "stream": False},
+        {
+            "model": "agent-llm",
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
+            "worker_id": worker_id,
+        },
         CHAT_TIMEOUT_SECONDS,
     )
     return data["choices"][0]["message"]["content"]
 
 
-def _approve(prompt: str) -> str:
+def _approve(prompt: str, worker_id: str = None) -> str:
     data = _http_call(
         "/approve",
-        {"messages": [{"role": "user", "content": prompt}], "approved": True, "grant_session": True},
+        {
+            "messages": [{"role": "user", "content": prompt}],
+            "approved": True,
+            "grant_session": True,
+            "worker_id": worker_id,
+        },
         CHAT_TIMEOUT_SECONDS,
     )
     return data["content"]
@@ -437,12 +460,12 @@ class TaskResult:
 TABBYAPI_CONTAINER = os.environ.get("TABBYAPI_CONTAINER", "tabbyapi")
 
 
-def run_task(prompt: str) -> TaskResult:
+def run_task(prompt: str, worker_id: str = None) -> TaskResult:
     result = TaskResult()
     start = time.monotonic()
     wall_start = datetime.now(timezone.utc)
     try:
-        content = _chat(prompt)
+        content = _chat(prompt, worker_id)
         while _is_approval_pending(content):
             for name, args in _parse_tool_calls(content):
                 if name == "browser_navigate" and "url" in args:
@@ -454,7 +477,7 @@ def run_task(prompt: str) -> TaskResult:
                 result.final_text = content
                 result.duration_seconds = time.monotonic() - start
                 return result
-            content = _approve(prompt)
+            content = _approve(prompt, worker_id)
         result.final_text = content
         if content.startswith(_ITERATION_LIMIT_PREFIX):
             result.failure_cause = "boucle"
@@ -823,7 +846,7 @@ def _purge_downloads_volume() -> None:
     )
 
 
-def _reset_browser_session() -> None:
+def _reset_browser_session(worker_id: str = None) -> None:
     """
     Cross-task isolation (revised Phase 1d, see docs/history.md
     "cross-task isolation"): mcp-client's Playwright session is
@@ -837,10 +860,18 @@ def _reset_browser_session() -> None:
     scale. `check=False` (best-effort): a temporarily unavailable
     mcp-client must not fail the whole task for a simple preventive
     cleanup.
+
+    worker_id (effort 1.3, docs/briefs/effort-1.3-parallel-campaigns.md):
+    absent (None) resets the shared "default" session — the exact
+    pre-effort-1.3 behavior, used by the preflight check (no worker
+    exists yet at that point). A parallel campaign worker passes its own
+    id so this only ever resets ITS OWN session, never another worker's
+    live browser state mid-campaign.
     """
-    script = """
+    query = f"?worker_id={worker_id}" if worker_id else ""
+    script = f"""
 import urllib.request, urllib.error
-req = urllib.request.Request('http://localhost:8003/reset-session/browser', data=b'', method='POST')
+req = urllib.request.Request('http://localhost:8003/reset-session/browser{query}', data=b'', method='POST')
 try:
     urllib.request.urlopen(req, timeout=10)
 except urllib.error.HTTPError:
@@ -851,6 +882,142 @@ except urllib.error.HTTPError:
         check=False,
         capture_output=True,
     )
+
+
+# Shared-fixture-state serialization lock (effort 1.3, docs/briefs/
+# effort-1.3-parallel-campaigns.md, "downloads volume" design decision):
+# a small number of tasks purge a SINGLE shared file/directory before
+# every repetition, unconditionally, as their own success criterion's
+# only source of truth (T5's /downloads, docker-compose.yml's
+# playwright-mcp --output-dir — ONE path for the whole process, no
+# per-worker override exposed; B2's stock_updates.json, same reasoning,
+# see test_web_tasks_v2.py's _purge_admin_stock_file). Rather than a
+# fragile snapshot-diff scheme against a shared path, any task tagged
+# here runs with exclusive access to ALL the purge functions below: no
+# other worker's purge or write can interleave with it.
+_DOWNLOAD_TOUCHING_TASK_IDS = {"T5_telechargement_calcul"}
+
+
+def _run_planned_tasks(
+    state: dict,
+    tasks_by_id: dict,
+    progress_path: Path,
+    json_path: Path,
+    metadata: dict,
+    started_at: str,
+    segment_index: int,
+    pause_path: Path,
+    build_row,
+    n_workers: int = 1,
+    purge_fns=(_purge_downloads_volume,),
+    serialized_task_ids=_DOWNLOAD_TOUCHING_TASK_IDS,
+) -> tuple[list, bool]:
+    """
+    Shared N-worker execution loop (effort 1.3), used by both this
+    module's _run_campaign and test_web_tasks_v2.py's _run_campaign_v2 —
+    the concurrency/bookkeeping/pause/shared-fixture-serialization logic
+    is identical between the two suites, only the per-row fields differ
+    (v2 adds CuP/outcome/channel/policy fields) and which fixtures need
+    serializing (v2 adds _purge_admin_stock_file/FAMILY_B_BETA_TASK_IDS),
+    factored out into the `build_row` callback and the
+    `purge_fns`/`serialized_task_ids` parameters so this function stays
+    suite-agnostic.
+
+    n_workers=1 (the unchanged default) behaves like the old sequential
+    for-loop it replaces: one worker, worker_id always None (mcp-client's
+    "default" session bucket, exactly pre-effort-1.3 behavior), same
+    claim order as `planned` — a real behavior change only when a caller
+    opts into n_workers > 1.
+
+    `build_row(task_id, rep, prompt, thread_id, worker_id, result) ->
+    (row, completed_entry)`: everything task-family-specific (assert_fn,
+    CuP, policy checks...) lives in the caller; this function only knows
+    how to CLAIM work (via campaign_persistence.remaining_runs — a set
+    difference, safe under out-of-order completions, NOT the ordered-
+    slice cursor this replaces), RUN it (worker-scoped purge/reset/
+    run_task), and PERSIST the result. `completed_entry` must carry
+    task_id/repetition (campaign_persistence.py's frozen shape).
+
+    Returns (rows, paused) — pytest.exit()/segment-closing/report
+    generation stays the caller's responsibility: this function has no
+    pytest dependency, unit-testable against a synthetic build_row with
+    no real Docker/HTTP (see tests/test_run_planned_tasks.py).
+    """
+    queue = list(campaign_persistence.remaining_runs(state))
+    rows = []
+    state_lock = threading.Lock()
+    download_lock = threading.Lock()
+    pause_requested = threading.Event()
+
+    def worker(worker_id: str) -> None:
+        while True:
+            with state_lock:
+                if pause_requested.is_set() or not queue:
+                    return
+                entry = queue.pop(0)
+                task_id, rep = entry["task_id"], entry["repetition"]
+                base_prompt = tasks_by_id[task_id][1]
+                prompt = f"{base_prompt} (essai {uuid.uuid4().hex[:8]})"
+                thread_id = _derive_thread_id(prompt)
+                current_entry = {
+                    "task_id": task_id,
+                    "repetition": rep,
+                    "thread_id": thread_id,
+                    "worker_id": worker_id,
+                    "started_at": datetime.now(timezone.utc).isoformat(),
+                }
+                state.setdefault("active", []).append(current_entry)
+                # Legacy single-run field (dashboard, services/dashboard/
+                # app/static/campaign.html): kept as "whichever run was
+                # claimed most recently" — exact, unambiguous for the
+                # n_workers=1 default; a known, documented degradation for
+                # n_workers>1 (shows one of the active runs, not all) —
+                # `state["active"]` above carries the full picture for a
+                # future dashboard enhancement, deliberately out of scope
+                # here (docs/briefs/effort-1.3-parallel-campaigns.md).
+                state["current"] = current_entry
+                campaign_persistence.write_progress_json(progress_path, state)
+
+            needs_serialization = task_id in serialized_task_ids
+            download_lock.acquire()
+            still_held = True
+            try:
+                for purge_fn in purge_fns:
+                    purge_fn()
+                if not needs_serialization:
+                    download_lock.release()
+                    still_held = False
+                _reset_browser_session(worker_id)
+                result = run_task(prompt, worker_id)
+            finally:
+                if still_held:
+                    download_lock.release()
+
+            row, completed_entry = build_row(task_id, rep, prompt, thread_id, worker_id, result)
+
+            with state_lock:
+                rows.append(row)
+                campaign_persistence.append_campaign_row(json_path, metadata, started_at, row)
+                state["completed"].append(completed_entry)
+                state["active"] = [a for a in state.get("active", []) if a is not current_entry]
+                state["current"] = state["active"][-1] if state["active"] else None
+                campaign_persistence.write_progress_json(progress_path, state)
+                if pause_path.exists():
+                    pause_requested.set()
+
+    # n_workers=1 passes worker_id=None (mcp-client's "default" session
+    # bucket) rather than "worker-1" — a real, deliberate distinction, not
+    # cosmetic: it's what keeps the unparallelized default path BIT-FOR-
+    # BIT the pre-effort-1.3 behavior, not merely equivalent. Only n>1
+    # actually needs distinct, named worker identities.
+    worker_ids = [None] if n_workers == 1 else [f"worker-{i + 1}" for i in range(n_workers)]
+    threads = [threading.Thread(target=worker, args=(wid,)) for wid in worker_ids]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    return rows, pause_requested.is_set()
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -948,7 +1115,7 @@ def _run_campaign(resume_cid: str = None):
 
         json_path = campaign_persistence.campaign_json_path(CAMPAIGNS_DIR, cid)
         campaign_data = campaign_persistence.read_campaign_json(json_path)
-        rows = campaign_data["runs"]
+        previous_rows = campaign_data["runs"]
         metadata = campaign_data["metadata"]
         started_at = metadata["started_at"]
 
@@ -977,43 +1144,13 @@ def _run_campaign(resume_cid: str = None):
         ]
         state = campaign_persistence.init_progress_state(cid, CAMPAIGN_LABEL, started_at, digest_now, planned)
         campaign_persistence.write_progress_json(progress_path, state)
-        rows = []
+        previous_rows = []
         segment_index = 0
 
     pause_path = campaign_persistence.pause_sentinel_path(CAMPAIGNS_DIR, cid)
-    remaining = state["planned"][len(state["completed"]):]
 
-    for entry in remaining:
-        task_id, rep = entry["task_id"], entry["repetition"]
-        base_prompt, assert_fn = tasks_by_id[task_id][1], tasks_by_id[task_id][2]
-
-        # Unique marker per repetition (see _derive_thread_id, app/main.py:
-        # hashes the EXACT text of the 1st human message) — same fix as
-        # test_t7_noise_baseline/test_download_then_filesystem_read_roundtrip
-        # below, never applied here before: without it, a task's
-        # N_REPETITIONS share the SAME thread_id (fixed, identical
-        # prompt), hence the SAME checkpointer state — a repetition that
-        # blocks the thread before any checkpoint save (e.g. context
-        # overflow) then makes the following repetitions replay on that
-        # same blocked state, not independent attempts. Found on the
-        # Iteration 4 final campaign (T8_wikipedia, see docs/history.md
-        # and docs/resolved-bugs.md).
-        prompt = f"{base_prompt} (essai {uuid.uuid4().hex[:8]})"
-        # Computed before run_task() so the progress file can name the
-        # in-flight thread_id for the dashboard to tail (B2 Part 1.2) —
-        # same hash run_task()/result.thread_id ends up with.
-        thread_id = _derive_thread_id(prompt)
-        state["current"] = {
-            "task_id": task_id,
-            "repetition": rep,
-            "thread_id": thread_id,
-            "started_at": datetime.now(timezone.utc).isoformat(),
-        }
-        campaign_persistence.write_progress_json(progress_path, state)
-
-        _purge_downloads_volume()
-        _reset_browser_session()
-        result = run_task(prompt)
+    def build_row(task_id, rep, prompt, thread_id, worker_id, result):
+        assert_fn = tasks_by_id[task_id][2]
         ok, detail = (False, result.error) if result.error else assert_fn(result.final_text, prompt)
         cause = _classify_failure_cause(task_id, result, ok, detail)
         fabricated_urls = [
@@ -1059,48 +1196,49 @@ def _run_campaign(resume_cid: str = None):
             # by construction after a tabbyapi restart).
             "segment": segment_index,
         }
-        rows.append(row)
-        campaign_persistence.append_campaign_row(json_path, metadata, started_at, row)
+        completed_entry = {
+            "task_id": task_id,
+            "repetition": rep,
+            "status": "success" if ok else "failure",
+            "failure_cause": cause,
+            "duration_s": row["duration_seconds"],
+            "tool_calls": row["tool_calls_observed"],
+            "thread_id": thread_id,
+            # Extension beyond the brief's literal field list
+            # (docs/briefs/B2-campaign-control.md, Part 1.1): Part
+            # 1.3's running counters (CuP, fabrications, approvals)
+            # need these per run — already computed for `row` above,
+            # just also mirrored here instead of the dashboard
+            # re-deriving them from nothing.
+            "approvals": row["approvals"],
+            "fabricated_urls_count": len(row["fabricated_urls"]),
+            "segment": segment_index,
+        }
+        return row, completed_entry
 
-        state["completed"].append(
-            {
-                "task_id": task_id,
-                "repetition": rep,
-                "status": "success" if ok else "failure",
-                "failure_cause": cause,
-                "duration_s": row["duration_seconds"],
-                "tool_calls": row["tool_calls_observed"],
-                "thread_id": thread_id,
-                # Extension beyond the brief's literal field list
-                # (docs/briefs/B2-campaign-control.md, Part 1.1): Part
-                # 1.3's running counters (CuP, fabrications, approvals)
-                # need these per run — already computed for `row` above,
-                # just also mirrored here instead of the dashboard
-                # re-deriving them from nothing.
-                "approvals": row["approvals"],
-                "fabricated_urls_count": len(row["fabricated_urls"]),
-                "segment": segment_index,
-            }
-        )
-        state["current"] = None
+    new_rows, paused = _run_planned_tasks(
+        state, tasks_by_id, progress_path, json_path, metadata, started_at,
+        segment_index, pause_path, build_row, n_workers=N_WORKERS,
+    )
+    rows = previous_rows + new_rows
+
+    if paused:
+        # Run-boundary pause check (Part 2.1): consumed here (not inside
+        # _run_planned_tasks, which has no pytest dependency) so a resume
+        # doesn't immediately re-trip on a leftover file. With N workers,
+        # "run-boundary" now means EVERY active worker's run finished
+        # before this campaign is reported paused — _run_planned_tasks
+        # only returns once all its threads have joined.
+        pause_path.unlink(missing_ok=True)
+        campaign_persistence.close_current_segment(state)
+        state["paused"] = True
         campaign_persistence.write_progress_json(progress_path, state)
-
-        # Run-boundary pause check (Part 2.1): AFTER this run is fully
-        # persisted (progress + full row), BEFORE the next one starts —
-        # a run is atomic, pausing mid-run is out of scope (brief, Part
-        # 2.1). The sentinel is consumed here so a resume doesn't
-        # immediately re-trip on a leftover file.
-        if pause_path.exists():
-            pause_path.unlink(missing_ok=True)
-            campaign_persistence.close_current_segment(state)
-            state["paused"] = True
-            campaign_persistence.write_progress_json(progress_path, state)
-            _update_duration_stats(rows)
-            pytest.exit(
-                f"Campagne {cid} mise en pause après {len(state['completed'])}/{state['total_runs']} runs "
-                f"(segment {segment_index})",
-                returncode=CAMPAIGN_PAUSED_EXIT_CODE,
-            )
+        _update_duration_stats(rows)
+        pytest.exit(
+            f"Campagne {cid} mise en pause après {len(state['completed'])}/{state['total_runs']} runs "
+            f"(segment {segment_index})",
+            returncode=CAMPAIGN_PAUSED_EXIT_CODE,
+        )
 
     _update_duration_stats(rows)
     campaign_persistence.close_current_segment(state)
