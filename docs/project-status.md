@@ -331,15 +331,19 @@ changed whether the model used it, all else held constant) — see
 docs/history.md, "TOOL SCHEMA ORDER AFFECTS ADOPTION". Worth an
 archives-only check (does per-tool usage frequency correlate with
 current schema position?) next time this family of work is revisited.
-**Effort 1.3 (parallel run execution): deferred, quantified justification**
-(archives-only recompute, zero runs — see docs/history.md, "EFFORT 1.3").
-Expected gain ×2.2 (pessimistic) to ×3 (optimistic) holds, but
-implementation needs a per-worker-isolation architecture chantier
-(`mcp-client`'s `_persistent_sessions` and the three contamination resets
-are global, keyed by server name not caller — see
-`docs/architecture/mcp-client-concurrency.md`). Re-evaluate after efforts
-1.2 (delivered), 2, and 4.2 land, which reduce campaign duration via the
-numerator.
+**Effort 1.3 (parallel run execution): resumed, Phase 0 passed live.**
+Brief written (`docs/briefs/effort-1.3-parallel-campaigns.md`) after
+efforts 1.2 and 2 landed; re-measured on fresher archives (GPU fraction
+of run time 51%→26% since GPU placement + effort 2.4's cognitive-core
+removal), recomputing to ×1.97 pessimistic / ×3.0 optimistic for N=3.
+Phase 0's two live checks (2026-08-11, `scripts/probe-parallel-phase0.sh`)
+both passed: TabbyAPI's real concurrent speedup is ×2.0 (the pessimistic
+bracket, not optimistic — sets the realistic Phase 3 target at ~×2, not
+×3), and `playwright-mcp` session isolation under real concurrent load is
+confirmed (context scoped per MCP session, matching the already-verified
+`docs/resolved-bugs.md` finding). See docs/history.md, "EFFORT 1.3 —
+PHASE 0 LIVE RESULT". 🧑 Next: Phase 1 (`mcp-client` worker-scoping +
+downloads-volume scheme), on explicit go-ahead.
 
 **Effort 2 (factorial ablation of the cognitive-core flags) measured, at
 a checkpoint** — see docs/history.md, "EFFORT 2". All 8 coherent

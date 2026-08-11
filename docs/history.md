@@ -5756,3 +5756,37 @@ adoption" lever was never needed here. **Effort 3's explicit checkpoint
 is closed**: scaffolding delivered, mechanism redesigned after empirical
 falsification, live-verified, no flag left to flip (the routing hint is
 unconditional, not gated).
+
+## EFFORT 1.3 — PHASE 0 LIVE RESULT (parallel campaign execution, resumed)
+
+See `docs/briefs/effort-1.3-parallel-campaigns.md` for the full design.
+Archives-only recompute found the GPU fraction of run time dropped
+51%→26% since the original ×2.2/×3 estimate (deterministic GPU placement
++ effort 2.4's cognitive-core removal), recomputing to ×1.97 pessimistic
+/ ×3.0 optimistic for N=3. Architecture question (does worker_id-scoping
+`mcp-client`'s sessions give real per-worker `playwright-mcp` isolation,
+or is a shared browser fought over regardless) resolved from an already-
+verified finding (`docs/resolved-bugs.md`: Playwright MCP scopes browser
+context per MCP session, not per process) rather than assumed.
+
+**Phase 0 live checks (2026-08-11, user's machine,
+`scripts/probe-parallel-phase0.sh`), both green**:
+- TabbyAPI concurrent-request behavior: ×2.0 real speedup on 3 concurrent
+  vs 3 sequential requests — lands on the PESSIMISTIC bracket (×1.97),
+  not the optimistic one (×3.0): TabbyAPI serializes more of the request
+  than the optimistic scenario assumed. First attempt was invalid (0.38s
+  for 3 "sequential" requests, an obvious prefix-cache artifact from
+  using one identical prompt 6 times — this project already tracks
+  `cache_zero_rate` as a real phenomenon, should have anticipated it);
+  fixed with distinct UUID-prefixed prompts plus realistic filler,
+  disjoint prompt sets per arm.
+- `playwright-mcp` session isolation: confirmed live — two independent
+  MCP sessions opened directly against `playwright-mcp` (bypassing
+  `mcp-client`, whose session cache is still unscoped until Phase 1)
+  each kept their own navigated page under real concurrent load.
+
+**Reading**: Phase 3's realistic target is ~×2 on the full campaign, not
+the more optimistic ×3 — still a real, worthwhile win. Phase 1
+(`mcp-client` worker-scoping) confirmed worth building. 🧑 Checkpoint
+passed, both Phase 0 conditions met — next: Phase 1 implementation, on
+explicit go-ahead.

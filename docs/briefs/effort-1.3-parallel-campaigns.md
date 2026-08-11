@@ -155,6 +155,26 @@ archives alone:
 🧑 **Checkpoint after Phase 0** — both checks gate whether Phase 1 is
 worth building at all.
 
+**Phase 0 result (2026-08-11, user's machine,
+`scripts/probe-parallel-phase0.sh`), both checks green:**
+- TabbyAPI concurrent-request behavior: 3 sequential distinct prompts
+  2.79s, 3 concurrent distinct prompts 1.40s → **×2.0 real speedup**,
+  landing on the pessimistic bracket (×1.97) rather than the optimistic
+  one (×3.0) — TabbyAPI serializes more of the work than the optimistic
+  scenario assumed. First attempt (identical prompt repeated) was
+  invalid: 0.38s for 3 sequential requests was a prefix-cache artifact
+  (this project already tracks `cache_zero_rate` as a real phenomenon),
+  fixed by using 3 distinct, UUID-prefixed prompts with ~150 words of
+  filler per arm, sequential and concurrent arms never sharing a prompt.
+- `playwright-mcp` session isolation: confirmed — two independent MCP
+  sessions opened directly against `playwright-mcp` each kept their own
+  navigated page, no cross-talk.
+- **Reading**: Phase 3's realistic target is closer to **×2** on the full
+  campaign than the optimistic ×3 — still a real, worthwhile win (roughly
+  halves campaign wall time), set as the expectation for Phase 3's
+  threshold rather than the more optimistic number. Phase 1 is confirmed
+  worth building.
+
 **Phase 1 — `mcp-client` worker-scoping** (point 1 above) + downloads
 volume scheme (point 2, resolved empirically here). Unit-tested the same
 way the existing session-persistence tests are (`tests/test_main.py`),
