@@ -1051,7 +1051,7 @@ def _run_campaign_v2(resume_cid: str = None):
         }
         return row, completed_entry
 
-    new_rows, paused = _run_planned_tasks(
+    new_rows, paused, campaign_prefill_stats = _run_planned_tasks(
         state, tasks_by_id, progress_path, json_path, metadata, started_at,
         segment_index, pause_path, build_row, n_workers=N_WORKERS,
         # Two shared fixtures need purging before every repetition here,
@@ -1064,6 +1064,14 @@ def _run_campaign_v2(resume_cid: str = None):
         serialized_task_ids=_DOWNLOAD_TOUCHING_TASK_IDS | set(FAMILY_B_BETA_TASK_IDS),
     )
     rows = previous_rows + new_rows
+    # Trustworthy under concurrency, unlike summing each row's own
+    # prefill_seconds — see test_web_tasks.py's _run_campaign, same
+    # pattern (effort 1.3, docs/briefs/effort-1.3-parallel-campaigns.md).
+    metadata = {**metadata, "campaign_prefill_stats": campaign_prefill_stats}
+    print(f"Campaign-wide TabbyAPI aggregate (this segment): {campaign_prefill_stats}")
+    campaign_persistence.write_campaign_json(
+        json_path, metadata, started_at, datetime.now(timezone.utc).isoformat(), rows
+    )
 
     if paused:
         pause_path.unlink(missing_ok=True)

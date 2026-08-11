@@ -57,14 +57,18 @@ def _build_row_factory(calls):
 def _patch_web_tasks(monkeypatch):
     """Every test controls run_task itself (a per-test fake) — this
     fixture only neutralizes the two purge functions used when a test
-    doesn't care about them, and campaign_persistence.append_campaign_row
+    doesn't care about them, campaign_persistence.append_campaign_row
     (real file I/O, irrelevant to this module's own logic, already
-    covered by test_campaign_persistence.py)."""
+    covered by test_campaign_persistence.py), and
+    collect_tabbyapi_raw_samples (real `docker logs` subprocess call —
+    no real container here; _run_planned_tasks' own campaign-level
+    collection at the end would otherwise hit it too)."""
     import tests_integration.test_web_tasks as wt
 
     monkeypatch.setattr(wt, "_purge_downloads_volume", lambda: None)
     monkeypatch.setattr(wt, "_reset_browser_session", lambda worker_id=None: None)
     monkeypatch.setattr(cp, "append_campaign_row", lambda *a, **k: None)
+    monkeypatch.setattr(cp, "collect_tabbyapi_raw_samples", lambda *a, **k: [])
     yield
 
 
@@ -86,7 +90,7 @@ def test_sequential_default_preserves_order_and_worker_id_none(monkeypatch, tmp_
 
     monkeypatch.setattr(wt, "run_task", fake_run_task)
     calls = []
-    rows, paused = _run_planned_tasks(
+    rows, paused, _stats = _run_planned_tasks(
         state, _tasks_by_id(["T1", "T2"]), progress_path, json_path, {}, "2026-08-11T00:00:00Z",
         0, pause_path, _build_row_factory(calls), n_workers=1,
     )
@@ -113,7 +117,7 @@ def test_n_workers_claims_every_planned_entry_exactly_once(monkeypatch, tmp_path
 
     monkeypatch.setattr(wt, "run_task", fake_run_task)
     calls = []
-    rows, paused = _run_planned_tasks(
+    rows, paused, _stats = _run_planned_tasks(
         state, _tasks_by_id(["T1"]), progress_path, json_path, {}, "2026-08-11T00:00:00Z",
         0, pause_path, _build_row_factory(calls), n_workers=4,
     )
@@ -123,6 +127,41 @@ def test_n_workers_claims_every_planned_entry_exactly_once(monkeypatch, tmp_path
     assert len(rows) == 10
     assert len({c[2] for c in calls}) > 1  # more than one worker actually participated
     assert state["active"] == []
+
+
+def test_campaign_prefill_stats_collected_once_not_per_task(monkeypatch, tmp_path):
+    """Effort 1.3 fix (docs/briefs/effort-1.3-parallel-campaigns.md,
+    found live 2026-08-11): collect_tabbyapi_raw_samples scrapes `docker
+    logs` by WALL-CLOCK WINDOW, not by request — under N>1, per-task
+    windows overlap and each independently-collected figure double/
+    triple-counts the same underlying log lines. _run_planned_tasks must
+    call it exactly ONCE, bracketing the whole pool's execution, not once
+    per claimed task."""
+    import tests_integration.test_web_tasks as wt
+
+    planned = [{"task_id": "T1", "repetition": r} for r in range(1, 4)]
+    state = _state(planned)
+    progress_path, json_path, pause_path = _fake_paths(tmp_path)
+    collect_calls = []
+
+    def fake_collect(since_dt, until_dt, container=None):
+        collect_calls.append((since_dt, until_dt))
+        return [{"cached_tokens": 100, "new_tokens": 50, "generation_seconds": 1.0,
+                  "queue_seconds": 0.0, "tokens_generated": 50, "process_speed_tps": 50.0}]
+
+    monkeypatch.setattr(wt, "run_task", lambda prompt, worker_id=None: _ok_result(prompt))
+    monkeypatch.setattr(cp, "collect_tabbyapi_raw_samples", fake_collect)
+
+    rows, paused, campaign_prefill_stats = _run_planned_tasks(
+        state, _tasks_by_id(["T1"]), progress_path, json_path, {}, "2026-08-11T00:00:00Z",
+        0, pause_path, _build_row_factory([]), n_workers=3,
+    )
+
+    assert len(collect_calls) == 1  # not 3 (one per claimed task)
+    since, until = collect_calls[0]
+    assert since <= until
+    assert campaign_prefill_stats["tabbyapi_requests"] == 1  # from the single fake sample above
+    assert campaign_prefill_stats["prompt_tokens_total"] == 150
 
 
 def test_missing_worker_id_default_bucket_semantics_unchanged(monkeypatch, tmp_path):
@@ -173,7 +212,7 @@ def test_pause_sentinel_stops_new_claims_but_finishes_in_flight(monkeypatch, tmp
 
     monkeypatch.setattr(wt, "run_task", fake_run_task)
     calls = []
-    rows, paused = _run_planned_tasks(
+    rows, paused, _stats = _run_planned_tasks(
         state, _tasks_by_id(["T1"]), progress_path, json_path, {}, "2026-08-11T00:00:00Z",
         0, pause_path, _build_row_factory(calls), n_workers=1,
     )

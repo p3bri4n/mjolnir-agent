@@ -576,6 +576,20 @@ def run_task(prompt: str, worker_id: str = None) -> TaskResult:
                 result.observed_navigate_urls.append(url)
 
     wall_end = datetime.now(timezone.utc)
+    # KNOWN LIMITATION under N_WORKERS > 1 (effort 1.3, docs/briefs/
+    # effort-1.3-parallel-campaigns.md): collect_tabbyapi_raw_samples
+    # scrapes `docker logs tabbyapi` by WALL-CLOCK WINDOW, not by
+    # request/thread — TabbyAPI's own log line carries no per-request
+    # identifier (verified against the installed image,
+    # campaign_persistence.py's module docstring: no /metrics endpoint
+    # either, this IS the only data source). Under real concurrency two
+    # tasks' windows overlap, and BOTH end up attributing the SAME
+    # shared log lines to themselves — found live (2026-08-11) as
+    # byte-identical tabbyapi_raw_samples across two concurrently-run
+    # tasks. Correct and non-duplicated at N_WORKERS=1 (windows never
+    # overlap); at N>1 this per-TASK figure is an upper bound, not a
+    # precise attribution — see _run_planned_tasks' own campaign-level
+    # collection below for the trustworthy aggregate under concurrency.
     result.tabbyapi_raw_samples = campaign_persistence.collect_tabbyapi_raw_samples(
         wall_start, wall_end, container=TABBYAPI_CONTAINER
     )
@@ -911,7 +925,7 @@ def _run_planned_tasks(
     n_workers: int = 1,
     purge_fns=(_purge_downloads_volume,),
     serialized_task_ids=_DOWNLOAD_TOUCHING_TASK_IDS,
-) -> tuple[list, bool]:
+) -> tuple[list, bool, dict]:
     """
     Shared N-worker execution loop (effort 1.3), used by both this
     module's _run_campaign and test_web_tasks_v2.py's _run_campaign_v2 —
@@ -938,10 +952,15 @@ def _run_planned_tasks(
     run_task), and PERSIST the result. `completed_entry` must carry
     task_id/repetition (campaign_persistence.py's frozen shape).
 
-    Returns (rows, paused) — pytest.exit()/segment-closing/report
-    generation stays the caller's responsibility: this function has no
-    pytest dependency, unit-testable against a synthetic build_row with
-    no real Docker/HTTP (see tests/test_run_planned_tasks.py).
+    Returns (rows, paused, campaign_prefill_stats) — pytest.exit()/
+    segment-closing/report generation stays the caller's responsibility:
+    this function has no pytest dependency, unit-testable against a
+    synthetic build_row with no real Docker/HTTP (see
+    tests/test_run_planned_tasks.py). campaign_prefill_stats
+    (campaign_persistence.aggregate_prefill_stats' shape) is collected
+    ONCE over the whole pool's wall-clock window — see the comment above
+    the collection call for why this, not summing each run's own
+    prefill_seconds, is the trustworthy figure under concurrency.
     """
     queue = list(campaign_persistence.remaining_runs(state))
     rows = []
@@ -1012,12 +1031,27 @@ def _run_planned_tasks(
     # actually needs distinct, named worker identities.
     worker_ids = [None] if n_workers == 1 else [f"worker-{i + 1}" for i in range(n_workers)]
     threads = [threading.Thread(target=worker, args=(wid,)) for wid in worker_ids]
+    # Campaign-level TabbyAPI aggregate, bracketing the WHOLE pool run —
+    # the trustworthy figure under concurrency, unlike each run's own
+    # per-task collection above (see run_task's docstring note): one
+    # collect_tabbyapi_raw_samples call over a window covering every
+    # worker means each real log line is counted exactly once, whether
+    # N=1 (identical to summing the per-task figures, no overlap ever
+    # possible) or N>1 (where summing per-task figures double/triple-
+    # counts overlapping windows — found live 2026-08-11, byte-identical
+    # samples attributed to two concurrently-run tasks).
+    campaign_wall_start = datetime.now(timezone.utc)
     for t in threads:
         t.start()
     for t in threads:
         t.join()
+    campaign_wall_end = datetime.now(timezone.utc)
+    campaign_samples = campaign_persistence.collect_tabbyapi_raw_samples(
+        campaign_wall_start, campaign_wall_end, container=TABBYAPI_CONTAINER
+    )
+    campaign_prefill_stats = campaign_persistence.aggregate_prefill_stats(campaign_samples)
 
-    return rows, pause_requested.is_set()
+    return rows, pause_requested.is_set(), campaign_prefill_stats
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -1216,11 +1250,22 @@ def _run_campaign(resume_cid: str = None):
         }
         return row, completed_entry
 
-    new_rows, paused = _run_planned_tasks(
+    new_rows, paused, campaign_prefill_stats = _run_planned_tasks(
         state, tasks_by_id, progress_path, json_path, metadata, started_at,
         segment_index, pause_path, build_row, n_workers=N_WORKERS,
     )
     rows = previous_rows + new_rows
+    # Trustworthy under concurrency, unlike summing each row's own
+    # prefill_seconds (see run_task's docstring note) — persisted into
+    # metadata (this segment's slice only; a resumed campaign's earlier
+    # segment keeps its own already-written value, never summed across
+    # segments here, same "no cross-segment pooling" rule as the report's
+    # cache-sensitive metrics, docs/history.md B2 Part 3.1/3.2).
+    metadata = {**metadata, "campaign_prefill_stats": campaign_prefill_stats}
+    print(f"Campaign-wide TabbyAPI aggregate (this segment): {campaign_prefill_stats}")
+    campaign_persistence.write_campaign_json(
+        json_path, metadata, started_at, datetime.now(timezone.utc).isoformat(), rows
+    )
 
     if paused:
         # Run-boundary pause check (Part 2.1): consumed here (not inside
