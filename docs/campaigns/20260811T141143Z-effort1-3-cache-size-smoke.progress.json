@@ -1,0 +1,55 @@
+{
+  "active": [],
+  "campaign_id": "20260811T141143Z-effort1-3-cache-size-smoke",
+  "completed": [
+    {
+      "approvals": 7,
+      "cup": null,
+      "duration_s": 143.1,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A2_schema_references",
+      "thread_id": "14de138f1d8b24b1",
+      "tool_calls": 16
+    },
+    {
+      "approvals": 7,
+      "cup": null,
+      "duration_s": 156.9,
+      "fabricated_urls_count": 0,
+      "failure_cause": "boucle",
+      "repetition": 1,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "A1_reconciliation_croisee",
+      "thread_id": "7d92ba4a2488dc92",
+      "tool_calls": 19
+    }
+  ],
+  "config_digest": "1c73c50bcaf34790",
+  "current": null,
+  "label": "effort1-3-cache-size-smoke",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "A1_reconciliation_croisee"
+    },
+    {
+      "repetition": 1,
+      "task_id": "A2_schema_references"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-08-11T14:14:20.939695+00:00",
+      "index": 0,
+      "started_at": "2026-08-11T14:11:43.702620+00:00"
+    }
+  ],
+  "started_at": "2026-08-11T14:11:43.702620+00:00",
+  "total_runs": 2
+}
