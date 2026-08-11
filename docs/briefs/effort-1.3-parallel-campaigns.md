@@ -291,6 +291,79 @@ same tasks. Judges, declared now:
 🧑 **Checkpoint before Phase 3's live measurement**, same discipline as
 every other effort in this plan.
 
+**Phase 3 decisive measurement (2026-08-11): primary judge MISSED.**
+Sequential (N=1) vs parallel (N=3), the declared 6-task subset × 3 reps
+(18 runs each): wall-clock **×1.10** (17.9 min → 16.3 min), far short of
+the ~×2 target set after Phase 0. Scored-task total (A2/A3/A4/
+B1_conge_hard/D1, A1 excluded per point 2's protocol) came back 12/15
+both arms, but composition swung hard per task (A2 3/3→1/3, D1
+1/3→3/3, B1_conge_hard's CuP 3/3→2/3 via a known pre-existing
+never-grantable-tool pattern on the hard tier) — **not read as signal**:
+n=3 per arm, and the root cause below changes inference conditions
+enough that these numbers aren't comparable to begin with.
+
+**Root cause, found in `tabbyapi_raw_samples` (already-collected
+per-request data, no new instrumentation needed): TabbyAPI's KV cache
+pool gets evicted under 3 concurrent growing conversations.** The
+worst run (`A1_reconciliation_croisee` #3, 453.7s, 93 raw TabbyAPI
+requests for what took 21 requests sequentially) shows `cached_tokens`
+repeatedly collapsing back to 6656 (the tool-schema-only floor) instead
+of growing monotonically with the conversation — each collapse forces a
+full-context reprocess (`new_tokens` spikes to 15,875 / 16,164 / 17,934
+in the worst cases, `generation_seconds` up to 69s for one single
+request). Campaign-wide: `prompt_tokens_total` ×4 (2.53M→10.1M),
+`prefill_seconds` ×5.7 (324s→1849s) for the SAME 18 tasks. This is
+**not** a session-isolation bug (no cross-worker content found in the
+audit trace of the worst runs) and **not** what Phase 0 measured (short,
+non-accumulating prompts never exercise cache eviction) — it's
+`cache_size: 49152` (`services/tabbyapi/config.yml`) not holding 3
+concurrent long-running conversations without evicting each other.
+
+**Decision (user, same session): one more variable before closing —
+cache_size headroom, archives-only computation, not guessed:**
+
+- GPU margins (already measured live, `docs/briefs/archives/
+  deterministic-gpu-placement.md`'s own regression-tested reading, no
+  new nvidia-smi call needed): GPU0 (5060 Ti, no display) 16311 MiB
+  total − 4424 MiB used = **11887 MiB free**; GPU1 (4070 Ti SUPER,
+  drives the display) 16376 MiB total − 14131 MiB used = **2245 MiB
+  free** — GPU1 is the binding constraint.
+- Cache cost (`config.yml`'s own comment, PoC-era, single-GPU,
+  **flagged as an estimate, not re-verified against the installed
+  ExLlamaV3 version**): ~822 MiB per +8192 tokens at `cache_mode: Q6`.
+  Assumed (also unverified) to split across GPUs in the same ratio as
+  `gpu_split: [5, 14]` (26.3%/73.7%) — cache pages should follow
+  whichever GPU holds the relevant layers, but this hasn't been checked
+  against the backend's actual allocation code.
+- Conservative target: use at most ~1200 MiB of GPU1's 2245 MiB margin
+  (leaving ~1000 MiB buffer against the display driver's own headroom
+  already baked into that figure) → `1200 / (822 × 0.737) × 8192 ≈
+  16,230` extra tokens → **candidate `cache_size: 65536`** (49152 +
+  16384, a clean power-of-two, deliberately rounded down from the
+  ~69,400 theoretical ceiling for safety margin).
+
+This estimate rests on two unverified assumptions (the per-GPU cost
+rate transferring from the PoC's single-GPU measurement, and
+proportional-split cache allocation) — real VRAM usage after the
+restart is the actual check, not the arithmetic above. One variable
+only: `cache_size` changes, `N_WORKERS=3` and the rest of the config
+stay exactly as measured. Judge: does `cached_tokens` stop collapsing to
+the floor under the same 2-task concurrent smoke that triggered it
+worst (A1+A2); if that smoke is clean, re-run the full 6-task×3-rep N=3
+sweep and compare wall-clock against the already-measured N=1 baseline
+(17.9 min) — no need to re-run N=1.
+
+If `cache_size: 65536` isn't enough: try `N_WORKERS=2` instead of 3
+(two long conversations may fit where three overflow, for a smaller but
+real gain rather than none). If neither works: close as a documented
+hardware-bound capability limit — the mechanism itself (worker_id
+isolation) stays, validated and useful independent of this specific
+gain (already the fix for the general concurrent-usage contamination
+risk `docs/architecture/mcp-client-concurrency.md` named, not just
+campaigns), `N_WORKERS` stays `1` by default, and the cache-size ceiling
+gets recorded so it isn't rediscovered from scratch without new
+hardware.
+
 ## Risks flagged, not resolved here
 
 - The download-serialization lock (point 2) only knows about T5 today —
