@@ -5873,3 +5873,68 @@ does NOT set `WEB_TASKS_WORKERS` yet — Phase 3's own checkpoint decides
 that. 🧑 **Checkpoint before Phase 3's live measurement**: nothing
 live-run in Phases 1-2, everything verified against synthetic state only,
 per the brief's own discipline (unit-testable without live Docker).
+
+## EFFORT 1.3 — PHASE 3 DECISIVE MEASUREMENT, MISSED, THEN A METRIC BUG CORRECTED
+
+See `docs/briefs/effort-1.3-parallel-campaigns.md` for the full detail.
+Sequential (N=1) vs parallel (N=3), the declared 6-task subset × 3 reps
+(18 runs each): wall-clock **×1.10** (17.9 min → 16.3 min), far short of
+the ~×2 target set after Phase 0. Scored-task total came back 12/15 both
+arms with the composition swinging hard per task — not read as signal,
+n=3 per arm and (see below) the inference conditions themselves turned
+out not comparable between arms.
+
+**First diagnosis (later corrected): KV cache eviction.** `tabbyapi_raw_samples`
+(already-collected per-request data) showed `cached_tokens` repeatedly
+collapsing to the tool-schema floor (6656) instead of growing
+monotonically, `prompt_tokens_total` ×4 and `prefill_seconds` ×5.7 for
+the same 18 tasks. Read as TabbyAPI's `cache_size: 49152` KV pool being
+evicted under 3 concurrent growing conversations. User-directed follow-up:
+compute a safe `cache_size` increase from already-measured GPU margins
+(GPU1, the binding constraint, ~2245 MiB free) rather than guess —
+candidate `65536`, applied via `scripts/probe-cache-size-headroom.sh`
+(reloaded cleanly, no OOM).
+
+**The validation smoke exposed a different, deeper bug instead of
+confirming the theory.** Two concurrently-run tasks (A1+A2, N=3) in the
+cache_size smoke came back with **byte-identical** `tabbyapi_raw_samples`
+for their first 27 entries. Root cause: `collect_tabbyapi_raw_samples`
+(`campaign_persistence.py`) scrapes `docker logs tabbyapi --since --until`
+by WALL-CLOCK WINDOW — correct at `N_WORKERS=1` (no two tasks' windows
+can ever overlap, an assumption every prior use of this function relied
+on safely, since nothing ran concurrently before effort 1.3), silently
+wrong at `N>1`: overlapping windows both scrape the SAME shared log
+lines. TabbyAPI's log line carries no per-request identifier and there is
+no `/metrics` endpoint to fall back on (already verified against the
+installed image, this module's own docstring) — external log scraping
+cannot attribute per-task under real concurrency, full stop, regardless
+of parsing cleverness.
+
+**Archives-only correction (dedup by exact sample-tuple identity across
+the Phase 3 decisive measurement's already-collected data, zero re-runs,
+per the "archives first" measurement rule):** pooling all 18 parallel-arm
+runs' samples and keeping each unique 6-field tuple once collapses 910
+raw samples to 313 genuinely distinct ones. Corrected: prefill 633.1s
+(not 1848.5s), tokens 3.51M (not 10.1M) — against sequential's already-
+correct 324.4s / 2.53M, that's **×1.95 prefill time for ×1.39 the real
+token volume**, consistent with ordinary GPU-sharing contention (Phase
+0's own ×2.0 finding) plus a modest real amount of extra work — not the
+dramatic full-cache-wipe story the uncorrected 4x/5.7x figures told. The
+primary judge itself (wall-clock ×1.10) is unaffected by any of this —
+measured via each thread's own `time.monotonic()`, never touched by the
+log-scraping bug.
+
+**Fix delivered**: `_run_planned_tasks` now ALSO collects a campaign-level
+`tabbyapi_raw_samples`/`aggregate_prefill_stats` pass, bracketing the
+wall-clock window of the WHOLE worker pool rather than each task's own
+window — every real log line counted exactly once regardless of overlap,
+correct at any `N_WORKERS`. Persisted into the campaign JSON's
+`metadata.campaign_prefill_stats`, printed at run end. Per-task
+collection (`run_task`) is unchanged, documented as an upper bound (not
+a precise figure) above `N_WORKERS=1`, still exactly correct at the
+default. 6 new/updated tests, `langgraph-agent` suite 478→479.
+
+🧑 **Next**: re-run the same 2-task smoke (A1+A2, N=3, `cache_size`
+already at 65536) with the now-fixed instrumentation for a trustworthy
+read, before deciding whether the full 6-task×3-rep decisive
+re-measurement is warranted.

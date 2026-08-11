@@ -364,11 +364,26 @@ serialized the same way as T5's downloads while porting the loop, not
 anticipated in the brief. Test suites: `mcp-client` 55→60,
 `langgraph-agent` 466→478, `dashboard` 19→22, all green — everything
 verified against synthetic state only, no live Docker run in this phase.
-Full detail: docs/history.md, "EFFORT 1.3 — PHASES 1-2 DELIVERED". 🧑
-**Checkpoint before Phase 3's live measurement** (N=3 parallel campaign
-vs. sequential, same declared subset as effort 2's decisive measurement,
-judged on wall-clock time primarily and score/CuP non-regression with
-veto power).
+Full detail: docs/history.md, "EFFORT 1.3 — PHASES 1-2 DELIVERED".
+
+**Phase 3 decisive measurement run (2026-08-11): primary judge MISSED**
+— wall-clock ×1.10 (N=3 vs N=1), far short of the ~×2 target. First
+diagnosis (TabbyAPI KV-cache eviction under 3 concurrent conversations)
+was itself built on a flawed metric: `collect_tabbyapi_raw_samples`
+scrapes `docker logs` by wall-clock window, which double/triple-counts
+overlapping concurrent tasks' requests — found live via byte-identical
+samples across two concurrently-run tasks in a follow-up smoke. Fixed
+(`_run_planned_tasks` now also collects a campaign-level aggregate,
+correct at any `N_WORKERS`); archives-only dedup of the original decisive
+measurement's data corrects the earlier ×4/×5.7 token/prefill inflation
+down to a much more modest ×1.39/×1.95 — consistent with ordinary
+GPU-sharing contention (Phase 0's own finding), not a dramatic cache
+wipe. The wall-clock ×1.10 result itself stands, unaffected by the bug.
+`cache_size` raised 49152→65536 (candidate from already-measured GPU
+margins) pending a clean re-read. Full detail: docs/history.md, "EFFORT
+1.3 — PHASE 3 DECISIVE MEASUREMENT, MISSED, THEN A METRIC BUG
+CORRECTED". 🧑 **Next**: re-run the 2-task smoke with fixed
+instrumentation, then decide on the full re-measurement.
 
 **Effort 2 (factorial ablation of the cognitive-core flags) measured, at
 a checkpoint** — see docs/history.md, "EFFORT 2". All 8 coherent
