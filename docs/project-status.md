@@ -730,6 +730,23 @@ off** — 🧑 checkpoint per the brief, live measurement (and its
 sub-additivity read against `VERIFICATION_ENABLED`) is a separate,
 future step.
 
-Effort 3 (coarse-grained actions) not started — begins with a
-frequency analysis of the audit log's tool-call n-grams (brief's 3.1),
-not yet done.
+**Effort 3, point 3.1 (frequency analysis) done, checkpoint decided.**
+`scripts/analyze-tool-call-ngrams.sh` (archives-only, no docker/GPU) run
+against the full audit log (5649 real tool_calls, 924 threads):
+`browser_navigate → browser_navigate` dominates (985 saved turns),
+`*_snapshot ↔ *_navigate`/`*_click` pairs are the rest of the mass,
+traced to a real cause (`browser_click`/`browser_navigate` can return
+stale pre-render content — `_STABILIZE_AFTER_TOOLS`,
+`services/mcp-client/app/main.py:765`), not model habit. **Design
+principle recorded in `CLAUDE.md`** ("Tool design contract" — a tool
+that acts returns resulting state, not a bare acknowledgment; third
+confirmed occurrence after `browser_extract`'s dt/dd fix and
+`manage_plan`'s bare ack). **Decision**: no new composite tool this
+chantier. Point 1 (browser_click/navigate include their post-
+stabilization snapshot inline, reusing the existing stabilize wait) —
+being built next. Point 2 (push adoption of the existing
+`browser_extract` bulk mode via description/position, not a new tool)
+queued after point 1's checkpoint. Point 3 (form-filling composite)
+shelved, not a measured bottleneck. Full detail: docs/history.md,
+"SCAFFOLDING 3.1 — TOOL-CALL N-GRAM FREQUENCY ANALYSIS, CHECKPOINT
+DECISION". 🧑 Stop after point 1, before point 2.

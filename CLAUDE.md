@@ -93,6 +93,17 @@
   stays — it's hard-won knowledge. Cut the paraphrase, keep the
   justification.
 
+## Tool design contract
+
+A tool that acts returns the resulting STATE of its action, never a bare
+acknowledgment — confirmed recurring defect, not a one-off: `browser_extract`
+returned a matched label without its adjacent value (docs/history.md,
+"EFFORT 2.3"), `manage_plan` returned `{"ok": true}` without the plan
+(docs/history.md, "EFFORT 2", merged-planning fix 1/2), `browser_navigate`/
+`browser_click` returned an action confirmation without the resulting page
+state (docs/history.md, "SCAFFOLDING 3.1"). Check any new or revised tool
+against this before shipping.
+
 ## Markdown contract
 
 No summary of what precedes, no "Conclusion"/"Key points" section in

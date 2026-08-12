@@ -6116,3 +6116,68 @@ no crash, no stale index). Full `langgraph-agent` suite 479→491 passed,
 brief's own checkpoint (🧑, after Effort 2) is a human decision on
 whether/when to measure this live, same discipline as every other
 conditional mechanism in this project.
+
+## SCAFFOLDING 3.1 — TOOL-CALL N-GRAM FREQUENCY ANALYSIS, CHECKPOINT DECISION
+
+`docs/briefs/scaffolding-optimisation.md`'s Effort 3, point 3.1 ("find the
+candidates in the archives, not by intuition, before designing anything"):
+new archives-only tool, `scripts/analyze-tool-call-ngrams.sh` — reads the
+real audit log directly from the host-mounted volume (no docker/GPU
+needed), counts contiguous tool-name n-grams (n=2..5) per thread,
+chronologically ordered, never crossing thread boundaries, ranked by
+`(n-1) * count` ("turns that would be saved" if collapsed into one
+composite call). Run against the full archive (18 daily files,
+2026-07-16 to 2026-08-11): 5649 real tool_calls (entries carrying a
+`"tool"` key with no `"kind"` key — model-proposed-but-unapproved calls
+deliberately excluded), 924 threads.
+
+**Findings**: `browser_navigate → browser_navigate` dominates (985 saved
+turns at n=2, chains up to 5 deep) — checked day-by-day, NOT a historical
+artifact, if anything a growing share recently (28-40% of a day's calls
+on 2026-08-06/08-10/08-11). `*_snapshot ↔ *_navigate`/`*_click` pairs are
+the next largest mass and match the brief's own illustrative example.
+Reading `services/mcp-client/app/main.py:765-777`
+(`_STABILIZE_AFTER_TOOLS`) found the structural cause: `browser_click`/
+`browser_navigate` can return stale pre-render content, already known
+and already worked around with a fixed post-action wait — the model
+re-snapshots because the action's own response doesn't reliably say
+where it landed, not out of habit. `browser_fill_form → browser_select_option
+→ browser_click` is the one sequence that reads as a genuine classic
+composite candidate.
+
+**Checkpoint decision (user, this session)**:
+
+- **Design principle recorded** (now in `CLAUDE.md`, "Tool design
+  contract"): a tool that acts must return the resulting STATE of its
+  action, never a bare acknowledgment — this is the THIRD confirmed
+  occurrence (`browser_extract`'s dt/dd fix, EFFORT 2.3; `manage_plan`'s
+  bare `{"ok": true}`, EFFORT 2 merged-planning fix 1/2; now
+  `browser_navigate`/`browser_click`).
+- **Point 1, retained, being built next**: `browser_click`/
+  `browser_navigate` include the post-stabilization snapshot in their
+  own response (reusing `_STABILIZE_AFTER_TOOLS`, already in place) —
+  NOT a new tool, catalog size/count stays unchanged (the schema-order/
+  weight finding from effort 1.1/1.2 is exactly why growing the catalog
+  is avoided here). Same structured truncation rules as `browser_snapshot`
+  (affordances never amputated). Two judges read TOGETHER, never one
+  without the other: turns/task (expected to drop) and tokens/task
+  (expected to rise per turn) — the mechanism only wins if the net is
+  positive; CuP non-regression as a veto. Terrain: A1/A2, with the dt/dd
+  fix already live. One variable.
+- **Point 2, next after point 1's checkpoint**: push adoption of the
+  EXISTING `browser_extract` bulk mode (`urls=[...]`) rather than build
+  anything new — A1 has never chosen it. Two already-validated levers in
+  this project (description wording that names WHEN to prefer it,
+  position in the tools array). If neither moves adoption, that reads as
+  the bulk tool itself being malformed, to be stated as such rather than
+  routed around.
+- **Point 3, shelved, not rejected**: the form-filling composite is the
+  only classic composite candidate found, but forms are not a measured
+  bottleneck (A1 fails on multi-page navigation, not form-filling) —
+  building it now would be exactly the "build ahead of need" the brief
+  forbids. Reopening condition recorded: a measured failure attributable
+  to form-filling.
+- **No new composite tool in this chantier** — points 1 and 2 both
+  improve existing tools; the catalog does not grow.
+
+🧑 **Stop after point 1, before point 2** — explicit, this session.
