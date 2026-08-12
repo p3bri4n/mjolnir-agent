@@ -1,0 +1,55 @@
+{
+  "active": [],
+  "campaign_id": "20260812T092752Z-benchmark-v2",
+  "completed": [
+    {
+      "approvals": 3,
+      "cup": null,
+      "duration_s": 97.6,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A1_reconciliation_croisee",
+      "thread_id": "77c2b76df7795c73",
+      "tool_calls": 8
+    },
+    {
+      "approvals": 2,
+      "cup": null,
+      "duration_s": 41.6,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A2_schema_references",
+      "thread_id": "f54453524169f3d3",
+      "tool_calls": 8
+    }
+  ],
+  "config_digest": "453d70cd091d8826",
+  "current": null,
+  "label": "Benchmark v2",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "A1_reconciliation_croisee"
+    },
+    {
+      "repetition": 1,
+      "task_id": "A2_schema_references"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-08-12T09:30:12.146985+00:00",
+      "index": 0,
+      "started_at": "2026-08-12T09:27:52.199110+00:00"
+    }
+  ],
+  "started_at": "2026-08-12T09:27:52.199110+00:00",
+  "total_runs": 2
+}
