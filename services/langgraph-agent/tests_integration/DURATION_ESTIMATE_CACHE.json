@@ -2,15 +2,15 @@
   "_note": "Cache glissant d'ESTIMATION de dur\u00e9e, PAS un historique de campagnes : \"estimates\" est r\u00e9\u00e9crit (m\u00e9diane+plage fusionn\u00e9es) \u00e0 la fin de CHAQUE campagne, compl\u00e8te ou smoke \u2014 la valeur d'une t\u00e2che ne refl\u00e8te donc que la DERNI\u00c8RE campagne qui l'a mesur\u00e9e, jamais une s\u00e9rie dans le temps. Chaque entr\u00e9e est {median, min, max, n} sur les n r\u00e9p\u00e9titions de CETTE campagne (B2 Part 1.4, docs/briefs/B2-campaign-control.md \u2014 la plage sert l'ETA, jamais un point unique). Sert \u00e0 estimer la dur\u00e9e d'un prochain lancement avant de le d\u00e9marrer (scripts/run-campaign.sh). Pour un historique par campagne (thread_id, m\u00e9tadonn\u00e9es, m\u00e9triques par run), voir campaign-<timestamp>-<label>.json (campaign_persistence.py).",
   "estimates": {
     "A1_reconciliation_croisee": {
-      "max": 98.0,
-      "median": 98.0,
-      "min": 98.0,
+      "max": 114.0,
+      "median": 114.0,
+      "min": 114.0,
       "n": 1
     },
     "A2_schema_references": {
-      "max": 47.4,
-      "median": 47.4,
-      "min": 47.4,
+      "max": 50.6,
+      "median": 50.6,
+      "min": 50.6,
       "n": 1
     },
     "A3_contact_conges": {

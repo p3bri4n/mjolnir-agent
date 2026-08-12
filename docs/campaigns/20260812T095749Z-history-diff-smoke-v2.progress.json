@@ -1,23 +1,36 @@
 {
-  "active": [
+  "active": [],
+  "campaign_id": "20260812T095749Z-history-diff-smoke-v2",
+  "completed": [
     {
+      "approvals": 3,
+      "cup": null,
+      "duration_s": 114.0,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
       "repetition": 1,
-      "started_at": "2026-08-12T09:57:49.893336+00:00",
+      "segment": 0,
+      "status": "success",
       "task_id": "A1_reconciliation_croisee",
       "thread_id": "4c1115761e5dbe30",
-      "worker_id": null
+      "tool_calls": 9
+    },
+    {
+      "approvals": 2,
+      "cup": null,
+      "duration_s": 50.6,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A2_schema_references",
+      "thread_id": "3e51f14dbb2a48b8",
+      "tool_calls": 8
     }
   ],
-  "campaign_id": "20260812T095749Z-history-diff-smoke-v2",
-  "completed": [],
   "config_digest": "8be64f740dd9fb30",
-  "current": {
-    "repetition": 1,
-    "started_at": "2026-08-12T09:57:49.893336+00:00",
-    "task_id": "A1_reconciliation_croisee",
-    "thread_id": "4c1115761e5dbe30",
-    "worker_id": null
-  },
+  "current": null,
   "label": "history-diff-smoke-v2",
   "paused": false,
   "planned": [
@@ -32,7 +45,7 @@
   ],
   "segments": [
     {
-      "ended_at": null,
+      "ended_at": "2026-08-12T10:00:35.218540+00:00",
       "index": 0,
       "started_at": "2026-08-12T09:57:49.892927+00:00"
     }
