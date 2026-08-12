@@ -5974,3 +5974,39 @@ mcp-client-concurrency.md`'s general concurrent-usage risk, not just
 campaigns), or revert `cache_size` to 49152 first (no measured benefit
 to justify keeping the extra VRAM committed) then close. `N_WORKERS`
 stays `1` by default; `run-campaign.sh` still doesn't set it.
+
+## EFFORT 3 FOLLOW-UP — OCR-SERVICE COST PROBE, RETAIN DECISION
+
+Effort 3's closing note left `ocr-service` deployed with zero callers as
+an open question ("possible future role vs retirement, not decided in
+this pass") — its per-call cost had never been measured, on either the
+removed proactive mechanism or a hypothetical future one. Probed ad hoc
+(`scripts/probe-ocr-cost.sh`, new): self-loopback `POST /ocr` calls
+inside the running `ocr-service` container against the real
+`paddleocr`/CPU engine (not `OCR_ENGINE=fake`), 3 synthetic screenshot-
+sized images (dense French/English text, matching the kind of content a
+real `browser_take_screenshot` capture would carry), 1 warmup call + 5
+timed reps each.
+
+**Result**: latency scales close to linearly with the number of detected
+text elements, not a fixed/negligible overhead — 94ms median at 2
+detections (320×100), 694ms at 15 (800×600), 1.30s at 30 (1280×800, ~43
+ms/detection). Extrapolating the same slope toward `OCR_MAX_ELEMENTS`'s
+default cap (80) suggests 2-3s on a text-dense real page — comparable in
+order of magnitude to a single TabbyAPI call, not a cost negligible in a
+tool-iteration budget.
+
+**Caveat, stated plainly**: this is an ad hoc probe (n=5/case, one
+machine, one session, no brief, no pre-declared judge) — informative
+enough to answer "what does a call cost", not a measurement campaign
+under this project's rules. Does not include the internal-network hop a
+real caller (`langgraph-agent`, over `agent-net`) would add on top
+(expected sub-millisecond on a Docker bridge network, not measured here).
+
+**Decision (explicit, user, this session): `ocr-service` is retained,
+not retired.** Justification given: needed for a future "full visual
+mode" activation (unspecified scope/timing) — the cost figures above are
+the reference point for that future work's own budget reasoning, not
+grounds for the decision itself. `docs/project-status.md`'s open question
+is now closed as "keep, future role pending" rather than "possible future
+role vs retirement, not decided."

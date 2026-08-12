@@ -676,9 +676,15 @@ pattern that IS detectable (a native PDF's entirely empty snapshot,
 `_flag_empty_snapshot`, same file). `mcp-client` suite 48→55 passed,
 `langgraph-agent` 471→466 (5 removed with the abandoned mechanism's
 tests). `ocr-service` stays deployed but now has zero callers in the
-codebase — an open question (possible future role vs. retirement), not
-decided in this pass. Full detail: docs/history.md, "PROBE VISUEL —
-SIGNAL BROWSER_SNAPSHOT".
+codebase. Full detail: docs/history.md, "PROBE VISUEL — SIGNAL
+BROWSER_SNAPSHOT".
+
+**Retain decision (2026-08-12)**: `ocr-service` kept, not retired — per-
+call cost probed first (`scripts/probe-ocr-cost.sh`, ad hoc n=5: 94ms/
+694ms/1.30s median at 2/15/30 detected text elements), then kept for a
+future "full visual mode" activation (scope/timing not yet defined). See
+docs/history.md, "EFFORT 3 FOLLOW-UP — OCR-SERVICE COST PROBE, RETAIN
+DECISION".
 
 **Restricted smoke (2026-08-11, n=3/task), Effort 3 now fully closed**:
 E1 3/3, E2 2/3, E3 3/3 (visual capture used in 0/3 — no capture-reflex
