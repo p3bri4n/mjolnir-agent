@@ -6228,11 +6228,45 @@ click, the disabled-gate case still yields exactly 1 block, the
 empty-snapshot hint fires on navigate when the appended block is blank).
 Full `mcp-client` suite 60→64 passed, 0 regressions.
 
-**Not done, deliberately**: no live campaign — needs Docker/GPU this
-sandbox doesn't have. Next command, ready to hand over: a targeted A1/A2
-smoke (`scripts/run-campaign.sh --suite v2 --tasks
-A1_reconciliation_croisee,A2_schema_references --reps 1`), read against
-the two judges declared together (turns/task down, tokens/task up per
-turn — net must be positive) plus CuP non-regression. Point 2 (bulk
-`browser_extract` adoption) not started — explicit stop before it, per
-the checkpoint decision above.
+**Live smoke (2026-08-12, user's machine), first attempt invalid —
+operational trap, same class already catalogued in CLAUDE.md ("Operational
+traps": a service code change requires `docker compose build <service>`
+before `up -d`, not a plain restart)**: `campaign-20260812T090806Z-
+benchmark-v2.json` (A1 1/1, A2 1/1) looked plausible (turns down ~1/task)
+but tokens rose instead of falling, an ambiguous read against the
+declared "both judges together" rule. Root-caused via the raw audit log,
+not guessed: `browser_navigate`'s own tool-result entry for that run
+still showed the OLD single-block dead-link shape
+(`"### Snapshot\n- [Snapshot](../../downloads/....yml)"`), and the model
+was still issuing its own separate `browser_snapshot` call right after —
+`mcp-client` was running the pre-fix image, never rebuilt after the code
+change. Verified directly (single `/call` probe against `mcp-client`,
+no campaign needed): 2 content blocks confirmed once
+`docker compose build mcp-client && docker compose up -d --force-recreate
+mcp-client` was actually run.
+
+**Live smoke re-run with the fix genuinely active
+(`campaign-20260812T092752Z-benchmark-v2.json`, A1 1/1, A2 1/1) — clean
+result, BOTH judges down together, stronger than the expected trade-off**:
+
+| | Before (avg of successes, N=1 baseline) | After (fix active) | Delta |
+|---|---|---|---|
+| A1 turns | 10 | 8 | **-2** |
+| A1 tokens | ~161 744 | 139 691 | **-22 053** |
+| A2 turns | 10.3 | 8 | **-2.3** |
+| A2 tokens | ~134 422 | 85 934 | **-48 488** |
+
+Confirmed mechanistically in the raw audit log, not just in the
+aggregate numbers: on both threads, every `browser_navigate`/
+`browser_click` tool-result entry now carries 2 content blocks, and the
+model issues ZERO separate `browser_snapshot` calls afterward — the
+targeted redundant round-trip is gone. Tokens fell rather than merely
+being offset, because eliminating a whole `call_llm` round-trip also
+removes that turn's own overhead (tool schema, system prompt resent),
+which outweighs the marginal size of the appended snapshot block. n=1,
+no statistical weight, but directionally clean and mechanistically
+explained, not just correlated. **Point 1 closed, live-verified.**
+
+Point 2 (bulk `browser_extract` adoption) not started — explicit stop
+before it, per the checkpoint decision above, still in effect pending
+the user's go-ahead.

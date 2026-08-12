@@ -748,7 +748,7 @@ checkpoint. Point 3 (form-filling composite) shelved, not a measured
 bottleneck. Full detail: docs/history.md, "SCAFFOLDING 3.1 —
 TOOL-CALL N-GRAM FREQUENCY ANALYSIS, CHECKPOINT DECISION".
 
-**Point 1 built, unit-tested, NOT live-measured.**
+**Point 1 built, unit-tested, live-verified, CLOSED.**
 `browser_click`/`browser_navigate` (`services/mcp-client/app/main.py`)
 now append a real `browser_snapshot` call's content to their own
 response, taken right after the existing post-action stabilization wait
@@ -757,12 +757,18 @@ as the single gate). Root cause confirmed against real audit-log
 entries: their prior response only referenced a snapshot file the agent
 had no tool to read. `langgraph-agent`'s truncation needed no change
 (already applies per-block, uniformly to any `browser_*` result,
-verified). `mcp-client` suite 60→64 passed, 0 regressions. Full detail:
-docs/history.md, "SCAFFOLDING 3.1, POINT 1 — BROWSER_CLICK/NAVIGATE
-RETURN RESULTING PAGE STATE, BUILT". **No live campaign** — needs
-Docker/GPU this sandbox doesn't have; next command ready to hand over:
-`scripts/run-campaign.sh --suite v2 --tasks
-A1_reconciliation_croisee,A2_schema_references --reps 1`, judged on
-turns/task + tokens/task read together (net must be positive) plus CuP
-non-regression. 🧑 **Stop after point 1, before point 2** — still in
-effect, point 2 not started.
+verified). `mcp-client` suite 60→64 passed, 0 regressions.
+
+**Live smoke (2026-08-12, A1/A2, n=1)**: a first attempt was invalid —
+`mcp-client` was still running the pre-fix image (operational trap,
+same class as CLAUDE.md's own "rebuild before restart" rule), caught by
+reading the raw audit log rather than trusting the aggregate numbers.
+Re-run with the fix genuinely active: **both judges down together**
+(A1: -2 turns/-22 053 tokens; A2: -2.3 turns/-48 488 tokens vs the N=1
+baseline), stronger than the expected trade-off — confirmed
+mechanistically, zero separate `browser_snapshot` calls left on either
+thread. 2/2 success, no regression. Full detail: docs/history.md,
+"SCAFFOLDING 3.1, POINT 1 — BROWSER_CLICK/NAVIGATE RETURN RESULTING
+PAGE STATE, BUILT". 🧑 **Stop before point 2 still in effect** — point 1
+is closed, point 2 (bulk `browser_extract` adoption) awaits the user's
+go-ahead.
