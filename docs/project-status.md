@@ -711,3 +711,25 @@ genuine vision misread of the screenshot's text (model reported
 defect — a different, downstream capability limit, outside this
 checkpoint. Full detail: docs/history.md, "PROBE VISUEL — SIGNAL
 BROWSER_SNAPSHOT".
+
+## Effort 4 — Scaffolding improvements (`docs/briefs/scaffolding-optimisation.md`)
+
+**Effort 2 (diff-based observation history) built, unit-tested, NOT
+measured live.** `HISTORY_DIFF_ENABLED` (default `false`): past
+`browser_*` tool results (all but the latest) are replaced, outbound to
+the LLM only, by a short structural diff against their nearest
+structural predecessor — URL change, affordances appeared/disappeared,
+an error-hint heuristic — instead of a repeated full snapshot.
+Harness-computed, no extra LLM call. Coverage counters (`history_diff_*`)
+threaded through the campaign harness/preflight/persistence from day
+one, per CLAUDE.md's trigger-rate-counter rule. 12 new unit tests, full
+`langgraph-agent` suite 479→491 passed, 0 regressions. Full detail:
+docs/history.md, "EFFORT 4 (scaffolding-optimisation.md, EFFORT 2) —
+DIFF-BASED OBSERVATION HISTORY, BUILT". **No live campaign, flag stays
+off** — 🧑 checkpoint per the brief, live measurement (and its
+sub-additivity read against `VERIFICATION_ENABLED`) is a separate,
+future step.
+
+Effort 3 (coarse-grained actions) not started — begins with a
+frequency analysis of the audit log's tool-call n-grams (brief's 3.1),
+not yet done.

@@ -6062,3 +6062,57 @@ future attempt needs its own restore-on-failure guard, same pattern as
 `scripts/probe-cache-size-headroom.sh`). `N_WORKERS` stays `1` by
 default, `tensor_parallel` stays unset (`false`) in `services/tabbyapi/
 config.yml`. Nothing changed in the repo by this entry.
+
+## EFFORT 4 (scaffolding-optimisation.md, EFFORT 2) — DIFF-BASED OBSERVATION HISTORY, BUILT
+
+`docs/briefs/scaffolding-optimisation.md`'s Effort 2 (natural-language
+change descriptions in place of repeated full snapshots) implemented
+against a plan reviewed and approved via Claude Code's plan mode, grounded
+in a direct read of `app/graph.py` rather than assumption — notably that
+a `ToolMessage` carries no tool name (identity resolved via the preceding
+`AIMessage.tool_calls`, same technique as `_previous_turn_tool_calls`)
+and that not every `browser_*`-tagged result is a real snapshot (the
+URL-fabrication/repeated-strategy guardrails and mcp-client errors all
+produce non-page-state text under the same tool name). Both facts
+verified against the actually pinned `langchain-openai==0.2.2`/
+`pydantic==2.9.2` (`langchain_core` resolves to `0.3.86`) before relying
+on `ToolMessage.model_copy`, per CLAUDE.md rule 8.
+
+`HISTORY_DIFF_ENABLED` (default `false`), `_apply_history_diff` (plus
+`_browser_result_text`/`_is_structural_browser_result`/
+`_diff_browser_observation`/`_browser_result_indices`), wired into
+`call_llm` right after `_apply_image_retention` — same transient-filter
+principle as image retention/episode compaction (new list, checkpointer/
+audit log never mutated). Each past `browser_*` result diffs against its
+nearest STRUCTURAL predecessor (URL change, affordances appeared/
+disappeared by kind+label identity, a lexical error-hint heuristic —
+honestly approximated, since the accessibility-tree snapshot carries no
+color/severity signal the brief's own illustrative example implies); a
+non-structural result (guardrail feedback, mcp-client error) is never
+used as a baseline and gets a fixed neutral marker instead; the first
+structural result gets a fixed "first observation" marker rather than a
+diff against nothing. Coverage counters (audit role `"history_diff"`,
+logged on EVERY `call_llm` call regardless of the flag, per CLAUDE.md's
+retroactive trigger-rate-counter rule) threaded through
+`test_web_tasks.py`/`test_web_tasks_v2.py` (new `history_diff_*` row
+fields, a "Diff hist." report column, an unconditional campaign-level
+coverage line — no threshold to gate on, unlike episode compaction, since
+the boundary here is structural not message-count-based),
+`campaign_preflight.py`'s `EXPECTED_AGENT_FLAGS`, `campaign_persistence.
+py`'s `CAMPAIGN_ENV_FLAGS`, and `docker-compose.yml`.
+
+12 new unit tests (`tests/test_history_diff.py`): flag off/too-few-results
+no-ops, past replaced/latest untouched, true `state["messages"]` never
+mutated (same length, no insert/delete), URL/affordance-appeared/
+affordance-disappeared facts, first-observation marker, non-structural
+result never used as a baseline, `tool_call_id` resolution on a turn
+mixing `browser_*` and non-`browser_*` calls, composition with image
+retention + episode compaction (including the case where episode
+compaction has already erased the only prior structural predecessor —
+no crash, no stale index). Full `langgraph-agent` suite 479→491 passed,
+0 regressions.
+
+**Not done, deliberately**: no campaign run, no flag flip anywhere — the
+brief's own checkpoint (🧑, after Effort 2) is a human decision on
+whether/when to measure this live, same discipline as every other
+conditional mechanism in this project.
