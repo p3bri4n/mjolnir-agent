@@ -808,19 +808,32 @@ async def call_tool(request: CallRequest):
     result = await _run_on_server(
         tool_info["server"], lambda s: s.call_tool(request.tool, arguments), request.worker_id
     )
+    extra_content = []
     if request.tool in _STABILIZE_AFTER_TOOLS and BROWSER_STABILIZE_WAIT_SECONDS > 0:
         await _run_on_server(
             "browser",
             lambda s: s.call_tool("browser_wait_for", {"time": BROWSER_STABILIZE_WAIT_SECONDS}),
             request.worker_id,
         )
+        # Tool design contract (CLAUDE.md): browser_navigate/browser_click's
+        # own response never contains the resulting page — only a
+        # "### Snapshot\n- [Snapshot](../../downloads/....yml)" reference to
+        # a file the agent has no tool to read (verified against the real
+        # audit log). A real browser_snapshot call, now that the page has
+        # stabilized, gives the actual resulting state instead of a dead
+        # reference — same _run_on_server dispatch already used for
+        # browser_extract/browser_inspect above.
+        snapshot_result = await _run_on_server(
+            "browser", lambda s: s.call_tool("browser_snapshot", {}), request.worker_id
+        )
+        extra_content = list(snapshot_result.content)
     # Captured for every "browser" tool (not just navigate/click): a
     # snapshot/extract/fill_form call is still "what the agent is looking
     # at" for the dashboard's purposes (docs/briefs/
     # campaign-visual-feedback.md, §1's DOM-first framing).
     if tool_info["server"] == "browser":
         await _maybe_capture_visual(request.thread_id, request.worker_id)
-    content_blocks = _rewrite_ref_error(result.content)
-    if request.tool == "browser_snapshot":
+    content_blocks = _rewrite_ref_error(list(result.content) + extra_content)
+    if request.tool == "browser_snapshot" or extra_content:
         content_blocks = _flag_empty_snapshot(content_blocks)
     return {"content": [block.model_dump() for block in content_blocks]}

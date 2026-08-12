@@ -779,6 +779,7 @@ def test_browser_navigate_triggers_stabilization_wait(monkeypatch):
     assert calls == [
         ("browser_navigate", {"url": "https://exemple.com"}),
         ("browser_wait_for", {"time": main_mod.BROWSER_STABILIZE_WAIT_SECONDS}),
+        ("browser_snapshot", {}),
     ]
 
 
@@ -792,7 +793,8 @@ def test_browser_click_triggers_stabilization_wait(monkeypatch):
     resp = _client().post("/call", json={"tool": "browser_click", "arguments": {"target": "e1"}})
 
     assert resp.status_code == 200
-    assert calls[-1] == ("browser_wait_for", {"time": main_mod.BROWSER_STABILIZE_WAIT_SECONDS})
+    assert calls[-2] == ("browser_wait_for", {"time": main_mod.BROWSER_STABILIZE_WAIT_SECONDS})
+    assert calls[-1] == ("browser_snapshot", {})
 
 
 def test_browser_snapshot_does_not_trigger_stabilization_wait(monkeypatch):
@@ -822,6 +824,98 @@ def test_stabilization_wait_disabled_via_zero_seconds(monkeypatch):
 
     assert resp.status_code == 200
     assert calls == [("browser_navigate", {"url": "https://exemple.com"})]
+
+
+def test_browser_navigate_response_includes_the_resulting_snapshot(monkeypatch):
+    """Tool design contract (CLAUDE.md): browser_navigate's own response
+    never contains the resulting page (only a dead file reference,
+    verified against the real audit log) — a real browser_snapshot call
+    after the stabilization wait must reach the response, not just be
+    called."""
+    import app.main as main_mod
+
+    main_mod._tool_registry.clear()
+    _register_fake_browser_tool(main_mod, "browser_navigate", ["url"])
+    _patch_run_on_server_recording(main_mod, monkeypatch)
+
+    resp = _client().post("/call", json={"tool": "browser_navigate", "arguments": {"url": "https://exemple.com"}})
+
+    assert resp.status_code == 200
+    content = resp.json()["content"]
+    assert len(content) == 2
+    assert content[0]["text"] == "ok:browser_navigate"
+    assert content[1]["text"] == "ok:browser_snapshot"
+
+
+def test_browser_click_response_includes_the_resulting_snapshot(monkeypatch):
+    import app.main as main_mod
+
+    main_mod._tool_registry.clear()
+    _register_fake_browser_tool(main_mod, "browser_click", ["target"])
+    _patch_run_on_server_recording(main_mod, monkeypatch)
+
+    resp = _client().post("/call", json={"tool": "browser_click", "arguments": {"target": "e1"}})
+
+    assert resp.status_code == 200
+    content = resp.json()["content"]
+    assert len(content) == 2
+    assert content[0]["text"] == "ok:browser_click"
+    assert content[1]["text"] == "ok:browser_snapshot"
+
+
+def test_browser_navigate_response_has_no_snapshot_when_stabilization_disabled(monkeypatch):
+    """Same single gate as the wait itself (BROWSER_STABILIZE_WAIT_SECONDS
+    == 0): no snapshot call, no extra content block — one off-switch, not
+    two independent ones."""
+    import app.main as main_mod
+
+    main_mod._tool_registry.clear()
+    _register_fake_browser_tool(main_mod, "browser_navigate", ["url"])
+    monkeypatch.setattr(main_mod, "BROWSER_STABILIZE_WAIT_SECONDS", 0.0)
+    _patch_run_on_server_recording(main_mod, monkeypatch)
+
+    resp = _client().post("/call", json={"tool": "browser_navigate", "arguments": {"url": "https://exemple.com"}})
+
+    assert resp.status_code == 200
+    content = resp.json()["content"]
+    assert len(content) == 1
+    assert content[0]["text"] == "ok:browser_navigate"
+
+
+def test_browser_navigate_gets_empty_snapshot_hint_when_appended_snapshot_is_blank(monkeypatch):
+    """_flag_empty_snapshot's gate, extended beyond request.tool ==
+    'browser_snapshot': a browser_navigate landing on an empty-snapshot
+    page (native PDF, see VP4/docs/history.md) must get the SAME redirect
+    hint a direct browser_snapshot call would have given — parity, not a
+    tool-name special case."""
+    import app.main as main_mod
+    from mcp.types import TextContent
+
+    main_mod._tool_registry.clear()
+    _register_fake_browser_tool(main_mod, "browser_navigate", ["url"])
+
+    class _NavigateThenEmptySnapshotSession:
+        async def call_tool(self, name, arguments):
+            class _Result:
+                pass
+
+            if name == "browser_snapshot":
+                _Result.content = [TextContent(type="text", text="### Snapshot\n```yaml\n\n```")]
+            else:
+                _Result.content = [TextContent(type="text", text=f"ok:{name}")]
+            return _Result()
+
+    async def fake_run_on_server(server_name, action, worker_id=None):
+        return await action(_NavigateThenEmptySnapshotSession())
+
+    monkeypatch.setattr(main_mod, "_run_on_server", fake_run_on_server)
+
+    resp = _client().post("/call", json={"tool": "browser_navigate", "arguments": {"url": "https://exemple.com"}})
+
+    assert resp.status_code == 200
+    content = resp.json()["content"]
+    assert content[0]["text"] == "ok:browser_navigate"
+    assert "browser_take_screenshot" in content[1]["text"]
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -1101,7 +1195,7 @@ def test_visual_capture_response_never_contains_the_screenshot_image_block(monke
     assert resp.status_code == 200
     content = resp.json()["content"]
     assert all(block.get("type") != "image" for block in content)
-    assert len(content) == 1
+    assert len(content) == 2  # confirmation block + the appended post-stabilization snapshot
     assert content[0]["type"] == "text"
     assert content[0]["text"] == "ok:browser_navigate"
     # The capture DID happen (side channel, on disk) — the test above is
@@ -1275,7 +1369,7 @@ def test_visual_capture_never_breaks_the_real_call_on_screenshot_failure(monkeyp
 
     assert resp.status_code == 200
     content = resp.json()["content"]
-    assert len(content) == 1
+    assert len(content) == 2  # confirmation block + the appended post-stabilization snapshot
     assert content[0]["type"] == "text"
     assert content[0]["text"] == "ok:browser_navigate"
     assert not (tmp_path / "abc123").exists()
