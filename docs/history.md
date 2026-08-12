@@ -6010,3 +6010,55 @@ the reference point for that future work's own budget reasoning, not
 grounds for the decision itself. `docs/project-status.md`'s open question
 is now closed as "keep, future role pending" rather than "possible future
 role vs retirement, not decided."
+
+## EFFORT 1.3 — N_WORKERS=2 SMOKE + TENSOR_PARALLEL CANDIDATE FOUND, CHANTIER DEFERRED
+
+Path (a) from the cache_size re-check's three open options, tried: same
+2-task smoke (A1+A2) that validated `cache_size`, `WEB_TASKS_WORKERS=2`
+instead of 3, `cache_size` left at 65536 (single variable). Result:
+`A2_schema_references` 1/1 (103.3s), `A1_reconciliation_croisee` 0/1
+(147.3s, `boucle` — a pre-existing near-floor failure mode already
+documented in the A1 trajectory diagnostic, not new evidence of an
+N-specific bug: the same sequential N=1 baseline itself shows A1 failing
+1/3 reps by the identical cause). Campaign wall-clock 147.7s vs the
+already-measured sequential baseline (170.5s) → **×1.15**, essentially
+indistinguishable from N=3's own ×1.10 given task-duration variance
+already observed across reps (A1 alone ranged 79-156s at fixed N=1).
+Real work volume (`campaign_prefill_stats`: 39 requests, 61.6s prefill,
+462k tokens) also lands within noise of the N=3 read (39 requests, 56.3s,
+444k tokens) — same order of magnitude regardless of N=2 vs N=3,
+reinforcing the compute-bound reading rather than resolving it. n=1/task,
+no statistical weight — informative, not decisive.
+
+**Web research, requested by the user, into a genuine unexplored lever**:
+TabbyAPI/ExLlamaV3 already does continuous batching + paged attention
+automatically — `max_batch_size` (`model:` section, default 32 for
+transformer architectures per the upstream `config_sample.yml`, absent
+from `services/tabbyapi/config.yml` hence at default) is nowhere near our
+2-3 concurrent tasks, ruled out as the constraint. The one real candidate
+found: `tensor_parallel` (`model:` section, default `false`, also absent
+from our config hence `false`) — makes both GPUs jointly compute each
+forward pass, unlike the current `gpu_split: [5, 14]` (VRAM/layer split
+only, one GPU computing at a time per request). Genuinely untried: not
+`cache_size`, not `N_WORKERS`.
+
+**Risk found alongside it, not just the upside**: an open, unresolved
+upstream issue (`turboderp-org/exllamav3#76`) reports `tensor_parallel:
+true` failing to even load the model on 2× IDENTICAL RTX 3060s — silent
+process death, no fix documented. Our pair (RTX 5060 Ti Blackwell + RTX
+4070 Ti SUPER Ada Lovelace) is architecturally mismatched, a strictly
+harder case than the one already failing upstream. Per CLAUDE.md rule 8,
+this also hasn't been cross-checked against the actually pinned image
+(digest `cbceb303...`) — only against upstream `main`'s
+`config_sample.yml`, which may have drifted. Not verified live, not
+attempted.
+
+**Chantier deferred, explicit user decision, before any of this was
+tried live.** None of the three original paths chosen; `tensor_parallel`
+added as a fourth candidate for whenever this resumes, flagged with its
+own real failure risk (unlike `cache_size`, a bad `tensor_parallel`
+attempt can take the whole model load down, not just waste VRAM — any
+future attempt needs its own restore-on-failure guard, same pattern as
+`scripts/probe-cache-size-headroom.sh`). `N_WORKERS` stays `1` by
+default, `tensor_parallel` stays unset (`false`) in `services/tabbyapi/
+config.yml`. Nothing changed in the repo by this entry.

@@ -398,6 +398,19 @@ fix), or revert `cache_size` to 49152 first. `N_WORKERS` stays `1` by
 default. Full detail: docs/history.md, "EFFORT 1.3 — CACHE_SIZE
 RE-CHECK: NO EFFECT, DECISION DEFERRED".
 
+**`N_WORKERS=2` smoke tried (2026-08-12): inconclusive, within noise of
+N=3's own ×1.10** (×1.15, n=1/task, same pre-existing A1 `boucle` failure
+mode as the sequential baseline). Web research into a genuine unexplored
+lever, `tensor_parallel` (joint multi-GPU compute vs the current
+`gpu_split`'s VRAM-only layer split) — found alongside a real risk: an
+open upstream issue reports it failing to load on identical GPUs, and
+ours are mismatched (harder case), not yet cross-checked against the
+pinned image. **Chantier deferred, explicit user decision — nothing
+chosen among the now four candidate paths, nothing changed in
+`services/tabbyapi/config.yml`.** Full detail: docs/history.md, "EFFORT
+1.3 — N_WORKERS=2 SMOKE + TENSOR_PARALLEL CANDIDATE FOUND, CHANTIER
+DEFERRED".
+
 **Effort 2 (factorial ablation of the cognitive-core flags) measured, at
 a checkpoint** — see docs/history.md, "EFFORT 2". All 8 coherent
 configurations of `PLANNER_ENABLED`/`VERIFICATION_ENABLED`/
