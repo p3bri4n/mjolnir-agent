@@ -742,11 +742,27 @@ principle recorded in `CLAUDE.md`** ("Tool design contract" — a tool
 that acts returns resulting state, not a bare acknowledgment; third
 confirmed occurrence after `browser_extract`'s dt/dd fix and
 `manage_plan`'s bare ack). **Decision**: no new composite tool this
-chantier. Point 1 (browser_click/navigate include their post-
-stabilization snapshot inline, reusing the existing stabilize wait) —
-being built next. Point 2 (push adoption of the existing
-`browser_extract` bulk mode via description/position, not a new tool)
-queued after point 1's checkpoint. Point 3 (form-filling composite)
-shelved, not a measured bottleneck. Full detail: docs/history.md,
-"SCAFFOLDING 3.1 — TOOL-CALL N-GRAM FREQUENCY ANALYSIS, CHECKPOINT
-DECISION". 🧑 Stop after point 1, before point 2.
+chantier. Point 2 (push adoption of the existing `browser_extract` bulk
+mode via description/position, not a new tool) queued after point 1's
+checkpoint. Point 3 (form-filling composite) shelved, not a measured
+bottleneck. Full detail: docs/history.md, "SCAFFOLDING 3.1 —
+TOOL-CALL N-GRAM FREQUENCY ANALYSIS, CHECKPOINT DECISION".
+
+**Point 1 built, unit-tested, NOT live-measured.**
+`browser_click`/`browser_navigate` (`services/mcp-client/app/main.py`)
+now append a real `browser_snapshot` call's content to their own
+response, taken right after the existing post-action stabilization wait
+— no new tool, no new env var (reuses `BROWSER_STABILIZE_WAIT_SECONDS`
+as the single gate). Root cause confirmed against real audit-log
+entries: their prior response only referenced a snapshot file the agent
+had no tool to read. `langgraph-agent`'s truncation needed no change
+(already applies per-block, uniformly to any `browser_*` result,
+verified). `mcp-client` suite 60→64 passed, 0 regressions. Full detail:
+docs/history.md, "SCAFFOLDING 3.1, POINT 1 — BROWSER_CLICK/NAVIGATE
+RETURN RESULTING PAGE STATE, BUILT". **No live campaign** — needs
+Docker/GPU this sandbox doesn't have; next command ready to hand over:
+`scripts/run-campaign.sh --suite v2 --tasks
+A1_reconciliation_croisee,A2_schema_references --reps 1`, judged on
+turns/task + tokens/task read together (net must be positive) plus CuP
+non-regression. 🧑 **Stop after point 1, before point 2** — still in
+effect, point 2 not started.

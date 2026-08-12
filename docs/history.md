@@ -6181,3 +6181,58 @@ composite candidate.
   improve existing tools; the catalog does not grow.
 
 🧑 **Stop after point 1, before point 2** — explicit, this session.
+
+## SCAFFOLDING 3.1, POINT 1 — BROWSER_CLICK/NAVIGATE RETURN RESULTING PAGE STATE, BUILT
+
+Point 1 of the checkpoint decision above, implemented against a plan
+reviewed and approved via Claude Code's plan mode. Root cause confirmed
+by reading real audit-log entries directly (`workspace/.audit/*.jsonl`),
+not assumed: `browser_navigate`/`browser_click`'s own response never
+contains the resulting page — only a
+`"### Snapshot\n- [Snapshot](../../downloads/....yml)"` reference to a
+file the agent has no tool to read, unlike a direct `browser_snapshot`
+call, which embeds the real accessibility tree inline. Playwright MCP's
+own upstream design choice (separate concerns: a lightweight action
+confirmation vs. a dedicated full-tree tool), not a bug in this
+project's code — the gap is that nothing bridges the two for the
+calling agent.
+
+**Fix** (`services/mcp-client/app/main.py`, `call_tool()`): right after
+the existing `_STABILIZE_AFTER_TOOLS`/`BROWSER_STABILIZE_WAIT_SECONDS`
+post-action wait (unchanged, reused as the SAME single gate — no new env
+var), a real `browser_snapshot` call is dispatched via the same
+`_run_on_server` helper already used for `browser_extract`/
+`browser_inspect`'s internal dispatch, and its content blocks are
+appended to the response before `_rewrite_ref_error` runs, so both
+blocks go through the same existing rewriting uniformly.
+`_flag_empty_snapshot`'s gate extended from `request.tool ==
+"browser_snapshot"` to also fire whenever a snapshot block was actually
+appended — parity: a `browser_navigate` landing on an empty/native-PDF
+page now gets the same redirect hint a direct `browser_snapshot` call
+already gave.
+
+**No `langgraph-agent` code change required** — verified, not assumed:
+`_truncate_browser_result` (`app/graph.py:336`) already applies
+unconditionally to every `browser_*`-named result and operates PER
+CONTENT BLOCK, so the appended snapshot block receives the identical
+structured truncation/affordance-prioritization treatment a standalone
+`browser_snapshot` call's block already gets, for free.
+
+**Tests**: 4 existing tests updated (2 stabilization-wait call-list
+assertions extended to include the new `browser_snapshot` call, 2
+visual-capture tests' `len(content) == 1` corrected to `2` — the
+actually-critical assertion in both, that a screenshot image block never
+leaks into this response, is untouched and still passes) plus 4 new
+tests (snapshot content reaches the response for both navigate and
+click, the disabled-gate case still yields exactly 1 block, the
+empty-snapshot hint fires on navigate when the appended block is blank).
+Full `mcp-client` suite 60→64 passed, 0 regressions.
+
+**Not done, deliberately**: no live campaign — needs Docker/GPU this
+sandbox doesn't have. Next command, ready to hand over: a targeted A1/A2
+smoke (`scripts/run-campaign.sh --suite v2 --tasks
+A1_reconciliation_croisee,A2_schema_references --reps 1`), read against
+the two judges declared together (turns/task down, tokens/task up per
+turn — net must be positive) plus CuP non-regression. Point 2 (bulk
+`browser_extract` adoption) not started — explicit stop before it, per
+the checkpoint decision above.
