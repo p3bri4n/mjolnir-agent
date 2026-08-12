@@ -6360,3 +6360,34 @@ Live smoke not yet obtained with the mechanism genuinely active and the
 flag genuinely confirmed — next step for whoever resumes this: rebuild,
 verify `docker exec langgraph-agent env | grep HISTORY_DIFF_ENABLED`
 shows `true` BEFORE running the campaign, then the same A1/A2 smoke.
+
+**Third attempt, clean this time** (`campaign-20260812T095749Z-history-
+diff-smoke-v2.json`): `langgraph-agent` image digest confirmed different
+from the stale one (`sha256:435a2e72...` vs `sha256:b8295d06...`),
+`env_flags.HISTORY_DIFF_ENABLED: true`, and real, non-trivial coverage
+this time — A1 13 browser messages max / 12 replacements applied / 78
+messages compressed total; A2 7 max / 6 applied / 21 compressed. Not a
+flattering zero.
+
+**Result, vs. this morning's clean point-1-only baseline
+(`campaign-20260812T092752Z-benchmark-v2.json`)**:
+
+| | A1 | A2 |
+|---|---|---|
+| turns | 8 → 9 (+1) | 8 → 8 (=) |
+| tokens | 139 691 → 140 058 (≈ flat, +0.3%) | 85 934 → 68 168 (**-20.7%**) |
+| duration | 97.6s → 114.0s (+16.4s) | 41.6s → 50.6s (+9s) |
+
+2/2 success, no regression. **Mixed, not decisive**: A2 shows a real
+token reduction with no turn cost; A1 shows essentially nothing (even
+one extra turn). Duration rose modestly on both, plausibly the diff
+computation's own cost or plain noise (these two tasks' duration
+variance was already ±10-30s run-to-run before any of today's changes).
+n=1/task, no statistical weight — reads as the brief's own "differences
+within noise" case: point 1 already reduced A1/A2 to 8-9 turns each,
+leaving comparatively little redundant history left for this mechanism
+to compress on these SPECIFIC short tasks. **Decision: flag stays off,
+no further action this session** — a longer task (A4, historically
+19-41 messages) would give the mechanism more to work with and is the
+natural next candidate if this gets revisited, but that is not decided
+here.

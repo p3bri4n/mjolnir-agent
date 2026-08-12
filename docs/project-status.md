@@ -725,17 +725,25 @@ threaded through the campaign harness/preflight/persistence from day
 one, per CLAUDE.md's trigger-rate-counter rule. 12 new unit tests, full
 `langgraph-agent` suite 479→491 passed, 0 regressions. Full detail:
 docs/history.md, "EFFORT 4 (scaffolding-optimisation.md, EFFORT 2) —
-DIFF-BASED OBSERVATION HISTORY, BUILT". **Live smoke attempted, not yet
-obtained**: two operational-trap attempts (stale `langgraph-agent`
-image showing a clean-looking but empty result, then a preflight-
-refused sequencing slip) — see docs/history.md, "HISTORY-DIFF LIVE
-SMOKE — STALE IMAGE, THEN PREFLIGHT CORRECTLY REFUSED". New general
-rule recorded in `CLAUDE.md` ("Operational traps"): a code change needs
-`docker compose build <service>` before `up -d --force-recreate`, not
-`--force-recreate` alone — hit on two different services in one
-session. Flag stays off pending a clean re-attempt. 🧑 checkpoint per
-the brief, live measurement (and its sub-additivity read against
-`VERIFICATION_ENABLED`) still a separate, future step.
+DIFF-BASED OBSERVATION HISTORY, BUILT". **Live smoke obtained on the
+third attempt** — first two hit an operational trap (stale
+`langgraph-agent` image showing a clean-looking but empty result, then a
+preflight-refused sequencing slip; new general rule recorded in
+`CLAUDE.md`, "Operational traps": a code change needs `docker compose
+build <service>` before `up -d --force-recreate`, not `--force-recreate`
+alone — hit on two different services in one session). Third attempt
+confirmed genuinely active (different image digest, real non-flattering
+coverage: A1 78 messages compressed, A2 21). **Result mixed, not
+decisive**: vs. the point-1-only baseline, A2 tokens -20.7% at no turn
+cost, A1 essentially flat (+1 turn, tokens +0.3%); duration up modestly
+on both. 2/2 success, no regression. n=1/task, no statistical weight —
+reads as the brief's own "differences within noise" case, plausibly
+because point 1 already left little redundant history on these short
+(8-9 turn) tasks for this mechanism to compress. **Decision: flag stays
+off, no further action this session.** A longer task (A4) is the natural
+next candidate if revisited, not decided here. Full detail:
+docs/history.md, "HISTORY-DIFF LIVE SMOKE — STALE IMAGE, THEN PREFLIGHT
+CORRECTLY REFUSED".
 
 **Effort 3, point 3.1 (frequency analysis) done, checkpoint decided.**
 `scripts/analyze-tool-call-ngrams.sh` (archives-only, no docker/GPU) run
