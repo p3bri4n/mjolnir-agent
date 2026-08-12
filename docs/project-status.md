@@ -769,6 +769,24 @@ baseline), stronger than the expected trade-off — confirmed
 mechanistically, zero separate `browser_snapshot` calls left on either
 thread. 2/2 success, no regression. Full detail: docs/history.md,
 "SCAFFOLDING 3.1, POINT 1 — BROWSER_CLICK/NAVIGATE RETURN RESULTING
-PAGE STATE, BUILT". 🧑 **Stop before point 2 still in effect** — point 1
-is closed, point 2 (bulk `browser_extract` adoption) awaits the user's
-go-ahead.
+PAGE STATE, BUILT". Point 1 closed.
+
+**Point 2 CLOSED — premise was already false, no work done.** Checking
+the two live A1 audit threads used to verify point 1: `browser_extract`
+bulk mode (`urls=[...]`) is already used 6-8 times per run, same pattern
+as A2. Already documented before this session in `docs/history.md`, "A1
+— TRAJECTORY DIAGNOSTIC": *"A1 already uses bulk, on every one of the 6
+runs."* — the checkpoint decision's "A1 never chose it" framing was
+carried over without re-checking it, and `scripts/analyze-tool-call-
+ngrams.sh` (point 3.1) can't see `browser_extract` at all (confirmed:
+0 occurrences ever in the audit log's `"tool"`-keyed entries — a known,
+already-documented blind spot from family E, not cross-checked before
+writing that script). No description/position change made — there is
+no adoption gap. Full detail: docs/history.md, "SCAFFOLDING 3.1, POINT
+2 — CLOSED, PREMISE ALREADY FALSE".
+
+**Effort 3 of `docs/briefs/scaffolding-optimisation.md` (coarse-grained
+actions) now fully closed**: point 1 shipped and live-verified, point 2
+closed as a non-problem, point 3 (form-filling composite) shelved
+(not a measured bottleneck). No new composite tool built — the
+catalog did not grow, per the checkpoint decision's own point 4.

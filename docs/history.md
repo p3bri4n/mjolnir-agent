@@ -6267,6 +6267,53 @@ which outweighs the marginal size of the appended snapshot block. n=1,
 no statistical weight, but directionally clean and mechanistically
 explained, not just correlated. **Point 1 closed, live-verified.**
 
-Point 2 (bulk `browser_extract` adoption) not started — explicit stop
-before it, per the checkpoint decision above, still in effect pending
-the user's go-ahead.
+## SCAFFOLDING 3.1, POINT 2 — CLOSED, PREMISE ALREADY FALSE
+
+Point 2's stated premise ("A1 ne l'a jamais choisi" — bulk
+`browser_extract` never adopted on A1) does not hold, and hadn't held
+since before this session started. Investigating the two live A1 audit
+threads used to verify point 1 (both the invalid pre-fix run and the
+clean post-fix run), `browser_extract` with `urls=[...]` appears 6-8
+times per run, opening with the same pattern as A2 (paginate the
+catalog list, then bulk-extract category/price across all 30 product
+pages) — never a page-by-page crawl.
+
+This is not a new finding: `docs/history.md`, "A1 — TRAJECTORY
+DIAGNOSTIC" (Effort 2 era, predates this session) already states it
+explicitly: **"Strategy — corrects a premise: A1 already uses bulk, on
+every one of the 6 runs."** That diagnostic identified A1's real
+bottleneck as something else entirely — `browser_extract` returning a
+matched field's LABEL but not its VALUE for `dt`/`dd` pairs, which A2
+routes around via one `browser_run_code_unsafe` call and A1 (at the
+time) didn't. That specific gap is itself already closed: `EFFORT 2.3`'s
+`adjacent_value` fix (`_BROWSER_EXTRACT_BULK_JS_TEMPLATE`,
+`services/mcp-client/app/main.py`) is live in the current code, verified
+by direct reading this session.
+
+**Why this was missed when point 2 was scoped**: `scripts/
+analyze-tool-call-ngrams.sh` (point 3.1's own frequency analysis) has a
+blind spot — `browser_extract`/`browser_inspect` are NEVER logged as
+`"tool"`-keyed audit entries, confirmed across the entire archive (0
+occurrences in 18 files). This matches an already-documented limitation
+from family E ("audit log structurally blind to the read-tier tools
+actually used — browser_extract never logged by design"), not
+cross-checked before writing the n-gram script. The script can positively
+confirm click/navigate/snapshot volume, but says nothing about
+`browser_extract` usage, adopted or not — the checkpoint decision's "A1
+never chose it" framing was carried over from an older source without
+re-verifying it against this script's own (silent) coverage gap.
+Bulk-mode adoption is only checkable via `kind="message"`,
+`role="assistant"` entries' own `content.tool_calls` (the model's
+PROPOSED calls), not the `"tool"`-keyed execution entries the n-gram
+script filters on.
+
+**Decision (user, this session): point 2 closed, no work done.** No
+description/position change — there is no adoption gap to fix. The
+script's `browser_extract` blind spot is noted as a known limitation,
+not fixed here (no active question currently depends on it; revisit if
+a future frequency analysis needs `browser_extract`/`browser_inspect`
+coverage). Effort 3 of `docs/briefs/scaffolding-optimisation.md` (coarse-
+grained actions) is now fully closed: point 1 shipped and live-verified,
+point 2 closed as a non-problem, point 3 (form-filling composite)
+shelved per the original checkpoint decision, no new composite tool
+built in this chantier — matching the decision's own point 4.
