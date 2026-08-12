@@ -415,6 +415,21 @@ class TaskResult:
         # docs/campaigns/2026-07-28_campaign_episode-compaction-enabled.md.
         self.episode_compaction_messages_max = 0
         self.episode_compaction_applied_count = 0
+        # History diff coverage judge (Effort 2, docs/briefs/scaffolding-
+        # optimisation.md; see app/graph.py, call_llm's role="history_diff"
+        # audit entry, logged on EVERY call_llm regardless of
+        # HISTORY_DIFF_ENABLED): history_diff_browser_messages_max is this
+        # run's peak count of browser_* results in the TRUE history (the
+        # opportunity size, flag-independent); history_diff_applied_count
+        # is how many call_llm invocations actually replaced at least one
+        # past message; history_diff_messages_replaced is the total number
+        # of messages replaced across the whole run (the token-savings
+        # proxy). Same discipline as episode_compaction_* above — a
+        # coverage judge from day one, not bolted on after a campaign
+        # comes back unreadable.
+        self.history_diff_browser_messages_max = 0
+        self.history_diff_applied_count = 0
+        self.history_diff_messages_replaced = 0
         # Planner/validation/judge coverage counters (EFFORT 2 "judge
         # validity check", see docs/history.md): symmetric to
         # verification_opportunities/exploitable above — plan_task,
@@ -504,6 +519,7 @@ def run_task(prompt: str, worker_id: str = None) -> TaskResult:
     tool_call_entries = [e for e in entries if e.get("kind") is None]
     verification_entries = [e for e in entries if e.get("kind") == "message" and e.get("role") == "verification"]
     compaction_entries = [e for e in entries if e.get("kind") == "message" and e.get("role") == "episode_compaction"]
+    history_diff_entries = [e for e in entries if e.get("kind") == "message" and e.get("role") == "history_diff"]
     result.tool_calls_observed = result.approvals + len(tool_call_entries)
     result.verification_opportunities = len(verification_entries)
     result.verification_exploitable = sum(
@@ -515,6 +531,16 @@ def run_task(prompt: str, worker_id: str = None) -> TaskResult:
         )
     result.episode_compaction_applied_count = sum(
         1 for e in compaction_entries if (e.get("content") or {}).get("compacted")
+    )
+    if history_diff_entries:
+        result.history_diff_browser_messages_max = max(
+            (e.get("content") or {}).get("browser_messages_count", 0) for e in history_diff_entries
+        )
+    result.history_diff_messages_replaced = sum(
+        (e.get("content") or {}).get("messages_replaced", 0) for e in history_diff_entries
+    )
+    result.history_diff_applied_count = sum(
+        1 for e in history_diff_entries if (e.get("content") or {}).get("messages_replaced", 0) > 0
     )
     # Planner/validation/judge coverage (EFFORT 2 "judge validity check",
     # see docs/history.md and the TaskResult docstring above). planning
@@ -1224,6 +1250,9 @@ def _run_campaign(resume_cid: str = None):
             "final_text": result.final_text,
             "episode_compaction_messages_max": result.episode_compaction_messages_max,
             "episode_compaction_applied_count": result.episode_compaction_applied_count,
+            "history_diff_browser_messages_max": result.history_diff_browser_messages_max,
+            "history_diff_applied_count": result.history_diff_applied_count,
+            "history_diff_messages_replaced": result.history_diff_messages_replaced,
             # B2 Part 3.1/3.2: needed by _write_report() to break down
             # cache-sensitive metrics per segment rather than pooling them
             # across a pause boundary (a fresh segment starts cold-cache
@@ -1375,8 +1404,8 @@ def _write_report(rows: list) -> None:
         "de test_web_tasks.py pour la méthode de sous-classification "
         "boucle_fabrication/boucle_budget.",
         "",
-        "| Tâche | Succès | Approbations (moy.) | Tool calls observés (moy.) | Couverture constats | Prefill total (s) | Cache=0 | Tokens prompt (total) | Durée (moy., s) | Messages max | Compactions | Causes d'échec |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "| Tâche | Succès | Approbations (moy.) | Tool calls observés (moy.) | Couverture constats | Prefill total (s) | Cache=0 | Tokens prompt (total) | Durée (moy., s) | Messages max | Compactions | Diff hist. (msg remplacés) | Causes d'échec |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     total_ok = 0
     total_n = 0
@@ -1388,6 +1417,8 @@ def _write_report(rows: list) -> None:
     total_prompt_tokens = 0
     total_threshold_crossed = 0
     total_compactions_applied = 0
+    total_history_diff_applied = 0
+    total_history_diff_replaced = 0
     for task_id, task_rows in by_task.items():
         n_ok = sum(1 for r in task_rows if r["success"])
         n = len(task_rows)
@@ -1428,10 +1459,14 @@ def _write_report(rows: list) -> None:
         task_compactions_applied = sum(r["episode_compaction_applied_count"] for r in task_rows)
         total_threshold_crossed += task_threshold_crossed
         total_compactions_applied += task_compactions_applied
+        task_history_diff_applied = sum(r["history_diff_applied_count"] for r in task_rows)
+        task_history_diff_replaced = sum(r["history_diff_messages_replaced"] for r in task_rows)
+        total_history_diff_applied += task_history_diff_applied
+        total_history_diff_replaced += task_history_diff_replaced
         lines.append(
             f"| {task_id} | {n_ok}/{n} | {avg_approvals:.1f} | {avg_tool_calls:.1f} | "
             f"{coverage_str} | {task_prefill:.1f} | {cache_zero_str} | {task_prompt_tokens} | {avg_duration:.1f} | "
-            f"{task_messages_max} | {task_compactions_applied} | {causes_str} |"
+            f"{task_messages_max} | {task_compactions_applied} | {task_history_diff_replaced} | {causes_str} |"
         )
 
     lines.insert(3, f"**Score de campagne : {total_ok}/{total_n} passages réussis.**")
@@ -1475,14 +1510,27 @@ def _write_report(rows: list) -> None:
     # 2026-07-28_campaign_episode-compaction-enabled.md, requalified
     # "non concluant" after this judge was added retroactively from
     # archives).
+    next_coverage_slot = 7 if total_tabbyapi_requests else 6
     if compaction_threshold is not None:
         crossed_pct = 100 * total_threshold_crossed / total_n if total_n else 0
         lines.insert(
-            7 if total_tabbyapi_requests else 6,
+            next_coverage_slot,
             f"**Couverture compaction d'épisode : {total_threshold_crossed}/{total_n} runs "
             f"au-delà du seuil ({compaction_threshold} messages, {crossed_pct:.0f}%), "
             f"{total_compactions_applied} compaction(s) effectivement appliquée(s).**",
         )
+        next_coverage_slot += 1
+    # Coverage judge for history diff (Effort 2, docs/briefs/scaffolding-
+    # optimisation.md; see app/graph.py call_llm's role="history_diff"
+    # audit entry, logged on EVERY call_llm regardless of
+    # HISTORY_DIFF_ENABLED): unconditional, no threshold to gate on — the
+    # mechanism's boundary is structural ("not the latest browser_*
+    # result"), not message-count-based.
+    lines.insert(
+        next_coverage_slot,
+        f"**Couverture diff d'historique : {total_history_diff_applied}/{total_n} runs avec "
+        f"au moins 1 remplacement, {total_history_diff_replaced} message(s) remplacé(s) au total.**",
+    )
     # Segment breakdown (B2 Part 3.1/3.2, docs/briefs/B2-campaign-control.md):
     # a paused-and-resumed campaign is NOT a continuous campaign — each
     # segment restarts tabbyapi, emptying the prefix cache, so pooling
@@ -1544,13 +1592,19 @@ def _write_report(rows: list) -> None:
             if r["episode_compaction_messages_max"]
             else ""
         )
+        history_diff_note = (
+            f", browser_msgs_max={r['history_diff_browser_messages_max']}, "
+            f"diff_remplacés={r['history_diff_messages_replaced']}"
+            if r["history_diff_browser_messages_max"]
+            else ""
+        )
         segment_note = f", segment={r.get('segment', 0)}" if len(segment_ids) > 1 else ""
         lines.append(
             f"- {status} `{r['task_id']}` #{r['repetition']} — {r['detail']} "
             f"(approbations={r['approvals']}, tool_calls_observés={r['tool_calls_observed']}, "
             f"durée={r['duration_seconds']}s"
             f"{', cause=' + r['failure_cause'] if r['failure_cause'] else ''}{fabricated_note}"
-            f"{coverage_note}{prefill_note}{compaction_note}{segment_note})"
+            f"{coverage_note}{prefill_note}{compaction_note}{history_diff_note}{segment_note})"
         )
 
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)

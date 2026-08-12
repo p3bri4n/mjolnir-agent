@@ -57,7 +57,7 @@ from urllib.parse import urljoin
 
 import httpx
 import langchain_openai.chat_models.base as _openai_base
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 from PIL import Image
 from langgraph.checkpoint.memory import MemorySaver
@@ -453,6 +453,17 @@ IMAGE_RETENTION_PLACEHOLDER = "[screenshot antérieure supprimée]"
 # value.
 EPISODE_COMPACTION_ENABLED = os.environ.get("EPISODE_COMPACTION_ENABLED", "false").lower() == "true"
 EPISODE_COMPACTION_TURN_THRESHOLD = int(os.environ.get("EPISODE_COMPACTION_TURN_THRESHOLD", "40"))
+
+# History diff (Effort 2, docs/briefs/scaffolding-optimisation.md): same
+# transient-filter principle as image retention/episode compaction above
+# (only what's sent to the LLM, never the checkpointer/audit log) — every
+# PAST browser_* tool result (all but the most recent) is replaced by a
+# short structural diff against its nearest predecessor, instead of a
+# repeated full snapshot. No threshold var: unlike episode compaction the
+# boundary here is structural ("not the latest"), not a message count.
+# Ships OFF by default; flip only after its own single-variable
+# validation campaign (CLAUDE.md, Measured behavior).
+HISTORY_DIFF_ENABLED = os.environ.get("HISTORY_DIFF_ENABLED", "false").lower() == "true"
 
 # Planner node (Iteration 1, Phase 1 "cognitive core" — see
 # docs/briefs/phase-1-coeur-cognitif.md). DEFAULT FLIPPED BACK TO false
@@ -1878,6 +1889,138 @@ def _apply_episode_compaction(messages: list, plan: list, subtask_message_start:
     return compacted
 
 
+_HISTORY_DIFF_MARKER = "[Observation compactée]"
+
+# Lexical approximation of "an error-like message appeared" — the
+# accessibility-tree snapshot carries no color/severity signal, so this
+# is honestly a keyword heuristic, not a real error-detection capability.
+_ERROR_HINT_RE = re.compile(
+    r"\b(erreur|error|invalide|invalid|échec|echec|failed|obligatoire|required|manquant|missing)\b",
+    re.IGNORECASE,
+)
+
+
+def _browser_result_text(result: dict) -> str:
+    """Concatenated text blocks of a browser_* tool result dict — the same
+    surface _extract_page_url/_extract_affordances_structured already
+    parse, reused here rather than a new snapshot parser."""
+    content = result.get("content")
+    if not isinstance(content, list):
+        return ""
+    return "\n".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
+
+
+def _is_structural_browser_result(text: str) -> bool:
+    """True if `text` looks like a real page snapshot (a URL line or at
+    least one affordance) rather than synthetic feedback — a guardrail
+    rejection (_fabrication_feedback/_repeated_strategy_feedback) or an
+    mcp-client error carries no page state to diff against."""
+    return bool(_extract_page_url(text)) or bool(_extract_affordances_structured(text))
+
+
+def _diff_browser_observation(prev_result: dict, curr_result: dict) -> str:
+    """
+    Structural, harness-computed diff between two consecutive STRUCTURAL
+    browser_* results (Effort 2, docs/briefs/scaffolding-optimisation.md)
+    — no LLM call, reuses the existing snapshot parsers. Grounded in what
+    the accessibility-tree snapshot actually exposes: URL change,
+    affordances appeared/disappeared (kind+label identity — no existing
+    helper exposes element VALUES, so a value-only change on an
+    unchanged label is invisible here), and a lexical error-hint heuristic
+    (see _ERROR_HINT_RE, not a real severity/color signal).
+    """
+    prev_text, curr_text = _browser_result_text(prev_result), _browser_result_text(curr_result)
+    facts = []
+
+    prev_url, curr_url = _extract_page_url(prev_text), _extract_page_url(curr_text)
+    if curr_url and curr_url != prev_url:
+        facts.append(f"URL changée ({prev_url or 'inconnue'} → {curr_url})")
+
+    prev_keys = {(i["kind"], i["label"]) for i in _extract_affordances_structured(prev_text)}
+    curr_keys = {(i["kind"], i["label"]) for i in _extract_affordances_structured(curr_text)}
+    for label, keys in (("apparu(s)", curr_keys - prev_keys), ("disparu(s)", prev_keys - curr_keys)):
+        if keys:
+            sample = ", ".join(f'{kind} "{name}"' for kind, name in list(keys)[:5])
+            more = f" (+{len(keys) - 5} autres)" if len(keys) > 5 else ""
+            facts.append(f"{label} : {sample}{more}")
+
+    if _ERROR_HINT_RE.search(curr_text) and not _ERROR_HINT_RE.search(prev_text):
+        facts.append("nouveau texte évoquant une erreur")
+
+    if not facts:
+        return f"{_HISTORY_DIFF_MARKER} aucun changement structurel détecté depuis l'observation précédente."
+    return f"{_HISTORY_DIFF_MARKER} " + " ; ".join(facts) + "."
+
+
+def _browser_result_indices(messages: list) -> list:
+    """Indices of every browser_* ToolMessage in `messages` — a
+    ToolMessage carries no tool name, so identity is resolved via the
+    preceding AIMessage's tool_calls (same technique as
+    _previous_turn_tool_calls). Shared by _apply_history_diff and its
+    unconditional coverage judge in call_llm."""
+    id_to_name = {
+        tc.get("id"): tc.get("name")
+        for m in messages
+        if getattr(m, "type", None) == "ai"
+        for tc in (getattr(m, "tool_calls", None) or [])
+    }
+    return [
+        i
+        for i, m in enumerate(messages)
+        if getattr(m, "type", None) == "tool"
+        and (id_to_name.get(getattr(m, "tool_call_id", None)) or "").startswith("browser_")
+    ]
+
+
+def _apply_history_diff(messages: list) -> list:
+    """
+    Replaces every PAST browser_* tool result (all but the most recent)
+    in the outbound copy with a short structural diff against its
+    nearest STRUCTURAL predecessor (_diff_browser_observation) — same
+    transient-filter principle as _apply_image_retention/
+    _apply_episode_compaction (new list, checkpointer never touched,
+    SAME LENGTH: only ToolMessage.content is replaced, never
+    inserted/removed, so subtask_message_start indices computed on the
+    raw history stay valid regardless of filter order). A non-structural
+    past result (guardrail feedback, mcp-client error) is never used as a
+    diff baseline and gets a fixed neutral note instead of a fabricated
+    comparison; the first structural result gets a fixed "first
+    observation" note rather than a diff against nothing (which would
+    just relist everything as "appeared"). No-op if disabled or fewer
+    than 2 browser_* results exist (nothing "past" to compact yet).
+    """
+    if not HISTORY_DIFF_ENABLED:
+        return messages
+    browser_indices = _browser_result_indices(messages)
+    if len(browser_indices) <= 1:
+        return messages
+
+    filtered = list(messages)
+    last_structural_result = None
+    for pos, idx in enumerate(browser_indices):
+        is_latest = pos == len(browser_indices) - 1
+        try:
+            result = json.loads(messages[idx].content)
+        except (json.JSONDecodeError, TypeError):
+            result = {}
+        text = _browser_result_text(result)
+        structural = _is_structural_browser_result(text)
+        if not is_latest:
+            if not structural:
+                replacement = (
+                    f"{_HISTORY_DIFF_MARKER} pas de page renvoyée à ce tour "
+                    "(action bloquée ou erreur) — aucun changement de page à signaler."
+                )
+            elif last_structural_result is None:
+                replacement = f"{_HISTORY_DIFF_MARKER} première observation de la page (remplacée par les tours suivants)."
+            else:
+                replacement = _diff_browser_observation(last_structural_result, result)
+            filtered[idx] = messages[idx].model_copy(update={"content": replacement})
+        if structural:
+            last_structural_result = result
+    return filtered
+
+
 def _previous_turn_tool_calls(messages: list) -> Optional[list]:
     """Last AI message with tool_calls in the history — the turn that led to this call_llm invocation."""
     for message in reversed(messages):
@@ -2062,6 +2205,25 @@ async def call_llm(state: AgentState, config: dict) -> dict:
         )
     ] + compacted_messages
     messages_for_llm = _apply_image_retention(messages_for_llm)
+    history_diffed = _apply_history_diff(messages_for_llm)
+    # Coverage judge for history diff (Effort 2, docs/briefs/
+    # scaffolding-optimisation.md): logged on EVERY call_llm invocation,
+    # regardless of HISTORY_DIFF_ENABLED — same discipline as episode
+    # compaction above, per CLAUDE.md's trigger-rate-counter rule.
+    # browser_messages_count is computed on RAW state["messages"] (the
+    # true opportunity size, independent of episode compaction);
+    # messages_replaced is computed on messages_for_llm (the actual
+    # effect of this call, downstream of episode compaction if both are
+    # ever enabled together).
+    audit_log.log_message(
+        config.get("configurable", {}).get("thread_id", ""),
+        "history_diff",
+        {
+            "browser_messages_count": len(_browser_result_indices(state["messages"])),
+            "messages_replaced": sum(1 for a, b in zip(messages_for_llm, history_diffed) if a is not b),
+        },
+    )
+    messages_for_llm = history_diffed
     messages_for_llm = _apply_adaptive_thinking(messages_for_llm, state.get("session_grants") or [])
     # Carried over as-is from the previous call within this turn (see
     # AgentState.think_opened/think_closed) rather than reset to False, so
