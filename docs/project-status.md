@@ -725,10 +725,17 @@ threaded through the campaign harness/preflight/persistence from day
 one, per CLAUDE.md's trigger-rate-counter rule. 12 new unit tests, full
 `langgraph-agent` suite 479→491 passed, 0 regressions. Full detail:
 docs/history.md, "EFFORT 4 (scaffolding-optimisation.md, EFFORT 2) —
-DIFF-BASED OBSERVATION HISTORY, BUILT". **No live campaign, flag stays
-off** — 🧑 checkpoint per the brief, live measurement (and its
-sub-additivity read against `VERIFICATION_ENABLED`) is a separate,
-future step.
+DIFF-BASED OBSERVATION HISTORY, BUILT". **Live smoke attempted, not yet
+obtained**: two operational-trap attempts (stale `langgraph-agent`
+image showing a clean-looking but empty result, then a preflight-
+refused sequencing slip) — see docs/history.md, "HISTORY-DIFF LIVE
+SMOKE — STALE IMAGE, THEN PREFLIGHT CORRECTLY REFUSED". New general
+rule recorded in `CLAUDE.md` ("Operational traps"): a code change needs
+`docker compose build <service>` before `up -d --force-recreate`, not
+`--force-recreate` alone — hit on two different services in one
+session. Flag stays off pending a clean re-attempt. 🧑 checkpoint per
+the brief, live measurement (and its sub-additivity read against
+`VERIFICATION_ENABLED`) still a separate, future step.
 
 **Effort 3, point 3.1 (frequency analysis) done, checkpoint decided.**
 `scripts/analyze-tool-call-ngrams.sh` (archives-only, no docker/GPU) run

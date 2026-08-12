@@ -134,6 +134,21 @@ single-variable validation campaign:
   talks to the agent over HTTP) — silent trap.
 - `entrypoint.sh` is copied at build time: any change requires
   `docker compose build <service>` before `up -d`.
+- More generally: any APPLICATION CODE change (not just `entrypoint.sh`)
+  is baked into the image at build time — `docker compose up -d
+  --force-recreate <service>` alone reuses the EXISTING image, it does
+  not rebuild it. `docker compose build <service>` first, always. This
+  is easy to miss because it's confusable with the env-var trap above: a
+  NEW env var still lands correctly on a plain `--force-recreate` (env
+  vars are injected at container start, not baked in) even while the
+  CODE that would read it is stale — producing a misleadingly clean
+  preflight (flags match) while the mechanism actually under test never
+  ran. Hit twice in one session, on two different services (`mcp-client`
+  then `langgraph-agent` — docs/history.md, "SCAFFOLDING 3.1, POINT 1"
+  and the history-diff live smoke). Verify before trusting any live
+  result: compare `metadata.image_ids` across campaign JSONs (identical
+  digest despite an advancing commit = stale image), or a direct `/call`
+  probe / `docker exec <service> env` check.
 - Effective configuration is read from `/proc/1/cmdline` or
   `docker exec … env`, never from the file.
 - No campaign starts without a green preflight (tool schema, image

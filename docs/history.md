@@ -6317,3 +6317,46 @@ grained actions) is now fully closed: point 1 shipped and live-verified,
 point 2 closed as a non-problem, point 3 (form-filling composite)
 shelved per the original checkpoint decision, no new composite tool
 built in this chantier — matching the decision's own point 4.
+
+## HISTORY-DIFF LIVE SMOKE — STALE IMAGE, THEN PREFLIGHT CORRECTLY REFUSED
+
+Attempting the live smoke for `HISTORY_DIFF_ENABLED` (Effort 2 of
+`docs/briefs/scaffolding-optimisation.md`, built and unit-tested earlier
+today, `docs/history.md` "EFFORT 4 ... DIFF-BASED OBSERVATION HISTORY,
+BUILT") hit the SAME class of operational trap as point 1's mcp-client
+incident above, this time on `langgraph-agent`.
+
+**First attempt**: `HISTORY_DIFF_ENABLED=true docker compose up -d
+--force-recreate langgraph-agent` then the A1/A2 smoke. Both tasks
+succeeded, campaign metadata correctly showed `HISTORY_DIFF_ENABLED:
+true` — but zero `role="history_diff"` audit entries anywhere (0,
+against 109 `role="episode_compaction"` entries in the same day's log,
+the sibling mechanism that DOES run) — not a flattering zero from lack
+of opportunity, the code never ran at all. Confirmed by comparing
+`metadata.image_ids["langgraph-agent"]` across three same-day campaigns
+(this morning's point-1 verification runs, commit `25c6f32`, through
+this smoke, commit `1c05ff1`): identical digest
+(`sha256:b8295d06...`) despite the advancing commit — the image was
+never rebuilt, `--force-recreate` alone reused the stale one.
+`--force-recreate` DOES correctly apply a new env var (injected at
+container start) even while running old code that doesn't act on it —
+exactly why the campaign metadata looked clean while the mechanism
+itself was absent.
+
+**Second attempt** (`docker compose build langgraph-agent` this time,
+then the same recreate): `campaign_preflight.check_agent_flags`
+correctly refused before any run — effective `HISTORY_DIFF_ENABLED`
+read back as `false` despite the intended `true`, a sequencing slip
+(exact cause not confirmed — the preflight did its job either way,
+refusing rather than producing a second misleading result). Recorded as
+a general rule rather than re-litigated in more detail: `CLAUDE.md`,
+"Operational traps" — a code change requires `docker compose build
+<service>` before `up -d --force-recreate`, distinct from and easy to
+conflate with the env-var-only trap already documented there. Hit twice
+in one session (`mcp-client`, then `langgraph-agent`) — worth the
+general rule now rather than a third recurrence.
+
+Live smoke not yet obtained with the mechanism genuinely active and the
+flag genuinely confirmed — next step for whoever resumes this: rebuild,
+verify `docker exec langgraph-agent env | grep HISTORY_DIFF_ENABLED`
+shows `true` BEFORE running the campaign, then the same A1/A2 smoke.
