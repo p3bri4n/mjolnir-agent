@@ -1,5 +1,7 @@
 # Mjolnir agent
 
+<img src="docs/assets/logo.jpeg" alt="Mjolnir agent logo" width="200">
+
 ![CI](https://github.com/p3bri4n/mjolnir-agent/actions/workflows/ci.yml/badge.svg)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Backend](https://img.shields.io/badge/backend-TabbyAPI%2FExLlamaV3-blue)
