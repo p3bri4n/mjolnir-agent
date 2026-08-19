@@ -24,7 +24,7 @@ identical real work, and separate diagnostics (the A1 trajectory
 diagnostic, `docs/resolved-bugs.md` #51) found the mechanism actively
 discarding genuine progress via attempt/replan-budget churn on
 multi-page tasks, not merely costing more for the same result — see
-docs/history.md, "EFFORT 2 — DECISIVE MEASUREMENT". `PLAN_VALIDATION_ENABLED`
+docs/engineering-log.md, "EFFORT 2 — DECISIVE MEASUREMENT". `PLAN_VALIDATION_ENABLED`
 alone is KEPT `true` (safety-value exception: a programmatic heuristic
 gate, not a score-driven mechanism, untouched by that reading). See each
 one's detail below.
@@ -54,7 +54,7 @@ schema, 1 to 8 items) via a dedicated LLM call — not tool-bound
 main loop. `planner_llm` is a `ChatOpenAI` client SEPARATE from `llm`
 (the conversational loop), with its own `PLANNER_MAX_TOKENS` budget
 (default `8192`, much larger than `LLM_MAX_TOKENS`): a real bug found
-under real conditions (see docs/history.md, Iteration 3) — Qwen3.6/TabbyAPI
+under real conditions (see docs/engineering-log.md, Iteration 3) — Qwen3.6/TabbyAPI
 reasons in a `reasoning_content` field separate from `content` before
 answering, and this reasoning alone consumed the entire `LLM_MAX_TOKENS`
 budget (2048), systematically truncating the JSON reply. The user message
@@ -70,7 +70,7 @@ approval message (`_format_plan_summary`, `app/main.py`).
 **Why the original "false" default** (Iteration 1, before the full
 measurement): a second LLM call at the start of every task would have
 broken almost all existing tests, which mock a fixed sequence of
-`/v1/chat/completions` replies — see docs/history.md, "Iteration 1:
+`/v1/chat/completions` replies — see docs/engineering-log.md, "Iteration 1:
 explicit plan". The tests concerned now explicitly force the value they
 test (`_default_cognitive_core_flags_to_false` fixture,
 `tests/conftest.py`) rather than depending on the default.
@@ -83,7 +83,7 @@ subtask's `success_criterion`, via a dedicated LLM judge call
 (`{"atteint": bool, "raison": str}`, validated by
 `_validate_verification_json`, same pipeline as the planner) — not a
 criterion reformulated on the fly in the turn's reasoning (no structured
-reasoning exists in this graph to extract it reliably, see docs/history.md
+reasoning exists in this graph to extract it reliably, see docs/engineering-log.md
 "Iteration 2"). Positive verdict: subtask `"fait"`, moves to the next
 one. Negative verdict: `SUBTASK_ATTEMPT_BUDGET` attempts (default `3`)
 before marking `"echoue"` — every retry must change strategy, an
@@ -102,7 +102,7 @@ Iteration 3): **only has an effect if `PLANNER_ENABLED` is also on**.
 (`app/plan_validation.py`: 2-12 subtask bounds, no duplicates, existing
 referenced tools, domains within the declared scope), then, if
 `PLAN_JUDGE_ENABLED` (default `false` since EFFORT 2.4, see above —
-measured withdrawal clause, see docs/history.md Iteration 3: it did
+measured withdrawal clause, see docs/engineering-log.md Iteration 3: it did
 really veto a plan the heuristics let through), an
 LLM judge (`{"faisable": bool, "risques": [...], "etapes_manquantes":
 [...]}`, FAIL-OPEN on error). Rejection → `revise_plan` (max
@@ -118,12 +118,12 @@ possible for `TIER_REVERSIBLE` on a later replanning of the same task,
 approval of a `TIER_SENSITIVE` tool at execution time — `require_approval`/
 `_execute_tool_calls` unchanged, plan approval is an additional upstream
 gate, never a substitute (verified under real conditions, see
-docs/history.md).
+docs/engineering-log.md).
 
 **Grounding on the page's real state** (Iteration 4, no new flag — part
 of the existing `VERIFICATION_ENABLED`/`PLAN_JUDGE_ENABLED`/
 `PLAN_VALIDATION_ENABLED`): found in 2 passes over successive live probes
-(see docs/history.md, Iteration 4, for the detail of the 6 probes).
+(see docs/engineering-log.md, Iteration 4, for the detail of the 6 probes).
 `verify_action` used to judge a `success_criterion` literally, without
 ever seeing the real page — a criterion assuming a missing feature (e.g.
 a search bar) would wrongly fail legitimate progress (e.g. via
@@ -148,11 +148,11 @@ campaign, the v1 suite nearing saturation):
 **Final campaign** (4 flags active, ~104 min): **29/33** after a fix and
 a retry (28/33 raw initially — see below) — full detail in
 `docs/campaigns/2026-07-23_campaign_coeur-cognitif.md`. Consistent with
-pre-cognitive-core Campaign A (30/33, see docs/history.md), not a
+pre-cognitive-core Campaign A (30/33, see docs/engineering-log.md), not a
 regression. Of the 4 missing points: 1 harness infra timeout (T7,
 unrelated to the agent), 1 extraction failure (T1), 2 extraction failures
 on T8 (Wikipedia — see below). Aggregate score deliberately shown WITHOUT
-smoothing: see docs/history.md for the task-by-task detail.
+smoothing: see docs/engineering-log.md for the task-by-task detail.
 
 | Task | Score | Note |
 |---|---|---|
@@ -203,7 +203,7 @@ point zero assumed, v1/v2 comparisons forbidden. Detail in
 
 ### Post-action observation: history and current mechanism
 
-Three successive versions (see docs/history.md, "latency fix 1/2" then
+Three successive versions (see docs/engineering-log.md, "latency fix 1/2" then
 "1/2-bis" then "1/2-ter") before the current one: a separate LLM call
 (`verify_action`, costly) -> a text marker `[CONSTAT: ...]` in the next
 turn's reply (too fragile, often omitted) -> a mandatory dedicated tool
@@ -220,7 +220,7 @@ unchanged, counted in `constats_inexploitables` rather than charged as a
 failure) and a permanent COVERAGE judge (`verification_opportunities`/
 `verification_exploitable`, audit log `role="verification"`) — observed
 latency tradeoff: this schema, expanded across ~64 tools on every turn,
-has a measurable prompt cost (see docs/history.md for the exact numbers),
+has a measurable prompt cost (see docs/engineering-log.md for the exact numbers),
 still an open matter.
 
 ### Temporal awareness (PLAN.md Phase 1, point 7)
@@ -247,7 +247,7 @@ campaigns).
 
 ### Bulk verification (`BULK_CHECK_DIRECTIVE`, bulk mode of `browser_extract`)
 
-Found while investigating T1 (see docs/history.md): when the information
+Found while investigating T1 (see docs/engineering-log.md): when the information
 sought only appears on detail pages (never the listing) and several must
 be checked, page-by-page navigation exhausts the iteration budget before
 everything is even checked — the model would end up guessing a URL
@@ -279,7 +279,7 @@ sync) -> campaign -> report written -> completion notification (`.DONE`
 file always; `ntfy`/mail on top if `NTFY_TOPIC`/`MAIL_TO` are set).
 
 **Campaign persistence (`tests_integration/campaign_persistence.py`)**:
-following an inventory finding (see docs/history.md, "PERSISTENCE
+following an inventory finding (see docs/engineering-log.md, "PERSISTENCE
 INVENTORY" then "CAMPAIGN PERSISTENCE") showing that nothing survived a
 campaign beyond the Markdown prose, every campaign now writes
 `campaign-<timestamp>-<label>.json` (never rewritten afterward) next to
@@ -326,7 +326,7 @@ scripts/run-campaign.sh --tasks T7 --reps 1  # minimal smoke
 reduced, no statistical significance to decide a pass/regression
 threshold. Only the full campaign (3 repetitions, 11 tasks) counts as the
 reference measurement for a checkpoint. Found under real conditions (see
-docs/history.md, "campaign tooling"): LLM readiness bit once —
+docs/engineering-log.md, "campaign tooling"): LLM readiness bit once —
 `docker compose up --build` had recreated TabbyAPI at the same time a
 campaign was starting, which then ran ~20s too early against a server not
 yet listening (30 near-instant failures, no assertion to flag it) — hence
@@ -344,7 +344,7 @@ agent finds out it needs it.
 
 **A proactive OCR-enrichment mechanism was built, then abandoned before
 going live** (`_detect_visual_signal`/`_maybe_enrich_with_ocr`,
-`app/graph.py`, removed — see docs/history.md, "PROBE VISUEL — SIGNAL
+`app/graph.py`, removed — see docs/engineering-log.md, "PROBE VISUEL — SIGNAL
 BROWSER_SNAPSHOT"). Its premise — pattern-match an already-fetched
 `browser_snapshot`/`browser_extract` result's TEXT for a hint that a
 visual-only element is present — was checked empirically against

@@ -19,14 +19,14 @@ approval_policy.py`), which replaces the old binary whitelist:
 | `TIER_REVERSIBLE` (reversible) | auto + logging (see Phase 2, audit log) | confined filesystem writes (`write_file`, `edit_file`, `create_directory`, `move_file`) |
 | `TIER_SENSITIVE` (sensitive) | human approval required | `browser_navigate`, `browser_click`, `browser_fill_form`, `browser_run_code_unsafe`, `browser_evaluate`, everything else, **and any unknown tool** |
 
-**`NEVER_GRANTABLE_TOOLS`** (Phase 1d-revised, see docs/history.md, T5):
+**`NEVER_GRANTABLE_TOOLS`** (Phase 1d-revised, see docs/engineering-log.md, T5):
 `browser_run_code_unsafe` and `browser_evaluate` stay `TIER_SENSITIVE`
 even when granted "for the session" — a grant normally relaxes a
 sensitive tool to reversible for the rest of the thread, but running
 arbitrary code in the page is an escalation, not a read primitive; every
 call of these two tools requires individual approval, no exception.
 
-**`browser_extract`** (Phase 1d-revised, see docs/history.md "extraction
+**`browser_extract`** (Phase 1d-revised, see docs/engineering-log.md "extraction
 fix"): observed under real conditions that making `browser_evaluate`
 non-grantable made its usage disappear (T1/T10) with no replacement —
 replaced by markedly less reliable manual exploration (ctrl+f, page-by-page
@@ -44,7 +44,7 @@ Implemented as named matchers in Python (no generic pattern DSL), not as
 a simple AND with the static tier — a matching rule fully overrides
 `tool_tier()`. `DEFAULT_RULES` is empty today (its GhostDesk-era example,
 a `key_type` length/newline matcher, was removed along with that tool —
-see docs/history.md, effort 1.2). `APPROVAL_RULES_PATH` (env var,
+see docs/engineering-log.md, effort 1.2). `APPROVAL_RULES_PATH` (env var,
 optional) points to a YAML file that ADDS rules on top of this empty
 base — see `_load_rules_from_yaml` for the exact format
 (`tool`/`matcher`/`tier`). A `command_prefix` matcher is implemented (for
@@ -98,7 +98,7 @@ every new conversation (or resumption after a restart) starts over with
 no approval history.
 
 **Audit log** (Phase 2, `services/langgraph-agent/app/audit_log.py`,
-blind spot fixed — see docs/history.md, T9 investigation): every actually
+blind spot fixed — see docs/engineering-log.md, T9 investigation): every actually
 executed tool_call whose tier isn't `TIER_READ` (silent by design,
 nothing new to audit) is logged as JSONL under `AUDIT_LOG_DIR` (default
 `/workspace/.audit`, same bind mount as the filesystem/git/terminal MCP
@@ -106,7 +106,7 @@ servers — see `docker-compose.yml`), one file per day
 (`YYYY-MM-DD.jsonl`). Each line: `timestamp`, `thread_id`, `tool`,
 `arguments`, `tier`, `result` (the tool's result EXACTLY AS SEEN BY THE
 MODEL — already truncated/tiered if `browser_*`, never the raw version;
-added in Phase 1d-revised, see docs/history.md, to reconstruct not just
+added in Phase 1d-revised, see docs/engineering-log.md, to reconstruct not just
 the call sequence but also what the agent actually perceived at each
 step). Volume-based rotation on top of the daily file: beyond
 `AUDIT_LOG_MAX_BYTES` (default 20 MiB), the day's file is compressed
@@ -132,18 +132,18 @@ returns the whole available log without it) allows consultation; an
 individual corrupted line is skipped when reading rather than failing
 the whole request.
 
-**Assistant messages** (Phase 1d-revised, see docs/history.md
+**Assistant messages** (Phase 1d-revised, see docs/engineering-log.md
 "OBSERVABILITY"): `call_llm` also logs EVERY turn of the model
 (`audit_log.log_message`, `kind: "message"`, `role: "assistant"`,
 `content: {content, tool_calls}`) — `<think>` reasoning and text
 included, tool_calls if any — with no tier filtering, unlike the
 tool_calls above: it's the agent's reasoning, not a side effect to be
 selective about. Fills a gap that concretely blocked an archive diagnosis
-(T1/T7/T10, see docs/history.md): before this addition, the archive only
+(T1/T7/T10, see docs/engineering-log.md): before this addition, the archive only
 allowed reconstructing the call sequence and their results, never what
 the model itself had reasoned or answered at each step.
 
-**Isolation between tasks** (Phase 1d-revised, see docs/history.md
+**Isolation between tasks** (Phase 1d-revised, see docs/engineering-log.md
 "isolation between tasks"): `playwright-mcp` is a PERSISTENT MCP session
 SHARED by all of mcp-client (not scoped per thread nor per task) — a tab
 left open by one task stays visible in the snapshot of a completely
