@@ -6,10 +6,10 @@
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Backend](https://img.shields.io/badge/backend-TabbyAPI%2FExLlamaV3-blue)
 
-**A fully local, autonomous web agent for consumer dual-GPU hardware, no API
-keys and no data leaving the machine — with human approval tiers, mechanical
-guardrails, and a benchmark that measures whether any of it actually
-works.**
+**A fully local, autonomous web agent that runs on consumer NVIDIA GPUs, no
+API keys and no data leaving the machine — with human approval tiers,
+mechanical guardrails, and a benchmark that measures whether any of it
+actually works.**
 
 Open WebUI → LangGraph agent → (Skill Manager / Context Manager / MCP
 Client) → TabbyAPI. Tested on Qwen3.6-27B (EXL3) across a dual-GPU setup
@@ -24,8 +24,8 @@ Client) → TabbyAPI. Tested on Qwen3.6-27B (EXL3) across a dual-GPU setup
 - **Latest full campaign: 53/56** across every family (one known limit:
   E2's vision-reading, see [docs/resolved-bugs.md](docs/resolved-bugs.md)).
 - **91 archived campaigns**, every raw result kept — [docs/campaigns/](docs/campaigns/).
-- Runs on **consumer dual-GPU hardware** (RTX 4070 Ti Super + RTX 5060 Ti,
-  16 GB each).
+- Tested on **consumer NVIDIA GPUs** (RTX 4070 Ti Super + RTX 5060 Ti, 16 GB
+  each) — any GPU count via autosplit, see [Requirements](#requirements).
 
 Scores went from 16/33 to 30/33 over eleven campaigns on the original
 11-task suite — [docs/notes/agent-benchmarking.md](docs/notes/agent-benchmarking.md).
