@@ -32,13 +32,22 @@ export DISPLAY=":${DISPLAY_NUM}"
 WIDTH=1280
 HEIGHT=800
 FPS=15
+# Real elapsed time (login excluded -- recording starts after) is LLM
+# inference + several tool round-trips, essentially guaranteed to run
+# longer than the brief's ~25s ceiling for the final GIF
+# (docs/briefs/readme-rework.md, point 2) -- the raw capture is sped up
+# in post to land at TARGET_DURATION_S, capped at MAX_SPEED_FACTOR so an
+# unusually slow run degrades to "too long" rather than an unwatchable
+# blur.
+TARGET_DURATION_S=20
+MAX_SPEED_FACTOR=4
 RAW_VIDEO="/tmp/demo-raw.mp4"
 READY_SENTINEL="/tmp/demo-ready"
 DONE_SENTINEL="/tmp/demo-done"
 VENV_DIR="/tmp/demo-venv"
 OUT_GIF="docs/assets/demo.gif"
 
-for bin in docker ffmpeg Xvfb python3; do
+for bin in docker ffmpeg ffprobe Xvfb python3; do
   command -v "$bin" >/dev/null 2>&1 || { echo "Missing required tool: $bin" >&2; exit 1; }
 done
 
@@ -111,16 +120,29 @@ kill -INT "$FFMPEG_PID"
 wait "$FFMPEG_PID" 2>/dev/null || true
 wait "$DRIVER_PID" 2>/dev/null || true
 
-echo "==> Converting to an optimised GIF"
+echo "==> Computing playback speed-up"
+RAW_DURATION_S=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$RAW_VIDEO")
+SPEED_FACTOR=$(awk -v raw="$RAW_DURATION_S" -v target="$TARGET_DURATION_S" -v cap="$MAX_SPEED_FACTOR" \
+  'BEGIN { f = raw / target; if (f < 1) f = 1; if (f > cap) f = cap; printf "%.3f", f }')
+FINAL_DURATION_S=$(awk -v raw="$RAW_DURATION_S" -v f="$SPEED_FACTOR" 'BEGIN { printf "%.1f", raw / f }')
+echo "    raw: ${RAW_DURATION_S}s -> speed x${SPEED_FACTOR} -> final: ${FINAL_DURATION_S}s"
+if awk -v d="$FINAL_DURATION_S" 'BEGIN { exit !(d > 25) }'; then
+  echo "    still over 25s even at x${MAX_SPEED_FACTOR} -- the recorded task took too" >&2
+  echo "    long; simplify the demo task/prompt rather than raising MAX_SPEED_FACTOR" >&2
+  echo "    further (it starts looking unwatchably fast well before that helps)." >&2
+fi
+
+echo "==> Converting to an optimised, sped-up GIF"
 mkdir -p "$(dirname "$OUT_GIF")"
 PALETTE="/tmp/demo-palette.png"
-ffmpeg -y -i "$RAW_VIDEO" -vf "fps=${FPS},scale=${WIDTH}:-1:flags=lanczos,palettegen" "$PALETTE"
+SPEED_FILTER="setpts=PTS/${SPEED_FACTOR}"
+ffmpeg -y -i "$RAW_VIDEO" -vf "${SPEED_FILTER},fps=${FPS},scale=${WIDTH}:-1:flags=lanczos,palettegen" "$PALETTE"
 ffmpeg -y -i "$RAW_VIDEO" -i "$PALETTE" \
-  -filter_complex "fps=${FPS},scale=${WIDTH}:-1:flags=lanczos[x];[x][1:v]paletteuse" \
+  -filter_complex "${SPEED_FILTER},fps=${FPS},scale=${WIDTH}:-1:flags=lanczos[x];[x][1:v]paletteuse" \
   "$OUT_GIF"
 
 SIZE_MB=$(du -m "$OUT_GIF" | cut -f1)
-echo "==> Done: $OUT_GIF (${SIZE_MB} MB)"
+echo "==> Done: $OUT_GIF (${SIZE_MB} MB, ~${FINAL_DURATION_S}s)"
 if [ "$SIZE_MB" -gt 4 ]; then
   echo "Over the ~4 MB budget (docs/briefs/readme-rework.md, point 2) -- lower FPS in this script before resolution, then re-run." >&2
 fi
