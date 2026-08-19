@@ -11,9 +11,18 @@ API keys and no data leaving the machine — with human approval tiers,
 mechanical guardrails, and a benchmark that measures whether any of it
 actually works.**
 
-Open WebUI → LangGraph agent → (Skill Manager / Context Manager / MCP
-Client) → TabbyAPI. Tested on Qwen3.6-27B (EXL3) across a dual-GPU setup
-(RTX 4070 Ti Super + RTX 5060 Ti).
+```mermaid
+flowchart LR
+    U[Open WebUI] --> LA[langgraph-agent]
+    LA <--> TA[TabbyAPI]
+    LA --> MC[mcp-client]
+    MC --> PW[playwright-mcp]
+    MC --> FS[filesystem]
+```
+
+Tested on Qwen3.6-27B (EXL3) across a dual-GPU setup (RTX 4070 Ti Super +
+RTX 5060 Ti). Full architecture, including Skill Manager/Context Manager:
+[docs/architecture/](docs/architecture/).
 
 <!-- Demo: docs/assets/demo.gif — scripted recording, see
      docs/briefs/readme-rework.md §2. Not embedded until that script has
@@ -89,13 +98,23 @@ commands: see [docs/operations/runbook.md](docs/operations/runbook.md).
 
 ### Human supervision that scales
 
-- **Approval tiers by action nature**: read is auto-approvable, reversible
-  writes are covered by a session grant, engagements (submissions, uploads,
-  arbitrary code) always require individual approval.
-- **Never-grantable tools**: arbitrary JS execution can never be blanket-
-  approved, whatever the session state.
+- **Approval tiers by action nature**: read and reversible actions run
+  auto (the latter logged, never silent); a sensitive action needs human
+  approval — once, or for the rest of the session via a grant.
+- **Never-grantable tools**: arbitrary JS execution always needs
+  individual approval, never relaxed by a session grant.
 - **Approve a plan, not twenty clicks**: reviewing one trajectory replaces
   N action-by-action confirmations.
+
+```mermaid
+flowchart LR
+    A[Tool call] --> B{Tier}
+    B -->|read| C[Auto, silent]
+    B -->|reversible| D[Auto, logged]
+    B -->|sensitive, granted| D
+    B -->|sensitive, ungranted| E[Human approval]
+    B -->|never-grantable| E
+```
 
 ### Guardrails in code, not in prompts
 
