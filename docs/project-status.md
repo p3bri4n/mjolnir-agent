@@ -29,8 +29,23 @@ T1/T7/T9 backlog investigated and closed (see docs/history.md,
 **Follow-up on this batch** (see docs/history.md):
 - Campaign persistence (`campaign_persistence.py`): JSON per run,
   `thread_id`, raw TabbyAPI samples — delivered.
-- Cognitive-core flags: defaults flipped to `true` (measured and
-  adopted), preflight guardrail (`check_agent_flags`) — delivered.
+- Cognitive-core flags: the decisive cfg1-vs-cfg8 ablation (`docs/history.md`,
+  "EFFORT 2.4") found cfg1 (all four off) strictly beating cfg8 (all on) on
+  the success judge — **15/15 vs 13/15** — at **+76 % cumulative time** for
+  essentially identical real work (195 vs 193 total tool calls). Decision:
+  defaults flipped back to `false` for `PLANNER_ENABLED`/
+  `VERIFICATION_ENABLED`/`PLAN_JUDGE_ENABLED`, confirmed clean by a full v2
+  campaign (no family regressed, family A materially improved).
+  `PLAN_VALIDATION_ENABLED` kept `true` — a programmatic heuristic gate, no
+  LLM call, untouched by the cost argument above — but `validate_plan`
+  no-ops whenever `state["plan"]` is empty (`app/graph.py`), which is every
+  turn while `PLANNER_ENABLED` is `false`: **de facto inert without a
+  planner**, not actively validating anything today. Removal status: the
+  defaults-to-`false` PR is done and campaign-verified; the follow-up PR
+  (deleting `plan_task`/`verify_action`/the judge, their directives and
+  tests, rather than flag-gating them) is **not done** — both nodes are
+  still present in the graph, no-op'd by the flags. Preflight guardrail
+  (`check_agent_flags`) — delivered.
 - Audit blind spot: `call_tools` (post-approval) now logs to the audit
   trail too, closing the gap where the first call of each tool per
   thread was invisible — delivered.
