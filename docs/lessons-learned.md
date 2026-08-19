@@ -103,6 +103,12 @@
   replaced by `browser_extract`.
 - **No capability claim before verification** — README security section:
   PromptGuard and egress firewall announced, neither existed.
+- **A document describing current state is reverified against the code at
+  every update, not only when it is first written** — `project-status.md`
+  claimed the cognitive-core flags "flipped to `true` (measured and
+  adopted)" while `graph.py` still defaults `PLANNER_ENABLED` to `false`;
+  third occurrence of the same class after the README security section and
+  `PLAN.md`'s authority claim (docs/briefs/repository-gaps.md, point 2).
 
 ## Operations
 
