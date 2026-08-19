@@ -51,12 +51,17 @@ services:
       # tableau des bugs du README.
       - IMAGE_FORMAT_PASSTHROUGH=${IMAGE_FORMAT_PASSTHROUGH:-}
       # Qwen3.6 raisonne par défaut sur chaque tour : coûteux pour une
-      # boucle rapide d'outils auto-approuvés. Injecte /no_think
-      # dans le system prompt quand tous les tool_calls du tour précédent
-      # sont auto-approuvés (voir approval_policy.py) ; laisse le
-      # raisonnement normal sinon (première décision d'un tour, tool
-      # sensible...). Voir app/graph.py, _adaptive_thinking_directive.
-      - ADAPTIVE_THINKING=${ADAPTIVE_THINKING:-true}
+      # boucle rapide d'outils auto-approuvés. Injecte /no_think dans le
+      # system prompt quand tous les tool_calls du tour précédent sont
+      # auto-approuvés (voir approval_policy.py). CONFIRMED NO EFFECT ON
+      # THE DEFAULT TABBYAPI BACKEND (see the comment above
+      # PLANNER_MAX_TOKENS, app/graph.py) -- only llama-server/Ollama
+      # respect the "/no_think" prefix, and llama-server is no longer a
+      # runnable service in this compose file. Default false: was
+      # inconsistently true here while app/graph.py's own fallback reads
+      # false -- harmless in practice (no-op either way on TabbyAPI) but
+      # now aligned, not left as a live doc/code/deploy mismatch.
+      - ADAPTIVE_THINKING=${ADAPTIVE_THINKING:-false}
       # Explicit plan (Phase 1 "cognitive core", Iteration 1 — see
       # docs/briefs/phase-1-coeur-cognitif.md). DEFAULT FLIPPED BACK TO
       # false (EFFORT 2.4, docs/history.md/docs/briefs/update-plan.md):
