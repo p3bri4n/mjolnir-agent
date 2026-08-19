@@ -329,7 +329,7 @@ would lose nothing tested here** — its only unique capability
 (out-of-browser interaction) is E4's territory, already out of scope by
 explicit user decision.
 
-## Consolidated plan (`docs/briefs/update-plan.md`) — effort 1
+## Consolidated plan (`docs/briefs/archives/update-plan.md`) — effort 1
 
 **Effort 1.1 (tool-schema weight audit) and 1.2 (removal) delivered.**
 git/terminal removed entirely (`services/mcp-terminal/` deleted);
@@ -500,7 +500,7 @@ new `PLANNING_MODE` env var (default `"nodes"`, unchanged behavior) and
 a synthetic `manage_plan` tool (`set_plan`/`complete_subtask`, dispatched
 in `_execute_tool_calls`, `TIER_READ`, no dedicated LLM call — planning
 folded into the main turn per the AgentOccam pattern, see
-`docs/briefs/update-plan.md` "2.1 addendum") — see docs/engineering-log.md,
+`docs/briefs/archives/update-plan.md` "2.1 addendum") — see docs/engineering-log.md,
 "EFFORT 2", "Point 3 delivered" for the full design and the
 `campaign_preflight._fetch_agent_env` override-key fetch gap fixed
 along the way. 11 new unit tests + 2 regression tests, full suite
@@ -607,7 +607,7 @@ memory used) into every campaign's metadata. Regression-tested against
 the original pre-fix reading (14131/4424 MiB) — correctly flagged. Full
 suite 458→466 passed. **Brief fully delivered (steps 1-5).**
 
-**2.3 CLOSED** (`docs/briefs/update-plan.md`): `browser_extract`'s
+**2.3 CLOSED** (`docs/briefs/archives/update-plan.md`): `browser_extract`'s
 `dt`/`dd` + table-row `adjacent_value` fix (`services/mcp-client/app/main.py`)
 — fixture inventory done first (only `dt`/`dd` and `td`/`th` are real
 patterns; `label`/`input` checked and dropped), functionally verified
@@ -655,7 +655,7 @@ under the now-abandoned config) stopped via an unidentified path, not
 `docs/resolved-bugs.md` #49, informational only now that cfg8 is no
 longer the default.
 
-## Effort 3 — GhostDesk removal + proactive OCR scaffolding (`docs/briefs/update-plan.md`)
+## Effort 3 — GhostDesk removal + proactive OCR scaffolding (`docs/briefs/archives/update-plan.md`)
 
 **GhostDesk removed entirely** (container, image, `ghostdesk-home`
 volume, `.env.example` secrets) — zero remaining references anywhere in
