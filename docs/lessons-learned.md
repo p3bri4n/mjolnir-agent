@@ -108,7 +108,7 @@
   claimed the cognitive-core flags "flipped to `true` (measured and
   adopted)" while `graph.py` still defaults `PLANNER_ENABLED` to `false`;
   third occurrence of the same class after the README security section and
-  `PLAN.md`'s authority claim (docs/briefs/repository-gaps.md, point 2).
+  `PLAN.md`'s authority claim (docs/briefs/archives/repository-gaps.md, point 2).
 
 ## Operations
 
