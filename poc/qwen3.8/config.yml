@@ -1,0 +1,18 @@
+network:
+  host: 0.0.0.0
+  port: 5000
+  disable_auth: true
+
+logging:
+  log_prompt: false
+  log_generation_params: false
+
+model:
+  model_dir: /models
+  model_name: qwen38
+  max_seq_len: 32768
+  cache_size: 32768
+  cache_mode: Q8
+  gpu_split_auto: false
+  gpu_split: [4, 15]
+  vision: false

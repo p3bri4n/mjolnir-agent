@@ -1,0 +1,21 @@
+name: qwen38-test
+
+services:
+  tabbyapi:
+    image: ghcr.io/theroyallab/tabbyapi:latest
+    container_name: qwen38-tabbyapi
+    environment:
+      - CUDA_DEVICE_ORDER=PCI_BUS_ID
+      - NAME=TabbyAPI
+    volumes:
+      - /run/media/pebrian/Data/Projects/mjolnir-agent/models/qwen3.8-27b-exl3-4.50bpw:/models/qwen38:ro
+      - ./config.yml:/app/config.yml:ro
+    ports:
+      - "5001:5000"          # port distinct de ta stack
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
