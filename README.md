@@ -213,6 +213,17 @@ models/     weights (exl3) of the model and multimodal projector served by
   (consult by targeted search, never read in full — see `CLAUDE.md`).
 - `docs/briefs/` — briefs for ongoing work.
 
+## Notes
+
+Long-form field reports, kept separate from the reference docs above because
+they are narrative and dated rather than current-state:
+
+- `docs/notes/llamacpp-dual-gpu.md` — six weeks debugging llama.cpp on two
+  mismatched GPUs: build traps, a reasoning/tool-call parsing gap, and a
+  cross-GPU crash diagnosis.
+- `docs/notes/agent-benchmarking.md` — what eleven measurement campaigns on
+  the autonomous agent taught us, and the four that regressed on purpose.
+
 ## Known, accepted limitations (design choices, not bugs)
 
 - **`mcp-client` mounts `/var/run/docker.sock`**: equivalent to root access
