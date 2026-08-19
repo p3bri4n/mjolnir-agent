@@ -880,3 +880,85 @@ async def test_streaming_endpoint_reopens_think_tag_after_approval_resume(mock_s
     assert mcp_route.call_count == 1
     assert final_text.count("<think>") == final_text.count("</think>") == 1
     assert final_text.startswith("<think>")
+
+
+@pytest.mark.asyncio
+async def test_non_streaming_endpoint_forwards_worker_id_to_mcp_client(mock_side_services):
+    """Effort 1.3 (docs/briefs/effort-1.3-parallel-campaigns.md): a
+    parallel campaign worker's identity, sent as ChatCompletionRequest.worker_id,
+    must reach mcp-client's /call via config["configurable"] — otherwise
+    Phase 1's session isolation has nothing to key on from a real HTTP
+    request, only from a hand-built graph config in a unit test."""
+    import app.graph as g
+    import app.main as main_mod
+
+    route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
+    route.side_effect = [
+        _sse_response(tool_call_response("read_file", "call_1", '{"path": "/workspace/x.txt"}')),
+        _sse_response(text_response(["Voil", "à."])),
+    ]
+    mcp_route = mock_side_services.post("http://fake-mcp-client/call").mock(
+        return_value=httpx.Response(200, json={"content": [{"type": "text", "text": "contenu"}]})
+    )
+    g.agent_graph = g.build_graph()
+    main_mod.agent_graph = g.agent_graph
+
+    transport = httpx.ASGITransport(app=main_mod.app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "agent-llm",
+                "messages": [{"role": "user", "content": "Lis le fichier"}],
+                "stream": False,
+                "worker_id": "worker-3",
+            },
+        )
+
+    assert resp.status_code == 200
+    sent = json.loads(mcp_route.calls.last.request.content)
+    assert sent["worker_id"] == "worker-3"
+
+
+@pytest.mark.asyncio
+async def test_approve_endpoint_forwards_worker_id_to_mcp_client(mock_side_services):
+    """Same as test_non_streaming_endpoint_forwards_worker_id_to_mcp_client,
+    for the /approve resume path — a worker's approval follow-up must
+    resolve on ITS OWN worker-scoped session, not the shared default one."""
+    import app.graph as g
+    import app.main as main_mod
+
+    route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
+    route.side_effect = [
+        _sse_response(tool_call_response("browser_navigate", "call_1", '{"url": "http://example.com"}')),
+        _sse_response(text_response(["Resultat", ": 42."])),
+    ]
+    mcp_route = mock_side_services.post("http://fake-mcp-client/call").mock(
+        return_value=httpx.Response(200, json={"content": [{"type": "text", "text": "42"}]})
+    )
+    g.agent_graph = g.build_graph()
+    main_mod.agent_graph = g.agent_graph
+
+    transport = httpx.ASGITransport(app=main_mod.app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        first = await client.post(
+            "/v1/chat/completions",
+            json={"model": "agent-llm", "messages": [{"role": "user", "content": "Question ? Site : http://example.com"}], "stream": False},
+        )
+        approval_text = first.json()["choices"][0]["message"]["content"]
+
+        approved = await client.post(
+            "/approve",
+            json={
+                "messages": [
+                    {"role": "user", "content": "Question ? Site : http://example.com"},
+                    {"role": "assistant", "content": approval_text},
+                ],
+                "approved": True,
+                "worker_id": "worker-3",
+            },
+        )
+
+    assert approved.status_code == 200
+    sent = json.loads(mcp_route.calls.last.request.content)
+    assert sent["worker_id"] == "worker-3"

@@ -1,6 +1,6 @@
 # Autonomy — plan → act → verify → replan loop
 
-Content moved as-is from README.md (restructuring effort, see docs/briefs/restructuration-et-anglais.md, phase 3) — no rewrite at this stage, except the "Proactive OCR enrichment" section (effort 3, GhostDesk removal), rewritten in full to match the current design.
+Content moved as-is from README.md (restructuring effort, see docs/briefs/restructuration-et-anglais.md, phase 3) — no rewrite at this stage, except the "Visual-only content" section (effort 3, GhostDesk removal), rewritten in full to match the current design.
 
 **Loop architecture** (see `docs/briefs/phase-1-coeur-cognitif.md` for the
 full effort, sequenced in 4 iterations, one iteration = one mechanism =
@@ -332,67 +332,68 @@ campaign was starting, which then ran ~20s too early against a server not
 yet listening (30 near-instant failures, no assertion to flag it) — hence
 its systematic check at the head of the preamble now.
 
-## Proactive OCR enrichment (`services/ocr-service`, effort 3)
+## Visual-only content: tool description, not detection (effort 3)
 
 **Why**: some page content is unreadable by any DOM channel
 (`browser_snapshot`/`browser_extract`) — canvas 2D, WebGL, `<img>` with no
 `alt`, a native PDF viewer — confirmed structural, not a tooling gap, by
 the visual-channel feasibility probe (`docs/architecture/visual-channel-feasibility.md`,
 cases VP1-VP4). Playwright's own `browser_take_screenshot` already reads
-all four cleanly; `ocr-service` turns that capture into text the model
-can act on without ever choosing a capture tool itself — the model
-demonstrably chose badly when given that choice (family E's E2, an
-audit-verified confusion between GhostDesk's `screen_shot` and
-Playwright's `browser_take_screenshot`, one of the findings that
-motivated GhostDesk's removal).
+all four cleanly — the open question was never capability, only how the
+agent finds out it needs it.
 
-**Not a model-callable tool — a graph capability.** `ocr-service` is a
-plain HTTP service (`POST /ocr`, `{image_base64, mime_type}` ->
-detected text sorted by confidence), never registered in `mcp-client`,
-called directly by `langgraph-agent` (`OCR_SERVICE_URL`, same pattern as
-`CONTEXT_MANAGER_URL`/`SKILL_MANAGER_URL`). It never captures anything
-itself — the caller supplies the image. This replaces GhostDesk as the
-service's only capture source; GhostDesk itself has been removed
-entirely (its only unique capability, out-of-browser interaction, is
-`E4`'s territory, already out of scope by explicit decision).
+**A proactive OCR-enrichment mechanism was built, then abandoned before
+going live** (`_detect_visual_signal`/`_maybe_enrich_with_ocr`,
+`app/graph.py`, removed — see docs/history.md, "PROBE VISUEL — SIGNAL
+BROWSER_SNAPSHOT"). Its premise — pattern-match an already-fetched
+`browser_snapshot`/`browser_extract` result's TEXT for a hint that a
+visual-only element is present — was checked empirically against
+`fixture-visual-probe` before going live, and falsified for 3 of its 4
+target patterns: canvas, WebGL, and an `<img alt="">` leave **zero**
+trace in `browser_snapshot`'s accessibility-tree text. A page with a
+canvas is text-identical to one without — there is nothing to grep for.
+A candidate heuristic (matching accessibility role `img`) was also
+checked against a control case (VP7, inline SVG text) and produced a
+proven false positive: SVG text is wrapped in an `img` role too, and
+needs no capture at all. No after-the-fact heuristic survives this
+evidence.
 
-**Trigger — proactive, gated on `PROACTIVE_OCR_ENABLED` (default
-`false`)**: `_maybe_enrich_with_ocr` (`app/graph.py`), called from
-`_execute_tool_calls` right after a `browser_*` result is post-processed.
-If `_detect_visual_signal` flags the result's text as plausibly showing a
-canvas/PDF-embed/alt-less-image, the graph takes a
-`browser_take_screenshot`, POSTs it to `ocr-service`, and appends the
-detected text to the SAME tool result before the model ever sees it — no
-extra turn, no model choice involved. Best-effort throughout: any
-failure (screenshot, network, `ocr-service` down) leaves the observation
-unchanged, same philosophy as `_fetch_verification_snapshot` above.
-Superseded design, for the record: the original brief specified a
-REACTIVE trigger (auto-fire after a `verify_action` "not_reached"
-verdict) — dropped because it depends on `VERIFICATION_ENABLED`, which
-defaults to `false` since the cognitive-core removal (effort 2.4) and
-was not flipped back.
+**What replaced it: the routing decision moved into the tool's own
+description**, evaluated by the model BEFORE it commits to a channel,
+rather than by the wrapper AFTER the fact. `mcp-client`'s
+`_tool_description_with_appends` (`services/mcp-client/app/main.py`)
+appends a routing hint to `browser_take_screenshot`'s real, upstream
+Playwright description: use this tool when `browser_snapshot` doesn't
+carry the expected information — canvas/WebGL content, an alt-less
+image, or a PDF opened directly. This is the only viable fix for
+canvas/WebGL/alt-less-img: there's no signal in the RESULT to react to,
+only a decision the caller has to make in advance.
 
-**Ships as scaffolding, not yet live**: `_detect_visual_signal` is
-currently a stub that always returns `None` — what `browser_snapshot`
-actually emits for a canvas/PDF/alt-less-img element (a detectable
-unlabeled node vs. nothing at all) is an open empirical question,
-deliberately not guessed (`docs/briefs/update-plan.md`, effort 3's
-"explicit next checkpoint"). `PROACTIVE_OCR_ENABLED` stays `false` until
-that's resolved and the mechanism has its own restricted smoke.
+**The one pattern that IS empirically detectable gets a real, structural
+fix**: a native PDF navigation (VP4) came back with an entirely EMPTY
+accessibility tree — no page title line even, unlike canvas/WebGL/img
+which sit on an otherwise normal page. `mcp-client`'s
+`_flag_empty_snapshot` detects this specific shape (an empty
+` ```yaml ``` ` block in `browser_snapshot`'s own response) and appends a
+redirect hint to the SAME result — the call still succeeds, this is
+guidance, not a block. Covered by unit tests using the real captured VP4
+text as a fixture, not a guessed shape.
 
-**Trigger-rate counter, from day one**: every `browser_*` result
-processed while the flag is on logs a `role="proactive_ocr"` audit entry
-(`{tool, signal_detected, signal_kind, ocr_ran, detections_count,
-chars_attached}`) — the denominator needed to read any future E2 result
-honestly, not bolted on after the fact (CLAUDE.md's rule on this, named
-after the episode-compaction precedent).
+**Judge**: family E's own E2 (visual-only task) re-run, 3 repetitions —
+its earlier 1/3 was an audit-verified channel confusion between
+GhostDesk's `screen_shot` and Playwright's `browser_take_screenshot`,
+which the corrected tool description should resolve now that GhostDesk
+is gone and the description names the right tool explicitly. E1/E3
+non-regression, in particular E3 staying at 0/3 capture recourse — the
+description must sharpen routing for the cases named, not turn
+`browser_take_screenshot` into a reflex.
 
-**PaddleOCR**: groups French and English under a single recognition
-model (shared Latin alphabet), no need for two separate OCR passes.
-Models downloaded **at build time** of the Docker image (`ARG OCR_LANGS`,
-see `services/ocr-service/Dockerfile`), never on the first call.
-
-Explicitly out of scope: text-free icon/UI-element detection
-(OmniParser-style), Set-of-Marks annotation, GPU OCR, result caching, and
-click-targeting (no coordinates are returned — nothing acts on OCR
-output, it's read-only enrichment of an observation).
+**`ocr-service` (`services/ocr-service`) is unaffected by this change but
+currently has zero callers** in the codebase: it was built as the
+enrichment mechanism's text-extraction backend, and that mechanism is
+gone. The container still builds and serves `POST /ocr` (PaddleOCR,
+French+English, models downloaded at build time — see
+`services/ocr-service/Dockerfile`), kept deployed as a standalone
+capability rather than removed, pending a decision on whether it has a
+future role (e.g. effort 8's visual-only navigation mode) or should be
+retired — an open question, not resolved here.

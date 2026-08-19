@@ -5636,3 +5636,758 @@ attempt sent non-image bytes and got a 500, expected given invalid
 input, not a service defect). No GhostDesk container left running.
 `PROACTIVE_OCR_ENABLED` stays `false` — the explicit next checkpoint
 (`_detect_visual_signal`'s real implementation) is unblocked and open.
+
+## PROBE VISUEL — SIGNAL BROWSER_SNAPSHOT (effort 3 checkpoint closed, 2026-08-11)
+
+The explicit next checkpoint above: what `browser_snapshot` actually
+emits for a canvas/WebGL/alt-less-img/native-PDF element, needed before
+implementing `_detect_visual_signal` for real. Same technique as the
+original visual-channel feasibility probe (direct `mcp-client` calls, no
+LLM), run by the user on their machine via a new one-off script
+(`scripts/probe-visual-snapshot-signal.sh`): raw `browser_snapshot` text
+captured for VP1 (canvas), VP2 (WebGL), VP3 (`<img alt="">`), VP4 (PDF),
+plus VP7 (SVG text) and VP8 (off-viewport) as false-positive controls.
+First run 404'd on all 6 (wrong URL prefix — the fixture's Dockerfile
+generates into `/site/visual-probe/`, not the fixture root, same pattern
+as `fixture-docs`/`fixture-perception`); fixed, second run returned real
+data.
+
+**Result, falsifying the mechanism's own premise**: VP1/VP2/VP3 come
+back as heading + intro paragraph ONLY — the element itself produces
+ZERO accessibility nodes, not even an unlabeled placeholder. A page with
+a canvas is text-identical to a page without one: nothing for a text
+heuristic to grep for. VP4 is the one exception — the entire response is
+empty, no page-title line even — a real signal, but an ABSENCE tied to
+navigation context, not a keyword to match. VP7 (control) renders as
+role `img` wrapping a `generic` node with the real text: a naive
+`role: img` heuristic would have false-positived on inline SVG text,
+which needs no capture at all. VP8 (control) renders as an ordinary
+`generic` node, correctly indistinguishable from any other DOM text.
+Full matrix and reading: `docs/architecture/visual-channel-feasibility.md`,
+"Follow-up — browser_snapshot's raw signal".
+
+**Checkpoint decision (user, same session)**: abandon
+`_detect_visual_signal`/`_maybe_enrich_with_ocr` entirely rather than
+implement a partial or false-positive-prone detector — "ce n'est pas au
+harnais de deviner qu'un canvas invisible existe, c'est à l'agent de
+constater qu'il n'a pas trouvé sa cible et de changer de canal." Replaced
+by the capability and its own criterion, not detection:
+
+1. **`_detect_visual_signal`/`_maybe_enrich_with_ocr` removed**
+   (`app/graph.py`), along with `PROACTIVE_OCR_ENABLED`/
+   `PROACTIVE_OCR_MAX_CHARS`/`OCR_SERVICE_URL` and their
+   `docker-compose.yml`/`campaign_preflight.py`/`campaign_persistence.py`
+   entries, and `tests/test_proactive_ocr.py` (5 tests, all specific to
+   the removed mechanism). `langgraph-agent`'s `depends_on`/env no longer
+   reference `ocr-service`.
+2. **Tool-description routing hint**: `_tool_description_with_appends`
+   (`services/mcp-client/app/main.py`) appends a short French hint to
+   `browser_take_screenshot`'s real, upstream Playwright description —
+   use this tool when `browser_snapshot` doesn't carry canvas/WebGL/
+   alt-less-image/PDF content. Appended, never replacing the upstream
+   text (`_refresh_registry`'s per-tool loop). Tool-catalog position
+   check (the "position affects adoption" finding, EFFORT 2 point 3)
+   deferred to the live smoke below rather than reordered blind — no live
+   `/tools/schema` access from this environment to measure current
+   position first.
+3. **Empty-snapshot redirect**: `_flag_empty_snapshot`/
+   `_is_empty_snapshot_text` (`services/mcp-client/app/main.py`) detect
+   VP4's specific shape — an entirely empty ` ```yaml ``` ` block in
+   `browser_snapshot`'s own response — and append a redirect hint to the
+   SAME result; the call still succeeds, this is guidance, not a block.
+4. **Docs updated for rule 9**: `docs/architecture/autonomy.md`'s
+   "Proactive OCR enrichment" section rewritten in full as "Visual-only
+   content: tool description, not detection"; README's file-tree entry
+   and "Known, accepted limitations" bullet corrected;
+   `docs/architecture/visual-channel-feasibility.md` gets the new
+   follow-up section (raw-signal matrix, above).
+5. **Judge, not yet run**: family E's E2 (visual-only task) re-measured,
+   3 repetitions — its earlier 1/3 was an audit-verified channel
+   confusion between GhostDesk's `screen_shot` and Playwright's
+   `browser_take_screenshot`, which the corrected description should
+   resolve now that GhostDesk is gone and the description names the
+   right tool by name. E1/E3 non-regression required, in particular E3
+   staying at 0/3 capture recourse (DOM-first routing must not degrade
+   into a capture reflex). If the description alone is enough to route
+   correctly, detection was never the missing piece.
+
+**Tests**: `mcp-client` 48 → 55 passed (7 new: description-append pure
+function, empty-snapshot pure functions, `/call` integration for both
+the redirect and the untouched-on-populated-result case, using the real
+captured VP1/VP4 text as fixtures, not guessed shapes).
+`langgraph-agent` 471 → 466 passed (5 removed with `test_proactive_ocr.py`,
+0 new failures elsewhere). `ocr-service` itself is untouched and still
+builds/serves `POST /ocr`, but now has **zero callers** in the codebase —
+kept deployed as a standalone capability (a possible future role, e.g.
+effort 8's visual-only navigation mode), not removed — flagged as an
+open question, not decided in this pass (CLAUDE.md rule 7, no
+opportunistic removal outside scope). Live deploy (`docker compose build
+mcp-client langgraph-agent && docker compose up -d` — both images
+changed, a plain restart was needed) done by the user, restricted smoke
+run.
+
+**Restricted smoke result (2026-08-11, user's machine, n=3/task)**:
+E1 3/3, E2 2/3, E3 3/3 with visual capture used in 0/3 — see
+`docs/campaigns/2026-08-11_campaign-v2_visual-routing-smoke.md`. Cross-
+checked against the raw audit log (not just the harness report, per
+CLAUDE.md discipline): the description-only routing hint worked
+perfectly on the mechanism it targets — **all 3 of 3 E2 runs correctly
+called `browser_take_screenshot`** after finding `browser_snapshot`
+sparse, including the one that ultimately scored a failure. That
+failure is NOT a routing regression: the model read the screenshot and
+reported `f209163a` instead of the fixed, build-time ground truth
+`ZK-3392` (`generate_perception.py`, `E2_VALUE`) — a genuine vision
+misread, the model explicitly stated it read that (wrong) text off the
+capture. E3's 3/3 runs never called `browser_take_screenshot` (verified
+via each run's `assistant`-role tool_calls in the audit log) — DOM-first
+routing preserved, no capture-reflex regression. E1's 3/3 unaffected (no
+screenshot tool exists in that task's viable path).
+
+**Reading**: point 5's real test — "if the description alone is enough
+to route correctly, detection was never the missing piece" — is
+confirmed. The prior E2 1/3 baseline's failure mode was tool confusion
+(GhostDesk's `screen_shot` vs Playwright's `browser_take_screenshot`,
+now moot since GhostDesk is removed); this pass's failure mode is a
+different, downstream one (vision-reading accuracy on a taken
+screenshot), outside this checkpoint's scope to fix. Tool-catalog
+position for `browser_take_screenshot` was not touched — the description
+alone reached 3/3 correct routing without it, so the "position affects
+adoption" lever was never needed here. **Effort 3's explicit checkpoint
+is closed**: scaffolding delivered, mechanism redesigned after empirical
+falsification, live-verified, no flag left to flip (the routing hint is
+unconditional, not gated).
+
+## EFFORT 1.3 — PHASE 0 LIVE RESULT (parallel campaign execution, resumed)
+
+See `docs/briefs/effort-1.3-parallel-campaigns.md` for the full design.
+Archives-only recompute found the GPU fraction of run time dropped
+51%→26% since the original ×2.2/×3 estimate (deterministic GPU placement
++ effort 2.4's cognitive-core removal), recomputing to ×1.97 pessimistic
+/ ×3.0 optimistic for N=3. Architecture question (does worker_id-scoping
+`mcp-client`'s sessions give real per-worker `playwright-mcp` isolation,
+or is a shared browser fought over regardless) resolved from an already-
+verified finding (`docs/resolved-bugs.md`: Playwright MCP scopes browser
+context per MCP session, not per process) rather than assumed.
+
+**Phase 0 live checks (2026-08-11, user's machine,
+`scripts/probe-parallel-phase0.sh`), both green**:
+- TabbyAPI concurrent-request behavior: ×2.0 real speedup on 3 concurrent
+  vs 3 sequential requests — lands on the PESSIMISTIC bracket (×1.97),
+  not the optimistic one (×3.0): TabbyAPI serializes more of the request
+  than the optimistic scenario assumed. First attempt was invalid (0.38s
+  for 3 "sequential" requests, an obvious prefix-cache artifact from
+  using one identical prompt 6 times — this project already tracks
+  `cache_zero_rate` as a real phenomenon, should have anticipated it);
+  fixed with distinct UUID-prefixed prompts plus realistic filler,
+  disjoint prompt sets per arm.
+- `playwright-mcp` session isolation: confirmed live — two independent
+  MCP sessions opened directly against `playwright-mcp` (bypassing
+  `mcp-client`, whose session cache is still unscoped until Phase 1)
+  each kept their own navigated page under real concurrent load.
+
+**Reading**: Phase 3's realistic target is ~×2 on the full campaign, not
+the more optimistic ×3 — still a real, worthwhile win. Phase 1
+(`mcp-client` worker-scoping) confirmed worth building. 🧑 Checkpoint
+passed, both Phase 0 conditions met — next: Phase 1 implementation, on
+explicit go-ahead.
+
+## EFFORT 1.3 — PHASES 1-2 DELIVERED (parallel campaign execution)
+
+See `docs/briefs/effort-1.3-parallel-campaigns.md` for the full design
+and every status update below, in place. Summary here for the
+chronological record.
+
+**Phase 1 — `mcp-client` worker-scoping.** `_persistent_sessions`/
+`_persistent_locks` rekeyed `(server_name, worker_id)` instead of
+`server_name` alone (`_persistent_locks` a lazily-populated `defaultdict`,
+safe without an extra guard lock — single-process uvicorn, no `await`
+inside `defaultdict.__missing__`); `_worker_key` normalizes a
+missing/empty `worker_id` to the same `"default"` bucket every existing
+caller has always used. `POST /reset-session/{server_name}` gained an
+optional `worker_id` query param; `CallRequest` gained an optional
+`worker_id`. Caught fixing the tests: two existing assertions referenced
+the OLD bare-string key — one (`"browser" not in _persistent_sessions`)
+would have silently become a vacuous pass rather than a loud failure
+under the new tuple keying, not just broken loudly. `mcp-client` suite
+55→60 passed.
+
+**Gap found before Phase 2 could start**: Phase 1 gave `mcp-client` the
+`worker_id` parameter, but nothing on `langgraph-agent`'s side populated
+it from a real HTTP request — `ChatCompletionRequest`/
+`ApprovalDecisionRequest` gained an optional `worker_id`, threaded
+through `config["configurable"]` (`_resolve_run`/`/approve`) to
+`_execute_tool_calls`/`run_slash_command_direct` to `_call_mcp_tool`.
+Planner/verification nodes left unscoped (cognitive-core flags default
+off since effort 2.4, the config parallel campaigns actually run under —
+revisit only if that combination becomes real). `langgraph-agent` suite
+466→469 passed.
+
+**Scope grew mid-Phase-2, checkpoint reported before continuing** (user:
+"continuer maintenant, périmètre élargi"): the pause/resume cursor
+(`planned[len(completed):]`) turned out to be `campaign_persistence.py`'s
+own documented contract (`init_progress_state`'s docstring), also relied
+on by `compute_remaining_eta()` — the dashboard's live ETA. Fixed with
+`remaining_runs()` (a set difference on `(task_id, repetition)`, correct
+under out-of-order completions) in `campaign_persistence.py`, mirrored in
+`services/dashboard/app/main.py`'s deliberately-duplicated `_remaining_runs`
+(same "harness writes, dashboard reads" decoupling as
+`_normalize_duration_estimate`, kept in sync manually). 4 tests in
+`langgraph-agent` (44→48 on that file), 3 mirrored in `dashboard` (19→22).
+
+**Phase 2 — harness N-worker runner, delivered.** `_run_planned_tasks`
+(`test_web_tasks.py`) is the shared N-worker execution loop both
+`_run_campaign` (v1) and `_run_campaign_v2` now call — parameterized by
+a `build_row` callback (each suite keeps its own row/CuP/policy fields)
+and `purge_fns`/`serialized_task_ids` (which shared fixtures a task needs
+exclusive access to). A SECOND shared-single-file hazard was found while
+porting v2's loop, not anticipated in the brief: `_purge_admin_stock_file`
+(`stock_updates.json`, family B-β's sole success criterion) is the exact
+same race as T5's `/downloads` — added to the serialization set alongside
+it (`FAMILY_B_BETA_TASK_IDS`).
+
+`n_workers=1` (`WEB_TASKS_WORKERS`, default) passes `worker_id=None`
+throughout — verified as a real, separate invariant: a first draft always
+generated `"worker-1"` even at `n_workers=1`, caught by its own
+regression test (`test_missing_worker_id_default_bucket_semantics_unchanged`),
+fixed to special-case `n_workers == 1` explicitly rather than merely
+document the claim. `state["current"]` stays a single dict (dashboard's
+`campaign.html` untouched) — "whichever run was claimed most recently,"
+a documented degradation for `n_workers>1` (shows one of the active runs,
+not all); the new `state["active"]` list carries the full in-flight
+picture for a future dashboard enhancement, explicitly out of scope here.
+
+5 new tests (`services/langgraph-agent/tests/test_run_planned_tasks.py`,
+no Docker/HTTP — `run_task`/purge/reset monkeypatched, run 5x in a row to
+check for threading flakiness, none observed): sequential order preserved
+at `n_workers=1`, every planned entry claimed exactly once under N
+workers, the `worker_id=None` invariant, pause stops new claims but lets
+in-flight work finish (paused=True reported only once every worker has
+actually stopped, not merely requested), and — the one requiring real
+`threading.Event`-based synchronization, not just call-order inspection —
+the download lock provably blocks another worker's purge until the
+serialized task's ENTIRE run finishes, not just its own purge.
+
+`langgraph-agent` suite 469→478 passed overall (473 baseline this
+session + the campaign_persistence/N-worker additions). `run-campaign.sh`
+does NOT set `WEB_TASKS_WORKERS` yet — Phase 3's own checkpoint decides
+that. 🧑 **Checkpoint before Phase 3's live measurement**: nothing
+live-run in Phases 1-2, everything verified against synthetic state only,
+per the brief's own discipline (unit-testable without live Docker).
+
+## EFFORT 1.3 — PHASE 3 DECISIVE MEASUREMENT, MISSED, THEN A METRIC BUG CORRECTED
+
+See `docs/briefs/effort-1.3-parallel-campaigns.md` for the full detail.
+Sequential (N=1) vs parallel (N=3), the declared 6-task subset × 3 reps
+(18 runs each): wall-clock **×1.10** (17.9 min → 16.3 min), far short of
+the ~×2 target set after Phase 0. Scored-task total came back 12/15 both
+arms with the composition swinging hard per task — not read as signal,
+n=3 per arm and (see below) the inference conditions themselves turned
+out not comparable between arms.
+
+**First diagnosis (later corrected): KV cache eviction.** `tabbyapi_raw_samples`
+(already-collected per-request data) showed `cached_tokens` repeatedly
+collapsing to the tool-schema floor (6656) instead of growing
+monotonically, `prompt_tokens_total` ×4 and `prefill_seconds` ×5.7 for
+the same 18 tasks. Read as TabbyAPI's `cache_size: 49152` KV pool being
+evicted under 3 concurrent growing conversations. User-directed follow-up:
+compute a safe `cache_size` increase from already-measured GPU margins
+(GPU1, the binding constraint, ~2245 MiB free) rather than guess —
+candidate `65536`, applied via `scripts/probe-cache-size-headroom.sh`
+(reloaded cleanly, no OOM).
+
+**The validation smoke exposed a different, deeper bug instead of
+confirming the theory.** Two concurrently-run tasks (A1+A2, N=3) in the
+cache_size smoke came back with **byte-identical** `tabbyapi_raw_samples`
+for their first 27 entries. Root cause: `collect_tabbyapi_raw_samples`
+(`campaign_persistence.py`) scrapes `docker logs tabbyapi --since --until`
+by WALL-CLOCK WINDOW — correct at `N_WORKERS=1` (no two tasks' windows
+can ever overlap, an assumption every prior use of this function relied
+on safely, since nothing ran concurrently before effort 1.3), silently
+wrong at `N>1`: overlapping windows both scrape the SAME shared log
+lines. TabbyAPI's log line carries no per-request identifier and there is
+no `/metrics` endpoint to fall back on (already verified against the
+installed image, this module's own docstring) — external log scraping
+cannot attribute per-task under real concurrency, full stop, regardless
+of parsing cleverness.
+
+**Archives-only correction (dedup by exact sample-tuple identity across
+the Phase 3 decisive measurement's already-collected data, zero re-runs,
+per the "archives first" measurement rule):** pooling all 18 parallel-arm
+runs' samples and keeping each unique 6-field tuple once collapses 910
+raw samples to 313 genuinely distinct ones. Corrected: prefill 633.1s
+(not 1848.5s), tokens 3.51M (not 10.1M) — against sequential's already-
+correct 324.4s / 2.53M, that's **×1.95 prefill time for ×1.39 the real
+token volume**, consistent with ordinary GPU-sharing contention (Phase
+0's own ×2.0 finding) plus a modest real amount of extra work — not the
+dramatic full-cache-wipe story the uncorrected 4x/5.7x figures told. The
+primary judge itself (wall-clock ×1.10) is unaffected by any of this —
+measured via each thread's own `time.monotonic()`, never touched by the
+log-scraping bug.
+
+**Fix delivered**: `_run_planned_tasks` now ALSO collects a campaign-level
+`tabbyapi_raw_samples`/`aggregate_prefill_stats` pass, bracketing the
+wall-clock window of the WHOLE worker pool rather than each task's own
+window — every real log line counted exactly once regardless of overlap,
+correct at any `N_WORKERS`. Persisted into the campaign JSON's
+`metadata.campaign_prefill_stats`, printed at run end. Per-task
+collection (`run_task`) is unchanged, documented as an upper bound (not
+a precise figure) above `N_WORKERS=1`, still exactly correct at the
+default. 6 new/updated tests, `langgraph-agent` suite 478→479.
+
+🧑 **Next**: re-run the same 2-task smoke (A1+A2, N=3, `cache_size`
+already at 65536) with the now-fixed instrumentation for a trustworthy
+read, before deciding whether the full 6-task×3-rep decisive
+re-measurement is warranted.
+
+## EFFORT 1.3 — CACHE_SIZE RE-CHECK: NO EFFECT, DECISION DEFERRED
+
+Re-ran the same 2-task smoke (A1+A2, N=3, `cache_size` already at 65536)
+with the now-correct campaign-level instrumentation. Both tasks
+succeeded (1/1 each, n=1). The fix behaves exactly as designed:
+`metadata.campaign_prefill_stats` (39 requests, 56.34s prefill, 444,159
+tokens) matches A1's own individually-collected window almost exactly,
+consistent with A2's window being a subset of A1's longer one — no more
+double counting.
+
+**The number that matters — wall-clock, both tasks**: sequential sum
+(110.0s + 60.5s) = 170.5s vs parallel max(154.7s, 117.3s) = 154.7s →
+**×1.10, identical to the full 18-run decisive measurement's own ratio**.
+Real work volume grew modestly under concurrency (39 requests vs ~27
+summed sequentially, +38% tokens — matching the corrected archives-only
+dedup reading from the previous entry, not the original inflated one),
+but the extra `cache_size` headroom bought nothing measurable on the
+actual bottleneck (wall-clock time). If cache capacity were the binding
+constraint, more of it should have helped; it didn't move at all.
+
+**Reading**: consistent with Phase 0's own honest finding (×2.0 real
+speedup on short prompts, not the ×3.0 optimistic bracket) pointing to a
+COMPUTE-bound ceiling (TabbyAPI's inference engine itself) rather than a
+MEMORY/cache-bound one — `cache_size` was plausibly never the real
+lever. **Decision deferred, per explicit user instruction ("consigne
+tout ça") — this entry records the finding, nothing more.** Three paths
+remain open, none chosen: test `N_WORKERS=2` (compute contention halved
+might still show a real, smaller gain), close now as a documented
+hardware-bound capability limit (the worker_id-isolation mechanism
+itself stays valid and useful independent of this specific throughput
+question — it's also the fix for `docs/architecture/
+mcp-client-concurrency.md`'s general concurrent-usage risk, not just
+campaigns), or revert `cache_size` to 49152 first (no measured benefit
+to justify keeping the extra VRAM committed) then close. `N_WORKERS`
+stays `1` by default; `run-campaign.sh` still doesn't set it.
+
+## EFFORT 3 FOLLOW-UP — OCR-SERVICE COST PROBE, RETAIN DECISION
+
+Effort 3's closing note left `ocr-service` deployed with zero callers as
+an open question ("possible future role vs retirement, not decided in
+this pass") — its per-call cost had never been measured, on either the
+removed proactive mechanism or a hypothetical future one. Probed ad hoc
+(`scripts/probe-ocr-cost.sh`, new): self-loopback `POST /ocr` calls
+inside the running `ocr-service` container against the real
+`paddleocr`/CPU engine (not `OCR_ENGINE=fake`), 3 synthetic screenshot-
+sized images (dense French/English text, matching the kind of content a
+real `browser_take_screenshot` capture would carry), 1 warmup call + 5
+timed reps each.
+
+**Result**: latency scales close to linearly with the number of detected
+text elements, not a fixed/negligible overhead — 94ms median at 2
+detections (320×100), 694ms at 15 (800×600), 1.30s at 30 (1280×800, ~43
+ms/detection). Extrapolating the same slope toward `OCR_MAX_ELEMENTS`'s
+default cap (80) suggests 2-3s on a text-dense real page — comparable in
+order of magnitude to a single TabbyAPI call, not a cost negligible in a
+tool-iteration budget.
+
+**Caveat, stated plainly**: this is an ad hoc probe (n=5/case, one
+machine, one session, no brief, no pre-declared judge) — informative
+enough to answer "what does a call cost", not a measurement campaign
+under this project's rules. Does not include the internal-network hop a
+real caller (`langgraph-agent`, over `agent-net`) would add on top
+(expected sub-millisecond on a Docker bridge network, not measured here).
+
+**Decision (explicit, user, this session): `ocr-service` is retained,
+not retired.** Justification given: needed for a future "full visual
+mode" activation (unspecified scope/timing) — the cost figures above are
+the reference point for that future work's own budget reasoning, not
+grounds for the decision itself. `docs/project-status.md`'s open question
+is now closed as "keep, future role pending" rather than "possible future
+role vs retirement, not decided."
+
+## EFFORT 1.3 — N_WORKERS=2 SMOKE + TENSOR_PARALLEL CANDIDATE FOUND, CHANTIER DEFERRED
+
+Path (a) from the cache_size re-check's three open options, tried: same
+2-task smoke (A1+A2) that validated `cache_size`, `WEB_TASKS_WORKERS=2`
+instead of 3, `cache_size` left at 65536 (single variable). Result:
+`A2_schema_references` 1/1 (103.3s), `A1_reconciliation_croisee` 0/1
+(147.3s, `boucle` — a pre-existing near-floor failure mode already
+documented in the A1 trajectory diagnostic, not new evidence of an
+N-specific bug: the same sequential N=1 baseline itself shows A1 failing
+1/3 reps by the identical cause). Campaign wall-clock 147.7s vs the
+already-measured sequential baseline (170.5s) → **×1.15**, essentially
+indistinguishable from N=3's own ×1.10 given task-duration variance
+already observed across reps (A1 alone ranged 79-156s at fixed N=1).
+Real work volume (`campaign_prefill_stats`: 39 requests, 61.6s prefill,
+462k tokens) also lands within noise of the N=3 read (39 requests, 56.3s,
+444k tokens) — same order of magnitude regardless of N=2 vs N=3,
+reinforcing the compute-bound reading rather than resolving it. n=1/task,
+no statistical weight — informative, not decisive.
+
+**Web research, requested by the user, into a genuine unexplored lever**:
+TabbyAPI/ExLlamaV3 already does continuous batching + paged attention
+automatically — `max_batch_size` (`model:` section, default 32 for
+transformer architectures per the upstream `config_sample.yml`, absent
+from `services/tabbyapi/config.yml` hence at default) is nowhere near our
+2-3 concurrent tasks, ruled out as the constraint. The one real candidate
+found: `tensor_parallel` (`model:` section, default `false`, also absent
+from our config hence `false`) — makes both GPUs jointly compute each
+forward pass, unlike the current `gpu_split: [5, 14]` (VRAM/layer split
+only, one GPU computing at a time per request). Genuinely untried: not
+`cache_size`, not `N_WORKERS`.
+
+**Risk found alongside it, not just the upside**: an open, unresolved
+upstream issue (`turboderp-org/exllamav3#76`) reports `tensor_parallel:
+true` failing to even load the model on 2× IDENTICAL RTX 3060s — silent
+process death, no fix documented. Our pair (RTX 5060 Ti Blackwell + RTX
+4070 Ti SUPER Ada Lovelace) is architecturally mismatched, a strictly
+harder case than the one already failing upstream. Per CLAUDE.md rule 8,
+this also hasn't been cross-checked against the actually pinned image
+(digest `cbceb303...`) — only against upstream `main`'s
+`config_sample.yml`, which may have drifted. Not verified live, not
+attempted.
+
+**Chantier deferred, explicit user decision, before any of this was
+tried live.** None of the three original paths chosen; `tensor_parallel`
+added as a fourth candidate for whenever this resumes, flagged with its
+own real failure risk (unlike `cache_size`, a bad `tensor_parallel`
+attempt can take the whole model load down, not just waste VRAM — any
+future attempt needs its own restore-on-failure guard, same pattern as
+`scripts/probe-cache-size-headroom.sh`). `N_WORKERS` stays `1` by
+default, `tensor_parallel` stays unset (`false`) in `services/tabbyapi/
+config.yml`. Nothing changed in the repo by this entry.
+
+## EFFORT 4 (scaffolding-optimisation.md, EFFORT 2) — DIFF-BASED OBSERVATION HISTORY, BUILT
+
+`docs/briefs/scaffolding-optimisation.md`'s Effort 2 (natural-language
+change descriptions in place of repeated full snapshots) implemented
+against a plan reviewed and approved via Claude Code's plan mode, grounded
+in a direct read of `app/graph.py` rather than assumption — notably that
+a `ToolMessage` carries no tool name (identity resolved via the preceding
+`AIMessage.tool_calls`, same technique as `_previous_turn_tool_calls`)
+and that not every `browser_*`-tagged result is a real snapshot (the
+URL-fabrication/repeated-strategy guardrails and mcp-client errors all
+produce non-page-state text under the same tool name). Both facts
+verified against the actually pinned `langchain-openai==0.2.2`/
+`pydantic==2.9.2` (`langchain_core` resolves to `0.3.86`) before relying
+on `ToolMessage.model_copy`, per CLAUDE.md rule 8.
+
+`HISTORY_DIFF_ENABLED` (default `false`), `_apply_history_diff` (plus
+`_browser_result_text`/`_is_structural_browser_result`/
+`_diff_browser_observation`/`_browser_result_indices`), wired into
+`call_llm` right after `_apply_image_retention` — same transient-filter
+principle as image retention/episode compaction (new list, checkpointer/
+audit log never mutated). Each past `browser_*` result diffs against its
+nearest STRUCTURAL predecessor (URL change, affordances appeared/
+disappeared by kind+label identity, a lexical error-hint heuristic —
+honestly approximated, since the accessibility-tree snapshot carries no
+color/severity signal the brief's own illustrative example implies); a
+non-structural result (guardrail feedback, mcp-client error) is never
+used as a baseline and gets a fixed neutral marker instead; the first
+structural result gets a fixed "first observation" marker rather than a
+diff against nothing. Coverage counters (audit role `"history_diff"`,
+logged on EVERY `call_llm` call regardless of the flag, per CLAUDE.md's
+retroactive trigger-rate-counter rule) threaded through
+`test_web_tasks.py`/`test_web_tasks_v2.py` (new `history_diff_*` row
+fields, a "Diff hist." report column, an unconditional campaign-level
+coverage line — no threshold to gate on, unlike episode compaction, since
+the boundary here is structural not message-count-based),
+`campaign_preflight.py`'s `EXPECTED_AGENT_FLAGS`, `campaign_persistence.
+py`'s `CAMPAIGN_ENV_FLAGS`, and `docker-compose.yml`.
+
+12 new unit tests (`tests/test_history_diff.py`): flag off/too-few-results
+no-ops, past replaced/latest untouched, true `state["messages"]` never
+mutated (same length, no insert/delete), URL/affordance-appeared/
+affordance-disappeared facts, first-observation marker, non-structural
+result never used as a baseline, `tool_call_id` resolution on a turn
+mixing `browser_*` and non-`browser_*` calls, composition with image
+retention + episode compaction (including the case where episode
+compaction has already erased the only prior structural predecessor —
+no crash, no stale index). Full `langgraph-agent` suite 479→491 passed,
+0 regressions.
+
+**Not done, deliberately**: no campaign run, no flag flip anywhere — the
+brief's own checkpoint (🧑, after Effort 2) is a human decision on
+whether/when to measure this live, same discipline as every other
+conditional mechanism in this project.
+
+## SCAFFOLDING 3.1 — TOOL-CALL N-GRAM FREQUENCY ANALYSIS, CHECKPOINT DECISION
+
+`docs/briefs/scaffolding-optimisation.md`'s Effort 3, point 3.1 ("find the
+candidates in the archives, not by intuition, before designing anything"):
+new archives-only tool, `scripts/analyze-tool-call-ngrams.sh` — reads the
+real audit log directly from the host-mounted volume (no docker/GPU
+needed), counts contiguous tool-name n-grams (n=2..5) per thread,
+chronologically ordered, never crossing thread boundaries, ranked by
+`(n-1) * count` ("turns that would be saved" if collapsed into one
+composite call). Run against the full archive (18 daily files,
+2026-07-16 to 2026-08-11): 5649 real tool_calls (entries carrying a
+`"tool"` key with no `"kind"` key — model-proposed-but-unapproved calls
+deliberately excluded), 924 threads.
+
+**Findings**: `browser_navigate → browser_navigate` dominates (985 saved
+turns at n=2, chains up to 5 deep) — checked day-by-day, NOT a historical
+artifact, if anything a growing share recently (28-40% of a day's calls
+on 2026-08-06/08-10/08-11). `*_snapshot ↔ *_navigate`/`*_click` pairs are
+the next largest mass and match the brief's own illustrative example.
+Reading `services/mcp-client/app/main.py:765-777`
+(`_STABILIZE_AFTER_TOOLS`) found the structural cause: `browser_click`/
+`browser_navigate` can return stale pre-render content, already known
+and already worked around with a fixed post-action wait — the model
+re-snapshots because the action's own response doesn't reliably say
+where it landed, not out of habit. `browser_fill_form → browser_select_option
+→ browser_click` is the one sequence that reads as a genuine classic
+composite candidate.
+
+**Checkpoint decision (user, this session)**:
+
+- **Design principle recorded** (now in `CLAUDE.md`, "Tool design
+  contract"): a tool that acts must return the resulting STATE of its
+  action, never a bare acknowledgment — this is the THIRD confirmed
+  occurrence (`browser_extract`'s dt/dd fix, EFFORT 2.3; `manage_plan`'s
+  bare `{"ok": true}`, EFFORT 2 merged-planning fix 1/2; now
+  `browser_navigate`/`browser_click`).
+- **Point 1, retained, being built next**: `browser_click`/
+  `browser_navigate` include the post-stabilization snapshot in their
+  own response (reusing `_STABILIZE_AFTER_TOOLS`, already in place) —
+  NOT a new tool, catalog size/count stays unchanged (the schema-order/
+  weight finding from effort 1.1/1.2 is exactly why growing the catalog
+  is avoided here). Same structured truncation rules as `browser_snapshot`
+  (affordances never amputated). Two judges read TOGETHER, never one
+  without the other: turns/task (expected to drop) and tokens/task
+  (expected to rise per turn) — the mechanism only wins if the net is
+  positive; CuP non-regression as a veto. Terrain: A1/A2, with the dt/dd
+  fix already live. One variable.
+- **Point 2, next after point 1's checkpoint**: push adoption of the
+  EXISTING `browser_extract` bulk mode (`urls=[...]`) rather than build
+  anything new — A1 has never chosen it. Two already-validated levers in
+  this project (description wording that names WHEN to prefer it,
+  position in the tools array). If neither moves adoption, that reads as
+  the bulk tool itself being malformed, to be stated as such rather than
+  routed around.
+- **Point 3, shelved, not rejected**: the form-filling composite is the
+  only classic composite candidate found, but forms are not a measured
+  bottleneck (A1 fails on multi-page navigation, not form-filling) —
+  building it now would be exactly the "build ahead of need" the brief
+  forbids. Reopening condition recorded: a measured failure attributable
+  to form-filling.
+- **No new composite tool in this chantier** — points 1 and 2 both
+  improve existing tools; the catalog does not grow.
+
+🧑 **Stop after point 1, before point 2** — explicit, this session.
+
+## SCAFFOLDING 3.1, POINT 1 — BROWSER_CLICK/NAVIGATE RETURN RESULTING PAGE STATE, BUILT
+
+Point 1 of the checkpoint decision above, implemented against a plan
+reviewed and approved via Claude Code's plan mode. Root cause confirmed
+by reading real audit-log entries directly (`workspace/.audit/*.jsonl`),
+not assumed: `browser_navigate`/`browser_click`'s own response never
+contains the resulting page — only a
+`"### Snapshot\n- [Snapshot](../../downloads/....yml)"` reference to a
+file the agent has no tool to read, unlike a direct `browser_snapshot`
+call, which embeds the real accessibility tree inline. Playwright MCP's
+own upstream design choice (separate concerns: a lightweight action
+confirmation vs. a dedicated full-tree tool), not a bug in this
+project's code — the gap is that nothing bridges the two for the
+calling agent.
+
+**Fix** (`services/mcp-client/app/main.py`, `call_tool()`): right after
+the existing `_STABILIZE_AFTER_TOOLS`/`BROWSER_STABILIZE_WAIT_SECONDS`
+post-action wait (unchanged, reused as the SAME single gate — no new env
+var), a real `browser_snapshot` call is dispatched via the same
+`_run_on_server` helper already used for `browser_extract`/
+`browser_inspect`'s internal dispatch, and its content blocks are
+appended to the response before `_rewrite_ref_error` runs, so both
+blocks go through the same existing rewriting uniformly.
+`_flag_empty_snapshot`'s gate extended from `request.tool ==
+"browser_snapshot"` to also fire whenever a snapshot block was actually
+appended — parity: a `browser_navigate` landing on an empty/native-PDF
+page now gets the same redirect hint a direct `browser_snapshot` call
+already gave.
+
+**No `langgraph-agent` code change required** — verified, not assumed:
+`_truncate_browser_result` (`app/graph.py:336`) already applies
+unconditionally to every `browser_*`-named result and operates PER
+CONTENT BLOCK, so the appended snapshot block receives the identical
+structured truncation/affordance-prioritization treatment a standalone
+`browser_snapshot` call's block already gets, for free.
+
+**Tests**: 4 existing tests updated (2 stabilization-wait call-list
+assertions extended to include the new `browser_snapshot` call, 2
+visual-capture tests' `len(content) == 1` corrected to `2` — the
+actually-critical assertion in both, that a screenshot image block never
+leaks into this response, is untouched and still passes) plus 4 new
+tests (snapshot content reaches the response for both navigate and
+click, the disabled-gate case still yields exactly 1 block, the
+empty-snapshot hint fires on navigate when the appended block is blank).
+Full `mcp-client` suite 60→64 passed, 0 regressions.
+
+**Live smoke (2026-08-12, user's machine), first attempt invalid —
+operational trap, same class already catalogued in CLAUDE.md ("Operational
+traps": a service code change requires `docker compose build <service>`
+before `up -d`, not a plain restart)**: `campaign-20260812T090806Z-
+benchmark-v2.json` (A1 1/1, A2 1/1) looked plausible (turns down ~1/task)
+but tokens rose instead of falling, an ambiguous read against the
+declared "both judges together" rule. Root-caused via the raw audit log,
+not guessed: `browser_navigate`'s own tool-result entry for that run
+still showed the OLD single-block dead-link shape
+(`"### Snapshot\n- [Snapshot](../../downloads/....yml)"`), and the model
+was still issuing its own separate `browser_snapshot` call right after —
+`mcp-client` was running the pre-fix image, never rebuilt after the code
+change. Verified directly (single `/call` probe against `mcp-client`,
+no campaign needed): 2 content blocks confirmed once
+`docker compose build mcp-client && docker compose up -d --force-recreate
+mcp-client` was actually run.
+
+**Live smoke re-run with the fix genuinely active
+(`campaign-20260812T092752Z-benchmark-v2.json`, A1 1/1, A2 1/1) — clean
+result, BOTH judges down together, stronger than the expected trade-off**:
+
+| | Before (avg of successes, N=1 baseline) | After (fix active) | Delta |
+|---|---|---|---|
+| A1 turns | 10 | 8 | **-2** |
+| A1 tokens | ~161 744 | 139 691 | **-22 053** |
+| A2 turns | 10.3 | 8 | **-2.3** |
+| A2 tokens | ~134 422 | 85 934 | **-48 488** |
+
+Confirmed mechanistically in the raw audit log, not just in the
+aggregate numbers: on both threads, every `browser_navigate`/
+`browser_click` tool-result entry now carries 2 content blocks, and the
+model issues ZERO separate `browser_snapshot` calls afterward — the
+targeted redundant round-trip is gone. Tokens fell rather than merely
+being offset, because eliminating a whole `call_llm` round-trip also
+removes that turn's own overhead (tool schema, system prompt resent),
+which outweighs the marginal size of the appended snapshot block. n=1,
+no statistical weight, but directionally clean and mechanistically
+explained, not just correlated. **Point 1 closed, live-verified.**
+
+## SCAFFOLDING 3.1, POINT 2 — CLOSED, PREMISE ALREADY FALSE
+
+Point 2's stated premise ("A1 ne l'a jamais choisi" — bulk
+`browser_extract` never adopted on A1) does not hold, and hadn't held
+since before this session started. Investigating the two live A1 audit
+threads used to verify point 1 (both the invalid pre-fix run and the
+clean post-fix run), `browser_extract` with `urls=[...]` appears 6-8
+times per run, opening with the same pattern as A2 (paginate the
+catalog list, then bulk-extract category/price across all 30 product
+pages) — never a page-by-page crawl.
+
+This is not a new finding: `docs/history.md`, "A1 — TRAJECTORY
+DIAGNOSTIC" (Effort 2 era, predates this session) already states it
+explicitly: **"Strategy — corrects a premise: A1 already uses bulk, on
+every one of the 6 runs."** That diagnostic identified A1's real
+bottleneck as something else entirely — `browser_extract` returning a
+matched field's LABEL but not its VALUE for `dt`/`dd` pairs, which A2
+routes around via one `browser_run_code_unsafe` call and A1 (at the
+time) didn't. That specific gap is itself already closed: `EFFORT 2.3`'s
+`adjacent_value` fix (`_BROWSER_EXTRACT_BULK_JS_TEMPLATE`,
+`services/mcp-client/app/main.py`) is live in the current code, verified
+by direct reading this session.
+
+**Why this was missed when point 2 was scoped**: `scripts/
+analyze-tool-call-ngrams.sh` (point 3.1's own frequency analysis) has a
+blind spot — `browser_extract`/`browser_inspect` are NEVER logged as
+`"tool"`-keyed audit entries, confirmed across the entire archive (0
+occurrences in 18 files). This matches an already-documented limitation
+from family E ("audit log structurally blind to the read-tier tools
+actually used — browser_extract never logged by design"), not
+cross-checked before writing the n-gram script. The script can positively
+confirm click/navigate/snapshot volume, but says nothing about
+`browser_extract` usage, adopted or not — the checkpoint decision's "A1
+never chose it" framing was carried over from an older source without
+re-verifying it against this script's own (silent) coverage gap.
+Bulk-mode adoption is only checkable via `kind="message"`,
+`role="assistant"` entries' own `content.tool_calls` (the model's
+PROPOSED calls), not the `"tool"`-keyed execution entries the n-gram
+script filters on.
+
+**Decision (user, this session): point 2 closed, no work done.** No
+description/position change — there is no adoption gap to fix. The
+script's `browser_extract` blind spot is noted as a known limitation,
+not fixed here (no active question currently depends on it; revisit if
+a future frequency analysis needs `browser_extract`/`browser_inspect`
+coverage). Effort 3 of `docs/briefs/scaffolding-optimisation.md` (coarse-
+grained actions) is now fully closed: point 1 shipped and live-verified,
+point 2 closed as a non-problem, point 3 (form-filling composite)
+shelved per the original checkpoint decision, no new composite tool
+built in this chantier — matching the decision's own point 4.
+
+## HISTORY-DIFF LIVE SMOKE — STALE IMAGE, THEN PREFLIGHT CORRECTLY REFUSED
+
+Attempting the live smoke for `HISTORY_DIFF_ENABLED` (Effort 2 of
+`docs/briefs/scaffolding-optimisation.md`, built and unit-tested earlier
+today, `docs/history.md` "EFFORT 4 ... DIFF-BASED OBSERVATION HISTORY,
+BUILT") hit the SAME class of operational trap as point 1's mcp-client
+incident above, this time on `langgraph-agent`.
+
+**First attempt**: `HISTORY_DIFF_ENABLED=true docker compose up -d
+--force-recreate langgraph-agent` then the A1/A2 smoke. Both tasks
+succeeded, campaign metadata correctly showed `HISTORY_DIFF_ENABLED:
+true` — but zero `role="history_diff"` audit entries anywhere (0,
+against 109 `role="episode_compaction"` entries in the same day's log,
+the sibling mechanism that DOES run) — not a flattering zero from lack
+of opportunity, the code never ran at all. Confirmed by comparing
+`metadata.image_ids["langgraph-agent"]` across three same-day campaigns
+(this morning's point-1 verification runs, commit `25c6f32`, through
+this smoke, commit `1c05ff1`): identical digest
+(`sha256:b8295d06...`) despite the advancing commit — the image was
+never rebuilt, `--force-recreate` alone reused the stale one.
+`--force-recreate` DOES correctly apply a new env var (injected at
+container start) even while running old code that doesn't act on it —
+exactly why the campaign metadata looked clean while the mechanism
+itself was absent.
+
+**Second attempt** (`docker compose build langgraph-agent` this time,
+then the same recreate): `campaign_preflight.check_agent_flags`
+correctly refused before any run — effective `HISTORY_DIFF_ENABLED`
+read back as `false` despite the intended `true`, a sequencing slip
+(exact cause not confirmed — the preflight did its job either way,
+refusing rather than producing a second misleading result). Recorded as
+a general rule rather than re-litigated in more detail: `CLAUDE.md`,
+"Operational traps" — a code change requires `docker compose build
+<service>` before `up -d --force-recreate`, distinct from and easy to
+conflate with the env-var-only trap already documented there. Hit twice
+in one session (`mcp-client`, then `langgraph-agent`) — worth the
+general rule now rather than a third recurrence.
+
+Live smoke not yet obtained with the mechanism genuinely active and the
+flag genuinely confirmed — next step for whoever resumes this: rebuild,
+verify `docker exec langgraph-agent env | grep HISTORY_DIFF_ENABLED`
+shows `true` BEFORE running the campaign, then the same A1/A2 smoke.
+
+**Third attempt, clean this time** (`campaign-20260812T095749Z-history-
+diff-smoke-v2.json`): `langgraph-agent` image digest confirmed different
+from the stale one (`sha256:435a2e72...` vs `sha256:b8295d06...`),
+`env_flags.HISTORY_DIFF_ENABLED: true`, and real, non-trivial coverage
+this time — A1 13 browser messages max / 12 replacements applied / 78
+messages compressed total; A2 7 max / 6 applied / 21 compressed. Not a
+flattering zero.
+
+**Result, vs. this morning's clean point-1-only baseline
+(`campaign-20260812T092752Z-benchmark-v2.json`)**:
+
+| | A1 | A2 |
+|---|---|---|
+| turns | 8 → 9 (+1) | 8 → 8 (=) |
+| tokens | 139 691 → 140 058 (≈ flat, +0.3%) | 85 934 → 68 168 (**-20.7%**) |
+| duration | 97.6s → 114.0s (+16.4s) | 41.6s → 50.6s (+9s) |
+
+2/2 success, no regression. **Mixed, not decisive**: A2 shows a real
+token reduction with no turn cost; A1 shows essentially nothing (even
+one extra turn). Duration rose modestly on both, plausibly the diff
+computation's own cost or plain noise (these two tasks' duration
+variance was already ±10-30s run-to-run before any of today's changes).
+n=1/task, no statistical weight — reads as the brief's own "differences
+within noise" case: point 1 already reduced A1/A2 to 8-9 turns each,
+leaving comparatively little redundant history left for this mechanism
+to compress on these SPECIFIC short tasks. **Decision: flag stays off,
+no further action this session** — a longer task (A4, historically
+19-41 messages) would give the mechanism more to work with and is the
+natural next candidate if this gets revisited, but that is not decided
+here.

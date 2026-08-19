@@ -11,3 +11,4 @@ workspace/*
 !workspace/.gitkeep
 skills/*
 !skills/.gitkeep
+.claude/

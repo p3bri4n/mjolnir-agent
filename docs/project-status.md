@@ -331,15 +331,85 @@ changed whether the model used it, all else held constant) — see
 docs/history.md, "TOOL SCHEMA ORDER AFFECTS ADOPTION". Worth an
 archives-only check (does per-tool usage frequency correlate with
 current schema position?) next time this family of work is revisited.
-**Effort 1.3 (parallel run execution): deferred, quantified justification**
-(archives-only recompute, zero runs — see docs/history.md, "EFFORT 1.3").
-Expected gain ×2.2 (pessimistic) to ×3 (optimistic) holds, but
-implementation needs a per-worker-isolation architecture chantier
-(`mcp-client`'s `_persistent_sessions` and the three contamination resets
-are global, keyed by server name not caller — see
-`docs/architecture/mcp-client-concurrency.md`). Re-evaluate after efforts
-1.2 (delivered), 2, and 4.2 land, which reduce campaign duration via the
-numerator.
+**Effort 1.3 (parallel run execution): resumed, Phase 0 passed live.**
+Brief written (`docs/briefs/effort-1.3-parallel-campaigns.md`) after
+efforts 1.2 and 2 landed; re-measured on fresher archives (GPU fraction
+of run time 51%→26% since GPU placement + effort 2.4's cognitive-core
+removal), recomputing to ×1.97 pessimistic / ×3.0 optimistic for N=3.
+Phase 0's two live checks (2026-08-11, `scripts/probe-parallel-phase0.sh`)
+both passed: TabbyAPI's real concurrent speedup is ×2.0 (the pessimistic
+bracket, not optimistic — sets the realistic Phase 3 target at ~×2, not
+×3), and `playwright-mcp` session isolation under real concurrent load is
+confirmed (context scoped per MCP session, matching the already-verified
+`docs/resolved-bugs.md` finding). See docs/history.md, "EFFORT 1.3 —
+PHASE 0 LIVE RESULT".
+
+**Phases 1 and 2 delivered (2026-08-11), nothing live-run yet.** Phase 1:
+`mcp-client`'s persistent sessions scoped by `worker_id`
+(`(server_name, worker_id)` keying), `worker_id` threaded all the way
+from `ChatCompletionRequest`/`ApprovalDecisionRequest` through
+`config["configurable"]` to `_call_mcp_tool` — a gap the brief hadn't
+named (nothing on `langgraph-agent`'s side read the parameter Phase 1
+gave `mcp-client`). Phase 2: the harness's sequential loop replaced by a
+shared `_run_planned_tasks` N-worker pool (`test_web_tasks.py`, used by
+both v1's `_run_campaign` and v2's `_run_campaign_v2`); scope grew
+mid-implementation (checkpoint reported, user: "continuer maintenant,
+périmètre élargi") once the pause/resume cursor turned out to be
+`campaign_persistence.py`'s own documented contract, also depended on by
+the dashboard's live ETA — fixed with `remaining_runs()` (a set
+difference, safe under out-of-order completions) in both
+`campaign_persistence.py` and its deliberate dashboard mirror. A second
+shared-fixture hazard (`stock_updates.json`, family B-β) was found and
+serialized the same way as T5's downloads while porting the loop, not
+anticipated in the brief. Test suites: `mcp-client` 55→60,
+`langgraph-agent` 466→478, `dashboard` 19→22, all green — everything
+verified against synthetic state only, no live Docker run in this phase.
+Full detail: docs/history.md, "EFFORT 1.3 — PHASES 1-2 DELIVERED".
+
+**Phase 3 decisive measurement run (2026-08-11): primary judge MISSED**
+— wall-clock ×1.10 (N=3 vs N=1), far short of the ~×2 target. First
+diagnosis (TabbyAPI KV-cache eviction under 3 concurrent conversations)
+was itself built on a flawed metric: `collect_tabbyapi_raw_samples`
+scrapes `docker logs` by wall-clock window, which double/triple-counts
+overlapping concurrent tasks' requests — found live via byte-identical
+samples across two concurrently-run tasks in a follow-up smoke. Fixed
+(`_run_planned_tasks` now also collects a campaign-level aggregate,
+correct at any `N_WORKERS`); archives-only dedup of the original decisive
+measurement's data corrects the earlier ×4/×5.7 token/prefill inflation
+down to a much more modest ×1.39/×1.95 — consistent with ordinary
+GPU-sharing contention (Phase 0's own finding), not a dramatic cache
+wipe. The wall-clock ×1.10 result itself stands, unaffected by the bug.
+`cache_size` raised 49152→65536 (candidate from already-measured GPU
+margins) pending a clean re-read. Full detail: docs/history.md, "EFFORT
+1.3 — PHASE 3 DECISIVE MEASUREMENT, MISSED, THEN A METRIC BUG
+CORRECTED".
+
+**Cache_size re-check (2026-08-11), with the fixed instrumentation: no
+effect.** Same 2-task pair, wall-clock ×1.10 — identical to the full
+18-run result, extra cache headroom bought nothing. Reading: consistent
+with a COMPUTE-bound ceiling (Phase 0's own ×2.0, not ×3.0), not a
+memory/cache-bound one — `cache_size` was plausibly never the real
+lever. **Decision deferred at explicit user request** ("consigne tout
+ça" — record only, decide later). Three paths on the table, none chosen:
+test `N_WORKERS=2`, close now as a documented hardware-bound limit
+(mechanism stays — `worker_id` isolation is independently valid, see
+`docs/architecture/mcp-client-concurrency.md`'s general concurrent-usage
+fix), or revert `cache_size` to 49152 first. `N_WORKERS` stays `1` by
+default. Full detail: docs/history.md, "EFFORT 1.3 — CACHE_SIZE
+RE-CHECK: NO EFFECT, DECISION DEFERRED".
+
+**`N_WORKERS=2` smoke tried (2026-08-12): inconclusive, within noise of
+N=3's own ×1.10** (×1.15, n=1/task, same pre-existing A1 `boucle` failure
+mode as the sequential baseline). Web research into a genuine unexplored
+lever, `tensor_parallel` (joint multi-GPU compute vs the current
+`gpu_split`'s VRAM-only layer split) — found alongside a real risk: an
+open upstream issue reports it failing to load on identical GPUs, and
+ours are mismatched (harder case), not yet cross-checked against the
+pinned image. **Chantier deferred, explicit user decision — nothing
+chosen among the now four candidate paths, nothing changed in
+`services/tabbyapi/config.yml`.** Full detail: docs/history.md, "EFFORT
+1.3 — N_WORKERS=2 SMOKE + TENSOR_PARALLEL CANDIDATE FOUND, CHANTIER
+DEFERRED".
 
 **Effort 2 (factorial ablation of the cognitive-core flags) measured, at
 a checkpoint** — see docs/history.md, "EFFORT 2". All 8 coherent
@@ -601,8 +671,137 @@ ocr-service langgraph-agent && docker compose up -d` — `ocr-service`
 reports `healthy` (`docker compose ps`), `GET /health` -> `{"status":
 "ok"}` (PaddleOCR engine loaded, not just the process up), `POST /ocr`
 against a real 1x1 PNG -> `[]` (correctly decodes, zero false
-detections). No GhostDesk container left running. 🧑 **Next, the
-explicit checkpoint**: resolve `_detect_visual_signal` empirically
-against the `fixture-visual-probe` fixtures before implementing it for
-real and flipping `PROACTIVE_OCR_ENABLED`, with its own restricted smoke
-— nothing else blocking.
+detections). No GhostDesk container left running.
+
+**Checkpoint resolved (2026-08-11): `_detect_visual_signal` abandoned,
+not implemented.** The empirical check (`scripts/probe-visual-snapshot-
+signal.sh` against `fixture-visual-probe`) falsified the mechanism's own
+premise — canvas/WebGL/alt-less-img leave zero trace in
+`browser_snapshot`'s text, and a candidate `role: img` heuristic proved a
+false positive on SVG text (control case). `_detect_visual_signal`/
+`_maybe_enrich_with_ocr`/`PROACTIVE_OCR_ENABLED` removed entirely
+(`app/graph.py`, `docker-compose.yml`, `tests/test_proactive_ocr.py`).
+Replaced by a tool-description routing hint on `browser_take_screenshot`
+(`_tool_description_with_appends`, `services/mcp-client/app/main.py`) —
+the routing decision moves to BEFORE the fact, since there is nothing
+detectable AFTER it — plus a real, structural redirect for the one
+pattern that IS detectable (a native PDF's entirely empty snapshot,
+`_flag_empty_snapshot`, same file). `mcp-client` suite 48→55 passed,
+`langgraph-agent` 471→466 (5 removed with the abandoned mechanism's
+tests). `ocr-service` stays deployed but now has zero callers in the
+codebase. Full detail: docs/history.md, "PROBE VISUEL — SIGNAL
+BROWSER_SNAPSHOT".
+
+**Retain decision (2026-08-12)**: `ocr-service` kept, not retired — per-
+call cost probed first (`scripts/probe-ocr-cost.sh`, ad hoc n=5: 94ms/
+694ms/1.30s median at 2/15/30 detected text elements), then kept for a
+future "full visual mode" activation (scope/timing not yet defined). See
+docs/history.md, "EFFORT 3 FOLLOW-UP — OCR-SERVICE COST PROBE, RETAIN
+DECISION".
+
+**Restricted smoke (2026-08-11, n=3/task), Effort 3 now fully closed**:
+E1 3/3, E2 2/3, E3 3/3 (visual capture used in 0/3 — no capture-reflex
+regression). Audit-log-verified: **all 3/3 E2 runs correctly called
+`browser_take_screenshot`** after finding `browser_snapshot` sparse —
+the description-only routing hint fully resolved the prior 1/3
+baseline's failure mode (tool confusion between GhostDesk and
+Playwright, now moot since GhostDesk is gone). The one E2 failure is a
+genuine vision misread of the screenshot's text (model reported
+`f209163a` against the fixed ground truth `ZK-3392`), not a routing
+defect — a different, downstream capability limit, outside this
+checkpoint. Full detail: docs/history.md, "PROBE VISUEL — SIGNAL
+BROWSER_SNAPSHOT".
+
+## Effort 4 — Scaffolding improvements (`docs/briefs/scaffolding-optimisation.md`)
+
+**Effort 2 (diff-based observation history) built, unit-tested, NOT
+measured live.** `HISTORY_DIFF_ENABLED` (default `false`): past
+`browser_*` tool results (all but the latest) are replaced, outbound to
+the LLM only, by a short structural diff against their nearest
+structural predecessor — URL change, affordances appeared/disappeared,
+an error-hint heuristic — instead of a repeated full snapshot.
+Harness-computed, no extra LLM call. Coverage counters (`history_diff_*`)
+threaded through the campaign harness/preflight/persistence from day
+one, per CLAUDE.md's trigger-rate-counter rule. 12 new unit tests, full
+`langgraph-agent` suite 479→491 passed, 0 regressions. Full detail:
+docs/history.md, "EFFORT 4 (scaffolding-optimisation.md, EFFORT 2) —
+DIFF-BASED OBSERVATION HISTORY, BUILT". **Live smoke obtained on the
+third attempt** — first two hit an operational trap (stale
+`langgraph-agent` image showing a clean-looking but empty result, then a
+preflight-refused sequencing slip; new general rule recorded in
+`CLAUDE.md`, "Operational traps": a code change needs `docker compose
+build <service>` before `up -d --force-recreate`, not `--force-recreate`
+alone — hit on two different services in one session). Third attempt
+confirmed genuinely active (different image digest, real non-flattering
+coverage: A1 78 messages compressed, A2 21). **Result mixed, not
+decisive**: vs. the point-1-only baseline, A2 tokens -20.7% at no turn
+cost, A1 essentially flat (+1 turn, tokens +0.3%); duration up modestly
+on both. 2/2 success, no regression. n=1/task, no statistical weight —
+reads as the brief's own "differences within noise" case, plausibly
+because point 1 already left little redundant history on these short
+(8-9 turn) tasks for this mechanism to compress. **Decision: flag stays
+off, no further action this session.** A longer task (A4) is the natural
+next candidate if revisited, not decided here. Full detail:
+docs/history.md, "HISTORY-DIFF LIVE SMOKE — STALE IMAGE, THEN PREFLIGHT
+CORRECTLY REFUSED".
+
+**Effort 3, point 3.1 (frequency analysis) done, checkpoint decided.**
+`scripts/analyze-tool-call-ngrams.sh` (archives-only, no docker/GPU) run
+against the full audit log (5649 real tool_calls, 924 threads):
+`browser_navigate → browser_navigate` dominates (985 saved turns),
+`*_snapshot ↔ *_navigate`/`*_click` pairs are the rest of the mass,
+traced to a real cause (`browser_click`/`browser_navigate` can return
+stale pre-render content — `_STABILIZE_AFTER_TOOLS`,
+`services/mcp-client/app/main.py:765`), not model habit. **Design
+principle recorded in `CLAUDE.md`** ("Tool design contract" — a tool
+that acts returns resulting state, not a bare acknowledgment; third
+confirmed occurrence after `browser_extract`'s dt/dd fix and
+`manage_plan`'s bare ack). **Decision**: no new composite tool this
+chantier. Point 2 (push adoption of the existing `browser_extract` bulk
+mode via description/position, not a new tool) queued after point 1's
+checkpoint. Point 3 (form-filling composite) shelved, not a measured
+bottleneck. Full detail: docs/history.md, "SCAFFOLDING 3.1 —
+TOOL-CALL N-GRAM FREQUENCY ANALYSIS, CHECKPOINT DECISION".
+
+**Point 1 built, unit-tested, live-verified, CLOSED.**
+`browser_click`/`browser_navigate` (`services/mcp-client/app/main.py`)
+now append a real `browser_snapshot` call's content to their own
+response, taken right after the existing post-action stabilization wait
+— no new tool, no new env var (reuses `BROWSER_STABILIZE_WAIT_SECONDS`
+as the single gate). Root cause confirmed against real audit-log
+entries: their prior response only referenced a snapshot file the agent
+had no tool to read. `langgraph-agent`'s truncation needed no change
+(already applies per-block, uniformly to any `browser_*` result,
+verified). `mcp-client` suite 60→64 passed, 0 regressions.
+
+**Live smoke (2026-08-12, A1/A2, n=1)**: a first attempt was invalid —
+`mcp-client` was still running the pre-fix image (operational trap,
+same class as CLAUDE.md's own "rebuild before restart" rule), caught by
+reading the raw audit log rather than trusting the aggregate numbers.
+Re-run with the fix genuinely active: **both judges down together**
+(A1: -2 turns/-22 053 tokens; A2: -2.3 turns/-48 488 tokens vs the N=1
+baseline), stronger than the expected trade-off — confirmed
+mechanistically, zero separate `browser_snapshot` calls left on either
+thread. 2/2 success, no regression. Full detail: docs/history.md,
+"SCAFFOLDING 3.1, POINT 1 — BROWSER_CLICK/NAVIGATE RETURN RESULTING
+PAGE STATE, BUILT". Point 1 closed.
+
+**Point 2 CLOSED — premise was already false, no work done.** Checking
+the two live A1 audit threads used to verify point 1: `browser_extract`
+bulk mode (`urls=[...]`) is already used 6-8 times per run, same pattern
+as A2. Already documented before this session in `docs/history.md`, "A1
+— TRAJECTORY DIAGNOSTIC": *"A1 already uses bulk, on every one of the 6
+runs."* — the checkpoint decision's "A1 never chose it" framing was
+carried over without re-checking it, and `scripts/analyze-tool-call-
+ngrams.sh` (point 3.1) can't see `browser_extract` at all (confirmed:
+0 occurrences ever in the audit log's `"tool"`-keyed entries — a known,
+already-documented blind spot from family E, not cross-checked before
+writing that script). No description/position change made — there is
+no adoption gap. Full detail: docs/history.md, "SCAFFOLDING 3.1, POINT
+2 — CLOSED, PREMISE ALREADY FALSE".
+
+**Effort 3 of `docs/briefs/scaffolding-optimisation.md` (coarse-grained
+actions) now fully closed**: point 1 shipped and live-verified, point 2
+closed as a non-problem, point 3 (form-filling composite) shelved
+(not a measured bottleneck). No new composite tool built — the
+catalog did not grow, per the checkpoint decision's own point 4.

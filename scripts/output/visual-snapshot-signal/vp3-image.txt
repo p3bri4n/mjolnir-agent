@@ -1,0 +1,9 @@
+### Page
+- Page URL: http://fixture-visual-probe/visual-probe/vp3-image.html
+- Page Title: Sonde visuelle — vp3-image
+### Snapshot
+```yaml
+- generic [active] [ref=e1]:
+  - heading "Sonde visuelle — vp3-image" [level=1] [ref=e2]
+  - paragraph [ref=e3]: Fiche visuelle ci-dessous.
+```

@@ -83,7 +83,6 @@ CAMPAIGN_ENV_FLAGS = [
     "REPLAN_BUDGET",
     "PLAN_VALIDATION_ENABLED",
     "PLAN_JUDGE_ENABLED",
-    "PROACTIVE_OCR_ENABLED",
     "PLANNING_MODE",
     "ADAPTIVE_THINKING",
     "MAX_IMAGES_IN_CONTEXT",
@@ -101,6 +100,7 @@ CAMPAIGN_ENV_FLAGS = [
     "AUDIT_LOG_MAX_BYTES",
     "EPISODE_COMPACTION_ENABLED",
     "EPISODE_COMPACTION_TURN_THRESHOLD",
+    "HISTORY_DIFF_ENABLED",
     "TZ",
 ]
 
@@ -390,7 +390,11 @@ def init_progress_state(cid: str, label: str, started_at: str, digest: str, plan
     compute_remaining_eta() WHICH task each remaining run is (Part 1.4),
     and a resume (Part 2.3) needs the repetition number too, not
     reconstructible from a bare task_id list once some runs are already
-    completed. `planned[len(completed):]` is the remaining-runs sequence.
+    completed. `remaining_runs()` below is the remaining-runs sequence
+    (a set difference against `completed`, safe under the out-of-order
+    completions a parallel campaign worker pool produces — effort 1.3,
+    docs/briefs/effort-1.3-parallel-campaigns.md — not the ordered-slice
+    `planned[len(completed):]` this shape originally shipped with).
 
     `segments` (Part 3.1, extension for the same reason): segment 0 is
     opened here even for a campaign that's never paused — the
@@ -482,6 +486,27 @@ def normalize_duration_estimate(value) -> dict:
     return {"median": value, "min": value, "max": value, "n": 1}
 
 
+def remaining_runs(state: dict) -> list:
+    """The entries of `planned` not yet present in `completed`, matched by
+    (task_id, repetition) rather than by list position.
+
+    `planned[len(completed):]` (the ordered-slice cursor this replaces,
+    effort 1.3, docs/briefs/effort-1.3-parallel-campaigns.md) is only
+    correct when completions land in launch order — true for a single
+    sequential worker, broken the moment a second worker can finish entry
+    5 before the first finishes entry 3. Duplicated in
+    services/dashboard/app/main.py (`_remaining_runs`, same
+    "harness writes, dashboard reads" decoupling as
+    normalize_duration_estimate/_normalize_duration_estimate) — keep both
+    in sync if this logic ever changes again.
+
+    Preserves `planned`'s own order for whatever IS still remaining: a
+    resume, a fresh N-worker pool claiming its queue, and the ETA display
+    below all want a deterministic order, not just a correct set."""
+    done = {(c["task_id"], c["repetition"]) for c in state.get("completed", [])}
+    return [p for p in state.get("planned", []) if (p["task_id"], p["repetition"]) not in done]
+
+
 def compute_remaining_eta(state: dict, estimates: dict) -> dict:
     """B2 Part 1.4: sum, over each REMAINING run, of ITS task's expected
     duration — never a global median applied to all remaining runs, which
@@ -494,8 +519,7 @@ def compute_remaining_eta(state: dict, estimates: dict) -> dict:
     (dashboard) must render "estimate unreliable" rather than a confident
     number when this is nonzero (Part 1.4's cold-start requirement), not
     silently substitute a default duration into an ETA."""
-    planned = state.get("planned", [])
-    remaining = planned[len(state.get("completed", [])):]
+    remaining = remaining_runs(state)
 
     median_total = min_total = max_total = 0.0
     unreliable_tasks = set()

@@ -1,0 +1,389 @@
+{
+  "metadata": {
+    "campaign_prefill_stats": {
+      "cache_zero_requests": 1,
+      "prefill_seconds": 52.02,
+      "prompt_tokens_total": 339990,
+      "tabbyapi_requests": 30
+    },
+    "commit": "25c6f32301a490df74a74d119772b27325ce5b39",
+    "ended_at": "2026-08-12T09:10:49.057989+00:00",
+    "env_flags": {
+      "ADAPTIVE_THINKING": "true",
+      "AFFORDANCE_THRESHOLD": "60",
+      "APPROVAL_RULES_PATH": "",
+      "AUDIT_LOG_MAX_BYTES": "20971520",
+      "AUTO_APPROVAL_STREAK_LIMIT": "6",
+      "AUTO_APPROVED_TOOLS": "",
+      "BROWSER_NAVIGATE_GUARDRAIL": "true",
+      "BROWSER_TOOL_OUTPUT_MAX_CHARS": "8000",
+      "CAMPAIGN_VISUAL_CAPTURE": "true",
+      "EPISODE_COMPACTION_ENABLED": "false",
+      "EPISODE_COMPACTION_TURN_THRESHOLD": "40",
+      "FABRICATION_LIMIT": "5",
+      "HISTORY_DIFF_ENABLED": "false",
+      "IMAGE_FORMAT_PASSTHROUGH": "",
+      "IMAGE_TOKEN_ESTIMATE": "1500",
+      "LLM_MAX_TOKENS": "2048",
+      "MAX_EMPTY_ANSWER_RETRIES": "1",
+      "MAX_IMAGES_IN_CONTEXT": "1",
+      "MAX_TOOL_ITERATIONS": "20",
+      "NEVER_GRANTABLE_TOOLS_EXTRA": "",
+      "PLANNER_ENABLED": "false",
+      "PLANNER_MAX_TOKENS": "8192",
+      "PLANNER_THINKING_ENABLED": "false",
+      "PLANNING_MODE": "nodes",
+      "PLAN_JUDGE_ENABLED": "false",
+      "PLAN_VALIDATION_ENABLED": "true",
+      "REPLAN_BUDGET": "2",
+      "SUBTASK_ATTEMPT_BUDGET": "3",
+      "TZ": "Europe/Paris",
+      "VERIFICATION_ENABLED": "false"
+    },
+    "gpu_devices": [
+      {
+        "bus_id": "00000000:04:00.0",
+        "index": 0,
+        "memory_used_mib": 5541.0,
+        "name": "NVIDIA GeForce RTX 5060 Ti"
+      },
+      {
+        "bus_id": "00000000:08:00.0",
+        "index": 1,
+        "memory_used_mib": 14917.0,
+        "name": "NVIDIA GeForce RTX 4070 Ti SUPER"
+      }
+    ],
+    "image_ids": {
+      "langgraph-agent": "sha256:b8295d06a0ad00373e6bae778708fd58355c156091a2d2532a7369464626be49",
+      "mcp-client": "sha256:091c68a457654a998949d2dd3ac66ce3761119334e90fc3c58cb502d0f96c55f",
+      "playwright-mcp": "sha256:8771dc4666e7c11440bfc6a0c6b00480e9a15b8891b45f29a52d7d995f8d1492",
+      "tabbyapi": "sha256:7ecf8c27484305df6375ce4fe83e6406b73d4d459e78cf6b32fc1941181ae139"
+    },
+    "label": "Benchmark v2",
+    "started_at": "2026-08-12T09:08:06.845204+00:00",
+    "tabbyapi_model_id": "agent-llm"
+  },
+  "runs": [
+    {
+      "approvals": 4,
+      "cache_zero_requests": 1,
+      "cup": null,
+      "detail": "références correspondantes trouvées",
+      "duration_seconds": 104.1,
+      "episode_compaction_applied_count": 0,
+      "episode_compaction_messages_max": 34,
+      "fabricated_urls": [],
+      "failure_cause": "",
+      "final_text": "J'ai maintenant toutes les informations nécessaires. Récapitulons :\n\n1. Produits de la catégorie \"Mobilier\" avec prix > 120 € :\n   - PX-1002 (145.50 €)\n   - PX-1009 (199.00 €)\n   - PX-1021 (162.75 €)\n   - PX-1028 (128.90 €)\n\n2. Pages de configuration dans la documentation :\n   - config-reseau-avancee.html\n   - configuration-mobilier-avancee.html\n   - specifications-avancees-produits.html\n\n3. Références mentionnées sur les pages de configuration :\n   - PX-1002 : NON mentionnée\n   - PX-1009 : mentionnée sur configuration-mobilier-avancee.html\n   - PX-1021 : NON mentionnée\n   - PX-1028 : mentionnée sur configuration-mobilier-avancee.html\n\nDonc les références qui remplissent les DEUX conditions (catégorie Mobilier + prix > 120€ ET mention en documentation sur une page de configuration) sont :\n- PX-1009\n- PX-1028\n</think>\n\n\n\nJ'ai toutes les informations nécessaires. Voici le résumé complet :\n\n## Produits de la catégorie « Mobilier » avec prix > 120 €\n\n| Référence | Produit | Prix |\n|-----------|---------|------|\n| PX-1002 | Portable Chaise #2 | 145,50 € |\n| PX-1009 | Élégant Tapis #9 | 199,00 € |\n| PX-1021 | Premium Tapis #21 | 162,75 € |\n| PX-1028 | Précis Casque #28 | 128,90 € |\n\n## Vérification dans la documentation (pages de configuration)\n\nLes pages de configuration identifiées sont :\n- `config-reseau-avancee.html`\n- `configuration-mobilier-avancee.html`\n- `specifications-avancees-produits.html`\n\n| Référence | Mentionnée sur une page de configuration ? |\n|-----------|-------------------------------------------|\n| PX-1002 | ❌ Non |\n| PX-1009 | ✅ Oui (`configuration-mobilier-avancee.html` — profil « robuste ») |\n| PX-1021 | ❌ Non |\n| PX-1028 | ✅ Oui (`configuration-mobilier-avancee.html` — profil « léger ») |\n\n## Résultat final\n\nLes références qui remplissent les **deux conditions** (catégorie « Mobilier » + prix > 120 € **ET** mention sur une page de configuration) sont :\n\n> **PX-1009** et **PX-1028**",
+      "history_diff_applied_count": 0,
+      "history_diff_browser_messages_max": 0,
+      "history_diff_messages_replaced": 0,
+      "merged_plan_attempted": 0,
+      "merged_plan_calls": 0,
+      "merged_plan_completions": 0,
+      "merged_plan_heuristic_rejections": 0,
+      "merged_plan_initial_subtask_count": null,
+      "merged_plan_replans": 0,
+      "plan_initial_subtask_count": null,
+      "plan_trivial": null,
+      "prefill_seconds": 28.81,
+      "prompt_tokens_total": 168884,
+      "repetition": 1,
+      "replan_events": 0,
+      "segment": 0,
+      "success": true,
+      "tabbyapi_raw_samples": [
+        {
+          "cached_tokens": 0,
+          "generation_seconds": 9.22,
+          "new_tokens": 6806,
+          "process_speed_tps": 992.13,
+          "queue_seconds": 0.0,
+          "tokens_generated": 191
+        },
+        {
+          "cached_tokens": 6656,
+          "generation_seconds": 4.31,
+          "new_tokens": 519,
+          "process_speed_tps": 134.46,
+          "queue_seconds": 0.03,
+          "tokens_generated": 29
+        },
+        {
+          "cached_tokens": 7168,
+          "generation_seconds": 1.54,
+          "new_tokens": 185,
+          "process_speed_tps": 596.77,
+          "queue_seconds": 0.03,
+          "tokens_generated": 85
+        },
+        {
+          "cached_tokens": 7168,
+          "generation_seconds": 1.53,
+          "new_tokens": 402,
+          "process_speed_tps": 522.08,
+          "queue_seconds": 0.03,
+          "tokens_generated": 54
+        },
+        {
+          "cached_tokens": 7424,
+          "generation_seconds": 5.32,
+          "new_tokens": 857,
+          "process_speed_tps": 745.22,
+          "queue_seconds": 0.03,
+          "tokens_generated": 316
+        },
+        {
+          "cached_tokens": 8192,
+          "generation_seconds": 1.41,
+          "new_tokens": 536,
+          "process_speed_tps": 714.67,
+          "queue_seconds": 0.03,
+          "tokens_generated": 47
+        },
+        {
+          "cached_tokens": 8704,
+          "generation_seconds": 2.06,
+          "new_tokens": 782,
+          "process_speed_tps": 635.77,
+          "queue_seconds": 0.03,
+          "tokens_generated": 68
+        },
+        {
+          "cached_tokens": 9472,
+          "generation_seconds": 0.96,
+          "new_tokens": 213,
+          "process_speed_tps": 608.57,
+          "queue_seconds": 0.03,
+          "tokens_generated": 47
+        },
+        {
+          "cached_tokens": 9472,
+          "generation_seconds": 8.96,
+          "new_tokens": 935,
+          "process_speed_tps": 736.22,
+          "queue_seconds": 0.03,
+          "tokens_generated": 618
+        },
+        {
+          "cached_tokens": 10240,
+          "generation_seconds": 5.01,
+          "new_tokens": 2097,
+          "process_speed_tps": 877.41,
+          "queue_seconds": 0.03,
+          "tokens_generated": 209
+        },
+        {
+          "cached_tokens": 12288,
+          "generation_seconds": 4.87,
+          "new_tokens": 1298,
+          "process_speed_tps": 821.52,
+          "queue_seconds": 0.03,
+          "tokens_generated": 274
+        },
+        {
+          "cached_tokens": 13568,
+          "generation_seconds": 5.59,
+          "new_tokens": 1350,
+          "process_speed_tps": 794.12,
+          "queue_seconds": 0.03,
+          "tokens_generated": 311
+        },
+        {
+          "cached_tokens": 14848,
+          "generation_seconds": 1.32,
+          "new_tokens": 556,
+          "process_speed_tps": 661.9,
+          "queue_seconds": 0.03,
+          "tokens_generated": 35
+        },
+        {
+          "cached_tokens": 15360,
+          "generation_seconds": 11.9,
+          "new_tokens": 1912,
+          "process_speed_tps": 786.83,
+          "queue_seconds": 0.03,
+          "tokens_generated": 732
+        },
+        {
+          "cached_tokens": 17408,
+          "generation_seconds": 10.63,
+          "new_tokens": 2468,
+          "process_speed_tps": 743.37,
+          "queue_seconds": 0.03,
+          "tokens_generated": 600
+        }
+      ],
+      "tabbyapi_requests": 15,
+      "task_id": "A1_reconciliation_croisee",
+      "thread_id": "858bee64e91d3ca1",
+      "tool_calls_observed": 9,
+      "validation_heuristic_rejections": 0,
+      "validation_judge_invocations": 0,
+      "validation_judge_vetoes": 0,
+      "verification_exploitable": 0,
+      "verification_opportunities": 0
+    },
+    {
+      "approvals": 3,
+      "cache_zero_requests": 0,
+      "cup": null,
+      "detail": "3 références non conformes trouvées",
+      "duration_seconds": 57.4,
+      "episode_compaction_applied_count": 0,
+      "episode_compaction_messages_max": 27,
+      "fabricated_urls": [],
+      "failure_cause": "",
+      "final_text": "J'ai maintenant toutes les références. Analysons-les :\n\nFormat attendu : PX-#### (préfixe \"PX-\" suivi de exactement 4 chiffres)\nException : KX-4471 (produit historique)\n\nListe des références :\n1. PX-1001 ✓\n2. PX-1002 ✓\n3. PX-1003 ✓\n4. PX-1004 ✓\n5. PX-77 ✗ (seulement 2 chiffres au lieu de 4)\n6. PX-1006 ✓\n7. PX-1007 ✓\n8. PX-1008 ✓\n9. PX-1009 ✓\n10. PX-1010 ✓\n11. PX-1011 ✓\n12. PX-1012 ✓\n13. PX-1013 ✓\n14. KX-4471 ✓ (exception documentée)\n15. PX-1015 ✓\n16. PX-1016 ✓\n17. PX-1017 ✓\n18. REF-1023 ✗ (préfixe \"REF-\" au lieu de \"PX-\")\n19. PX-1019 ✓\n20. PX-1020 ✓\n21. PX-1021 ✓\n22. PX-1022 ✓\n23. PX-1023 ✓\n24. PX-1024 ✓\n25. PX-1025 ✓\n26. PX-1026 ✓\n27. PX-102750 ✗ (6 chiffres au lieu de 4)\n28. PX-1028 ✓\n29. PX-1029 ✓\n30. PX-1030 ✓\n\nLes 3 références non conformes sont :\n1. **PX-77** (product-5.html) — seulement 2 chiffres au lieu de 4\n2. **REF-1023** (product-18.html) — préfixe \"REF-\" au lieu de \"PX-\"\n3. **PX-102750** (product-27.html) — 6 chiffres au lieu de 4\n\nC'est exactement 3 références non conformes comme indiqué dans l'énoncé.\n\n\nJ'ai toutes les références des 30 fiches produit. Voici l'audit complet.\n\n## Format attendu (selon la documentation)\n\nLe format est **PX-####** : préfixe « PX- » suivi de **exactement 4 chiffres**. L'unique exception documentée est **KX-4471** (produit historique).\n\n## Les 3 références non conformes\n\n| # | Fiche produit | Référence | Raison de non-conformité |\n|---|---|---|---|\n| 1 | **product-5.html** (Robuste Chaise #5) | **PX-77** | Seulement **2 chiffres** au lieu de 4 |\n| 2 | **product-18.html** (Robuste Chaise #18) | **REF-1023** | Préfixe **« REF- »** au lieu de « PX- » |\n| 3 | **product-27.html** (Moderne Étagère #27) | **PX-102750** | **6 chiffres** au lieu de 4 |\n\nLes 27 autres références sont conformes (dont KX-4471 sur product-14.html qui est l'exception documentée).",
+      "history_diff_applied_count": 0,
+      "history_diff_browser_messages_max": 0,
+      "history_diff_messages_replaced": 0,
+      "merged_plan_attempted": 0,
+      "merged_plan_calls": 0,
+      "merged_plan_completions": 0,
+      "merged_plan_heuristic_rejections": 0,
+      "merged_plan_initial_subtask_count": null,
+      "merged_plan_replans": 0,
+      "plan_initial_subtask_count": null,
+      "plan_trivial": null,
+      "prefill_seconds": 23.21,
+      "prompt_tokens_total": 171106,
+      "repetition": 1,
+      "replan_events": 0,
+      "segment": 0,
+      "success": true,
+      "tabbyapi_raw_samples": [
+        {
+          "cached_tokens": 19712,
+          "generation_seconds": 13.68,
+          "new_tokens": 3858,
+          "process_speed_tps": 777.82,
+          "queue_seconds": 0.03,
+          "tokens_generated": 647
+        },
+        {
+          "cached_tokens": 6656,
+          "generation_seconds": 1.63,
+          "new_tokens": 131,
+          "process_speed_tps": 503.85,
+          "queue_seconds": 0.03,
+          "tokens_generated": 105
+        },
+        {
+          "cached_tokens": 6656,
+          "generation_seconds": 0.97,
+          "new_tokens": 415,
+          "process_speed_tps": 560.81,
+          "queue_seconds": 0.03,
+          "tokens_generated": 17
+        },
+        {
+          "cached_tokens": 6912,
+          "generation_seconds": 3.34,
+          "new_tokens": 2009,
+          "process_speed_tps": 900.9,
+          "queue_seconds": 0.03,
+          "tokens_generated": 78
+        },
+        {
+          "cached_tokens": 8960,
+          "generation_seconds": 0.93,
+          "new_tokens": 176,
+          "process_speed_tps": 550.0,
+          "queue_seconds": 0.03,
+          "tokens_generated": 39
+        },
+        {
+          "cached_tokens": 8960,
+          "generation_seconds": 3.3,
+          "new_tokens": 562,
+          "process_speed_tps": 720.51,
+          "queue_seconds": 0.03,
+          "tokens_generated": 172
+        },
+        {
+          "cached_tokens": 9472,
+          "generation_seconds": 1.17,
+          "new_tokens": 396,
+          "process_speed_tps": 557.75,
+          "queue_seconds": 0.04,
+          "tokens_generated": 30
+        },
+        {
+          "cached_tokens": 9728,
+          "generation_seconds": 2.01,
+          "new_tokens": 319,
+          "process_speed_tps": 580.0,
+          "queue_seconds": 0.03,
+          "tokens_generated": 95
+        },
+        {
+          "cached_tokens": 9984,
+          "generation_seconds": 1.1,
+          "new_tokens": 290,
+          "process_speed_tps": 547.17,
+          "queue_seconds": 0.03,
+          "tokens_generated": 36
+        },
+        {
+          "cached_tokens": 10240,
+          "generation_seconds": 3.63,
+          "new_tokens": 727,
+          "process_speed_tps": 685.85,
+          "queue_seconds": 0.03,
+          "tokens_generated": 174
+        },
+        {
+          "cached_tokens": 10752,
+          "generation_seconds": 4.07,
+          "new_tokens": 520,
+          "process_speed_tps": 146.89,
+          "queue_seconds": 0.03,
+          "tokens_generated": 33
+        },
+        {
+          "cached_tokens": 11264,
+          "generation_seconds": 2.25,
+          "new_tokens": 752,
+          "process_speed_tps": 689.91,
+          "queue_seconds": 0.03,
+          "tokens_generated": 83
+        },
+        {
+          "cached_tokens": 11776,
+          "generation_seconds": 1.3,
+          "new_tokens": 454,
+          "process_speed_tps": 546.99,
+          "queue_seconds": 0.03,
+          "tokens_generated": 33
+        },
+        {
+          "cached_tokens": 12032,
+          "generation_seconds": 7.66,
+          "new_tokens": 906,
+          "process_speed_tps": 736.59,
+          "queue_seconds": 0.03,
+          "tokens_generated": 521
+        },
+        {
+          "cached_tokens": 12800,
+          "generation_seconds": 15.39,
+          "new_tokens": 3687,
+          "process_speed_tps": 841.78,
+          "queue_seconds": 0.03,
+          "tokens_generated": 811
+        }
+      ],
+      "tabbyapi_requests": 15,
+      "task_id": "A2_schema_references",
+      "thread_id": "cbec4b41d293b7a5",
+      "tool_calls_observed": 9,
+      "validation_heuristic_rejections": 0,
+      "validation_judge_invocations": 0,
+      "validation_judge_vetoes": 0,
+      "verification_exploitable": 0,
+      "verification_opportunities": 0
+    }
+  ]
+}

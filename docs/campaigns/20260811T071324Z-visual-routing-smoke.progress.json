@@ -1,0 +1,173 @@
+{
+  "campaign_id": "20260811T071324Z-visual-routing-smoke",
+  "completed": [
+    {
+      "approvals": 1,
+      "cup": null,
+      "duration_s": 15.7,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "E1_dom_only",
+      "thread_id": "a72040eb34ae7dcd",
+      "tool_calls": 2
+    },
+    {
+      "approvals": 1,
+      "cup": null,
+      "duration_s": 8.0,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "E1_dom_only",
+      "thread_id": "d486ff074f3e1d52",
+      "tool_calls": 2
+    },
+    {
+      "approvals": 1,
+      "cup": null,
+      "duration_s": 9.0,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "E1_dom_only",
+      "thread_id": "168436d61ffeeef0",
+      "tool_calls": 2
+    },
+    {
+      "approvals": 2,
+      "cup": null,
+      "duration_s": 29.1,
+      "fabricated_urls_count": 0,
+      "failure_cause": "extraction",
+      "repetition": 1,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "E2_visual_only",
+      "thread_id": "24682d78b748ce03",
+      "tool_calls": 4
+    },
+    {
+      "approvals": 1,
+      "cup": null,
+      "duration_s": 14.3,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "E2_visual_only",
+      "thread_id": "9aaa1220879595ba",
+      "tool_calls": 2
+    },
+    {
+      "approvals": 1,
+      "cup": null,
+      "duration_s": 13.0,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "E2_visual_only",
+      "thread_id": "50cd93667089059e",
+      "tool_calls": 2
+    },
+    {
+      "approvals": 1,
+      "cup": null,
+      "duration_s": 8.1,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "E3_routing_equivalence",
+      "thread_id": "f57d8220ba10a5fa",
+      "tool_calls": 2
+    },
+    {
+      "approvals": 1,
+      "cup": null,
+      "duration_s": 8.0,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "E3_routing_equivalence",
+      "thread_id": "8273273ec06f4d01",
+      "tool_calls": 2
+    },
+    {
+      "approvals": 1,
+      "cup": null,
+      "duration_s": 7.9,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "E3_routing_equivalence",
+      "thread_id": "8dde533fa21701d7",
+      "tool_calls": 2
+    }
+  ],
+  "config_digest": "ce3fa1e4ff3d34e8",
+  "current": null,
+  "label": "visual-routing-smoke",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "E1_dom_only"
+    },
+    {
+      "repetition": 2,
+      "task_id": "E1_dom_only"
+    },
+    {
+      "repetition": 3,
+      "task_id": "E1_dom_only"
+    },
+    {
+      "repetition": 1,
+      "task_id": "E2_visual_only"
+    },
+    {
+      "repetition": 2,
+      "task_id": "E2_visual_only"
+    },
+    {
+      "repetition": 3,
+      "task_id": "E2_visual_only"
+    },
+    {
+      "repetition": 1,
+      "task_id": "E3_routing_equivalence"
+    },
+    {
+      "repetition": 2,
+      "task_id": "E3_routing_equivalence"
+    },
+    {
+      "repetition": 3,
+      "task_id": "E3_routing_equivalence"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-08-11T07:15:21.190990+00:00",
+      "index": 0,
+      "started_at": "2026-08-11T07:13:24.641970+00:00"
+    }
+  ],
+  "started_at": "2026-08-11T07:13:24.641970+00:00",
+  "total_runs": 9
+}

@@ -450,6 +450,41 @@ def test_normalize_duration_estimate_passes_through_dict():
     assert cp.normalize_duration_estimate(entry) is entry
 
 
+def test_remaining_runs_matches_ordered_slice_when_completions_are_in_order():
+    """Non-regression: the sequential case (still the default, N=1) must
+    keep behaving exactly like the old planned[len(completed):] slice."""
+    state = {"planned": _PLANNED_T1_T1_T2, "completed": [{"task_id": "T1", "repetition": 1}]}
+    assert cp.remaining_runs(state) == [
+        {"task_id": "T1", "repetition": 2},
+        {"task_id": "T2", "repetition": 1},
+    ]
+
+
+def test_remaining_runs_correct_when_completions_are_out_of_order():
+    """Effort 1.3 (docs/briefs/effort-1.3-parallel-campaigns.md): a second
+    worker can finish a LATER planned entry before the first worker
+    finishes an EARLIER one — planned[len(completed):] would then either
+    replay an already-done run or skip a genuinely pending one. Here,
+    T2 (the 3rd planned entry) completes before T1 rep 1 (the 1st)."""
+    state = {"planned": _PLANNED_T1_T1_T2, "completed": [{"task_id": "T2", "repetition": 1}]}
+    assert cp.remaining_runs(state) == [
+        {"task_id": "T1", "repetition": 1},
+        {"task_id": "T1", "repetition": 2},
+    ]
+
+
+def test_remaining_runs_empty_when_everything_completed_out_of_order():
+    state = {
+        "planned": _PLANNED_T1_T1_T2,
+        "completed": [
+            {"task_id": "T2", "repetition": 1},
+            {"task_id": "T1", "repetition": 2},
+            {"task_id": "T1", "repetition": 1},
+        ],
+    }
+    assert cp.remaining_runs(state) == []
+
+
 def test_compute_remaining_eta_sums_per_task_never_global_median():
     # Two tasks of very different duration: T_long (300s) x2 remaining,
     # T_short (10s) x1 remaining. A global-median approach (median of
@@ -485,6 +520,17 @@ def test_compute_remaining_eta_only_counts_runs_after_completed():
     eta = cp.compute_remaining_eta(state, estimates)
     assert eta["remaining_runs"] == 2
     assert eta["median_seconds"] == 12.0
+
+
+def test_compute_remaining_eta_correct_with_out_of_order_completions():
+    """Same defect this was built to close as remaining_runs' own test
+    above, exercised through the public ETA function a parallel campaign's
+    dashboard actually calls."""
+    state = {"planned": _PLANNED_T1_T1_T2, "completed": [{"task_id": "T2", "repetition": 1}]}
+    estimates = {"T1": {"median": 5.0, "min": 5.0, "max": 5.0, "n": 1}, "T2": {"median": 7.0, "min": 7.0, "max": 7.0, "n": 1}}
+    eta = cp.compute_remaining_eta(state, estimates)
+    assert eta["remaining_runs"] == 2  # both T1 repetitions, not T2 (already done)
+    assert eta["median_seconds"] == 10.0
 
 
 def test_compute_remaining_eta_flags_cold_start_tasks_as_unreliable():

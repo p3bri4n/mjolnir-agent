@@ -54,7 +54,7 @@ model:
   model_name: agent-llm
   backend: exllamav3
   max_seq_len: 32768
-  cache_size: 49152
+  cache_size: 65536
   cache_mode: Q6
   vision: true
   tool_format: qwen3_coder

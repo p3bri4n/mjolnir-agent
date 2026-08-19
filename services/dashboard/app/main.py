@@ -185,12 +185,22 @@ def _normalize_duration_estimate(value) -> dict:
     return {"median": value, "min": value, "max": value, "n": 1}
 
 
+def _remaining_runs(state: dict) -> list:
+    """Same logic as campaign_persistence.remaining_runs — see that
+    function's docstring (effort 1.3, docs/briefs/
+    effort-1.3-parallel-campaigns.md) for why a plain
+    planned[len(completed):] ordered-slice breaks under N parallel
+    workers. Kept in sync manually, same "harness writes, dashboard
+    reads" decoupling as _normalize_duration_estimate above."""
+    done = {(c["task_id"], c["repetition"]) for c in state.get("completed", [])}
+    return [p for p in state.get("planned", []) if (p["task_id"], p["repetition"]) not in done]
+
+
 def _compute_remaining_eta(state: dict, estimates: dict) -> dict:
     """Same logic as campaign_persistence.compute_remaining_eta — see that
     function's docstring for the "why per-task, never a global median"
     rationale (B2 Part 1.4)."""
-    planned = state.get("planned", [])
-    remaining = planned[len(state.get("completed", [])):]
+    remaining = _remaining_runs(state)
 
     median_total = min_total = max_total = 0.0
     unreliable_tasks = set()

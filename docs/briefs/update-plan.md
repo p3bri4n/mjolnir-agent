@@ -268,7 +268,7 @@ A materially improved. Full detail: docs/history.md, "EFFORT 2.4". See
 (informational only, since cfg8 is no longer the default it was found
 under).
 
-## Effort 3 — GhostDesk removal — scaffolding DELIVERED, mechanism not yet live
+## Effort 3 — GhostDesk removal — CLOSED, visual-only routing redesigned and live-verified
 
 Decision taken (Mjolnir is a web agent), and the feasibility probe
 confirms nothing tested is lost: canvas, WebGL, images and native PDF
@@ -312,8 +312,30 @@ count/image count down) is structurally guaranteed by construction
 (flag off, nothing model-visible changed) — not separately re-run.
 E2-improves/median-time-improves is deferred to a SEPARATE judge, gated
 on `_detect_visual_signal`'s real implementation and its own restricted
-smoke, once `PROACTIVE_OCR_ENABLED` is flipped. 🧑 Next: live deploy +
-verification, then that checkpoint.
+smoke, once `PROACTIVE_OCR_ENABLED` is flipped.
+
+**Checkpoint resolved (2026-08-11): the empirical check falsified
+`_detect_visual_signal`'s own premise — abandoned, not implemented.**
+`scripts/probe-visual-snapshot-signal.sh` against `fixture-visual-probe`
+found canvas/WebGL/alt-less-img leave zero trace in `browser_snapshot`'s
+text (a page with a canvas is text-identical to one without), and a
+candidate `role: img` heuristic false-positived on the SVG-text control
+case. No after-the-fact heuristic survives this evidence — the routing
+decision moved to the tool's own description instead
+(`_tool_description_with_appends` on `browser_take_screenshot`,
+`services/mcp-client/app/main.py`), plus a structural redirect for the
+one pattern that IS detectable (`_flag_empty_snapshot`, native PDF's
+empty snapshot). `_detect_visual_signal`/`_maybe_enrich_with_ocr`/
+`PROACTIVE_OCR_ENABLED` removed. See docs/history.md, "PROBE VISUEL —
+SIGNAL BROWSER_SNAPSHOT" for the full design and test detail.
+
+**Live-verified (2026-08-11, n=3/task): E1 3/3, E2 2/3, E3 3/3 (0/3
+capture reflex)**. Audit-log-confirmed: the description-only routing hint
+achieves 3/3 correct `browser_take_screenshot` routing on E2 — the prior
+1/3 baseline's tool-confusion failure mode is gone. The remaining E2
+failure is a vision-reading misread of the screenshot's text, not a
+routing defect. **Effort 3 is closed** — no flag left to flip, the
+routing hint is unconditional.
 
 ## Effort 4 — Scaffolding improvements (B7 efforts 2 and 3)
 

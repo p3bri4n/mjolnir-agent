@@ -1,0 +1,55 @@
+{
+  "active": [],
+  "campaign_id": "20260811T130219Z-effort1-3-smoke-parallel",
+  "completed": [
+    {
+      "approvals": 4,
+      "cup": null,
+      "duration_s": 89.0,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A2_schema_references",
+      "thread_id": "9da2780d5f6aac2e",
+      "tool_calls": 12
+    },
+    {
+      "approvals": 5,
+      "cup": null,
+      "duration_s": 108.2,
+      "fabricated_urls_count": 3,
+      "failure_cause": "boucle",
+      "repetition": 1,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "D1_cible_inexistante",
+      "thread_id": "d659fa2ac9f7140f",
+      "tool_calls": 14
+    }
+  ],
+  "config_digest": "4f1935fc852ff5e9",
+  "current": null,
+  "label": "effort1-3-smoke-parallel",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "A2_schema_references"
+    },
+    {
+      "repetition": 1,
+      "task_id": "D1_cible_inexistante"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-08-11T13:04:08.307398+00:00",
+      "index": 0,
+      "started_at": "2026-08-11T13:02:19.679369+00:00"
+    }
+  ],
+  "started_at": "2026-08-11T13:02:19.679369+00:00",
+  "total_runs": 2
+}

@@ -130,6 +130,41 @@ got this treatment for the same reason (pure read, nothing to exfiltrate,
 nothing to undo). Fixed shortly after this probe (commit `6b4264e`,
 "promote browser_snapshot/browser_take_screenshot to TIER_READ") — both
 tools are TIER_READ today. This is a direct prerequisite for effort 3's
-proactive OCR enrichment (`docs/architecture/autonomy.md`): its
-`browser_take_screenshot` call needed to be silent (no approval pause on
-every trigger) to work as a background capability at all.
+visual-only-content handling (`docs/architecture/autonomy.md`):
+`browser_take_screenshot` needed to be silent (no approval pause) for the
+model to reach for it routinely, whatever the routing mechanism.
+
+## Follow-up — browser_snapshot's raw signal (effort 3 checkpoint, 2026-08-11)
+
+This probe's matrix (above) recorded whether the ground-truth STRING is
+readable per channel — it does not say what `browser_snapshot`'s raw
+accessibility-tree TEXT actually contains for VP1-VP4. That gap mattered
+for `app/graph.py`'s `_detect_visual_signal` (since removed — see
+docs/history.md, "PROBE VISUEL — SIGNAL BROWSER_SNAPSHOT"), which needed
+a pattern to grep for in an already-fetched result. Same method as
+above, extended: direct `mcp-client` calls, raw `browser_snapshot` text
+captured per case (`scripts/probe-visual-snapshot-signal.sh`).
+
+**Result**: VP1 (canvas), VP2 (WebGL), VP3 (`<img alt="">`) all come back
+as heading + intro paragraph ONLY — the element itself produces **zero**
+accessibility nodes, not even an unlabeled placeholder. A page with a
+canvas is text-identical to one without; there is no positive pattern to
+detect after the fact. VP4 (PDF opened directly) is the one exception:
+the entire response comes back empty (no page-title line even) — a real,
+structural, and detectable signal, but it's an ABSENCE tied to
+navigation context, not a keyword. VP7 (SVG text, control) renders as
+accessibility role `img` wrapping a `generic` node with the real text —
+proof that a naive `role: img` heuristic would false-positive on content
+that needs no capture at all. VP8 (off-viewport, control) renders as an
+ordinary `generic` node, correctly indistinguishable from any other DOM
+text.
+
+**Reading**: no after-the-fact heuristic over `browser_snapshot`/
+`browser_extract` text can catch canvas/WebGL/alt-less-img — the
+routing decision has to be made BEFORE the fact. Resolved by moving the
+hint into `browser_take_screenshot`'s own tool description
+(`_tool_description_with_appends`, `services/mcp-client/app/main.py`)
+instead of a detector; the PDF case's genuine empty-snapshot signal gets
+a real redirect hint (`_flag_empty_snapshot`, same file). See
+`docs/architecture/autonomy.md`, "Visual-only content: tool description,
+not detection" for the full design.

@@ -159,6 +159,15 @@ class _FakeSession:
     def __init__(self, id_: int):
         self.id = id_
 
+    async def call_tool(self, name, arguments):
+        # Minimal real-shaped result (empty content) — enough for /call's
+        # dispatch path to complete; tests using this care about WHICH
+        # session object got used, not the tool result itself.
+        class _Result:
+            content = []
+
+        return _Result()
+
 
 def _patch_open_session(main_mod, monkeypatch):
     """
@@ -190,7 +199,6 @@ def test_persistent_session_reused_across_calls(monkeypatch):
         "browser": {"transport": "http", "url": "http://unused", "token": "", "persistent_session": True},
     }
     main_mod._persistent_sessions.clear()
-    main_mod._persistent_locks["browser"] = asyncio.Lock()
     calls = _patch_open_session(main_mod, monkeypatch)
 
     async def action(session):
@@ -240,7 +248,6 @@ def test_persistent_session_dropped_and_reopened_after_error(monkeypatch):
         "browser": {"transport": "http", "url": "http://unused", "token": "", "persistent_session": True},
     }
     main_mod._persistent_sessions.clear()
-    main_mod._persistent_locks["browser"] = asyncio.Lock()
     calls = _patch_open_session(main_mod, monkeypatch)
 
     async def failing_action(session):
@@ -257,8 +264,119 @@ def test_persistent_session_dropped_and_reopened_after_error(monkeypatch):
     result = asyncio.run(run())
     assert result == 2  # nouvelle session rouverte, pas la première réutilisée
     assert calls["n"] == 2
-    # la session rouverte (la 2e) est bien celle mise en cache pour le prochain appel
-    assert main_mod._persistent_sessions["browser"][1].id == 2
+    # la session rouverte (la 2e) est bien celle mise en cache pour le prochain appel,
+    # sous la clé (server_name, worker_id) — "default" ici (worker_id omis, effort 1.3)
+    assert main_mod._persistent_sessions[("browser", "default")][1].id == 2
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Worker-scoped sessions (effort 1.3, docs/briefs/
+# effort-1.3-parallel-campaigns.md): _persistent_sessions/_persistent_locks
+# keyed by (server_name, worker_id) instead of server_name alone, so N
+# parallel campaign workers each get their own isolated Playwright
+# session/browser context (context is scoped per MCP session already —
+# docs/resolved-bugs.md, confirmed live by scripts/probe-parallel-phase0.sh).
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_distinct_worker_ids_get_distinct_sessions(monkeypatch):
+    import app.main as main_mod
+
+    main_mod.SERVERS = {
+        "browser": {"transport": "http", "url": "http://unused", "token": "", "persistent_session": True},
+    }
+    main_mod._persistent_sessions.clear()
+    calls = _patch_open_session(main_mod, monkeypatch)
+
+    async def action(session):
+        return session.id
+
+    async def run():
+        worker_a = await main_mod._run_on_server("browser", action, "worker-A")
+        worker_b = await main_mod._run_on_server("browser", action, "worker-B")
+        return worker_a, worker_b
+
+    worker_a, worker_b = asyncio.run(run())
+    assert worker_a != worker_b  # two distinct sessions, not one shared
+    assert calls["n"] == 2
+
+
+def test_same_worker_id_reuses_its_own_session_across_calls(monkeypatch):
+    import app.main as main_mod
+
+    main_mod.SERVERS = {
+        "browser": {"transport": "http", "url": "http://unused", "token": "", "persistent_session": True},
+    }
+    main_mod._persistent_sessions.clear()
+    calls = _patch_open_session(main_mod, monkeypatch)
+
+    async def action(session):
+        return session.id
+
+    async def run():
+        first = await main_mod._run_on_server("browser", action, "worker-A")
+        second = await main_mod._run_on_server("browser", action, "worker-A")
+        return first, second
+
+    first, second = asyncio.run(run())
+    assert first == second
+    assert calls["n"] == 1
+
+
+def test_missing_worker_id_behaves_exactly_like_pre_effort_1_3(monkeypatch):
+    """Regression test (brief-mandated): every existing caller (interactive
+    Open WebUI, a non-parallel campaign) never sends worker_id — must see
+    the SAME single shared session as before this change, zero behavior
+    difference for not opting in."""
+    import app.main as main_mod
+
+    main_mod.SERVERS = {
+        "browser": {"transport": "http", "url": "http://unused", "token": "", "persistent_session": True},
+    }
+    main_mod._persistent_sessions.clear()
+    calls = _patch_open_session(main_mod, monkeypatch)
+
+    async def action(session):
+        return session.id
+
+    async def run():
+        no_worker_id = await main_mod._run_on_server("browser", action)
+        explicit_none = await main_mod._run_on_server("browser", action, None)
+        return no_worker_id, explicit_none
+
+    no_worker_id, explicit_none = asyncio.run(run())
+    assert no_worker_id == explicit_none  # same "default" bucket either way
+    assert calls["n"] == 1
+
+
+def test_call_endpoint_isolates_sessions_by_worker_id(monkeypatch):
+    """End-to-end through POST /call, not just _run_on_server directly:
+    two /call requests carrying different worker_id must open two
+    genuinely distinct persistent sessions, not share one."""
+    import app.main as main_mod
+
+    main_mod.SERVERS = {
+        "browser": {"transport": "http", "url": "http://unused", "token": "", "persistent_session": True},
+    }
+    main_mod._tool_registry.clear()
+    _register_fake_browser_tool(main_mod, "browser_navigate", ["url"])
+    main_mod._persistent_sessions.clear()
+    _patch_open_session(main_mod, monkeypatch)
+
+    _client().post(
+        "/call",
+        json={"tool": "browser_navigate", "arguments": {"url": "https://exemple.com"}, "worker_id": "worker-A"},
+    )
+    _client().post(
+        "/call",
+        json={"tool": "browser_navigate", "arguments": {"url": "https://exemple.com"}, "worker_id": "worker-B"},
+    )
+    assert ("browser", "worker-A") in main_mod._persistent_sessions
+    assert ("browser", "worker-B") in main_mod._persistent_sessions
+    assert (
+        main_mod._persistent_sessions[("browser", "worker-A")][1].id
+        != main_mod._persistent_sessions[("browser", "worker-B")][1].id
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -419,6 +537,109 @@ def test_browser_extract_tool_description_mentions_adjacent_value():
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# Routing hint for browser_take_screenshot + empty-snapshot redirect
+# (docs/history.md, "PROBE VISUEL — SIGNAL BROWSER_SNAPSHOT"): canvas/
+# WebGL/alt-less-img leave no trace in browser_snapshot's text (probed
+# empirically against fixture-visual-probe), so the routing decision
+# moves into the tool's own description instead of an after-the-fact
+# heuristic. The one case that IS detectable (a native PDF navigation,
+# entirely empty accessibility tree) gets a redirect hint appended to
+# browser_snapshot's own result.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_tool_description_with_appends_adds_hint_to_upstream_text():
+    import app.main as main_mod
+
+    result = main_mod._tool_description_with_appends("browser_take_screenshot", "Prend une capture d'écran.")
+    assert result.startswith("Prend une capture d'écran.")
+    assert "canvas" in result.lower()
+    assert "browser_snapshot" in result
+
+
+def test_tool_description_with_appends_leaves_other_tools_untouched():
+    import app.main as main_mod
+
+    assert main_mod._tool_description_with_appends("browser_click", "Clique un élément.") == "Clique un élément."
+
+
+def test_is_empty_snapshot_text_true_for_blank_yaml_block():
+    """Real capture (VP4, native PDF navigation): no page title line
+    even, an entirely empty ```yaml block — see docs/history.md."""
+    import app.main as main_mod
+
+    text = "### Page\n- Page URL: http://fixture-visual-probe/visual-probe/vp4-document.pdf\n### Snapshot\n```yaml\n\n```"
+    assert main_mod._is_empty_snapshot_text(text) is True
+
+
+def test_is_empty_snapshot_text_false_for_populated_yaml_block():
+    """Real capture (VP1, canvas page): heading/paragraph present — the
+    canvas itself is invisible, but the page is NOT empty, so this must
+    NOT fire (canvas needs the tool-description hint above, not this)."""
+    import app.main as main_mod
+
+    text = (
+        "### Page\n- Page URL: http://fixture-visual-probe/visual-probe/vp1-canvas2d.html\n"
+        "- Page Title: Sonde visuelle — vp1-canvas2d\n### Snapshot\n```yaml\n"
+        '- generic [active] [ref=e1]:\n  - heading "Sonde visuelle — vp1-canvas2d" [level=1] [ref=e2]\n```'
+    )
+    assert main_mod._is_empty_snapshot_text(text) is False
+
+
+def test_flag_empty_snapshot_appends_hint_only_to_blank_blocks():
+    import app.main as main_mod
+    from mcp.types import TextContent
+
+    blank = TextContent(type="text", text="### Snapshot\n```yaml\n\n```")
+    populated = TextContent(type="text", text='### Snapshot\n```yaml\n- heading "x"\n```')
+
+    main_mod._flag_empty_snapshot([blank, populated])
+
+    assert "browser_take_screenshot" in blank.text
+    assert populated.text == '### Snapshot\n```yaml\n- heading "x"\n```'
+
+
+def test_call_tool_browser_snapshot_appends_redirect_hint_on_empty_result(monkeypatch):
+    import app.main as main_mod
+
+    main_mod._tool_registry.clear()
+    _register_fake_browser_tool(main_mod, "browser_snapshot")
+    calls = []
+    session = _RecordingSessionWithFixedText(calls, "### Snapshot\n```yaml\n\n```")
+
+    async def fake_run_on_server(server_name, action, worker_id=None):
+        return await action(session)
+
+    monkeypatch.setattr(main_mod, "_run_on_server", fake_run_on_server)
+
+    resp = _client().post("/call", json={"tool": "browser_snapshot", "arguments": {}})
+
+    assert resp.status_code == 200
+    text = resp.json()["content"][0]["text"]
+    assert "browser_take_screenshot" in text
+
+
+def test_call_tool_browser_snapshot_leaves_populated_result_untouched(monkeypatch):
+    import app.main as main_mod
+
+    main_mod._tool_registry.clear()
+    _register_fake_browser_tool(main_mod, "browser_snapshot")
+    fixed_text = '### Snapshot\n```yaml\n- heading "Accueil" [level=1] [ref=e1]\n```'
+    calls = []
+    session = _RecordingSessionWithFixedText(calls, fixed_text)
+
+    async def fake_run_on_server(server_name, action, worker_id=None):
+        return await action(session)
+
+    monkeypatch.setattr(main_mod, "_run_on_server", fake_run_on_server)
+
+    resp = _client().post("/call", json={"tool": "browser_snapshot", "arguments": {}})
+
+    assert resp.status_code == 200
+    assert resp.json()["content"][0]["text"] == fixed_text
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # POST /reset-session/{server_name} (Phase 1d-révisée, voir docs/history.md
 # "isolation entre tâches") : purge une session persistante (état
 # navigateur/onglets pour "browser") entre deux tâches du harnais.
@@ -432,7 +653,6 @@ def test_reset_session_drops_cache_and_next_call_reopens_fresh(monkeypatch):
         "browser": {"transport": "http", "url": "http://unused", "token": "", "persistent_session": True},
     }
     main_mod._persistent_sessions.clear()
-    main_mod._persistent_locks["browser"] = asyncio.Lock()
     calls = _patch_open_session(main_mod, monkeypatch)
 
     async def action(session):
@@ -447,11 +667,40 @@ def test_reset_session_drops_cache_and_next_call_reopens_fresh(monkeypatch):
 
     resp = _client().post("/reset-session/browser")
     assert resp.status_code == 200
-    assert "browser" not in main_mod._persistent_sessions
+    assert ("browser", "default") not in main_mod._persistent_sessions
 
     second = asyncio.run(run())
     assert second == 2  # nouvelle session rouverte, pas l'ancienne réutilisée
     assert calls["n"] == 2
+
+
+def test_reset_session_worker_id_resets_only_that_worker(monkeypatch):
+    """Effort 1.3 (docs/briefs/effort-1.3-parallel-campaigns.md): a
+    worker's cross-task reset must not blow away every OTHER worker's
+    live browser session mid-campaign."""
+    import app.main as main_mod
+
+    main_mod.SERVERS = {
+        "browser": {"transport": "http", "url": "http://unused", "token": "", "persistent_session": True},
+    }
+    main_mod._persistent_sessions.clear()
+    _patch_open_session(main_mod, monkeypatch)
+
+    async def action(session):
+        return session.id
+
+    async def run(worker_id):
+        return await main_mod._run_on_server("browser", action, worker_id)
+
+    asyncio.run(run("worker-A"))
+    asyncio.run(run("worker-B"))
+    assert ("browser", "worker-A") in main_mod._persistent_sessions
+    assert ("browser", "worker-B") in main_mod._persistent_sessions
+
+    resp = _client().post("/reset-session/browser", params={"worker_id": "worker-A"})
+    assert resp.status_code == 200
+    assert ("browser", "worker-A") not in main_mod._persistent_sessions
+    assert ("browser", "worker-B") in main_mod._persistent_sessions  # untouched
 
 
 def test_reset_session_unknown_server_is_404():
@@ -502,7 +751,7 @@ def _patch_run_on_server_recording(main_mod, monkeypatch):
     calls = []
     session = _RecordingSession(calls)
 
-    async def fake_run_on_server(server_name, action):
+    async def fake_run_on_server(server_name, action, worker_id=None):
         return await action(session)
 
     monkeypatch.setattr(main_mod, "_run_on_server", fake_run_on_server)
@@ -530,6 +779,7 @@ def test_browser_navigate_triggers_stabilization_wait(monkeypatch):
     assert calls == [
         ("browser_navigate", {"url": "https://exemple.com"}),
         ("browser_wait_for", {"time": main_mod.BROWSER_STABILIZE_WAIT_SECONDS}),
+        ("browser_snapshot", {}),
     ]
 
 
@@ -543,7 +793,8 @@ def test_browser_click_triggers_stabilization_wait(monkeypatch):
     resp = _client().post("/call", json={"tool": "browser_click", "arguments": {"target": "e1"}})
 
     assert resp.status_code == 200
-    assert calls[-1] == ("browser_wait_for", {"time": main_mod.BROWSER_STABILIZE_WAIT_SECONDS})
+    assert calls[-2] == ("browser_wait_for", {"time": main_mod.BROWSER_STABILIZE_WAIT_SECONDS})
+    assert calls[-1] == ("browser_snapshot", {})
 
 
 def test_browser_snapshot_does_not_trigger_stabilization_wait(monkeypatch):
@@ -573,6 +824,98 @@ def test_stabilization_wait_disabled_via_zero_seconds(monkeypatch):
 
     assert resp.status_code == 200
     assert calls == [("browser_navigate", {"url": "https://exemple.com"})]
+
+
+def test_browser_navigate_response_includes_the_resulting_snapshot(monkeypatch):
+    """Tool design contract (CLAUDE.md): browser_navigate's own response
+    never contains the resulting page (only a dead file reference,
+    verified against the real audit log) — a real browser_snapshot call
+    after the stabilization wait must reach the response, not just be
+    called."""
+    import app.main as main_mod
+
+    main_mod._tool_registry.clear()
+    _register_fake_browser_tool(main_mod, "browser_navigate", ["url"])
+    _patch_run_on_server_recording(main_mod, monkeypatch)
+
+    resp = _client().post("/call", json={"tool": "browser_navigate", "arguments": {"url": "https://exemple.com"}})
+
+    assert resp.status_code == 200
+    content = resp.json()["content"]
+    assert len(content) == 2
+    assert content[0]["text"] == "ok:browser_navigate"
+    assert content[1]["text"] == "ok:browser_snapshot"
+
+
+def test_browser_click_response_includes_the_resulting_snapshot(monkeypatch):
+    import app.main as main_mod
+
+    main_mod._tool_registry.clear()
+    _register_fake_browser_tool(main_mod, "browser_click", ["target"])
+    _patch_run_on_server_recording(main_mod, monkeypatch)
+
+    resp = _client().post("/call", json={"tool": "browser_click", "arguments": {"target": "e1"}})
+
+    assert resp.status_code == 200
+    content = resp.json()["content"]
+    assert len(content) == 2
+    assert content[0]["text"] == "ok:browser_click"
+    assert content[1]["text"] == "ok:browser_snapshot"
+
+
+def test_browser_navigate_response_has_no_snapshot_when_stabilization_disabled(monkeypatch):
+    """Same single gate as the wait itself (BROWSER_STABILIZE_WAIT_SECONDS
+    == 0): no snapshot call, no extra content block — one off-switch, not
+    two independent ones."""
+    import app.main as main_mod
+
+    main_mod._tool_registry.clear()
+    _register_fake_browser_tool(main_mod, "browser_navigate", ["url"])
+    monkeypatch.setattr(main_mod, "BROWSER_STABILIZE_WAIT_SECONDS", 0.0)
+    _patch_run_on_server_recording(main_mod, monkeypatch)
+
+    resp = _client().post("/call", json={"tool": "browser_navigate", "arguments": {"url": "https://exemple.com"}})
+
+    assert resp.status_code == 200
+    content = resp.json()["content"]
+    assert len(content) == 1
+    assert content[0]["text"] == "ok:browser_navigate"
+
+
+def test_browser_navigate_gets_empty_snapshot_hint_when_appended_snapshot_is_blank(monkeypatch):
+    """_flag_empty_snapshot's gate, extended beyond request.tool ==
+    'browser_snapshot': a browser_navigate landing on an empty-snapshot
+    page (native PDF, see VP4/docs/history.md) must get the SAME redirect
+    hint a direct browser_snapshot call would have given — parity, not a
+    tool-name special case."""
+    import app.main as main_mod
+    from mcp.types import TextContent
+
+    main_mod._tool_registry.clear()
+    _register_fake_browser_tool(main_mod, "browser_navigate", ["url"])
+
+    class _NavigateThenEmptySnapshotSession:
+        async def call_tool(self, name, arguments):
+            class _Result:
+                pass
+
+            if name == "browser_snapshot":
+                _Result.content = [TextContent(type="text", text="### Snapshot\n```yaml\n\n```")]
+            else:
+                _Result.content = [TextContent(type="text", text=f"ok:{name}")]
+            return _Result()
+
+    async def fake_run_on_server(server_name, action, worker_id=None):
+        return await action(_NavigateThenEmptySnapshotSession())
+
+    monkeypatch.setattr(main_mod, "_run_on_server", fake_run_on_server)
+
+    resp = _client().post("/call", json={"tool": "browser_navigate", "arguments": {"url": "https://exemple.com"}})
+
+    assert resp.status_code == 200
+    content = resp.json()["content"]
+    assert content[0]["text"] == "ok:browser_navigate"
+    assert "browser_take_screenshot" in content[1]["text"]
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -680,7 +1023,7 @@ def test_call_tool_rewrites_unknown_ref_engine_error_into_friendly_message(monke
 
             return _Result()
 
-    async def fake_run_on_server(server_name, action):
+    async def fake_run_on_server(server_name, action, worker_id=None):
         return await action(_ErrorSession())
 
     monkeypatch.setattr(main_mod, "_run_on_server", fake_run_on_server)
@@ -795,11 +1138,32 @@ class _RecordingSessionWithScreenshot:
         return _Result()
 
 
+class _RecordingSessionWithFixedText:
+    """Like _RecordingSession, but returns a FIXED text for the tool under
+    test (browser_snapshot) — used to control the exact response shape
+    for the empty-snapshot-redirect tests below, which need real
+    ```yaml block content, not the generic "ok:{name}" placeholder."""
+
+    def __init__(self, calls, fixed_text):
+        self.calls = calls
+        self.fixed_text = fixed_text
+
+    async def call_tool(self, name, arguments):
+        from mcp.types import TextContent
+
+        self.calls.append((name, arguments))
+
+        class _Result:
+            content = [TextContent(type="text", text=self.fixed_text)]
+
+        return _Result()
+
+
 def _patch_run_on_server_with_screenshot(main_mod, monkeypatch):
     calls = []
     session = _RecordingSessionWithScreenshot(calls, _tiny_image_b64())
 
-    async def fake_run_on_server(server_name, action):
+    async def fake_run_on_server(server_name, action, worker_id=None):
         return await action(session)
 
     monkeypatch.setattr(main_mod, "_run_on_server", fake_run_on_server)
@@ -831,7 +1195,7 @@ def test_visual_capture_response_never_contains_the_screenshot_image_block(monke
     assert resp.status_code == 200
     content = resp.json()["content"]
     assert all(block.get("type") != "image" for block in content)
-    assert len(content) == 1
+    assert len(content) == 2  # confirmation block + the appended post-stabilization snapshot
     assert content[0]["type"] == "text"
     assert content[0]["text"] == "ok:browser_navigate"
     # The capture DID happen (side channel, on disk) — the test above is
@@ -993,7 +1357,7 @@ def test_visual_capture_never_breaks_the_real_call_on_screenshot_failure(monkeyp
 
             return _Result()
 
-    async def fake_run_on_server(server_name, action):
+    async def fake_run_on_server(server_name, action, worker_id=None):
         return await action(_FailingScreenshotSession())
 
     monkeypatch.setattr(main_mod, "_run_on_server", fake_run_on_server)
@@ -1005,7 +1369,7 @@ def test_visual_capture_never_breaks_the_real_call_on_screenshot_failure(monkeyp
 
     assert resp.status_code == 200
     content = resp.json()["content"]
-    assert len(content) == 1
+    assert len(content) == 2  # confirmation block + the appended post-stabilization snapshot
     assert content[0]["type"] == "text"
     assert content[0]["text"] == "ok:browser_navigate"
     assert not (tmp_path / "abc123").exists()

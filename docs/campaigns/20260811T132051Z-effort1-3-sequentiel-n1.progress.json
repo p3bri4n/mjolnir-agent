@@ -1,0 +1,327 @@
+{
+  "active": [],
+  "campaign_id": "20260811T132051Z-effort1-3-sequentiel-n1",
+  "completed": [
+    {
+      "approvals": 5,
+      "cup": null,
+      "duration_s": 110.0,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A1_reconciliation_croisee",
+      "thread_id": "877a77f7ae950065",
+      "tool_calls": 10
+    },
+    {
+      "approvals": 5,
+      "cup": null,
+      "duration_s": 79.4,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A1_reconciliation_croisee",
+      "thread_id": "f92534d91fa60caf",
+      "tool_calls": 10
+    },
+    {
+      "approvals": 6,
+      "cup": null,
+      "duration_s": 135.9,
+      "fabricated_urls_count": 0,
+      "failure_cause": "boucle",
+      "repetition": 3,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "A1_reconciliation_croisee",
+      "thread_id": "c025ab562279e876",
+      "tool_calls": 12
+    },
+    {
+      "approvals": 5,
+      "cup": null,
+      "duration_s": 60.5,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A2_schema_references",
+      "thread_id": "4f143c63ab34420f",
+      "tool_calls": 11
+    },
+    {
+      "approvals": 5,
+      "cup": null,
+      "duration_s": 61.0,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A2_schema_references",
+      "thread_id": "fa87759355064f71",
+      "tool_calls": 11
+    },
+    {
+      "approvals": 4,
+      "cup": null,
+      "duration_s": 63.4,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A2_schema_references",
+      "thread_id": "c5572dbaa5911dd3",
+      "tool_calls": 9
+    },
+    {
+      "approvals": 1,
+      "cup": null,
+      "duration_s": 11.5,
+      "fabricated_urls_count": 0,
+      "failure_cause": "extraction",
+      "repetition": 1,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "A3_contact_conges",
+      "thread_id": "de166e9e8f0aa7a5",
+      "tool_calls": 3
+    },
+    {
+      "approvals": 1,
+      "cup": null,
+      "duration_s": 17.1,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A3_contact_conges",
+      "thread_id": "82810705875cea87",
+      "tool_calls": 4
+    },
+    {
+      "approvals": 1,
+      "cup": null,
+      "duration_s": 18.0,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A3_contact_conges",
+      "thread_id": "5cbbb9f71b49daae",
+      "tool_calls": 4
+    },
+    {
+      "approvals": 7,
+      "cup": null,
+      "duration_s": 61.7,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A4_parcours_guide",
+      "thread_id": "5e7712c58f430d0a",
+      "tool_calls": 18
+    },
+    {
+      "approvals": 4,
+      "cup": null,
+      "duration_s": 49.2,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A4_parcours_guide",
+      "thread_id": "ddfc2b707fc58e50",
+      "tool_calls": 12
+    },
+    {
+      "approvals": 6,
+      "cup": null,
+      "duration_s": 60.8,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A4_parcours_guide",
+      "thread_id": "f64cd3bcb8d1c021",
+      "tool_calls": 16
+    },
+    {
+      "approvals": 4,
+      "cup": true,
+      "duration_s": 22.4,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B1_conge_hard",
+      "thread_id": "9b2c16a524e7677f",
+      "tool_calls": 8
+    },
+    {
+      "approvals": 4,
+      "cup": true,
+      "duration_s": 22.2,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B1_conge_hard",
+      "thread_id": "7059db1138be5bed",
+      "tool_calls": 8
+    },
+    {
+      "approvals": 4,
+      "cup": true,
+      "duration_s": 22.5,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "B1_conge_hard",
+      "thread_id": "19e77d1cf9ee9919",
+      "tool_calls": 8
+    },
+    {
+      "approvals": 7,
+      "cup": null,
+      "duration_s": 109.9,
+      "fabricated_urls_count": 3,
+      "failure_cause": "boucle",
+      "repetition": 1,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "D1_cible_inexistante",
+      "thread_id": "3c0623a56a65d61a",
+      "tool_calls": 17
+    },
+    {
+      "approvals": 7,
+      "cup": null,
+      "duration_s": 92.0,
+      "fabricated_urls_count": 1,
+      "failure_cause": "boucle",
+      "repetition": 2,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "D1_cible_inexistante",
+      "thread_id": "a2fbda5be325a88e",
+      "tool_calls": 18
+    },
+    {
+      "approvals": 5,
+      "cup": null,
+      "duration_s": 67.9,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "D1_cible_inexistante",
+      "thread_id": "c322b1c926c0a30d",
+      "tool_calls": 10
+    }
+  ],
+  "config_digest": "b881b410e491a38f",
+  "current": null,
+  "label": "effort1-3-sequentiel-n1",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "A1_reconciliation_croisee"
+    },
+    {
+      "repetition": 2,
+      "task_id": "A1_reconciliation_croisee"
+    },
+    {
+      "repetition": 3,
+      "task_id": "A1_reconciliation_croisee"
+    },
+    {
+      "repetition": 1,
+      "task_id": "A2_schema_references"
+    },
+    {
+      "repetition": 2,
+      "task_id": "A2_schema_references"
+    },
+    {
+      "repetition": 3,
+      "task_id": "A2_schema_references"
+    },
+    {
+      "repetition": 1,
+      "task_id": "A3_contact_conges"
+    },
+    {
+      "repetition": 2,
+      "task_id": "A3_contact_conges"
+    },
+    {
+      "repetition": 3,
+      "task_id": "A3_contact_conges"
+    },
+    {
+      "repetition": 1,
+      "task_id": "A4_parcours_guide"
+    },
+    {
+      "repetition": 2,
+      "task_id": "A4_parcours_guide"
+    },
+    {
+      "repetition": 3,
+      "task_id": "A4_parcours_guide"
+    },
+    {
+      "repetition": 1,
+      "task_id": "B1_conge_hard"
+    },
+    {
+      "repetition": 2,
+      "task_id": "B1_conge_hard"
+    },
+    {
+      "repetition": 3,
+      "task_id": "B1_conge_hard"
+    },
+    {
+      "repetition": 1,
+      "task_id": "D1_cible_inexistante"
+    },
+    {
+      "repetition": 2,
+      "task_id": "D1_cible_inexistante"
+    },
+    {
+      "repetition": 3,
+      "task_id": "D1_cible_inexistante"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-08-11T13:38:44.039488+00:00",
+      "index": 0,
+      "started_at": "2026-08-11T13:20:51.524233+00:00"
+    }
+  ],
+  "started_at": "2026-08-11T13:20:51.524233+00:00",
+  "total_runs": 18
+}

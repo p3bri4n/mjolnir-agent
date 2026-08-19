@@ -57,7 +57,7 @@ from urllib.parse import urljoin
 
 import httpx
 import langchain_openai.chat_models.base as _openai_base
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 from PIL import Image
 from langgraph.checkpoint.memory import MemorySaver
@@ -137,10 +137,6 @@ LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://tabbyapi:5000/v1")
 CONTEXT_MANAGER_URL = os.environ.get("CONTEXT_MANAGER_URL", "http://context-manager:8002")
 SKILL_MANAGER_URL = os.environ.get("SKILL_MANAGER_URL", "http://skill-manager:8001")
 MCP_CLIENT_URL = os.environ.get("MCP_CLIENT_URL", "http://mcp-client:8003")
-# Graph-internal OCR capability (effort 3, GhostDesk removal — see
-# docs/history.md "EFFORT 3"): called directly, never through mcp-client,
-# same pattern as CONTEXT_MANAGER_URL/SKILL_MANAGER_URL above.
-OCR_SERVICE_URL = os.environ.get("OCR_SERVICE_URL", "http://ocr-service:8004")
 
 # URL-fabrication guardrail (Phase 1, see PLAN.md/docs/history.md — target
 # #1 of the Phase 0 point zero: the agent regularly invents plausible URLs
@@ -458,21 +454,16 @@ IMAGE_RETENTION_PLACEHOLDER = "[screenshot antérieure supprimée]"
 EPISODE_COMPACTION_ENABLED = os.environ.get("EPISODE_COMPACTION_ENABLED", "false").lower() == "true"
 EPISODE_COMPACTION_TURN_THRESHOLD = int(os.environ.get("EPISODE_COMPACTION_TURN_THRESHOLD", "40"))
 
-# Proactive OCR enrichment (effort 3, GhostDesk removal — see
-# docs/history.md "EFFORT 3"): after a browser_* result showing a signal
-# that a visual-only element (canvas/PDF/alt-less image) is present,
-# enrich that SAME result with a browser_take_screenshot + OCR pass
-# before the model sees it — see _maybe_enrich_with_ocr below. Ships OFF
-# by default: _detect_visual_signal is a stub in this pass (always
-# returns None), pending an empirical check of what browser_snapshot
-# actually emits for these elements (docs/briefs/update-plan.md, effort
-# 3's "explicit next checkpoint"). Flip only after that check and its own
-# restricted smoke, same discipline as every other conditional mechanism
-# in this file.
-PROACTIVE_OCR_ENABLED = os.environ.get("PROACTIVE_OCR_ENABLED", "false").lower() == "true"
-# Caps how much OCR text gets appended to a single tool result, same
-# philosophy as BROWSER_TOOL_OUTPUT_MAX_CHARS.
-PROACTIVE_OCR_MAX_CHARS = int(os.environ.get("PROACTIVE_OCR_MAX_CHARS", "2000"))
+# History diff (Effort 2, docs/briefs/scaffolding-optimisation.md): same
+# transient-filter principle as image retention/episode compaction above
+# (only what's sent to the LLM, never the checkpointer/audit log) — every
+# PAST browser_* tool result (all but the most recent) is replaced by a
+# short structural diff against its nearest predecessor, instead of a
+# repeated full snapshot. No threshold var: unlike episode compaction the
+# boundary here is structural ("not the latest"), not a message count.
+# Ships OFF by default; flip only after its own single-variable
+# validation campaign (CLAUDE.md, Measured behavior).
+HISTORY_DIFF_ENABLED = os.environ.get("HISTORY_DIFF_ENABLED", "false").lower() == "true"
 
 # Planner node (Iteration 1, Phase 1 "cognitive core" — see
 # docs/briefs/phase-1-coeur-cognitif.md). DEFAULT FLIPPED BACK TO false
@@ -1156,91 +1147,6 @@ async def _grounding_snapshot(state: dict, objective: str) -> Optional[str]:
     if not state.get("current_page_url"):
         return None
     return await _fetch_verification_snapshot(objective) or None
-
-
-def _detect_visual_signal(text: str) -> Optional[str]:
-    """
-    Best-effort heuristic over an already-fetched browser_* result's text:
-    returns a signal kind ("canvas" | "pdf_embed" | "alt_less_img") if the
-    text plausibly indicates a visual-only element (see
-    docs/architecture/visual-channel-feasibility.md, VP1-VP4), None
-    otherwise.
-
-    STUB (effort 3, GhostDesk removal — see docs/history.md "EFFORT 3"):
-    always returns None in this pass. What browser_snapshot actually
-    emits for a canvas/PDF-embed/alt-less-img element (a detectable
-    unlabeled node vs. nothing at all) is an open empirical question,
-    deliberately not guessed here — see docs/briefs/update-plan.md,
-    effort 3's "explicit next checkpoint". Implement only after checking
-    against the existing fixture-visual-probe fixtures
-    (tests_integration/fixtures/visual-probe/).
-    """
-    return None
-
-
-async def _maybe_enrich_with_ocr(
-    client: httpx.AsyncClient, tool_name: str, result: dict, thread_id: str
-) -> dict:
-    """
-    Proactive OCR enrichment (effort 3, GhostDesk removal — see
-    docs/history.md "EFFORT 3"): if `_detect_visual_signal` flags the
-    just-fetched browser_* result as plausibly visual-only, take a
-    browser_take_screenshot and run it through ocr-service, appending the
-    detected text to the SAME result before the model sees it — replaces
-    the original brief's reactive design (auto-triggered on a
-    verify_action "not_reached" verdict), dead on arrival since
-    VERIFICATION_ENABLED now defaults to false (EFFORT 2.4).
-
-    No-op if PROACTIVE_OCR_ENABLED is false (default) — same convention
-    as every other conditional mechanism in this file. Best-effort,
-    try/except-wrapped, never blocks the task on a side-capability
-    failure, same philosophy as `_fetch_verification_snapshot`.
-
-    ALWAYS logs a `role="proactive_ocr"` audit entry while the flag is
-    on, even when no signal is detected — the day-one trigger-rate
-    counter this mechanism ships with (CLAUDE.md: a conditional
-    mechanism ships with its coverage counter from day one), not bolted
-    on after a campaign comes back unreadable.
-    """
-    if not PROACTIVE_OCR_ENABLED:
-        return result
-    text = "\n".join(
-        b["text"] for b in result.get("content", []) if isinstance(b, dict) and b.get("type") == "text"
-    )
-    signal = _detect_visual_signal(text)
-    ocr_ran = False
-    detections_count = 0
-    chars_attached = 0
-    if signal:
-        try:
-            _screenshot_result, images = await _call_mcp_tool(client, "browser_take_screenshot", {}, thread_id)
-            if images:
-                resp = await client.post(
-                    f"{OCR_SERVICE_URL}/ocr",
-                    json={"image_base64": images[0]["data"], "mime_type": images[0].get("mimeType", "image/png")},
-                )
-                resp.raise_for_status()
-                detections = resp.json()
-                ocr_ran = True
-                detections_count = len(detections)
-                joined = "; ".join(d["text"] for d in detections)[:PROACTIVE_OCR_MAX_CHARS]
-                chars_attached = len(joined)
-                if joined and isinstance(result.get("content"), list):
-                    result = {**result, "content": [*result["content"], {"type": "text", "text": f"[OCR enrichment] {joined}"}]}
-        except Exception:
-            logger.warning("Proactive OCR enrichment unavailable, observation left as-is.", exc_info=True)
-    audit_log.log_message(
-        thread_id, "proactive_ocr",
-        {
-            "tool": tool_name,
-            "signal_detected": bool(signal),
-            "signal_kind": signal,
-            "ocr_ran": ocr_ran,
-            "detections_count": detections_count,
-            "chars_attached": chars_attached,
-        },
-    )
-    return result
 
 
 class AgentState(TypedDict):
@@ -1983,6 +1889,138 @@ def _apply_episode_compaction(messages: list, plan: list, subtask_message_start:
     return compacted
 
 
+_HISTORY_DIFF_MARKER = "[Observation compactée]"
+
+# Lexical approximation of "an error-like message appeared" — the
+# accessibility-tree snapshot carries no color/severity signal, so this
+# is honestly a keyword heuristic, not a real error-detection capability.
+_ERROR_HINT_RE = re.compile(
+    r"\b(erreur|error|invalide|invalid|échec|echec|failed|obligatoire|required|manquant|missing)\b",
+    re.IGNORECASE,
+)
+
+
+def _browser_result_text(result: dict) -> str:
+    """Concatenated text blocks of a browser_* tool result dict — the same
+    surface _extract_page_url/_extract_affordances_structured already
+    parse, reused here rather than a new snapshot parser."""
+    content = result.get("content")
+    if not isinstance(content, list):
+        return ""
+    return "\n".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
+
+
+def _is_structural_browser_result(text: str) -> bool:
+    """True if `text` looks like a real page snapshot (a URL line or at
+    least one affordance) rather than synthetic feedback — a guardrail
+    rejection (_fabrication_feedback/_repeated_strategy_feedback) or an
+    mcp-client error carries no page state to diff against."""
+    return bool(_extract_page_url(text)) or bool(_extract_affordances_structured(text))
+
+
+def _diff_browser_observation(prev_result: dict, curr_result: dict) -> str:
+    """
+    Structural, harness-computed diff between two consecutive STRUCTURAL
+    browser_* results (Effort 2, docs/briefs/scaffolding-optimisation.md)
+    — no LLM call, reuses the existing snapshot parsers. Grounded in what
+    the accessibility-tree snapshot actually exposes: URL change,
+    affordances appeared/disappeared (kind+label identity — no existing
+    helper exposes element VALUES, so a value-only change on an
+    unchanged label is invisible here), and a lexical error-hint heuristic
+    (see _ERROR_HINT_RE, not a real severity/color signal).
+    """
+    prev_text, curr_text = _browser_result_text(prev_result), _browser_result_text(curr_result)
+    facts = []
+
+    prev_url, curr_url = _extract_page_url(prev_text), _extract_page_url(curr_text)
+    if curr_url and curr_url != prev_url:
+        facts.append(f"URL changée ({prev_url or 'inconnue'} → {curr_url})")
+
+    prev_keys = {(i["kind"], i["label"]) for i in _extract_affordances_structured(prev_text)}
+    curr_keys = {(i["kind"], i["label"]) for i in _extract_affordances_structured(curr_text)}
+    for label, keys in (("apparu(s)", curr_keys - prev_keys), ("disparu(s)", prev_keys - curr_keys)):
+        if keys:
+            sample = ", ".join(f'{kind} "{name}"' for kind, name in list(keys)[:5])
+            more = f" (+{len(keys) - 5} autres)" if len(keys) > 5 else ""
+            facts.append(f"{label} : {sample}{more}")
+
+    if _ERROR_HINT_RE.search(curr_text) and not _ERROR_HINT_RE.search(prev_text):
+        facts.append("nouveau texte évoquant une erreur")
+
+    if not facts:
+        return f"{_HISTORY_DIFF_MARKER} aucun changement structurel détecté depuis l'observation précédente."
+    return f"{_HISTORY_DIFF_MARKER} " + " ; ".join(facts) + "."
+
+
+def _browser_result_indices(messages: list) -> list:
+    """Indices of every browser_* ToolMessage in `messages` — a
+    ToolMessage carries no tool name, so identity is resolved via the
+    preceding AIMessage's tool_calls (same technique as
+    _previous_turn_tool_calls). Shared by _apply_history_diff and its
+    unconditional coverage judge in call_llm."""
+    id_to_name = {
+        tc.get("id"): tc.get("name")
+        for m in messages
+        if getattr(m, "type", None) == "ai"
+        for tc in (getattr(m, "tool_calls", None) or [])
+    }
+    return [
+        i
+        for i, m in enumerate(messages)
+        if getattr(m, "type", None) == "tool"
+        and (id_to_name.get(getattr(m, "tool_call_id", None)) or "").startswith("browser_")
+    ]
+
+
+def _apply_history_diff(messages: list) -> list:
+    """
+    Replaces every PAST browser_* tool result (all but the most recent)
+    in the outbound copy with a short structural diff against its
+    nearest STRUCTURAL predecessor (_diff_browser_observation) — same
+    transient-filter principle as _apply_image_retention/
+    _apply_episode_compaction (new list, checkpointer never touched,
+    SAME LENGTH: only ToolMessage.content is replaced, never
+    inserted/removed, so subtask_message_start indices computed on the
+    raw history stay valid regardless of filter order). A non-structural
+    past result (guardrail feedback, mcp-client error) is never used as a
+    diff baseline and gets a fixed neutral note instead of a fabricated
+    comparison; the first structural result gets a fixed "first
+    observation" note rather than a diff against nothing (which would
+    just relist everything as "appeared"). No-op if disabled or fewer
+    than 2 browser_* results exist (nothing "past" to compact yet).
+    """
+    if not HISTORY_DIFF_ENABLED:
+        return messages
+    browser_indices = _browser_result_indices(messages)
+    if len(browser_indices) <= 1:
+        return messages
+
+    filtered = list(messages)
+    last_structural_result = None
+    for pos, idx in enumerate(browser_indices):
+        is_latest = pos == len(browser_indices) - 1
+        try:
+            result = json.loads(messages[idx].content)
+        except (json.JSONDecodeError, TypeError):
+            result = {}
+        text = _browser_result_text(result)
+        structural = _is_structural_browser_result(text)
+        if not is_latest:
+            if not structural:
+                replacement = (
+                    f"{_HISTORY_DIFF_MARKER} pas de page renvoyée à ce tour "
+                    "(action bloquée ou erreur) — aucun changement de page à signaler."
+                )
+            elif last_structural_result is None:
+                replacement = f"{_HISTORY_DIFF_MARKER} première observation de la page (remplacée par les tours suivants)."
+            else:
+                replacement = _diff_browser_observation(last_structural_result, result)
+            filtered[idx] = messages[idx].model_copy(update={"content": replacement})
+        if structural:
+            last_structural_result = result
+    return filtered
+
+
 def _previous_turn_tool_calls(messages: list) -> Optional[list]:
     """Last AI message with tool_calls in the history — the turn that led to this call_llm invocation."""
     for message in reversed(messages):
@@ -2167,6 +2205,25 @@ async def call_llm(state: AgentState, config: dict) -> dict:
         )
     ] + compacted_messages
     messages_for_llm = _apply_image_retention(messages_for_llm)
+    history_diffed = _apply_history_diff(messages_for_llm)
+    # Coverage judge for history diff (Effort 2, docs/briefs/
+    # scaffolding-optimisation.md): logged on EVERY call_llm invocation,
+    # regardless of HISTORY_DIFF_ENABLED — same discipline as episode
+    # compaction above, per CLAUDE.md's trigger-rate-counter rule.
+    # browser_messages_count is computed on RAW state["messages"] (the
+    # true opportunity size, independent of episode compaction);
+    # messages_replaced is computed on messages_for_llm (the actual
+    # effect of this call, downstream of episode compaction if both are
+    # ever enabled together).
+    audit_log.log_message(
+        config.get("configurable", {}).get("thread_id", ""),
+        "history_diff",
+        {
+            "browser_messages_count": len(_browser_result_indices(state["messages"])),
+            "messages_replaced": sum(1 for a, b in zip(messages_for_llm, history_diffed) if a is not b),
+        },
+    )
+    messages_for_llm = history_diffed
     messages_for_llm = _apply_adaptive_thinking(messages_for_llm, state.get("session_grants") or [])
     # Carried over as-is from the previous call within this turn (see
     # AgentState.think_opened/think_closed) rather than reset to False, so
@@ -2361,7 +2418,11 @@ def _split_image_blocks(result: dict) -> tuple[dict, list[dict]]:
 
 
 async def _call_mcp_tool(
-    client: httpx.AsyncClient, tool_name: str, args: dict, thread_id: Optional[str] = None
+    client: httpx.AsyncClient,
+    tool_name: str,
+    args: dict,
+    thread_id: Optional[str] = None,
+    worker_id: Optional[str] = None,
 ) -> tuple[dict, list]:
     """
     Single HTTP call to mcp-client:/call, factored out between
@@ -2375,11 +2436,19 @@ async def _call_mcp_tool(
     image-block splitting below. Omitted by callers with no thread_id in
     scope (e.g. _fetch_verification_snapshot), which simply get no
     capture for that call.
+
+    worker_id (optional, effort 1.3, docs/briefs/
+    effort-1.3-parallel-campaigns.md): forwarded so mcp-client can scope
+    its persistent "browser" session per parallel-campaign worker instead
+    of one shared session for every caller. Omitted (the overwhelming
+    common case — interactive Open WebUI, a non-parallel campaign) falls
+    back to mcp-client's own "default" bucket, identical to pre-effort-1.3
+    behavior.
     """
     try:
         resp = await client.post(
             f"{MCP_CLIENT_URL}/call",
-            json={"tool": tool_name, "arguments": args, "thread_id": thread_id},
+            json={"tool": tool_name, "arguments": args, "thread_id": thread_id, "worker_id": worker_id},
         )
         resp.raise_for_status()
         result = resp.json()
@@ -2412,6 +2481,7 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
     new_messages = []
     grants = state.get("session_grants") or []
     thread_id = config.get("configurable", {}).get("thread_id", "")
+    worker_id = config.get("configurable", {}).get("worker_id")
 
     # URL-fabrication guardrail (Phase 1): scope = URLs already observed
     # THIS turn/previous turns of the task + scope roots (1st human
@@ -2609,7 +2679,9 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
                 result = {"content": [{"type": "text", "text": _repeated_strategy_feedback(tool_call["name"])}]}
                 images = []
             else:
-                result, images = await _call_mcp_tool(client, tool_call["name"], tool_call["args"], thread_id)
+                result, images = await _call_mcp_tool(
+                    client, tool_call["name"], tool_call["args"], thread_id, worker_id
+                )
                 if tool_call["name"].startswith("browser_"):
                     result = _truncate_browser_result(result, BROWSER_TOOL_OUTPUT_MAX_CHARS, objective)
                     for block in result.get("content", []) if isinstance(result.get("content"), list) else []:
@@ -2625,8 +2697,6 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
                     if tool_call["name"] == "browser_navigate" and not blocked:
                         observed_urls.add(tool_call["args"]["url"])
                         current_page_url = tool_call["args"]["url"]
-                    if current_page_url:
-                        result = await _maybe_enrich_with_ocr(client, tool_call["name"], result, thread_id)
 
             if audit_tier is not None:
                 # Logged AFTER execution (see above) to carry the result
@@ -3091,9 +3161,10 @@ async def run_slash_command_direct(state: AgentState, config: dict) -> dict:
     grants = state.get("session_grants") or []
     tier = approval_policy.effective_tier(tool_name, args, grants)
     thread_id = config.get("configurable", {}).get("thread_id", "")
+    worker_id = config.get("configurable", {}).get("worker_id")
 
     async with httpx.AsyncClient(timeout=60) as client:
-        result, images = await _call_mcp_tool(client, tool_name, args, thread_id)
+        result, images = await _call_mcp_tool(client, tool_name, args, thread_id, worker_id)
 
     if tier == approval_policy.TIER_REVERSIBLE:
         audit_log.log_tool_call(thread_id, tool_name, args, tier, result)

@@ -101,9 +101,6 @@ EXPECTED_AGENT_FLAGS = {
     "REPLAN_BUDGET": "2",
     "PLAN_VALIDATION_ENABLED": "true",
     "PLAN_JUDGE_ENABLED": "false",
-    # EFFORT 3 (GhostDesk removal, docs/history.md "EFFORT 3"): ships
-    # default-off, detection heuristic stubbed pending its own checkpoint.
-    "PROACTIVE_OCR_ENABLED": "false",
     "PLANNING_MODE": "nodes",
     "ADAPTIVE_THINKING": "true",
     "MAX_IMAGES_IN_CONTEXT": "1",
@@ -120,6 +117,7 @@ EXPECTED_AGENT_FLAGS = {
     "AUDIT_LOG_MAX_BYTES": str(20 * 1024 * 1024),
     "EPISODE_COMPACTION_ENABLED": "false",
     "EPISODE_COMPACTION_TURN_THRESHOLD": "40",
+    "HISTORY_DIFF_ENABLED": "false",
 }
 
 

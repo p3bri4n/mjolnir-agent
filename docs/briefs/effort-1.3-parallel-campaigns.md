@@ -1,0 +1,465 @@
+# Effort 1.3 — parallel campaign execution
+
+Status: brief only, zero code written. Resumes `docs/briefs/update-plan.md`
+effort 1.3, deferred at the 2026-08-05 archives-only recompute (see
+docs/history.md, "EFFORT 1.3") pending efforts 1.2/2/4.2 landing and a
+fresh median-duration re-measurement. 1.2 and 2 are delivered (2.4:
+cognitive-core removal); 4.2 is not started. Re-measured anyway below —
+the composition of campaign time has changed enough on its own to be
+worth re-checking now, ahead of 4.2.
+
+## Why now, re-measured (archives only, zero runs)
+
+The original estimate (×2.2 pessimistic / ×3 optimistic) was built on a
+pre-GPU-placement, pre-2.4 33-task campaign where GPU-bound (prefill) and
+I/O-bound (tool round-trips) time were roughly 50/50 (22.9s/22s per
+task). Two things have changed since, both independently: deterministic
+GPU placement (`docs/history.md`, "DETERMINISTIC GPU PLACEMENT" —
+prefill throughput +49%) and the cognitive-core removal (effort 2.4 —
+cut auxiliary planner/judge LLM calls, which were GPU-bound). Recomputed
+from the most recent full-family v2 campaign
+(`docs/campaigns/campaign-20260810T142745Z-benchmark-v2.json`, 62 runs,
+post-GPU-placement, post-2.4):
+
+- total `duration_seconds`: 2017.8s
+- total `prefill_seconds`: 526.2s
+- **GPU fraction of run time: 26%**, down from ~51% in the original
+  estimate.
+
+Applying the same pessimistic/optimistic model as the original estimate
+(pessimistic: GPU time stays fully serial regardless of worker count,
+I/O time divides by N; optimistic: near-linear on TabbyAPI's own
+concurrent batching) to these numbers, N=3 workers:
+
+- pessimistic: `526.2 + (2017.8-526.2)/3 ≈ 1023s` → **×1.97**
+- optimistic: `2017.8/3 ≈ 673s` → **×3.0**
+
+Directionally the same conclusion as the original estimate (worth doing),
+with the pessimistic floor slightly lower in this recompute (workload is
+now more I/O-dominated, so serializing the now-smaller GPU-bound share
+matters proportionally less, but I/O — the bulk of the time — is exactly
+what parallelizes). Both estimates share the same unconfirmed variable as
+the original brief: **TabbyAPI's actual concurrent-batching behavior
+under real parallel load has never been measured live** — the
+pessimistic/optimistic split brackets it, it does not resolve it. Phase 0
+below measures it directly instead of estimating it a second time.
+
+## Architecture question resolved by an existing verified finding
+
+The original brief's "preferred fix" (scope `mcp-client`'s
+`_persistent_sessions` by a caller `worker_id` rather than standing up N
+full container sets) rests on one assumption: that N concurrent MCP
+sessions to the SAME `playwright-mcp` server give N genuinely isolated
+browser contexts, not one shared browser fought over by N sessions. This
+is not a new question — it was already answered, verified against the
+installed image, while fixing the original ephemeral-session bug
+(`docs/resolved-bugs.md`, session-continuity entry): *"Playwright MCP
+scope son contexte navigateur (page, cookies, historique) à la session,
+pas au process"* — i.e. **context is per-MCP-session already**, which is
+exactly the unit `worker_id`-scoping would create N of. The preferred fix
+is architecturally sound, not just resource-cheaper than N containers —
+confirmed against already-verified behavior (CLAUDE.md #8), not a new
+guess.
+
+## What needs to change
+
+**1. `mcp-client` (`services/mcp-client/app/main.py`)**
+
+- `_persistent_sessions`/`_persistent_locks`: currently keyed by
+  `server_name` alone (only `"browser"` has `persistent_session: True`
+  today). Rekey by `(server_name, worker_id)`. `worker_id` absent
+  (existing single-caller usage — interactive Open WebUI, non-parallel
+  campaigns) must keep today's behavior identically: a fixed sentinel
+  (e.g. `worker_id or "default"`) preserves the current single-shared-
+  session behavior with zero change for every caller that doesn't opt in.
+- `POST /reset-session/{server_name}` gains an optional `worker_id`
+  (query param, matching `CallRequest`'s existing optional `thread_id`
+  precedent): resets only that worker's session, leaving the others
+  untouched. Without this, one worker's cross-task reset would blow away
+  every other worker's live browser state mid-run.
+- `CallRequest` gains an optional `worker_id`, threaded through
+  `_run_on_server` the same way `thread_id` already is for
+  `_maybe_capture_visual`.
+
+**2. Downloads volume (`agent-downloads`, shared bind mount) — RESOLVED
+by config inspection, no live run needed.** `docker-compose.yml`'s
+`playwright-mcp` service sets `--output-dir=/downloads` as a container-
+launch CLI flag, not a per-MCP-session parameter — unlike the browser
+CONTEXT (isolated per session, point 1 above), the download DIRECTORY is
+one shared path for the whole process, with no per-session override
+exposed by the image. Option (a) from the original open question (a
+per-`worker_id` subdirectory) is therefore not available without N
+separate `playwright-mcp` containers, which the brief already rejects as
+heavier than worker-scoping. Option (b) (snapshot-diff purge) has its own
+real hazard: if the SAME task_id (e.g. T5, the only download-touching
+task today) ever lands on two workers in the same round, both would
+write to the SAME filename in the SAME shared directory regardless of
+purge timing — a content collision, not just a purge race.
+
+**Chosen design: serialize only the download-touching task(s) across
+workers, at the harness level (Phase 2), not the volume.** A single
+`threading.Lock` held for the duration of any task tagged
+download-touching (currently only T5) turns that narrow slice back to
+sequential while every other task stays parallel — `_purge_downloads_volume`
+stays exactly as it is today (no snapshot-diff, no worker-scoping),
+correct by construction since only one worker is ever inside that
+critical section. Cheaper and more robust than trying to make a
+single shared directory safe under real concurrent writers. Moves this
+point out of Phase 1's scope entirely — `mcp-client` needs no downloads-
+related change.
+
+**3. Test harness (`tests_integration/test_web_tasks.py`)** — the
+sequential `for entry in remaining:` loop (`_run_campaign`) becomes an
+N-worker pool. `run_task`/`_chat`/`_approve` are synchronous
+(`requests`/`subprocess`-based, not `asyncio`) — a `ThreadPoolExecutor`
+fits without a rewrite to `asyncio`. Each worker needs its own
+`worker_id` threaded into `_purge_downloads_volume`/`_reset_browser_session`
+(both gain a `worker_id` parameter, forwarded to mcp-client per point 1)
+and into every `_chat`/`_approve` call so `app/main.py` can derive a
+worker-scoped `thread_id` distinct from other workers' concurrent tasks
+(already unique per repetition via the existing `uuid.uuid4()` marker —
+confirm this stays sufficient under concurrent submission, not just
+sequential).
+
+**4. Pause/resume/segment tracking (B2,
+`docs/briefs/archive/A6-campaign-control.md`) must survive N workers.**
+`remaining = state["planned"][len(state["completed"]):]` is a strict
+ordered-slice cursor — correct only when completions happen in launch
+order, which N concurrent workers break immediately (worker B can finish
+entry 5 before worker A finishes entry 3). Needs converting to a set
+difference (`planned` items not yet in `completed`, matched by
+`(task_id, repetition)` rather than position) before any parallel launch
+— **this fix is a prerequisite of parallelizing at all**, not an
+enhancement: without it, a pause mid-campaign would resume from the wrong
+cursor and either replay completed work or skip pending work depending on
+which worker happened to finish last. The pause sentinel itself (checked
+once per loop iteration today) needs a check per worker, all workers
+draining cleanly before the campaign reports `paused=true`.
+
+**5. `_tools_schema_cache` (`app/graph.py`) — noted, not in scope here.**
+Named in the original effort 1.3 archives note as the same defect family
+(unscoped global state), but it is a same-VALUE cache (the tool schema
+langgraph-agent sees is identical regardless of caller), not per-caller
+state — parallel workers sharing it is correct, not a contamination risk.
+Its real defect is staleness after an independent `mcp-client` restart,
+unrelated to parallelism. Left out of this chantier's scope; revisit
+separately if it ever causes a real incident.
+
+## Sequencing
+
+**Phase 0 — measure before building (live, on the user's machine, this
+sandbox cannot run Docker/GPU).** Two things this brief cannot resolve on
+archives alone:
+- TabbyAPI's actual concurrent-request behavior: fire 3 concurrent
+  `/v1/chat/completions` requests against the real server, compare
+  latency to 3 sequential — confirms or corrects the pessimistic/
+  optimistic bracket above with a real number instead of two guesses.
+- `playwright-mcp` session isolation under real concurrent load: **must
+  bypass `mcp-client`** — its own `_persistent_sessions` is still keyed
+  by `server_name` alone today (Phase 1 hasn't landed), so two calls
+  through `mcp-client`'s `/call` would reuse the SAME shared session and
+  test nothing new. Open 2 independent MCP client sessions DIRECTLY
+  against `playwright-mcp`'s Streamable HTTP endpoint
+  (`http://playwright-mcp:8931/mcp`, the same `mcp` Python package
+  `mcp-client` itself already depends on — no new code, a throwaway
+  script), each navigating to a DIFFERENT URL, confirm both
+  `browser_snapshot`s show their own page, not a shared/overwritten one.
+  Verifies the architecture argument above empirically, not just by
+  reading a resolved-bugs entry.
+
+🧑 **Checkpoint after Phase 0** — both checks gate whether Phase 1 is
+worth building at all.
+
+**Phase 0 result (2026-08-11, user's machine,
+`scripts/probe-parallel-phase0.sh`), both checks green:**
+- TabbyAPI concurrent-request behavior: 3 sequential distinct prompts
+  2.79s, 3 concurrent distinct prompts 1.40s → **×2.0 real speedup**,
+  landing on the pessimistic bracket (×1.97) rather than the optimistic
+  one (×3.0) — TabbyAPI serializes more of the work than the optimistic
+  scenario assumed. First attempt (identical prompt repeated) was
+  invalid: 0.38s for 3 sequential requests was a prefix-cache artifact
+  (this project already tracks `cache_zero_rate` as a real phenomenon),
+  fixed by using 3 distinct, UUID-prefixed prompts with ~150 words of
+  filler per arm, sequential and concurrent arms never sharing a prompt.
+- `playwright-mcp` session isolation: confirmed — two independent MCP
+  sessions opened directly against `playwright-mcp` each kept their own
+  navigated page, no cross-talk.
+- **Reading**: Phase 3's realistic target is closer to **×2** on the full
+  campaign than the optimistic ×3 — still a real, worthwhile win (roughly
+  halves campaign wall time), set as the expectation for Phase 3's
+  threshold rather than the more optimistic number. Phase 1 is confirmed
+  worth building.
+
+**Phase 1 — `mcp-client` worker-scoping** (point 1 above only — point 2's
+downloads question is resolved above and moves to Phase 2, no
+`mcp-client` change needed for it). Unit-tested the same way the
+existing session-persistence tests are (`tests/test_main.py`),
+default-caller (`worker_id` absent) behavior covered by a regression test
+proving zero change for every existing caller.
+
+**Phase 1 delivered**: `_persistent_sessions`/`_persistent_locks` rekeyed
+`(server_name, worker_id)` (`_persistent_locks` now a lazily-populated
+`defaultdict`, safe without an extra guard lock — single-process uvicorn,
+no `await` inside `defaultdict.__missing__`); `_worker_key` normalizes a
+missing/empty `worker_id` to the same `"default"` bucket every existing
+caller has always used. `POST /reset-session/{server_name}` gained an
+optional `worker_id` query param; `CallRequest` gained an optional
+`worker_id`, threaded through every `_run_on_server`/`_maybe_capture_visual`
+call site in `call_tool`. Caught while fixing the tests: two existing
+assertions (`"browser" not in _persistent_sessions`,
+`_persistent_locks["browser"] = asyncio.Lock()`) referenced the OLD
+bare-string key — the first would have silently become a vacuous pass
+after this change (never matching any real key again) rather than a
+loud failure; both fixed, one turned into a real worker-isolation
+regression test. 5 new tests, `mcp-client` suite 55→60 passed, 0
+regressions in `langgraph-agent` (466/466, untouched by this phase).
+
+**Phase 2 — harness N-worker runner** (points 2-4: the download-task
+serialization lock, the N-worker pool, and the pause/resume cursor fix).
+Pause/resume correctness (point 4) is testable without live Docker — the
+cursor logic is pure data manipulation, unit-testable against a
+synthetic `planned`/`completed` state. Same for the download-lock logic
+(point 2) — a synthetic task list with an interleaved download-touching
+entry is enough to prove serialization without live Docker.
+
+**Gap found and closed before Phase 2 could start: `worker_id` had
+nowhere to travel from the harness to `mcp-client`.** Phase 1 gave
+`mcp-client` the parameter; nothing on `langgraph-agent`'s side read it
+from an HTTP request. `ChatCompletionRequest`/`ApprovalDecisionRequest`
+gained an optional `worker_id` (absent for every real client — Open WebUI
+never sends it), forwarded into `config["configurable"]` by
+`_resolve_run`/`/approve`, extracted there by
+`_execute_tool_calls`/`run_slash_command_direct`, passed through
+`_call_mcp_tool`. Planner/verification nodes left unscoped (cognitive-
+core flags default off since effort 2.4, the config parallel campaigns
+actually run under). 4 tests fixed (exact-match `/call` payload
+assertions now include `"worker_id": None`), 4 new (forwarding through
+`_call_mcp_tool` directly, the non-streaming endpoint, and `/approve`'s
+resume path). `langgraph-agent` suite 466→469 passed.
+
+**Phase 2 scope grew mid-implementation, reported at the checkpoint
+before continuing (user: "continuer maintenant, périmètre élargi"):**
+the pause/resume cursor (`planned[len(completed):]`) turned out to be
+`campaign_persistence.py`'s own documented contract
+(`init_progress_state`'s docstring), also depended on by
+`compute_remaining_eta()` (the dashboard's live ETA) — fixing it for real
+meant `remaining_runs()` (a set difference on `(task_id, repetition)`,
+safe under out-of-order completions) landing in `campaign_persistence.py`
+itself, PLUS its deliberately-duplicated mirror in
+`services/dashboard/app/main.py` (`_remaining_runs`, same "harness
+writes, dashboard reads" decoupling as `_normalize_duration_estimate`).
+7 tests across both (4 + 3), both suites green.
+
+**Phase 2 delivered.** `_run_planned_tasks` (`test_web_tasks.py`) is the
+shared N-worker loop both `_run_campaign` (v1) and `_run_campaign_v2`
+call, parameterized by a `build_row` callback (each suite's own row
+fields) and `purge_fns`/`serialized_task_ids` (which shared fixtures need
+exclusive access — v1: `_purge_downloads_volume`/T5 only; **v2 also needs
+`_purge_admin_stock_file`/`FAMILY_B_BETA_TASK_IDS`**, `stock_updates.json`
+turned out to be the exact same shared-single-file hazard as T5's
+`/downloads`, found while porting the loop, not anticipated in this
+brief's original point 2). `n_workers=1` (`WEB_TASKS_WORKERS`, default)
+passes `worker_id=None` throughout — verified as a real, separate
+invariant (a first draft always generated `"worker-1"` even at
+`n_workers=1`, caught by its own regression test, fixed). `state["current"]`
+kept as a single dict (dashboard `campaign.html` untouched) — "whichever
+run was claimed most recently," a documented degradation for
+`n_workers>1` (shows one of the active runs, not all); `state["active"]`
+(new) carries the full in-flight list for a future dashboard enhancement,
+explicitly out of scope here. 5 new tests
+(`tests/test_run_planned_tasks.py`, no Docker/HTTP), including a real-
+threading proof that the download lock blocks another worker's purge
+until the serialized task's ENTIRE run finishes, not just its own purge.
+`langgraph-agent` suite 469→478 passed overall.
+
+🧑 **Checkpoint before Phase 3's live measurement** — nothing live-run
+yet in this phase; everything above is unit-tested against synthetic
+state only, per the brief's own discipline.
+
+**Phase 3 — measurement.** One parallel campaign (N=3, the same declared
+subset already used for effort 2's decisive measurement — a subset
+already trusted for discriminating power) vs. its sequential equivalent,
+same tasks. Judges, declared now:
+- **primary**: wall-clock campaign duration — the entire point of this
+  chantier, threshold not frozen yet (fill in after Phase 0's live
+  numbers replace the estimate above).
+- **secondary, veto power**: score/CuP non-regression. Per the standing
+  decision-table convention, any score regression invalidates the win
+  regardless of speed — concurrency bugs (a stolen browser tab, a
+  cross-worker download collision) would show up here first.
+
+🧑 **Checkpoint before Phase 3's live measurement**, same discipline as
+every other effort in this plan.
+
+**Phase 3 decisive measurement (2026-08-11): primary judge MISSED.**
+Sequential (N=1) vs parallel (N=3), the declared 6-task subset × 3 reps
+(18 runs each): wall-clock **×1.10** (17.9 min → 16.3 min), far short of
+the ~×2 target set after Phase 0. Scored-task total (A2/A3/A4/
+B1_conge_hard/D1, A1 excluded per point 2's protocol) came back 12/15
+both arms, but composition swung hard per task (A2 3/3→1/3, D1
+1/3→3/3, B1_conge_hard's CuP 3/3→2/3 via a known pre-existing
+never-grantable-tool pattern on the hard tier) — **not read as signal**:
+n=3 per arm, and the root cause below changes inference conditions
+enough that these numbers aren't comparable to begin with.
+
+**Root cause, found in `tabbyapi_raw_samples` (already-collected
+per-request data, no new instrumentation needed): TabbyAPI's KV cache
+pool gets evicted under 3 concurrent growing conversations.** The
+worst run (`A1_reconciliation_croisee` #3, 453.7s, 93 raw TabbyAPI
+requests for what took 21 requests sequentially) shows `cached_tokens`
+repeatedly collapsing back to 6656 (the tool-schema-only floor) instead
+of growing monotonically with the conversation — each collapse forces a
+full-context reprocess (`new_tokens` spikes to 15,875 / 16,164 / 17,934
+in the worst cases, `generation_seconds` up to 69s for one single
+request). Campaign-wide: `prompt_tokens_total` ×4 (2.53M→10.1M),
+`prefill_seconds` ×5.7 (324s→1849s) for the SAME 18 tasks. This is
+**not** a session-isolation bug (no cross-worker content found in the
+audit trace of the worst runs) and **not** what Phase 0 measured (short,
+non-accumulating prompts never exercise cache eviction) — it's
+`cache_size: 49152` (`services/tabbyapi/config.yml`) not holding 3
+concurrent long-running conversations without evicting each other.
+
+**Decision (user, same session): one more variable before closing —
+cache_size headroom, archives-only computation, not guessed:**
+
+- GPU margins (already measured live, `docs/briefs/archives/
+  deterministic-gpu-placement.md`'s own regression-tested reading, no
+  new nvidia-smi call needed): GPU0 (5060 Ti, no display) 16311 MiB
+  total − 4424 MiB used = **11887 MiB free**; GPU1 (4070 Ti SUPER,
+  drives the display) 16376 MiB total − 14131 MiB used = **2245 MiB
+  free** — GPU1 is the binding constraint.
+- Cache cost (`config.yml`'s own comment, PoC-era, single-GPU,
+  **flagged as an estimate, not re-verified against the installed
+  ExLlamaV3 version**): ~822 MiB per +8192 tokens at `cache_mode: Q6`.
+  Assumed (also unverified) to split across GPUs in the same ratio as
+  `gpu_split: [5, 14]` (26.3%/73.7%) — cache pages should follow
+  whichever GPU holds the relevant layers, but this hasn't been checked
+  against the backend's actual allocation code.
+- Conservative target: use at most ~1200 MiB of GPU1's 2245 MiB margin
+  (leaving ~1000 MiB buffer against the display driver's own headroom
+  already baked into that figure) → `1200 / (822 × 0.737) × 8192 ≈
+  16,230` extra tokens → **candidate `cache_size: 65536`** (49152 +
+  16384, a clean power-of-two, deliberately rounded down from the
+  ~69,400 theoretical ceiling for safety margin).
+
+This estimate rests on two unverified assumptions (the per-GPU cost
+rate transferring from the PoC's single-GPU measurement, and
+proportional-split cache allocation) — real VRAM usage after the
+restart is the actual check, not the arithmetic above. One variable
+only: `cache_size` changes, `N_WORKERS=3` and the rest of the config
+stay exactly as measured. Judge: does `cached_tokens` stop collapsing to
+the floor under the same 2-task concurrent smoke that triggered it
+worst (A1+A2); if that smoke is clean, re-run the full 6-task×3-rep N=3
+sweep and compare wall-clock against the already-measured N=1 baseline
+(17.9 min) — no need to re-run N=1.
+
+If `cache_size: 65536` isn't enough: try `N_WORKERS=2` instead of 3
+(two long conversations may fit where three overflow, for a smaller but
+real gain rather than none). If neither works: close as a documented
+hardware-bound capability limit — the mechanism itself (worker_id
+isolation) stays, validated and useful independent of this specific
+gain (already the fix for the general concurrent-usage contamination
+risk `docs/architecture/mcp-client-concurrency.md` named, not just
+campaigns), `N_WORKERS` stays `1` by default, and the cache-size ceiling
+gets recorded so it isn't rediscovered from scratch without new
+hardware.
+
+**CORRECTION (2026-08-11): the "KV cache eviction" root cause above was
+built on a flawed metric — the `cache_size: 65536` reload happened as
+planned, but the diagnostic smoke that was meant to validate it exposed
+a deeper, previously-unknown bug instead.** `collect_tabbyapi_raw_samples`
+(`campaign_persistence.py`) scrapes `docker logs tabbyapi` by WALL-CLOCK
+WINDOW — correct at `N_WORKERS=1` (no two tasks' windows can ever
+overlap), silently wrong at `N>1`: two concurrently-run tasks' windows
+overlap by construction, and BOTH end up scraping (and getting
+attributed) the SAME shared log lines. Found live: the cache-size
+smoke's two runs (A1+A2, concurrent) came back with **byte-identical**
+`tabbyapi_raw_samples` for their first 27 entries. TabbyAPI's log line
+carries no per-request identifier and there is no `/metrics` endpoint to
+fall back on (already verified against the installed image,
+`campaign_persistence.py`'s own module docstring) — external log
+scraping cannot attribute per-task under real concurrency, full stop.
+
+**Archives-only correction (dedup by exact sample-tuple identity across
+the already-collected Phase 3 decisive-measurement data, no re-run
+needed):** pooling all 18 parallel-arm runs' samples and keeping each
+unique `(cached_tokens, new_tokens, generation_seconds, queue_seconds,
+tokens_generated, process_speed_tps)` tuple once collapses 910 raw
+samples to **313** genuinely distinct ones. Corrected totals: prefill
+**633.1s** (not 1848.5s) and tokens **3.51M** (not 10.1M) — against the
+sequential arm's already-correct 324.4s / 2.53M. That's **×1.95 prefill
+time for ×1.39 the real token volume** — consistent with ordinary
+GPU-sharing contention under 3x concurrent load (Phase 0's own ×2.0
+finding) plus a modest, real amount of extra work, **not** the dramatic
+"complete cache wipe, full reprocess" story the uncorrected 4x/5.7x
+figures told. The dedup is a best-effort approximation (exact-tuple
+matching across independently-timed samples), kept only as a sanity
+check — not a substitute for the real fix below.
+
+**Fix delivered, not a re-run yet.** `_run_planned_tasks` now collects a
+SECOND, campaign-level `tabbyapi_raw_samples`/`aggregate_prefill_stats`
+pass, bracketing the wall-clock window of the WHOLE worker pool (all N
+threads) rather than each task's own window — every real log line is
+captured exactly once regardless of overlap, correct at any `N_WORKERS`.
+Persisted into the campaign JSON's `metadata.campaign_prefill_stats` and
+printed at the end of the run. Per-task `tabbyapi_raw_samples`/
+`prefill_seconds`/etc. (`run_task`'s own collection) are UNCHANGED and
+now documented as an upper bound, not a precise per-task figure, at
+`N_WORKERS > 1` — still exactly correct at the default `N_WORKERS=1`. 6
+new/updated tests (`tests/test_run_planned_tasks.py`, including one
+proving `collect_tabbyapi_raw_samples` is called exactly once per pool
+run, not once per claimed task), `langgraph-agent` suite 478→479.
+
+🧑 **Next**: re-run the same 2-task smoke (A1+A2, N=3, `cache_size`
+already at 65536) with the fixed instrumentation for a trustworthy read
+on whether raising `cache_size` actually helps, before deciding whether
+the full 6-task×3-rep decisive re-measurement is warranted.
+
+**Re-run result (2026-08-11, trustworthy instrumentation this time):
+`cache_size: 65536` does not move the wall-clock bottleneck.** Both
+tasks succeeded (1/1 each — n=1, no statistical weight, but the
+wall-clock comparison doesn't need it). Campaign-level aggregate now
+correct (`metadata.campaign_prefill_stats`: 39 requests, 56.34s prefill,
+444,159 tokens — matches A1's own window almost exactly, since A2's
+overlapping window is a subset of it, exactly the shape the fix
+predicts). The number that matters:
+
+| | sequential (N=1, sum of A1+A2 alone) | parallel (N=3, cache_size=65536) |
+|---|---|---|
+| wall-clock, both tasks | 110.0 + 60.5 = 170.5s | max(154.7, 117.3) = **154.7s** |
+
+**×1.10 — identical to the full 18-run decisive measurement's own
+ratio**, on a task pair small enough to be cheap to re-check. Real work
+volume did grow modestly under concurrency (39 requests vs ~27 summed
+from the two sequential runs, +38% tokens), matching the corrected
+archives-only dedup reading, not the original inflated one — but the
+EXTRA cache headroom bought nothing: if `cache_size` were the binding
+constraint, more of it should have measurably helped. It didn't move at
+all.
+
+**Reading, not yet a decision**: this is consistent with Phase 0's own
+honest finding (×2.0 real speedup, not the ×3.0 optimistic bracket — "
+TabbyAPI serializes more of the work than the optimistic scenario
+assumed") pointing to a **compute-bound** ceiling (TabbyAPI's inference
+engine itself, under this GPU split) rather than a **memory/cache-bound**
+one — cache_size was very plausibly never the actual lever. Three paths
+were laid out and NONE has been chosen yet: (a) test `N_WORKERS=2`
+(two concurrent requests may still see a real, smaller gain where three
+saturate compute entirely), (b) close now as a documented hardware-bound
+capability limit (mechanism stays — worker_id isolation is validated and
+useful on its own merit, matching `docs/architecture/
+mcp-client-concurrency.md`'s general concurrent-usage fix — only the
+throughput promise doesn't materialize on this hardware), (c) revert
+`cache_size` to 49152 first (no measured benefit to keep the extra VRAM
+committed) then close. **Recorded here for continuity, decision deferred
+to a future session.**
+
+## Risks flagged, not resolved here
+
+- The download-serialization lock (point 2) only knows about T5 today —
+  if a future task also touches downloads, it must be added to the
+  tagged set explicitly; nothing detects this automatically.
+- `AUTO_APPROVAL_STREAK_LIMIT`/session grants
+  (`app/approval_policy.py`) are per-`thread_id`, already independent per
+  task — no new risk expected here, but not explicitly re-verified for
+  this brief; worth a glance in Phase 2 given it's adjacent state.

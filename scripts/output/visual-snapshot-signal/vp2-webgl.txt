@@ -1,0 +1,10 @@
+### Page
+- Page URL: http://fixture-visual-probe/visual-probe/vp2-webgl.html
+- Page Title: Sonde visuelle — vp2-webgl
+- Console: 0 errors, 2 warnings
+### Snapshot
+```yaml
+- generic [active] [ref=e1]:
+  - heading "Sonde visuelle — vp2-webgl" [level=1] [ref=e2]
+  - paragraph [ref=e3]: Rendu WebGL ci-dessous.
+```

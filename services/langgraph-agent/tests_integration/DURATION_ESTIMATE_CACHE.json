@@ -2,27 +2,27 @@
   "_note": "Cache glissant d'ESTIMATION de dur\u00e9e, PAS un historique de campagnes : \"estimates\" est r\u00e9\u00e9crit (m\u00e9diane+plage fusionn\u00e9es) \u00e0 la fin de CHAQUE campagne, compl\u00e8te ou smoke \u2014 la valeur d'une t\u00e2che ne refl\u00e8te donc que la DERNI\u00c8RE campagne qui l'a mesur\u00e9e, jamais une s\u00e9rie dans le temps. Chaque entr\u00e9e est {median, min, max, n} sur les n r\u00e9p\u00e9titions de CETTE campagne (B2 Part 1.4, docs/briefs/B2-campaign-control.md \u2014 la plage sert l'ETA, jamais un point unique). Sert \u00e0 estimer la dur\u00e9e d'un prochain lancement avant de le d\u00e9marrer (scripts/run-campaign.sh). Pour un historique par campagne (thread_id, m\u00e9tadonn\u00e9es, m\u00e9triques par run), voir campaign-<timestamp>-<label>.json (campaign_persistence.py).",
   "estimates": {
     "A1_reconciliation_croisee": {
-      "max": 113.1,
-      "median": 111.5,
-      "min": 107.0,
-      "n": 3
+      "max": 114.0,
+      "median": 114.0,
+      "min": 114.0,
+      "n": 1
     },
     "A2_schema_references": {
-      "max": 59.6,
-      "median": 59.5,
-      "min": 56.5,
-      "n": 3
+      "max": 50.6,
+      "median": 50.6,
+      "min": 50.6,
+      "n": 1
     },
     "A3_contact_conges": {
-      "max": 18.1,
-      "median": 17.6,
-      "min": 16.7,
+      "max": 96.5,
+      "median": 95.3,
+      "min": 48.0,
       "n": 3
     },
     "A4_parcours_guide": {
-      "max": 70.0,
-      "median": 53.4,
-      "min": 49.6,
+      "max": 116.5,
+      "median": 115.0,
+      "min": 104.0,
       "n": 3
     },
     "B1_conge_easy": {
@@ -32,9 +32,9 @@
       "n": 3
     },
     "B1_conge_hard": {
-      "max": 23.6,
-      "median": 22.3,
-      "min": 22.2,
+      "max": 203.0,
+      "median": 69.3,
+      "min": 42.0,
       "n": 3
     },
     "B1_conge_medium": {
@@ -80,9 +80,9 @@
       "n": 3
     },
     "D1_cible_inexistante": {
-      "max": 160.5,
-      "median": 48.8,
-      "min": 46.3,
+      "max": 167.8,
+      "median": 147.9,
+      "min": 56.2,
       "n": 3
     },
     "D2_sonde_peremption": {
@@ -92,21 +92,21 @@
       "n": 3
     },
     "E1_dom_only": {
-      "max": 9.5,
-      "median": 9.4,
-      "min": 5.1,
+      "max": 15.7,
+      "median": 9.0,
+      "min": 8.0,
       "n": 3
     },
     "E2_visual_only": {
-      "max": 145.4,
-      "median": 85.3,
-      "min": 39.4,
+      "max": 29.1,
+      "median": 14.3,
+      "min": 13.0,
       "n": 3
     },
     "E3_routing_equivalence": {
-      "max": 10.0,
-      "median": 9.6,
-      "min": 9.6,
+      "max": 8.1,
+      "median": 8.0,
+      "min": 7.9,
       "n": 3
     },
     "T10_books_toscrape": {
