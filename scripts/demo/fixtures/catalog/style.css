@@ -1,0 +1,111 @@
+/* Demo-only styling (scripts/record-demo.sh). Not used by the real,
+   frozen benchmark fixture. */
+
+:root {
+  --accent: #4f46e5;
+  --bg: #fafafa;
+  --surface: #ffffff;
+  --border: #e5e5e5;
+  --text: #18181b;
+  --text-muted: #71717a;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+header {
+  padding: 28px 40px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+header h1 {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+main {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 32px 40px;
+}
+
+.product-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.product-item {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  transition: border-color 0.15s ease;
+}
+
+.product-item a {
+  display: block;
+  padding: 16px 20px;
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.product-item:hover {
+  border-color: var(--accent);
+}
+
+.pager {
+  margin-top: 24px;
+  display: flex;
+  justify-content: space-between;
+}
+
+.pager a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.product-detail {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px 28px;
+  margin: 0;
+}
+
+.product-detail dt {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-top: 14px;
+}
+
+.product-detail dt:first-child { margin-top: 0; }
+
+.product-detail dd {
+  margin: 2px 0 0 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.back-link {
+  display: inline-block;
+  margin-top: 20px;
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
