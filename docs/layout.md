@@ -25,7 +25,7 @@ services/
                        server — see docs/resolved-bugs.md)
   ocr-service/         OCR capability (PaddleOCR CPU), POST /ocr — not an
                        MCP server; currently has no caller in the
-                       codebase (see "Known, accepted limitations" below)
+                       codebase (see README, "Known, accepted limitations")
     app/
     tests/
   dashboard/           local observability cockpit — see
