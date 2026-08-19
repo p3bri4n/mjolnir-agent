@@ -185,6 +185,11 @@ single-variable validation campaign:
   place per sweep rather than passing flags — sweeps differ campaign to
   campaign, not worth a CLI. Use when a measurement needs several env
   configurations compared, not just one.
+- `record-demo.sh` — records `docs/assets/demo.gif` (README, above the
+  fold): brings up `--profile demo` fixtures (`scripts/demo/fixtures/`,
+  styled duplicates, never the frozen benchmark ones), drives Open WebUI
+  via Playwright (`scripts/demo/drive_demo.py`), captures with `ffmpeg`.
+  Cosmetic tooling only, touches nothing measured.
 
 This list evolves with the project — update it when a script is added,
 renamed, or retired, don't treat it as frozen. One-off campaign scripts
