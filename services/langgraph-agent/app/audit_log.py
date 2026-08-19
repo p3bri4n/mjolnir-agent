@@ -1,16 +1,24 @@
 """
 Audit log (Phase 2, blind spot fixed — see docs/history.md, T9
 investigation): machine-readable trace of every actually executed
-tool_call whose tier isn't TIER_READ (silent by design, nothing new to
-audit) — TIER_REVERSIBLE as well as TIER_SENSITIVE, whether it comes from
-auto_call_tools (auto-approved) or call_tools (after approval, human or
-via the campaign harness — see _execute_tool_calls, app/graph.py).
-Previously, only auto_call_tools logged: a turn that went through
-require_approval was assumed to be "already traced in the conversation
-history", a false assumption in automated campaigns (no human ever
-looks) and moot anyway after a service restart (MemorySaver checkpointer,
-in-memory only) — the very first call of each tool per thread, the most
-useful for investigation, stayed invisible.
+tool_call, any tier, whether it comes from auto_call_tools
+(auto-approved) or call_tools (after approval, human or via the campaign
+harness — see _execute_tool_calls, app/graph.py). Previously, only
+auto_call_tools logged: a turn that went through require_approval was
+assumed to be "already traced in the conversation history", a false
+assumption in automated campaigns (no human ever looks) and moot anyway
+after a service restart (MemorySaver checkpointer, in-memory only) — the
+very first call of each tool per thread, the most useful for
+investigation, stayed invisible.
+
+TIER_READ calls were excluded until docs/resolved-bugs.md #52 ("silent by
+design, nothing new to audit" — true for approval/security purposes, but
+it left every wrapper-dispatched read tool, `browser_extract` first among
+them, at ZERO occurrences across the entire archive: invisible to any
+analysis keyed on the `"tool"` field, including
+scripts/analyze-tool-call-ngrams.sh). Now logged like every other tier;
+`"tier": "read"` on the entry still lets a consumer filter them back out
+if approval/security is specifically what it wants.
 
 Tool result (revised Phase 1d, see docs/history.md "observability
 first"): every entry now also carries the result AS SEEN BY THE MODEL

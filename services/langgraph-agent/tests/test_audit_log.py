@@ -77,14 +77,18 @@ async def test_tier_reversible_auto_approved_call_is_audited(mock_side_services)
 
 
 @pytest.mark.asyncio
-async def test_tier_read_call_is_not_audited(mock_side_services):
-    """Silencieux par design (voir approval_policy.py) : rien de nouveau à tracer."""
+async def test_tier_read_call_is_audited(mock_side_services):
+    """TIER_READ calls are logged like every other tier (docs/resolved-bugs.md
+    #52) — excluding them left every read tool at zero occurrences in the
+    audit archive, invisible to tool-call-counting analyses."""
     import app.audit_log as audit_log
     import app.graph as g
 
-    mock_side_services.post("http://fake-vllm/v1/chat/completions").mock(
-        return_value=_sse_response(tool_call_response("read_file", "call_1", '{"path": "/workspace/x.txt"}'))
-    )
+    route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
+    route.side_effect = [
+        _sse_response(tool_call_response("read_file", "call_1", '{"path": "/workspace/x.txt"}')),
+        _sse_response(text_response(["Lu", "."])),
+    ]
     mock_side_services.post("http://fake-mcp-client/call").mock(
         return_value=httpx.Response(200, json={"content": [{"type": "text", "text": "ok"}]})
     )
@@ -93,7 +97,39 @@ async def test_tier_read_call_is_not_audited(mock_side_services):
     state = {"messages": [{"role": "user", "content": "Lis le fichier"}], "tool_iterations": 0, "approved": None}
     await g.agent_graph.ainvoke(state, CONFIG)
 
-    assert _tool_call_entries(audit_log.read_entries()) == []
+    entries = _tool_call_entries(audit_log.read_entries())
+    assert len(entries) == 1
+    assert entries[0]["tool"] == "read_file"
+    assert entries[0]["tier"] == "read"
+
+
+@pytest.mark.asyncio
+async def test_wrapper_dispatched_read_tool_is_audited(mock_side_services):
+    """browser_extract dispatches internally to a fixed JS template
+    (services/mcp-client/app/main.py) rather than a 1:1 MCP call, but it is
+    still the real executed tool as far as the agent/audit log are
+    concerned — the concrete case the archive blind spot was found on
+    (docs/history.md, "SCAFFOLDING 3.1, POINT 2"; docs/resolved-bugs.md #52)."""
+    import app.audit_log as audit_log
+    import app.graph as g
+
+    route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
+    route.side_effect = [
+        _sse_response(tool_call_response("browser_extract", "call_1", '{"query": "Prix"}')),
+        _sse_response(text_response(["84,90 €", "."])),
+    ]
+    mock_side_services.post("http://fake-mcp-client/call").mock(
+        return_value=httpx.Response(200, json={"content": [{"type": "text", "text": "84,90 €"}]})
+    )
+    g.agent_graph = g.build_graph()
+
+    state = {"messages": [{"role": "user", "content": "Trouve le prix"}], "tool_iterations": 0, "approved": None}
+    await g.agent_graph.ainvoke(state, CONFIG)
+
+    entries = _tool_call_entries(audit_log.read_entries())
+    assert len(entries) == 1
+    assert entries[0]["tool"] == "browser_extract"
+    assert entries[0]["tier"] == "read"
 
 
 @pytest.mark.asyncio

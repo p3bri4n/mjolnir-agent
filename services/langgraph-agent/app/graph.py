@@ -2271,9 +2271,9 @@ async def call_llm(state: AgentState, config: dict) -> dict:
     # -> "OBSERVABILITY"): persists THIS model turn (<think> reasoning +
     # text + any tool_calls), whether it's then auto-approved, submitted
     # for approval, or rejected — unlike the tool_calls log
-    # (log_tool_call), deliberately partial by tier, this trace doesn't
-    # need to be selective: it's the agent's reasoning, never a side
-    # effect to filter.
+    # (log_tool_call, every tier since docs/resolved-bugs.md #52), this
+    # trace covers PROPOSED calls too: it's the agent's reasoning, never a
+    # side effect to filter.
     thread_id = config.get("configurable", {}).get("thread_id", "")
     audit_log.log_message(
         thread_id,
@@ -2461,9 +2461,14 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
     """
     Logic shared between call_tools (reached after require_approval) and
     auto_call_tools (reached directly from has_tool_calls, never seen by
-    a human THIS turn). Logs (app/audit_log.py) any tool_call whose
-    effective tier isn't TIER_READ (silent by design, nothing new to
-    trace) — including those coming from call_tools, whatever their tier.
+    a human THIS turn). Logs (app/audit_log.py) every real tool_call
+    dispatched to mcp-client, whatever its effective tier — including
+    those coming from call_tools. TIER_READ calls used to be excluded
+    ("silent by design, nothing new to trace"), which left every
+    wrapper-dispatched read tool (browser_extract, browser_inspect,
+    browser_snapshot, browser_take_screenshot, the filesystem reads)
+    invisible to any archive analysis keyed on the `"tool"` field, e.g.
+    scripts/analyze-tool-call-ngrams.sh — see docs/resolved-bugs.md #52.
 
     Blind spot fixed (see docs/history.md, T9 investigation): this node
     used to audit-log ONLY auto_call_tools's tool_calls, on the grounds
@@ -2648,7 +2653,6 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
                 }
 
             tier = approval_policy.effective_tier(tool_call["name"], tool_call.get("args"), grants)
-            audit_tier = tier if tier != approval_policy.TIER_READ else None
 
             blocked = False
             if (
@@ -2698,12 +2702,11 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
                         observed_urls.add(tool_call["args"]["url"])
                         current_page_url = tool_call["args"]["url"]
 
-            if audit_tier is not None:
-                # Logged AFTER execution (see above) to carry the result
-                # as seen by the model (already truncated/prioritized
-                # above if browser_*) — see app/audit_log.py, "revised
-                # Phase 1d".
-                audit_log.log_tool_call(thread_id, tool_call["name"], tool_call["args"], audit_tier, result)
+            # Logged AFTER execution (see above) to carry the result as
+            # seen by the model (already truncated/prioritized above if
+            # browser_*) — see app/audit_log.py, "revised Phase 1d". Every
+            # tier, TIER_READ included (docs/resolved-bugs.md #52).
+            audit_log.log_tool_call(thread_id, tool_call["name"], tool_call["args"], tier, result)
 
             new_messages.append(
                 {
@@ -3155,9 +3158,10 @@ async def run_slash_command_direct(state: AgentState, config: dict) -> dict:
     tool_call = last.tool_calls[0]
     tool_name, args, call_id = tool_call["name"], tool_call["args"], tool_call["id"]
 
-    # Traceability only (parity with auto_call_tools): never influences
-    # execution — the sensitive tier has already been ruled out by
-    # _route_slash_command_tier before reaching here.
+    # Traceability (parity with auto_call_tools, docs/resolved-bugs.md
+    # #52): never influences execution — the sensitive tier has already
+    # been ruled out by _route_slash_command_tier before reaching here,
+    # so only TIER_READ/TIER_REVERSIBLE calls land here, both logged.
     grants = state.get("session_grants") or []
     tier = approval_policy.effective_tier(tool_name, args, grants)
     thread_id = config.get("configurable", {}).get("thread_id", "")
@@ -3166,8 +3170,7 @@ async def run_slash_command_direct(state: AgentState, config: dict) -> dict:
     async with httpx.AsyncClient(timeout=60) as client:
         result, images = await _call_mcp_tool(client, tool_name, args, thread_id, worker_id)
 
-    if tier == approval_policy.TIER_REVERSIBLE:
-        audit_log.log_tool_call(thread_id, tool_name, args, tier, result)
+    audit_log.log_tool_call(thread_id, tool_name, args, tier, result)
 
     new_messages = [
         {"role": "tool", "tool_call_id": call_id, "content": json.dumps(result, ensure_ascii=False)},
