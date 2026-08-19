@@ -1,5 +1,24 @@
 # Consolidated plan — next phase
 
+> **Status: archived (2026-08-19).** Absorbed into `PLAN.md`'s new
+> `## Roadmap` section (`docs/briefs/repository-gaps.md`, point 4): two
+> documents both claiming authority over the forward roadmap was itself
+> one of the gaps that brief closed. `PLAN.md` is now the single source
+> for sequencing and status; this file is kept for the full narrative
+> (live-smoke detail, false starts, exact numbers) behind each entry.
+>
+> **Known drift at archival time, not corrected below** (this file is a
+> historical record from here on, not maintained further): effort 6's
+> brief (`docs/briefs/unblocking-and-session.md`) is committed, contrary
+> to "not committed" as written under "What is missing"; B5 (campaign
+> visual feedback) is closed and archived
+> (`docs/briefs/archives/campaign-visual-feedback.md`), contrary to
+> "open but unsequenced"; the GhostDesk removal brief mentioned there was
+> never committed separately — effort 3 shipped without it, an accepted
+> deviation once GhostDesk was fully removed; `docs/history.md`'s
+> rename/index (last item under "What is missing") is done
+> (`docs/engineering-log.md`).
+
 > **Why this document.** `PLAN.md` describes an effort that is now largely
 > delivered, and parts of it are factually stale. Three briefs are open
 > (B5, B6, B7), four more were drafted in discussion and never committed,
