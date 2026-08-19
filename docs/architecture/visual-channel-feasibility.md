@@ -8,7 +8,7 @@ directly against `mcp-client`'s `/call` endpoint (`http://mcp-client:8003`),
 no LLM call, no LangGraph loop, no task_id, nothing wired into
 `docs/benchmark-v1.md`/`v2.md`.
 
-Family E's own E2 (`docs/history.md`, "B3 SLICE 10") already established
+Family E's own E2 (`docs/engineering-log.md`, "B3 SLICE 10") already established
 that a genuinely capture-only case is hard to build honestly — two prior
 attempts leaked the value through a purely textual path (a literal string
 inside a `<script>` tag, then a computed character-code array still
@@ -140,7 +140,7 @@ This probe's matrix (above) recorded whether the ground-truth STRING is
 readable per channel — it does not say what `browser_snapshot`'s raw
 accessibility-tree TEXT actually contains for VP1-VP4. That gap mattered
 for `app/graph.py`'s `_detect_visual_signal` (since removed — see
-docs/history.md, "PROBE VISUEL — SIGNAL BROWSER_SNAPSHOT"), which needed
+docs/engineering-log.md, "PROBE VISUEL — SIGNAL BROWSER_SNAPSHOT"), which needed
 a pattern to grep for in an already-fetched result. Same method as
 above, extended: direct `mcp-client` calls, raw `browser_snapshot` text
 captured per case (`scripts/probe-visual-snapshot-signal.sh`).

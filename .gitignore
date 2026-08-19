@@ -12,3 +12,5 @@ workspace/*
 skills/*
 !skills/.gitkeep
 .claude/
+docker-compose.override.yml
+services/tabbyapi/config.local.yml

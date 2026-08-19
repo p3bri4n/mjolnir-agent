@@ -1,7 +1,7 @@
 # Progress status
 
 Changes at every checkpoint — see `PLAN.md` for the roadmap (changes
-rarely, source of truth in case of divergence) and `docs/history.md` for
+rarely, source of truth in case of divergence) and `docs/engineering-log.md` for
 the full chronological detail.
 
 ## Phase 0 — task-level harness
@@ -14,7 +14,7 @@ recorded.
 
 **First slice** (URL-fabrication guardrail + snapshot truncation):
 Campaign A, budget 20, overall score 16/33 → 24/33 — none of the 5 pass
-criteria set at the checkpoint were fully met (see docs/history.md).
+criteria set at the checkpoint were fully met (see docs/engineering-log.md).
 
 **Final Campaign A** (cross-task isolation + `browser_extract`): 30/33.
 
@@ -22,15 +22,30 @@ criteria set at the checkpoint were fully met (see docs/history.md).
 iteration — see `docs/briefs/phase-1-coeur-cognitif.md`): delivered and
 measured. Final campaign (4 mechanisms active): 29/33, consistent with
 Campaign A (30/33, not a regression) — task-by-task detail in
-docs/history.md and `docs/campaigns/2026-07-23_campaign_coeur-cognitif.md`.
-T1/T7/T9 backlog investigated and closed (see docs/history.md,
+docs/engineering-log.md and `docs/campaigns/2026-07-23_campaign_coeur-cognitif.md`.
+T1/T7/T9 backlog investigated and closed (see docs/engineering-log.md,
 "PERSISTENCE INVENTORY" and the T7/T9 investigations).
 
-**Follow-up on this batch** (see docs/history.md):
+**Follow-up on this batch** (see docs/engineering-log.md):
 - Campaign persistence (`campaign_persistence.py`): JSON per run,
   `thread_id`, raw TabbyAPI samples — delivered.
-- Cognitive-core flags: defaults flipped to `true` (measured and
-  adopted), preflight guardrail (`check_agent_flags`) — delivered.
+- Cognitive-core flags: the decisive cfg1-vs-cfg8 ablation (`docs/engineering-log.md`,
+  "EFFORT 2.4") found cfg1 (all four off) strictly beating cfg8 (all on) on
+  the success judge — **15/15 vs 13/15** — at **+76 % cumulative time** for
+  essentially identical real work (195 vs 193 total tool calls). Decision:
+  defaults flipped back to `false` for `PLANNER_ENABLED`/
+  `VERIFICATION_ENABLED`/`PLAN_JUDGE_ENABLED`, confirmed clean by a full v2
+  campaign (no family regressed, family A materially improved).
+  `PLAN_VALIDATION_ENABLED` kept `true` — a programmatic heuristic gate, no
+  LLM call, untouched by the cost argument above — but `validate_plan`
+  no-ops whenever `state["plan"]` is empty (`app/graph.py`), which is every
+  turn while `PLANNER_ENABLED` is `false`: **de facto inert without a
+  planner**, not actively validating anything today. Removal status: the
+  defaults-to-`false` PR is done and campaign-verified; the follow-up PR
+  (deleting `plan_task`/`verify_action`/the judge, their directives and
+  tests, rather than flag-gating them) is **not done** — both nodes are
+  still present in the graph, no-op'd by the flags. Preflight guardrail
+  (`check_agent_flags`) — delivered.
 - Audit blind spot: `call_tools` (post-approval) now logs to the audit
   trail too, closing the gap where the first call of each tool per
   thread was invisible — delivered.
@@ -130,7 +145,7 @@ Tooling effort, outside PLAN.md's phase numbering. **Closed, both parts
 delivered**: live progress (incremental `progress.json`, per-task ETA
 range, read-only dashboard page) and pause/resume (sentinel-triggered
 pause, `--resume` with drift refusal and staleness warning, segment
-tracking) — see docs/history.md, "B2.1 — CAMPAIGN LIVE PROGRESS" and
+tracking) — see docs/engineering-log.md, "B2.1 — CAMPAIGN LIVE PROGRESS" and
 "B2.2 — PAUSE/RESUME + SEGMENT VALIDITY RULES". Not verified end-to-end
 against a real live campaign (unit-level only) — flagged as a follow-up
 in the B2.2 history entry.
@@ -143,7 +158,7 @@ headline metric).
 **Slice 1 (family F, regression core) delivered and smoke-verified
 live**: `tests_integration/test_web_tasks_v2.py`, T3/T5/T6/T10 reused
 verbatim from v1 by import (identity-checked), `run-campaign.sh --suite
-v2` — see docs/history.md, "B3 SLICE 1 — BENCHMARK V2, FAMILY F". Live
+v2` — see docs/engineering-log.md, "B3 SLICE 1 — BENCHMARK V2, FAMILY F". Live
 smoke (2026-07-29, n=1/task): 4/4 passed.
 
 **Slice 2 (family B, intent α only) delivered and fully smoke-verified
@@ -151,7 +166,7 @@ live at all 3 loads**: leave-request task at 3 policy loads
 (easy/medium/hard), CuP = task success AND no policy violated (read from
 the real audit log). New `NEVER_GRANTABLE_TOOLS_EXTRA` env var
 (`app/approval_policy.py`) needed to make medium/hard's policy
-enforceable at all — see docs/history.md, "B3 SLICE 2 — BENCHMARK V2,
+enforceable at all — see docs/engineering-log.md, "B3 SLICE 2 — BENCHMARK V2,
 FAMILY B, INTENT α ONLY" and its follow-up entry. Live smokes
 (2026-07-29, n=1/load): easy 1/1 (`cup: true`); medium+hard 2/2
 (`cup: true` both, cross-checked against the raw audit log's `tier`
@@ -164,13 +179,13 @@ entirely new fixture app, none exists.
 **Slice 3 (family D, honesty) delivered and smoke-verified live**: D1/D2
 wrap v1's T7/T11 ("heir of", not "verbatim" — reused by calling v1's
 functions under new v2 task_ids), D2's live ground-truth fetch kept lazy
-(`_family_d_tasks()`, never at import) — see docs/history.md, "B3 SLICE
+(`_family_d_tasks()`, never at import) — see docs/engineering-log.md, "B3 SLICE
 3 — BENCHMARK V2, FAMILY D (HONESTY)". Live smoke (2026-07-30, n=1/task):
 2/2 passed (D1: no invented price; D2: correct live version found).
 
 **Slice 4 (family A — A2) delivered and measured live**: multi-page
 naming-scheme audit (3 deliberately non-conforming catalog refs + a new
-docs page stating the format) — see docs/history.md, "B3 SLICE 4".
+docs page stating the format) — see docs/engineering-log.md, "B3 SLICE 4".
 Planning checkpoint decided A1/A3/A4 ship as their own future PRs,
 cost/risk ordered, not bundled with A2 — see that entry for the full
 design of all four and the central architectural risk
@@ -186,7 +201,7 @@ originally hypothesized as the mitigation).
 **Slice 5 (family A — A1) built, measured live, result 0/3 —
 documented as a capability-limit finding, not a bug**: cross-site
 reconciliation (catalog category+price vs. a docs config page) — see
-docs/history.md, "B3 SLICE 5". Fixture content verified correct by
+docs/engineering-log.md, "B3 SLICE 5". Fixture content verified correct by
 direct inspection; one of the three runs reached all 4 correct qualifying
 products before exhausting its budget, never reaching the docs
 cross-check phase. Unlike A2's 3/3 (same session), none of the 3 runs
@@ -198,7 +213,7 @@ abandoned `probe_episode_compaction.py` finding.
 
 **Slice 6 (family A — A3) delivered and measured live**: ambiguity to
 resolve (hr-app `/contacts` shows two RH candidates under the same role
-label, docs disambiguates) — see docs/history.md, "B3 SLICE 6". First v2
+label, docs disambiguates) — see docs/engineering-log.md, "B3 SLICE 6". First v2
 task with a third outcome beyond success/failure (`outcome`:
 correct/safe_deferral/wrong, row-schema extension gated to A3 only,
 every other family untouched). Same overcorrection bug as A2/KX-4471 hit
@@ -208,7 +223,7 @@ repetitions)**: 3/3, all `outcome=correct`.
 
 **Slice 7 (family A — A4) delivered, family A now fully built**: A4 is a
 GUIDED cross-site workflow (explicit numbered steps, not an open audit —
-design choice made after A1's 0/3) — see docs/history.md, "B3 SLICE 7".
+design choice made after A1's 0/3) — see docs/engineering-log.md, "B3 SLICE 7".
 A 9-step extension aiming for the brief's 60-message coverage target was
 tried and reverted (reproducibly 0/3, hit `MAX_TOOL_ITERATIONS`, a
 measured/frozen budget); checkpoint decision kept the working 7-step
@@ -224,8 +239,8 @@ and measured live**: C1 (injected instruction in a catalog product
 description), C2 (injected instruction to fetch-and-eval a remote
 script — success reframed as "dangerous tool never invoked", documented
 deviation from the brief's "escalation = success" wording, see
-docs/history.md), C3 (link to an out-of-scope `.example` domain) — see
-docs/history.md, "B3 SLICE 8". Per the brief's Rules, a C-task failure
+docs/engineering-log.md), C3 (link to an out-of-scope `.example` domain) — see
+docs/engineering-log.md, "B3 SLICE 8". Per the brief's Rules, a C-task failure
 is a security finding, never pooled into a capability score. A stale
 `fixture-catalog`/`fixture-docs` Docker image caused a first smoke's
 0/3-extraction-0/3-breach result to be a flattering zero (agent never
@@ -237,7 +252,7 @@ measurement (3 repetitions, re-verified against the raw audit log): 9/9
 measured live**: new dedicated fixture (`fixture-admin`, no existing
 fixture had an admin/stock concept), same 3-tier policy escalation and
 word-for-word-identical-prompt discipline as intent α — see
-docs/history.md, "B3 SLICE 9". A first smoke caught a real fixture bug
+docs/engineering-log.md, "B3 SLICE 9". A first smoke caught a real fixture bug
 (no `/` route, preflight's reachability probe got a 404), fixed by
 adding a redirect matching `fixture-hr-app`'s own convention. **Live
 measurement (3 repetitions per load): easy 3/3 CuP 3/3, medium 3/3 CuP
@@ -250,7 +265,7 @@ now fully built** (both intents).
 
 **Slice 10 (family E, perception channels — E1/E2/E3) delivered and
 measured live**: new dedicated fixture (`fixture-perception`) — see
-docs/history.md, "B3 SLICE 10". Two live-verified leaks in E2 (the
+docs/engineering-log.md, "B3 SLICE 10". Two live-verified leaks in E2 (the
 visual-only task) caught and fixed before the value ever needed genuine
 perception to be read — a literal JS string readable by
 `browser_extract`'s DOM text-node walker, then a char-code-obfuscated
@@ -275,7 +290,7 @@ Benchmark v2 is now feature-complete per this project's scope decisions
 (families F, A, B, C, D fully built; family E at 3/4 by explicit
 choice).
 
-**Post-measure follow-up** (see docs/history.md, "BENCHMARK V2 — POST-
+**Post-measure follow-up** (see docs/engineering-log.md, "BENCHMARK V2 — POST-
 MEASURE FOLLOW-UP"): B-β hard's CuP 1/3 traced to a real root cause, not
 BULK_CHECK_DIRECTIVE (hypothesis falsified by archives) — a `target`
 format defect in `mcp-client`'s ref= handling, present since 2026-07-22
@@ -288,7 +303,7 @@ message-count proxy shows 0/3 final runs crossing the compaction
 threshold), and family C's 9/9 baseline (no progression margin left for
 the security plan's Phase 2-4 — scoped to v2.1, fixtures stay frozen).
 
-**A4/compaction closed** (see docs/history.md): full-fleet distribution
+**A4/compaction closed** (see docs/engineering-log.md): full-fleet distribution
 (101 threads, only 4 reach the 40-message threshold, all family A4):
 neither unreachable nor representative. Building the requested "long
 task" exercise surfaced a hard ceiling (`MAX_TOOL_ITERATIONS=20` caps a
@@ -314,7 +329,7 @@ would lose nothing tested here** — its only unique capability
 (out-of-browser interaction) is E4's territory, already out of scope by
 explicit user decision.
 
-## Consolidated plan (`docs/briefs/update-plan.md`) — effort 1
+## Consolidated plan (`docs/briefs/archives/update-plan.md`) — effort 1
 
 **Effort 1.1 (tool-schema weight audit) and 1.2 (removal) delivered.**
 git/terminal removed entirely (`services/mcp-terminal/` deleted);
@@ -323,12 +338,12 @@ kept running for effort 3's future rework. `GROUNDING_DIRECTIVE`
 removed (coupled measured-behavior change, judge declared and passed).
 Real schema weight: 10 979 → 6 047 tokens (-44.9%), confirmed live
 (smoke `post-effort1.2-smoke`, T1/T3/T7, 3/3, zero calls to a removed
-tool). See docs/history.md for the full measurement and campaign.
+tool). See docs/engineering-log.md for the full measurement and campaign.
 **Candidate follow-up (not scheduled)**: closing effort 2 point 3
 surfaced schema ORDER, not just weight/count, as a variable affecting
 tool adoption (`manage_plan` position in the tools array measurably
 changed whether the model used it, all else held constant) — see
-docs/history.md, "TOOL SCHEMA ORDER AFFECTS ADOPTION". Worth an
+docs/engineering-log.md, "TOOL SCHEMA ORDER AFFECTS ADOPTION". Worth an
 archives-only check (does per-tool usage frequency correlate with
 current schema position?) next time this family of work is revisited.
 **Effort 1.3 (parallel run execution): resumed, Phase 0 passed live.**
@@ -341,7 +356,7 @@ both passed: TabbyAPI's real concurrent speedup is ×2.0 (the pessimistic
 bracket, not optimistic — sets the realistic Phase 3 target at ~×2, not
 ×3), and `playwright-mcp` session isolation under real concurrent load is
 confirmed (context scoped per MCP session, matching the already-verified
-`docs/resolved-bugs.md` finding). See docs/history.md, "EFFORT 1.3 —
+`docs/resolved-bugs.md` finding). See docs/engineering-log.md, "EFFORT 1.3 —
 PHASE 0 LIVE RESULT".
 
 **Phases 1 and 2 delivered (2026-08-11), nothing live-run yet.** Phase 1:
@@ -364,7 +379,7 @@ serialized the same way as T5's downloads while porting the loop, not
 anticipated in the brief. Test suites: `mcp-client` 55→60,
 `langgraph-agent` 466→478, `dashboard` 19→22, all green — everything
 verified against synthetic state only, no live Docker run in this phase.
-Full detail: docs/history.md, "EFFORT 1.3 — PHASES 1-2 DELIVERED".
+Full detail: docs/engineering-log.md, "EFFORT 1.3 — PHASES 1-2 DELIVERED".
 
 **Phase 3 decisive measurement run (2026-08-11): primary judge MISSED**
 — wall-clock ×1.10 (N=3 vs N=1), far short of the ~×2 target. First
@@ -380,7 +395,7 @@ down to a much more modest ×1.39/×1.95 — consistent with ordinary
 GPU-sharing contention (Phase 0's own finding), not a dramatic cache
 wipe. The wall-clock ×1.10 result itself stands, unaffected by the bug.
 `cache_size` raised 49152→65536 (candidate from already-measured GPU
-margins) pending a clean re-read. Full detail: docs/history.md, "EFFORT
+margins) pending a clean re-read. Full detail: docs/engineering-log.md, "EFFORT
 1.3 — PHASE 3 DECISIVE MEASUREMENT, MISSED, THEN A METRIC BUG
 CORRECTED".
 
@@ -395,7 +410,7 @@ test `N_WORKERS=2`, close now as a documented hardware-bound limit
 (mechanism stays — `worker_id` isolation is independently valid, see
 `docs/architecture/mcp-client-concurrency.md`'s general concurrent-usage
 fix), or revert `cache_size` to 49152 first. `N_WORKERS` stays `1` by
-default. Full detail: docs/history.md, "EFFORT 1.3 — CACHE_SIZE
+default. Full detail: docs/engineering-log.md, "EFFORT 1.3 — CACHE_SIZE
 RE-CHECK: NO EFFECT, DECISION DEFERRED".
 
 **`N_WORKERS=2` smoke tried (2026-08-12): inconclusive, within noise of
@@ -407,12 +422,12 @@ open upstream issue reports it failing to load on identical GPUs, and
 ours are mismatched (harder case), not yet cross-checked against the
 pinned image. **Chantier deferred, explicit user decision — nothing
 chosen among the now four candidate paths, nothing changed in
-`services/tabbyapi/config.yml`.** Full detail: docs/history.md, "EFFORT
+`services/tabbyapi/config.yml`.** Full detail: docs/engineering-log.md, "EFFORT
 1.3 — N_WORKERS=2 SMOKE + TENSOR_PARALLEL CANDIDATE FOUND, CHANTIER
 DEFERRED".
 
 **Effort 2 (factorial ablation of the cognitive-core flags) measured, at
-a checkpoint** — see docs/history.md, "EFFORT 2". All 8 coherent
+a checkpoint** — see docs/engineering-log.md, "EFFORT 2". All 8 coherent
 configurations of `PLANNER_ENABLED`/`VERIFICATION_ENABLED`/
 `PLAN_VALIDATION_ENABLED`/`PLAN_JUDGE_ENABLED` run live against the
 declared 7-task subset (2 reps/task, 112 runs total). An infra incident
@@ -433,7 +448,7 @@ yet — checkpoint open, awaiting user decision.**
 
 **Checkpoint decision (2026-08-05)**: record the result as reproducing
 the Cross-Component Interference pattern from the literature cited at
-B7's opening (see docs/history.md, "EFFORT 2" — two matching sources
+B7's opening (see docs/engineering-log.md, "EFFORT 2" — two matching sources
 found, not yet independently verified, WebFetch failed in this
 environment). Before any removal: (1) consolidate cfg1-vs-cfg8 only to
 n=5 — script ready (`scripts/consolidate-ablation-cfg1-cfg8.sh`), not run
@@ -444,7 +459,7 @@ the CuP reading (programmatic heuristic, safety value not score value).
 🧑 Stop after the consolidation result, then again after the fifth
 condition, before any flag is touched.
 
-**Judge validity check (2026-08-05, archives-only)** — see docs/history.md,
+**Judge validity check (2026-08-05, archives-only)** — see docs/engineering-log.md,
 "EFFORT 2", "Judge validity check": discriminating power of the 7-task
 subset is thin at the task level (only A2 and D1 show config-to-config
 variance on both repetitions, against a stated bar of 4 tasks — though
@@ -463,7 +478,7 @@ coverage instrumentation shipped — `app/graph.py`'s `plan_task`/
 `validate_plan`/`replan_task` now log audit entries symmetric to
 `verify_action`'s existing `verification_opportunities`/`exploitable`,
 harness persists 6 new fields per run. 7 new unit tests, full suite
-430→437 passed, 0 regressions. See docs/history.md, "EFFORT 2", "Point 1
+430→437 passed, 0 regressions. See docs/engineering-log.md, "EFFORT 2", "Point 1
 delivered". `CLAUDE.md` updated: the trigger-rate-counter rule now
 applies retroactively to pre-existing mechanisms. Next: choose the
 discriminating-power subset (point 2), then reduce the matrix to
@@ -471,7 +486,7 @@ cfg1/cfg8/fifth-condition (point 3) — 🧑 checkpoint after point 2.
 
 **Point 2 delivered**: subset chosen on a written criterion (variance
 shown in ablation 1, OR structurally plan-shaped — long/multi-site/
-multi-step; pure ceilings dropped) — see docs/history.md, "EFFORT 2",
+multi-step; pure ceilings dropped) — see docs/engineering-log.md, "EFFORT 2",
 "Point 2". Result: `A1`, `A2`, `A3`, `A4`, `D1`, `B1_conge_hard` (6
 tasks, all of family A plus the two tasks that already showed signal).
 `T3`/`E3` dropped as pure ceilings. A1 kept despite being near-floor on
@@ -485,7 +500,7 @@ new `PLANNING_MODE` env var (default `"nodes"`, unchanged behavior) and
 a synthetic `manage_plan` tool (`set_plan`/`complete_subtask`, dispatched
 in `_execute_tool_calls`, `TIER_READ`, no dedicated LLM call — planning
 folded into the main turn per the AgentOccam pattern, see
-`docs/briefs/update-plan.md` "2.1 addendum") — see docs/history.md,
+`docs/briefs/archives/update-plan.md` "2.1 addendum") — see docs/engineering-log.md,
 "EFFORT 2", "Point 3 delivered" for the full design and the
 `campaign_preflight._fetch_agent_env` override-key fetch gap fixed
 along the way. 11 new unit tests + 2 regression tests, full suite
@@ -498,7 +513,7 @@ never engages — `merged_plan_calls = 0` on all 6**, across A2/A1
 (×2)/B1_conge_hard/A4, both the original directive wording and a
 strengthened, reordered-first hard-imperative rewrite (tested, ruled
 out as a fix). Cross-verified against the raw audit log's actual
-tool_calls, not just the campaign report. See docs/history.md, "EFFORT
+tool_calls, not just the campaign report. See docs/engineering-log.md, "EFFORT
 2", "Live smoke run by the user" for the full per-run table and reading.
 `docs/resolved-bugs.md` #47 (docker-compose wiring gap, found by this
 same smoke) already fixed. **The planned full point-3 sweep (3 configs ×
@@ -523,7 +538,7 @@ ever revised a plan mid-task** (`merged_plan_replans` stayed 0
 throughout) — revision under difficulty is what distinguishes
 AgentOccam's pattern from a classic planner, and without it "keep the
 value, cut the cost" has no object. No task-success effect either. See
-docs/history.md, "EFFORT 2" closure entry, for the full per-run detail
+docs/engineering-log.md, "EFFORT 2" closure entry, for the full per-run detail
 and the retired `<think>`-mention judge (mis-designed for this model,
 which doesn't narrate tool choice for any tool sampled). Side-finding
 kept independent of cfg9's fate: schema ORDER, not just weight/count,
@@ -542,7 +557,7 @@ work (195 vs 193 total tool_calls). A1's coverage read confirms the
 mechanisms engage substantially even there (non-trivial plans, active
 judge vetoes/replans on 2 of 3 cfg8 runs) and still buys nothing (0/3
 either way). Full detail, per-task table, and the frozen-decision-table
-reading: docs/history.md, "EFFORT 2 — DECISIVE MEASUREMENT". `PLAN_VALIDATION_ENABLED`'s
+reading: docs/engineering-log.md, "EFFORT 2 — DECISIVE MEASUREMENT". `PLAN_VALIDATION_ENABLED`'s
 safety-value exception is untouched by this result. 🧑 **Checkpoint
 before any removal** — reported against the pre-declared table, nothing
 removed yet.
@@ -555,7 +570,7 @@ redundant per-page re-navigation tail that consumes the budget phase 2
 around it with `browser_run_code_unsafe` where A1 doesn't. Secondary,
 cfg8-specific finding: attempt/replan-budget churn misfires on ordinary
 multi-step pagination on 2 of A1's 3 cfg8 runs — an added failure mode,
-never a help. Full detail: docs/history.md, "A1 — TRAJECTORY DIAGNOSTIC".
+never a help. Full detail: docs/engineering-log.md, "A1 — TRAJECTORY DIAGNOSTIC".
 
 ## Visual feedback during campaigns (`docs/briefs/campaign-visual-feedback.md`, B5)
 
@@ -563,7 +578,7 @@ Minimal subset fully closed. Delivered, live-verified (2026-08-06), and
 overhead-measured (2026-08-10): with/without smoke on a fixed 4-task
 subset found no measurable overhead on the declared judge (median task
 duration, 321.4s vs 297.3s — the small delta reads as noise, not a real
-effect) — see docs/history.md, "VISUAL FEEDBACK MINIMAL", overhead smoke
+effect) — see docs/engineering-log.md, "VISUAL FEEDBACK MINIMAL", overhead smoke
 result. `CAMPAIGN_VISUAL_CAPTURE` now defaults to `true`
 (`docker-compose.yml`). The rest of B5 (Playwright traces, thumbnail
 strip, headed mode, VNC) stays explicitly out of scope, per the
@@ -578,7 +593,7 @@ unstable autosplit (previously observed: 14 GB on the RTX 5060 Ti at
 (`scripts/gpu-placement-smoke.sh`, 4 tasks × 3 reps, one variable):
 decode throughput +28% (29.4→37.7 T/s), prefill throughput +49%
 (472→706 T/s), prefill time −19%, cumulative median task duration −14.5%
-— see docs/history.md, "DETERMINISTIC GPU PLACEMENT", for the full
+— see docs/engineering-log.md, "DETERMINISTIC GPU PLACEMENT", for the full
 per-judge table and the two non-placement findings noted alongside it
 (A2 extraction flakiness, B1_conge_hard's pre-existing CuP gap).
 **Median-time figures from campaigns before this fix are not comparable
@@ -592,7 +607,7 @@ memory used) into every campaign's metadata. Regression-tested against
 the original pre-fix reading (14131/4424 MiB) — correctly flagged. Full
 suite 458→466 passed. **Brief fully delivered (steps 1-5).**
 
-**2.3 CLOSED** (`docs/briefs/update-plan.md`): `browser_extract`'s
+**2.3 CLOSED** (`docs/briefs/archives/update-plan.md`): `browser_extract`'s
 `dt`/`dd` + table-row `adjacent_value` fix (`services/mcp-client/app/main.py`)
 — fixture inventory done first (only `dt`/`dd` and `td`/`th` are real
 patterns; `label`/`input` checked and dropped), functionally verified
@@ -607,7 +622,7 @@ entries): the fix itself is confirmed working (a bulk `browser_extract`
 correctly found the target products mid-run), A1's continued failures
 are caused by the planner/replanner never durably clearing subtask 0's
 criterion within `SUBTASK_ATTEMPT_BUDGET`×`REPLAN_BUDGET`, unrelated to
-extraction. See docs/history.md, "EFFORT 2.3". #51 folded into 2.4's
+extraction. See docs/engineering-log.md, "EFFORT 2.3". #51 folded into 2.4's
 dossier rather than fixed standalone (user decision).
 
 **2.4 CLOSED — cognitive-core removal, judged live and clean.**
@@ -633,14 +648,14 @@ regressed; family A materially improved** — direct live confirmation of
 the justification dossier (decisive cfg1-vs-cfg8 ablation, A1 trajectory
 diagnostic, `docs/resolved-bugs.md` #51), all three of which pointed at
 the cognitive core's attempt/replan-budget churn as active harm on
-multi-page tasks. See docs/history.md, "EFFORT 2.4". An open, unresolved
+multi-page tasks. See docs/engineering-log.md, "EFFORT 2.4". An open, unresolved
 question from the A1 trajectory diagnostic — 2 of A1's cfg8 runs (i.e.
 under the now-abandoned config) stopped via an unidentified path, not
 `report_failure`, not the iteration limit — stays recorded at
 `docs/resolved-bugs.md` #49, informational only now that cfg8 is no
 longer the default.
 
-## Effort 3 — GhostDesk removal + proactive OCR scaffolding (`docs/briefs/update-plan.md`)
+## Effort 3 — GhostDesk removal + proactive OCR scaffolding (`docs/briefs/archives/update-plan.md`)
 
 **GhostDesk removed entirely** (container, image, `ghostdesk-home`
 volume, `.env.example` secrets) — zero remaining references anywhere in
@@ -663,7 +678,7 @@ bigger than expected (`DEFAULT_RULES` is empty today; the doc's example
 default rule was entirely fictional, not just GhostDesk wording).
 Incidental fix: `.env.example` still showed the pre-2.4 `true` defaults
 for the cognitive-core flags (only `docker-compose.yml`/`app/graph.py`
-were updated that session) — corrected. Full detail: docs/history.md,
+were updated that session) — corrected. Full detail: docs/engineering-log.md,
 "EFFORT 3".
 
 **Live-deployed and verified (2026-08-10)**: `docker compose build
@@ -689,14 +704,14 @@ pattern that IS detectable (a native PDF's entirely empty snapshot,
 `_flag_empty_snapshot`, same file). `mcp-client` suite 48→55 passed,
 `langgraph-agent` 471→466 (5 removed with the abandoned mechanism's
 tests). `ocr-service` stays deployed but now has zero callers in the
-codebase. Full detail: docs/history.md, "PROBE VISUEL — SIGNAL
+codebase. Full detail: docs/engineering-log.md, "PROBE VISUEL — SIGNAL
 BROWSER_SNAPSHOT".
 
 **Retain decision (2026-08-12)**: `ocr-service` kept, not retired — per-
 call cost probed first (`scripts/probe-ocr-cost.sh`, ad hoc n=5: 94ms/
 694ms/1.30s median at 2/15/30 detected text elements), then kept for a
 future "full visual mode" activation (scope/timing not yet defined). See
-docs/history.md, "EFFORT 3 FOLLOW-UP — OCR-SERVICE COST PROBE, RETAIN
+docs/engineering-log.md, "EFFORT 3 FOLLOW-UP — OCR-SERVICE COST PROBE, RETAIN
 DECISION".
 
 **Restricted smoke (2026-08-11, n=3/task), Effort 3 now fully closed**:
@@ -709,7 +724,7 @@ Playwright, now moot since GhostDesk is gone). The one E2 failure is a
 genuine vision misread of the screenshot's text (model reported
 `f209163a` against the fixed ground truth `ZK-3392`), not a routing
 defect — a different, downstream capability limit, outside this
-checkpoint. Full detail: docs/history.md, "PROBE VISUEL — SIGNAL
+checkpoint. Full detail: docs/engineering-log.md, "PROBE VISUEL — SIGNAL
 BROWSER_SNAPSHOT".
 
 ## Effort 4 — Scaffolding improvements (`docs/briefs/scaffolding-optimisation.md`)
@@ -724,7 +739,7 @@ Harness-computed, no extra LLM call. Coverage counters (`history_diff_*`)
 threaded through the campaign harness/preflight/persistence from day
 one, per CLAUDE.md's trigger-rate-counter rule. 12 new unit tests, full
 `langgraph-agent` suite 479→491 passed, 0 regressions. Full detail:
-docs/history.md, "EFFORT 4 (scaffolding-optimisation.md, EFFORT 2) —
+docs/engineering-log.md, "EFFORT 4 (scaffolding-optimisation.md, EFFORT 2) —
 DIFF-BASED OBSERVATION HISTORY, BUILT". **Live smoke obtained on the
 third attempt** — first two hit an operational trap (stale
 `langgraph-agent` image showing a clean-looking but empty result, then a
@@ -742,7 +757,7 @@ because point 1 already left little redundant history on these short
 (8-9 turn) tasks for this mechanism to compress. **Decision: flag stays
 off, no further action this session.** A longer task (A4) is the natural
 next candidate if revisited, not decided here. Full detail:
-docs/history.md, "HISTORY-DIFF LIVE SMOKE — STALE IMAGE, THEN PREFLIGHT
+docs/engineering-log.md, "HISTORY-DIFF LIVE SMOKE — STALE IMAGE, THEN PREFLIGHT
 CORRECTLY REFUSED".
 
 **Effort 3, point 3.1 (frequency analysis) done, checkpoint decided.**
@@ -760,7 +775,7 @@ confirmed occurrence after `browser_extract`'s dt/dd fix and
 chantier. Point 2 (push adoption of the existing `browser_extract` bulk
 mode via description/position, not a new tool) queued after point 1's
 checkpoint. Point 3 (form-filling composite) shelved, not a measured
-bottleneck. Full detail: docs/history.md, "SCAFFOLDING 3.1 —
+bottleneck. Full detail: docs/engineering-log.md, "SCAFFOLDING 3.1 —
 TOOL-CALL N-GRAM FREQUENCY ANALYSIS, CHECKPOINT DECISION".
 
 **Point 1 built, unit-tested, live-verified, CLOSED.**
@@ -782,14 +797,14 @@ Re-run with the fix genuinely active: **both judges down together**
 (A1: -2 turns/-22 053 tokens; A2: -2.3 turns/-48 488 tokens vs the N=1
 baseline), stronger than the expected trade-off — confirmed
 mechanistically, zero separate `browser_snapshot` calls left on either
-thread. 2/2 success, no regression. Full detail: docs/history.md,
+thread. 2/2 success, no regression. Full detail: docs/engineering-log.md,
 "SCAFFOLDING 3.1, POINT 1 — BROWSER_CLICK/NAVIGATE RETURN RESULTING
 PAGE STATE, BUILT". Point 1 closed.
 
 **Point 2 CLOSED — premise was already false, no work done.** Checking
 the two live A1 audit threads used to verify point 1: `browser_extract`
 bulk mode (`urls=[...]`) is already used 6-8 times per run, same pattern
-as A2. Already documented before this session in `docs/history.md`, "A1
+as A2. Already documented before this session in `docs/engineering-log.md`, "A1
 — TRAJECTORY DIAGNOSTIC": *"A1 already uses bulk, on every one of the 6
 runs."* — the checkpoint decision's "A1 never chose it" framing was
 carried over without re-checking it, and `scripts/analyze-tool-call-
@@ -797,7 +812,7 @@ ngrams.sh` (point 3.1) can't see `browser_extract` at all (confirmed:
 0 occurrences ever in the audit log's `"tool"`-keyed entries — a known,
 already-documented blind spot from family E, not cross-checked before
 writing that script). No description/position change made — there is
-no adoption gap. Full detail: docs/history.md, "SCAFFOLDING 3.1, POINT
+no adoption gap. Full detail: docs/engineering-log.md, "SCAFFOLDING 3.1, POINT
 2 — CLOSED, PREMISE ALREADY FALSE".
 
 **Effort 3 of `docs/briefs/scaffolding-optimisation.md` (coarse-grained

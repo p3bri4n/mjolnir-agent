@@ -1,29 +1,85 @@
 # Mjolnir agent
 
+<img src="docs/assets/logo.jpeg" alt="Mjolnir agent logo" width="200">
+
 ![CI](https://github.com/p3bri4n/mjolnir-agent/actions/workflows/ci.yml/badge.svg)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Backend](https://img.shields.io/badge/backend-TabbyAPI%2FExLlamaV3-blue)
 
-![Logo](docs/assets/logo.jpeg)
+**A fully local, autonomous web agent that runs on consumer NVIDIA GPUs, no
+API keys and no data leaving the machine — with human approval tiers,
+mechanical guardrails, and a benchmark that measures whether any of it
+actually works.**
 
-**A fully local, autonomous web agent that runs on consumer NVIDIA GPUs —
-with human approval tiers, mechanical guardrails, and a benchmark that
-measures whether any of it actually works.**
+```mermaid
+flowchart LR
+    U[Open WebUI] --> LA[langgraph-agent]
+    LA <--> TA[TabbyAPI]
+    LA --> MC[mcp-client]
+    MC --> PW[playwright-mcp]
+    MC --> FS[filesystem]
+```
 
-No API keys, no data leaving the machine. The whole stack is dockerised.
 Tested on Qwen3.6-27B (EXL3) across a dual-GPU setup (RTX 4070 Ti Super +
-RTX 5060 Ti).
+RTX 5060 Ti). Full architecture, including Skill Manager/Context Manager:
+[docs/architecture/](docs/architecture/).
 
-Open WebUI → LangGraph agent → (Skill Manager / Context Manager / MCP
-Client) → TabbyAPI.
+<!-- Demo: docs/assets/demo.gif — scripted recording, see
+     docs/briefs/readme-rework.md §2. Not embedded until that script has
+     produced a real capture; a placeholder image would be worse than none. -->
 
-Tested the hard way: [six weeks of llama.cpp on two mismatched GPUs](https://github.com/p3bri4n/mjolnir-agent/discussions/10)
-before switching engines — build traps, a tool-calling grammar hole, and an
-intermittent multi-GPU crash isolated to a prefill batch-size threshold.
+- **22-task, 6-family benchmark** ([docs/benchmark-v2.md](docs/benchmark-v2.md)) — programmatic
+  assertions, no LLM-as-judge on the score.
+- **Latest full campaign: 53/56** across every family (one known limit:
+  E2's vision-reading, see [docs/resolved-bugs.md](docs/resolved-bugs.md)).
+- **91 archived campaigns**, every raw result kept — [docs/campaigns/](docs/campaigns/).
+- Tested on **consumer NVIDIA GPUs** (RTX 4070 Ti Super + RTX 5060 Ti, 16 GB
+  each) — any GPU count via autosplit, see [Requirements](#requirements).
 
-Scores went from 16/33 to 30/33 over eleven campaigns — [docs/notes/agent-benchmarking.md](https://github.com/p3bri4n/mjolnir-agent/discussions/12). 
+Scores went from 16/33 to 30/33 over eleven campaigns on the original
+11-task suite — [docs/notes/agent-benchmarking.md](docs/notes/agent-benchmarking.md).
+Tested the hard way first, too:
+[six weeks of llama.cpp on two mismatched GPUs](docs/notes/llamacpp-dual-gpu.md)
+before switching engines.
 
 Forty-two engineering rules, each with the incident and the numbers that
 produced it — including the one where we measured that our own cognitive
 core did nothing: [docs/lessons-learned.md](docs/lessons-learned.md).
+
+## Requirements
+
+- **NVIDIA GPU(s), ~19 GB combined VRAM** for the shipped config (Qwen3.6-27B,
+  EXL3 3.50bpw, vision on, `cache_size: 65536`) — weights alone are ~14.3 GB.
+  `gpu_split_auto: true` (the shipped default) spreads this across however
+  many GPUs are present; a single 16 GB card does **not** fit the shipped
+  config as-is.
+- **Fits on one 16 GB card** only with vision disabled and a much smaller
+  `cache_size` (e.g. 8192) — see
+  [docs/architecture/inference-backend.md](docs/architecture/inference-backend.md),
+  "GPU split", and [Troubleshooting](#troubleshooting) below if you're short
+  on VRAM.
+- **Tested on**: RTX 4070 Ti Super + RTX 5060 Ti (16 GB each, dual-GPU).
+  Other GPU counts/models should work through `gpu_split_auto` but are
+  unverified — report back if you try one.
+
+## Quick start
+
+```bash
+cp .env.example .env
+# edit .env: WORKSPACE_HOST_PATH must be the ABSOLUTE path of ./workspace on the host
+# (required because mcp-client mounts this path into containers it spawns itself)
+# place the model's EXL3 quant (safetensors + config.json + tokenizer,
+# HuggingFace format) under ./models/agent-llm/ — TabbyAPI is the default
+# backend, never downloaded automatically (see docs/architecture/inference-backend.md).
+
+docker pull mcp/filesystem:latest
+docker pull mcp/playwright:latest   # persistent HTTP server (playwright-mcp service), see docs/resolved-bugs.md
+
+docker compose up -d
+```
+
+UI available at http://localhost:3000 (Open WebUI). Rebuild/restart
+commands: see [docs/operations/runbook.md](docs/operations/runbook.md).
 
 ## Features
 
@@ -42,13 +98,23 @@ core did nothing: [docs/lessons-learned.md](docs/lessons-learned.md).
 
 ### Human supervision that scales
 
-- **Approval tiers by action nature**: read is auto-approvable, reversible
-  writes are covered by a session grant, engagements (submissions, uploads,
-  arbitrary code) always require individual approval.
-- **Never-grantable tools**: arbitrary JS execution can never be blanket-
-  approved, whatever the session state.
+- **Approval tiers by action nature**: read and reversible actions run
+  auto (the latter logged, never silent); a sensitive action needs human
+  approval — once, or for the rest of the session via a grant.
+- **Never-grantable tools**: arbitrary JS execution always needs
+  individual approval, never relaxed by a session grant.
 - **Approve a plan, not twenty clicks**: reviewing one trajectory replaces
   N action-by-action confirmations.
+
+```mermaid
+flowchart LR
+    A[Tool call] --> B{Tier}
+    B -->|read| C[Auto, silent]
+    B -->|reversible| D[Auto, logged]
+    B -->|sensitive, granted| D
+    B -->|sensitive, ungranted| E[Human approval]
+    B -->|never-grantable| E
+```
 
 ### Guardrails in code, not in prompts
 
@@ -70,9 +136,12 @@ core did nothing: [docs/lessons-learned.md](docs/lessons-learned.md).
 
 ### Measured, not asserted
 
-- **Task-level benchmark**: 11 web tasks with programmatic assertions (7 on
-  self-hosted fixtures with known ground truth, 3 on real sites, 1 live
-  staleness probe) — no LLM-as-judge on the final score.
+- **Task-level benchmark**: 22 tasks across 6 families
+  ([docs/benchmark-v2.md](docs/benchmark-v2.md)) — regression core (F), long-horizon multi-page
+  tasks (A), policy compliance under session grants (B), hostile content
+  and prompt injection (C), honesty on unanswerable/stale questions (D),
+  perception channels (E) — programmatic assertions only, no LLM-as-judge
+  on the final score.
 - **Permanent judges**: success rate, average time per task, prompt tokens
   per task, URL-fabrication count, verification coverage, human
   interventions, prefill cost.
@@ -95,9 +164,10 @@ core did nothing: [docs/lessons-learned.md](docs/lessons-learned.md).
   persisted as JSONL, which is how most of this project's bugs were
   diagnosed without re-running anything.
 
-Latest campaign: **29/33** — see `docs/campaigns/` for the full history,
-and `docs/methodology.md` for how these numbers are produced and why some
-of them were thrown away.
+Latest full campaign: **53/56** across every family (one known limit: E2's
+vision-reading) — see [docs/campaigns/](docs/campaigns/) for the full history, and
+[docs/methodology.md](docs/methodology.md) for how these numbers are produced and why some of
+them were thrown away.
 
 ### Security posture
 
@@ -116,102 +186,8 @@ of them were thrown away.
 
 - Dual-GPU heterogeneous setups supported (documented Ada + Blackwell
   configuration, including the tensor-split crash diagnosis and its
-  workaround in `docs/resolved-bugs.md`).
+  workaround in [docs/resolved-bugs.md](docs/resolved-bugs.md)).
 - A powerful inference backend for mixed Nvidia GPUs: TabbyAPI/ExLlamaV3
-
-## Roadmap
-
-Planned, not implemented — tracked in `PLAN.md`:
-
-- Egress firewall on the agent network (`agent-net` is currently a plain
-  Docker bridge) and network restriction on spawned MCP containers.
-- PromptGuard screening of untrusted web content.
-- Approval tiers refined by action nature (read / reversible write /
-  engagement) and per-task domain scope.
-- A prompt-injection benchmark family (v2, family C) to measure resistance
-  rather than assert it.
-
-## Quick start
-
-```bash
-cp .env.example .env
-# edit .env: WORKSPACE_HOST_PATH must be the ABSOLUTE path of ./workspace on the host
-# (required because mcp-client mounts this path into containers it spawns itself)
-# place the model's EXL3 quant (safetensors + config.json + tokenizer,
-# HuggingFace format) under ./models/agent-llm/ — TabbyAPI is the default
-# backend, never downloaded automatically (see docs/architecture/inference-backend.md).
-
-docker pull mcp/filesystem:latest
-docker pull mcp/playwright:latest   # persistent HTTP server (playwright-mcp service), see docs/resolved-bugs.md
-
-docker compose up -d
-```
-
-UI available at http://localhost:3000 (Open WebUI). Rebuild/restart
-commands: see `docs/operations/runbook.md`.
-
-## Layout
-
-```
-docker-compose.yml
-.env.example
-requirements-test.txt   shared test dependencies (pytest, respx)
-services/
-  langgraph-agent/   OpenAI-compatible API + LangGraph graph (autonomy,
-                     human supervision — see docs/architecture/)
-    app/
-    tests/
-  skill-manager/      lists/matches skills (./skills)
-    app/
-    tests/
-  context-manager/    RAG + memory (Qdrant + sentence-transformers)
-    app/
-    tests/
-  mcp-client/          spawns filesystem on demand (docker.sock) ; browser
-                       is a persistent HTTP server (mcp-client connects to
-                       it over Streamable HTTP)
-    app/
-    tests/
-  playwright-mcp/      official mcp/playwright image, browser driven by
-                       the agent (separate docker-compose service, native HTTP
-                       server — see docs/resolved-bugs.md)
-  ocr-service/         OCR capability (PaddleOCR CPU), POST /ocr — not an
-                       MCP server; currently has no caller in the
-                       codebase (see "Known, accepted limitations" below)
-    app/
-    tests/
-  dashboard/           local observability cockpit — see
-                       docs/architecture/observability.md
-    app/
-      static/          vanilla HTML/JS page served as-is (no build step)
-    tests/
-skills/     to be filled in (one subfolder per skill, each with a SKILL.md)
-workspace/  shared with the filesystem MCP server, and with langgraph-agent
-            for the audit log (.audit/, see
-            docs/architecture/tool-supervision.md)
-models/     weights (exl3) of the model and multimodal projector served by
-            tabbyAPI — never downloaded automatically, see
-            docs/architecture/inference-backend.md
-```
-
-## Documentation
-
-- `docs/architecture/inference-backend.md` — TabbyAPI, image
-  conversion, adaptive thinking.
-- `docs/architecture/autonomy.md` — plan → act → verify → replan loop
-  ("cognitive core" Phase 1), supplementary OCR.
-- `docs/architecture/tool-supervision.md` — human approval, reversibility
-  tiers, session grants, audit log.
-- `docs/architecture/observability.md` — dashboard, data persistence.
-- `docs/operations/testing.md` — per-service test suites, SSE streaming.
-- `docs/operations/runbook.md` — rebuild/restart commands.
-- `docs/project-status.md` — progress status (changes at every checkpoint).
-- `docs/lessons-learned.md` — 42 engineering rules, each anchored to the
-  incident and numbers that produced it.
-- `PLAN.md` — roadmap (changes rarely, source of truth).
-- `docs/history.md` / `docs/resolved-bugs.md` — progress log and resolved bugs
-  (consult by targeted search, never read in full — see `CLAUDE.md`).
-- `docs/briefs/` — briefs for ongoing work.
 
 ## Known, accepted limitations (design choices, not bugs)
 
@@ -221,51 +197,97 @@ models/     weights (exl3) of the model and multimodal projector served by
 - **Skill matching and RAG are deliberately simplistic** (naive keyword
   match, no reranker) — to be strengthened if the volume of skills/documents
   grows.
-- **`ocr-service` currently has no caller**: a proactive trigger
-  (auto-OCR after detecting a visual-only element in a `browser_*`
-  result) was built, then abandoned before going live — an empirical
-  check against `fixture-visual-probe` found that canvas/WebGL/alt-less
-  images leave no trace in `browser_snapshot`'s text for any after-the-
-  fact heuristic to catch. Replaced by a tool-description routing hint on
-  `browser_take_screenshot` instead (`mcp-client`, see
-  `docs/architecture/autonomy.md`) — the model reads a screenshot
-  directly rather than an OCR pass. `ocr-service` stays deployed as a
-  standalone capability, kept for a possible future role, not currently
-  wired into the agent loop.
-- **`playwright-mcp` (the "browser" server) has been a persistent HTTP
-  server since the fix documented in detail in `docs/resolved-bugs.md`** —
-  it used to be spawned as an ephemeral STDIO process
-  (`docker run -i --rm mcp/playwright:latest` per call), losing all
-  navigation state between two tool calls. The official image natively
-  exposes an HTTP server mode (`--host 0.0.0.0 --port 8931`, Streamable
-  HTTP endpoint `/mcp`); this alone was NOT enough, though, because
-  Playwright MCP scopes its browser context (page, cookies, history) to
-  the MCP SESSION, not the server process — `mcp-client` therefore also
-  has to keep the "browser" session open between two HTTP calls
-  (`_get_persistent_session`/`_persistent_sessions` in
-  `services/mcp-client/app/main.py`), instead of reopening a fresh one
-  every time as it does for the other servers.
-- **Shared download volume `agent-downloads`** (Phase 1d-revised, see
-  docs/history.md, T5): `playwright-mcp` keeps its `--isolated` browser
-  profile (in memory, never persisted), but a download triggered on the
-  page (a link/button with `Content-Disposition: attachment`) now lands in
-  an EXPLICIT, shared path (`--output-dir=/downloads`, named volume
-  `agent-downloads`) rather than in the container's internal filesystem
-  (actual observed default: `/home/node/.playwright-mcp/`, never guessed
-  correctly by the model). The filesystem MCP server mounts this same
-  volume READ-ONLY (`services/mcp-client/app/main.py`, root `/downloads`
-  in addition to `/projects`): the downloaded artifact is shared, never
-  the browser's state. The system prompt documents this path explicitly
-  (`DOWNLOAD_DIRECTIVE`, `app/graph.py`) rather than letting the model
-  guess one.
+- **`ocr-service` currently has no caller**: a proactive auto-OCR trigger
+  was built then abandoned — empirically falsified, canvas/WebGL/images
+  leave no trace for any heuristic to catch (see
+  [docs/architecture/autonomy.md](docs/architecture/autonomy.md)). A
+  routing hint on `browser_take_screenshot` covers it instead; `ocr-service`
+  stays deployed, unwired, for a possible future role.
+- **`playwright-mcp` needs a persistent MCP session, not just a persistent
+  process**, to keep browser state across calls — full diagnosis and fix
+  in [docs/resolved-bugs.md](docs/resolved-bugs.md).
+- **Downloads land in a shared, explicit volume** (`agent-downloads`,
+  read-only from the filesystem server) rather than the browser
+  container's own filesystem — full diagnosis and fix in
+  [docs/resolved-bugs.md](docs/resolved-bugs.md).
 - **Long-term memory (`context-manager`) never wired into the
-  conversation**: `POST /remember` (stores a fact tied to a `user_id`,
-  Qdrant `memory` collection) and `POST /retrieve` with
-  `collection="memory"` exist and are tested at the `context-manager`
-  level itself, but nothing in `langgraph-agent` calls them. The
-  `retrieve_context` node (`app/graph.py`), which runs automatically on
-  every turn, queries ONLY the `documents` collection (RAG) — never
-  `memory`. Concretely: a fact stored via `/remember` never resurfaces on
-  its own in a conversation, and there is currently no MCP tool nor slash
-  command to store or recall one from the chat — only a direct call to the
-  `context-manager` API (curl, etc.) allows using it.
+  conversation**: `POST /remember`/`POST /retrieve?collection=memory` work
+  and are tested standalone, but `langgraph-agent`'s `retrieve_context`
+  node only ever queries the `documents` (RAG) collection. A stored fact
+  never resurfaces in a conversation on its own — only a direct API call
+  can use it.
+
+## Roadmap
+
+Planned, not implemented — tracked in [PLAN.md](PLAN.md):
+
+- Egress firewall on the agent network (`agent-net` is currently a plain
+  Docker bridge) and network restriction on spawned MCP containers.
+- PromptGuard screening of untrusted web content.
+- Approval tiers refined by action nature (read / reversible write /
+  engagement) and per-task domain scope.
+- A prompt-injection benchmark family (v2, family C) to measure resistance
+  rather than assert it.
+
+## Documentation
+
+- [docs/layout.md](docs/layout.md) — directory tree, one line per service.
+- [docs/architecture/inference-backend.md](docs/architecture/inference-backend.md) — TabbyAPI, image
+  conversion, adaptive thinking.
+- [docs/architecture/autonomy.md](docs/architecture/autonomy.md) — plan → act → verify → replan loop
+  ("cognitive core" Phase 1), supplementary OCR.
+- [docs/architecture/tool-supervision.md](docs/architecture/tool-supervision.md) — human approval, reversibility
+  tiers, session grants, audit log.
+- [docs/architecture/observability.md](docs/architecture/observability.md) — dashboard, data persistence.
+- [docs/operations/testing.md](docs/operations/testing.md) — per-service test suites, SSE streaming.
+- [docs/operations/runbook.md](docs/operations/runbook.md) — rebuild/restart commands.
+- [docs/project-status.md](docs/project-status.md) — progress status (changes at every checkpoint).
+- [docs/lessons-learned.md](docs/lessons-learned.md) — 42 engineering rules, each anchored to the
+  incident and numbers that produced it.
+- [docs/methodology.md](docs/methodology.md) — the six measurement principles behind those
+  rules (read once, not every session).
+- [PLAN.md](PLAN.md) — roadmap (changes rarely, source of truth).
+- [docs/engineering-log.md](docs/engineering-log.md) / [docs/resolved-bugs.md](docs/resolved-bugs.md) — progress log and resolved bugs
+  (consult by targeted search, never read in full — see [CLAUDE.md](CLAUDE.md)).
+- [docs/briefs/](docs/briefs/) — briefs for ongoing work.
+
+## Notes
+
+Long-form field reports, kept separate from the reference docs above because
+they are narrative and dated rather than current-state:
+
+- [docs/notes/llamacpp-dual-gpu.md](docs/notes/llamacpp-dual-gpu.md) — six weeks debugging llama.cpp on two
+  mismatched GPUs: build traps, a reasoning/tool-call parsing gap, and a
+  cross-GPU crash diagnosis.
+- [docs/notes/agent-benchmarking.md](docs/notes/agent-benchmarking.md) — what eleven measurement campaigns on
+  the autonomous agent taught us, and the four that regressed on purpose.
+- [docs/methodology.md](docs/methodology.md) — the six measurement principles behind both notes above.
+
+## Troubleshooting
+
+- **OOM at model load, or after switching quant/model**: `gpu_split_auto:
+  true` is the shipped default and adapts to your hardware, but the
+  combined VRAM still has to fit the quant plus `cache_size`. First thing
+  to reduce is `cache_size` (`services/tabbyapi/config.yml`) — it's
+  usually the biggest lever, well before switching quant. Pinning a manual
+  `gpu_split` (per-model, per-machine, not a global setting) is a
+  reproducibility choice for measurement, not a fix for insufficient VRAM
+  — see [docs/architecture/inference-backend.md](docs/architecture/inference-backend.md), "GPU split".
+- **A `.env` change doesn't seem to take effect**: environment variables
+  are read at import — `docker compose restart <service>` is not enough.
+  Use `docker compose up -d --force-recreate <service>`.
+- **A code change doesn't take effect either, even with
+  `--force-recreate`**: application code (`entrypoint.sh` included) is
+  baked into the image at build time. `docker compose build <service>`
+  first, always, then `up -d --force-recreate <service>`.
+- **A campaign run fails immediately or hangs on the first task**: the
+  fixture containers (`fixture-catalog`/`fixture-docs`/`fixture-hr-app`)
+  are a separate opt-in profile, not started by `docker compose up -d`
+  alone — `docker compose --profile test-fixtures up -d fixture-catalog
+  fixture-docs fixture-hr-app` first. See
+  [docs/operations/testing.md](docs/operations/testing.md).
+
+## Support
+
+Contributions welcome (issues, PRs) — no maintenance guarantee.
+

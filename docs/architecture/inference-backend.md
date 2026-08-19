@@ -31,6 +31,47 @@ repo) is required to match the hardcoded `model="agent-llm"` in
 the code — same convention as the Ollama aliasing below
 (`scripts/rebuild-agent-llm.sh`).
 
+### GPU split
+
+`gpu_split_auto: true` (`services/tabbyapi/config.yml`) is the shipped
+default — it works regardless of how many GPUs are installed, their VRAM,
+or their bus order. A manual `gpu_split: [GB, GB, ...]` is a per-model,
+per-machine value, not a global setting: the right split depends on which
+quant is loaded (VRAM footprint changes with it) and on the exact cards
+present, so it does not belong in the versioned config.
+
+**Setting your own**: put it in a local, untracked override instead of
+editing `config.yml` — `docker compose` auto-merges
+`docker-compose.override.yml` (gitignored) without any `-f` flag:
+
+```yaml
+# docker-compose.override.yml
+services:
+  tabbyapi:
+    volumes:
+      - ./services/tabbyapi/config.local.yml:/app/config.yml:ro
+```
+
+`services/tabbyapi/config.local.yml` (also gitignored) is then a full copy
+of `config.yml` with your own `gpu_split_auto: false` / `gpu_split: [...]`
+— indexed by device index, so `CUDA_DEVICE_ORDER=PCI_BUS_ID`
+(`docker-compose.yml`, service `tabbyapi`) must stay set for the index
+order to be stable across restarts. `docker compose up -d --force-recreate
+tabbyapi` after any change (config is read at container start).
+
+**Why bother pinning it at all**: reproducible measurement. Whole-layer
+splitting means memory-per-card only settles once the loader has run, so
+comparing latency across campaigns needs the split held constant, not just
+"whatever autosplit decides today" (see
+`docs/briefs/archives/deterministic-gpu-placement.md`). The campaign
+preflight enforces this automatically: `check_device_placement`
+(`tests_integration/campaign_preflight.py`) compares the actual per-GPU
+memory used against `EXPECTED_GPU_DEVICES`, a value kept in sync with
+whatever split is configured — a campaign run under a silently different
+split (autosplit left on, config drifted, wrong card at a given index) is
+refused before the first task starts, rather than producing numbers that
+look comparable and aren't.
+
 
 ## Images and adaptive thinking (`services/langgraph-agent/app/graph.py`)
 

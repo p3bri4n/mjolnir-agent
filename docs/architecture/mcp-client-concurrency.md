@@ -38,4 +38,4 @@ was identified as the same underlying defect as
 (process-lifetime global, filled once — see `docs/resolved-bugs.md`
 #31): module-level shared state with no caller dimension. Not fixed here
 — recorded so it stops being rediscovered from scratch (see
-`docs/history.md`, "EFFORT 1.3").
+`docs/engineering-log.md`, "EFFORT 1.3").

@@ -268,7 +268,11 @@ async def test_slash_command_on_sensitive_tool_pauses_for_approval(mock_side_ser
 
 
 @pytest.mark.asyncio
-async def test_slash_command_audits_reversible_tool_but_not_read_tool(mock_side_services):
+async def test_slash_command_audits_reversible_and_read_tools(mock_side_services):
+    """Both tiers reachable via run_slash_command_direct (TIER_SENSITIVE is
+    routed to require_approval instead, see _route_slash_command_tier) are
+    audited (docs/resolved-bugs.md #52: TIER_READ used to be silently
+    excluded)."""
     import app.audit_log as audit_log
     import app.graph as g
 
@@ -288,8 +292,8 @@ async def test_slash_command_audits_reversible_tool_but_not_read_tool(mock_side_
     entries = audit_log.read_entries(CONFIG["configurable"]["thread_id"])
     assert any(e["tool"] == "write_file" for e in entries)
 
-    # read_file est TIER_READ par défaut : jamais audité, tool-call ou slash-command.
+    # read_file est TIER_READ par défaut : désormais audité aussi (#52).
     state2 = {"messages": [{"role": "user", "content": "/read_file"}], "tool_iterations": 0, "approved": None}
     await g.agent_graph.ainvoke(state2, CONFIG)
     entries2 = audit_log.read_entries(CONFIG["configurable"]["thread_id"])
-    assert not any(e["tool"] == "read_file" for e in entries2)
+    assert any(e["tool"] == "read_file" and e["tier"] == "read" for e in entries2)

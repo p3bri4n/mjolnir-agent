@@ -37,7 +37,7 @@ client-side error noise.
 **`GET /tools/schema` (langgraph-agent)**: tool names as ACTUALLY seen by
 this process (`_tools_schema_cache`), not those served by mcp-client at
 call time — the distinction has bitten in real conditions (see
-docs/history.md, "tool-schema cache bug"): this cache is filled once for
+docs/engineering-log.md, "tool-schema cache bug"): this cache is filled once for
 the process's lifetime and never invalidated, so restarting mcp-client
 alone can leave langgraph-agent answering with a stale schema. Read-only,
 like `/pending`/`/context`. Consumed by the web-task harness's campaign
