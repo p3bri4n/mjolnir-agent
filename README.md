@@ -242,6 +242,17 @@ they are narrative and dated rather than current-state:
 - `docs/notes/agent-benchmarking.md` — what eleven measurement campaigns on
   the autonomous agent taught us, and the four that regressed on purpose.
 
+## Troubleshooting
+
+- **OOM at model load, or after switching quant/model**: `gpu_split_auto:
+  true` is the shipped default and adapts to your hardware, but the
+  combined VRAM still has to fit the quant plus `cache_size`. First thing
+  to reduce is `cache_size` (`services/tabbyapi/config.yml`) — it's
+  usually the biggest lever, well before switching quant. Pinning a manual
+  `gpu_split` (per-model, per-machine, not a global setting) is a
+  reproducibility choice for measurement, not a fix for insufficient VRAM
+  — see `docs/architecture/inference-backend.md`, "GPU split".
+
 ## Known, accepted limitations (design choices, not bugs)
 
 - **`mcp-client` mounts `/var/run/docker.sock`**: equivalent to root access
