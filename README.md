@@ -255,6 +255,7 @@ they are narrative and dated rather than current-state:
   cross-GPU crash diagnosis.
 - [docs/notes/agent-benchmarking.md](docs/notes/agent-benchmarking.md) — what eleven measurement campaigns on
   the autonomous agent taught us, and the four that regressed on purpose.
+- [docs/methodology.md](docs/methodology.md) — the six measurement principles behind both notes above.
 
 ## Troubleshooting
 
@@ -266,4 +267,8 @@ they are narrative and dated rather than current-state:
   `gpu_split` (per-model, per-machine, not a global setting) is a
   reproducibility choice for measurement, not a fix for insufficient VRAM
   — see [docs/architecture/inference-backend.md](docs/architecture/inference-backend.md), "GPU split".
+
+## Support
+
+Contributions welcome (issues, PRs) — no maintenance guarantee.
 
