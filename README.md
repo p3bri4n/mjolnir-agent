@@ -1,6 +1,7 @@
 # Mjolnir agent
 
 ![CI](https://github.com/p3bri4n/mjolnir-agent/actions/workflows/ci.yml/badge.svg)
+![License](https://img.shields.io/badge/license-MIT-green)
 ![Backend](https://img.shields.io/badge/backend-TabbyAPI%2FExLlamaV3-blue)
 
 **A fully local, autonomous web agent for consumer dual-GPU hardware, no API
