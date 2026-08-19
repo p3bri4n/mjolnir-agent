@@ -191,12 +191,12 @@ tier policy, known and accepted limitations). 🧑 **Final checkpoint.**
 
 ## Deferred architecture effort: Mjolnir folder (second model)
 
-Recorded after the "latency fix 2/2" checkpoint (see docs/history.md): the
+Recorded after the "latency fix 2/2" checkpoint (see docs/engineering-log.md): the
 cache/context isolation of the auxiliary calls (`planner_llm` —
 plan_task/revise_plan/replan_task/_judge_plan) from the main loop was
 diagnosed as a probable cause of part of the residual cache=0 on the
 TabbyAPI side (alternating request shape evicting the shared prefix
-cache) — not resolved by simply raising `cache_size` (see docs/history.md,
+cache) — not resolved by simply raising `cache_size` (see docs/engineering-log.md,
 "chasing cache=0"). Joins the Mjolnir folder, where a second model already
 has a planned role (critique/compaction): **three candidate uses for a
 single architecture decision** (critique, compaction, planner/cache

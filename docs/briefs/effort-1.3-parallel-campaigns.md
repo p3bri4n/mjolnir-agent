@@ -2,7 +2,7 @@
 
 Status: brief only, zero code written. Resumes `docs/briefs/update-plan.md`
 effort 1.3, deferred at the 2026-08-05 archives-only recompute (see
-docs/history.md, "EFFORT 1.3") pending efforts 1.2/2/4.2 landing and a
+docs/engineering-log.md, "EFFORT 1.3") pending efforts 1.2/2/4.2 landing and a
 fresh median-duration re-measurement. 1.2 and 2 are delivered (2.4:
 cognitive-core removal); 4.2 is not started. Re-measured anyway below —
 the composition of campaign time has changed enough on its own to be
@@ -14,7 +14,7 @@ The original estimate (×2.2 pessimistic / ×3 optimistic) was built on a
 pre-GPU-placement, pre-2.4 33-task campaign where GPU-bound (prefill) and
 I/O-bound (tool round-trips) time were roughly 50/50 (22.9s/22s per
 task). Two things have changed since, both independently: deterministic
-GPU placement (`docs/history.md`, "DETERMINISTIC GPU PLACEMENT" —
+GPU placement (`docs/engineering-log.md`, "DETERMINISTIC GPU PLACEMENT" —
 prefill throughput +49%) and the cognitive-core removal (effort 2.4 —
 cut auxiliary planner/judge LLM calls, which were GPU-bound). Recomputed
 from the most recent full-family v2 campaign

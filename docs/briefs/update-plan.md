@@ -64,11 +64,11 @@ context, prefill time, and CuP non-regression. Do this *before* the
 ablation: every campaign after it is cheaper.
 
 **1.3 — Reopen parallel run execution. STATUS: deferred, quantified
-justification** (see `docs/history.md`, "EFFORT 1.3", archives-only
+justification** (see `docs/engineering-log.md`, "EFFORT 1.3", archives-only
 recompute, zero runs). Dismissed earlier when inference was the
 bottleneck; the median went from 145.9 s to 45.0 s since — **not** from
 the TabbyAPI/dual-GPU migration as stated below previously, but from the
-`PLANNER_THINKING_ENABLED` fix (verified against `docs/history.md`'s own
+`PLANNER_THINKING_ENABLED` fix (verified against `docs/engineering-log.md`'s own
 checkpoint campaign). Recomputed expected gain (33-task campaign, N=3
 workers, per-task time split ≈22.9s GPU-bound / ≈22s I/O-bound): **×2.2**
 pessimistic (TabbyAPI serializes inference) to **×3** optimistic
@@ -158,7 +158,7 @@ mid-task (`merged_plan_replans` stayed 0 on every run, including the
 engaged ones) and never changed task success. Revision under difficulty
 is what separates AgentOccam's pattern from a classic planner — without
 it, "keep the value, cut the cost" has no object to measure. Full detail
-and the tool-position side-finding: docs/history.md, "EFFORT 2". Effort
+and the tool-position side-finding: docs/engineering-log.md, "EFFORT 2". Effort
 2's measurement reverts to its original 2-config question (cfg1 vs
 cfg8, `scripts/run-flag-sweep.sh`).
 
@@ -180,7 +180,7 @@ for coverage only, per point 2's protocol), cfg1 never losing, at 43%
 less cumulative time for the same real work (tool_calls essentially
 identical, 195 vs 193). The table's first branch applies: fixed
 configuration matches-or-beats all-on → adopt and remove the losers.
-Full detail: docs/history.md, "EFFORT 2 — DECISIVE MEASUREMENT".
+Full detail: docs/engineering-log.md, "EFFORT 2 — DECISIVE MEASUREMENT".
 `PLAN_VALIDATION_ENABLED` keeps its safety-value exception, untouched by
 this reading.
 
@@ -190,10 +190,10 @@ this reading.
 `services/mcp-client/app/main.py`'s `adjacent_value` field, fixture
 inventory done first (dt/dd + td/th real, label/input dropped — checked,
 not guessed), verified against jsdom, 3 new unit tests, suite 45→48
-passed. Full detail: docs/history.md, "EFFORT 2.3 — BROWSER_EXTRACT
+passed. Full detail: docs/engineering-log.md, "EFFORT 2.3 — BROWSER_EXTRACT
 DT/DD FIX". 🧑 Next: the judge below, live, before 2.4.
 Original brief text kept below as the design record.
-Named by the A1 trajectory diagnostic (docs/history.md, "A1 — TRAJECTORY
+Named by the A1 trajectory diagnostic (docs/engineering-log.md, "A1 — TRAJECTORY
 DIAGNOSTIC"): `browser_extract`'s query-matching returns a matched label
 (`Prix`, `Référence`) but not its adjacent value, forcing every run
 (A1's 6/6, A2's cfg1 run before its `browser_run_code_unsafe` workaround)
@@ -237,7 +237,7 @@ clearing subtask 0 — subtask 1+ (the docs cross-check) never reached on
 any thread. The dt/dd fix itself is confirmed working (one thread's
 bulk `browser_extract` correctly found the 4 Mobilier products at the
 exact moment the budget ran out) — A1's failure is not an extraction
-problem. Full detail: `docs/resolved-bugs.md` #51, `docs/history.md`
+problem. Full detail: `docs/resolved-bugs.md` #51, `docs/engineering-log.md`
 "EFFORT 2.3". This is now dossier evidence for 2.4 below, not a
 separate fix — the replanner already tries 3 different subtask-0
 phrasings per run and none survive, so a wording-only correction was
@@ -263,7 +263,7 @@ attempt bundled it with easy in one run and came back CuP=0/3,
 invalidated — that env var is required before medium/hard, easy and
 medium/hard must run as separate campaigns, per this file's own
 `run-flag-sweep.sh`/`run-campaign.sh` docs). No family regressed; family
-A materially improved. Full detail: docs/history.md, "EFFORT 2.4". See
+A materially improved. Full detail: docs/engineering-log.md, "EFFORT 2.4". See
 `docs/resolved-bugs.md` #49 for the one question this leaves open
 (informational only, since cfg8 is no longer the default it was found
 under).
@@ -298,7 +298,7 @@ Ships as scaffolding only: `_detect_visual_signal` is a stub (always
 `None`), `PROACTIVE_OCR_ENABLED` defaults `false` — the real detection
 signal needs an empirical check against `browser_snapshot`'s actual
 output (`fixture-visual-probe` fixtures) before it can be implemented
-honestly, deliberately not guessed. See docs/history.md, "EFFORT 3" for
+honestly, deliberately not guessed. See docs/engineering-log.md, "EFFORT 3" for
 the full implementation detail and the tool-supervision.md doc-drift
 found along the way (`DEFAULT_RULES` turned out empty, an existing
 example rule was fictional).
@@ -326,7 +326,7 @@ decision moved to the tool's own description instead
 `services/mcp-client/app/main.py`), plus a structural redirect for the
 one pattern that IS detectable (`_flag_empty_snapshot`, native PDF's
 empty snapshot). `_detect_visual_signal`/`_maybe_enrich_with_ocr`/
-`PROACTIVE_OCR_ENABLED` removed. See docs/history.md, "PROBE VISUEL —
+`PROACTIVE_OCR_ENABLED` removed. See docs/engineering-log.md, "PROBE VISUEL —
 SIGNAL BROWSER_SNAPSHOT" for the full design and test detail.
 
 **Live-verified (2026-08-11, n=3/task): E1 3/3, E2 2/3, E3 3/3 (0/3

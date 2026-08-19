@@ -209,7 +209,7 @@ models/     weights (exl3) of the model and multimodal projector served by
 - `docs/lessons-learned.md` — 42 engineering rules, each anchored to the
   incident and numbers that produced it.
 - `PLAN.md` — roadmap (changes rarely, source of truth).
-- `docs/history.md` / `docs/resolved-bugs.md` — progress log and resolved bugs
+- `docs/engineering-log.md` / `docs/resolved-bugs.md` — progress log and resolved bugs
   (consult by targeted search, never read in full — see `CLAUDE.md`).
 - `docs/briefs/` — briefs for ongoing work.
 
@@ -257,7 +257,7 @@ they are narrative and dated rather than current-state:
   `services/mcp-client/app/main.py`), instead of reopening a fresh one
   every time as it does for the other servers.
 - **Shared download volume `agent-downloads`** (Phase 1d-revised, see
-  docs/history.md, T5): `playwright-mcp` keeps its `--isolated` browser
+  docs/engineering-log.md, T5): `playwright-mcp` keeps its `--isolated` browser
   profile (in memory, never persisted), but a download triggered on the
   page (a link/button with `Content-Disposition: attachment`) now lands in
   an EXPLICIT, shared path (`--output-dir=/downloads`, named volume
