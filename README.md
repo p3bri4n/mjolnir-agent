@@ -208,6 +208,8 @@ models/     weights (exl3) of the model and multimodal projector served by
 - `docs/project-status.md` — progress status (changes at every checkpoint).
 - `docs/lessons-learned.md` — 42 engineering rules, each anchored to the
   incident and numbers that produced it.
+- `docs/methodology.md` — the six measurement principles behind those
+  rules (read once, not every session).
 - `PLAN.md` — roadmap (changes rarely, source of truth).
 - `docs/engineering-log.md` / `docs/resolved-bugs.md` — progress log and resolved bugs
   (consult by targeted search, never read in full — see `CLAUDE.md`).
