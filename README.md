@@ -267,6 +267,19 @@ they are narrative and dated rather than current-state:
   `gpu_split` (per-model, per-machine, not a global setting) is a
   reproducibility choice for measurement, not a fix for insufficient VRAM
   — see [docs/architecture/inference-backend.md](docs/architecture/inference-backend.md), "GPU split".
+- **A `.env` change doesn't seem to take effect**: environment variables
+  are read at import — `docker compose restart <service>` is not enough.
+  Use `docker compose up -d --force-recreate <service>`.
+- **A code change doesn't take effect either, even with
+  `--force-recreate`**: application code (`entrypoint.sh` included) is
+  baked into the image at build time. `docker compose build <service>`
+  first, always, then `up -d --force-recreate <service>`.
+- **A campaign run fails immediately or hangs on the first task**: the
+  fixture containers (`fixture-catalog`/`fixture-docs`/`fixture-hr-app`)
+  are a separate opt-in profile, not started by `docker compose up -d`
+  alone — `docker compose --profile test-fixtures up -d fixture-catalog
+  fixture-docs fixture-hr-app` first. See
+  [docs/operations/testing.md](docs/operations/testing.md).
 
 ## Support
 
