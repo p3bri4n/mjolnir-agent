@@ -178,54 +178,25 @@ them were thrown away.
 - **Skill matching and RAG are deliberately simplistic** (naive keyword
   match, no reranker) — to be strengthened if the volume of skills/documents
   grows.
-- **`ocr-service` currently has no caller**: a proactive trigger
-  (auto-OCR after detecting a visual-only element in a `browser_*`
-  result) was built, then abandoned before going live — an empirical
-  check against `fixture-visual-probe` found that canvas/WebGL/alt-less
-  images leave no trace in `browser_snapshot`'s text for any after-the-
-  fact heuristic to catch. Replaced by a tool-description routing hint on
-  `browser_take_screenshot` instead (`mcp-client`, see
-  [docs/architecture/autonomy.md](docs/architecture/autonomy.md)) — the model reads a screenshot
-  directly rather than an OCR pass. `ocr-service` stays deployed as a
-  standalone capability, kept for a possible future role, not currently
-  wired into the agent loop.
-- **`playwright-mcp` (the "browser" server) has been a persistent HTTP
-  server since the fix documented in detail in [docs/resolved-bugs.md](docs/resolved-bugs.md)** —
-  it used to be spawned as an ephemeral STDIO process
-  (`docker run -i --rm mcp/playwright:latest` per call), losing all
-  navigation state between two tool calls. The official image natively
-  exposes an HTTP server mode (`--host 0.0.0.0 --port 8931`, Streamable
-  HTTP endpoint `/mcp`); this alone was NOT enough, though, because
-  Playwright MCP scopes its browser context (page, cookies, history) to
-  the MCP SESSION, not the server process — `mcp-client` therefore also
-  has to keep the "browser" session open between two HTTP calls
-  (`_get_persistent_session`/`_persistent_sessions` in
-  `services/mcp-client/app/main.py`), instead of reopening a fresh one
-  every time as it does for the other servers.
-- **Shared download volume `agent-downloads`** (Phase 1d-revised, see
-  [docs/engineering-log.md](docs/engineering-log.md), T5): `playwright-mcp` keeps its `--isolated` browser
-  profile (in memory, never persisted), but a download triggered on the
-  page (a link/button with `Content-Disposition: attachment`) now lands in
-  an EXPLICIT, shared path (`--output-dir=/downloads`, named volume
-  `agent-downloads`) rather than in the container's internal filesystem
-  (actual observed default: `/home/node/.playwright-mcp/`, never guessed
-  correctly by the model). The filesystem MCP server mounts this same
-  volume READ-ONLY (`services/mcp-client/app/main.py`, root `/downloads`
-  in addition to `/projects`): the downloaded artifact is shared, never
-  the browser's state. The system prompt documents this path explicitly
-  (`DOWNLOAD_DIRECTIVE`, `app/graph.py`) rather than letting the model
-  guess one.
+- **`ocr-service` currently has no caller**: a proactive auto-OCR trigger
+  was built then abandoned — empirically falsified, canvas/WebGL/images
+  leave no trace for any heuristic to catch (see
+  [docs/architecture/autonomy.md](docs/architecture/autonomy.md)). A
+  routing hint on `browser_take_screenshot` covers it instead; `ocr-service`
+  stays deployed, unwired, for a possible future role.
+- **`playwright-mcp` needs a persistent MCP session, not just a persistent
+  process**, to keep browser state across calls — full diagnosis and fix
+  in [docs/resolved-bugs.md](docs/resolved-bugs.md).
+- **Downloads land in a shared, explicit volume** (`agent-downloads`,
+  read-only from the filesystem server) rather than the browser
+  container's own filesystem — full diagnosis and fix in
+  [docs/resolved-bugs.md](docs/resolved-bugs.md).
 - **Long-term memory (`context-manager`) never wired into the
-  conversation**: `POST /remember` (stores a fact tied to a `user_id`,
-  Qdrant `memory` collection) and `POST /retrieve` with
-  `collection="memory"` exist and are tested at the `context-manager`
-  level itself, but nothing in `langgraph-agent` calls them. The
-  `retrieve_context` node (`app/graph.py`), which runs automatically on
-  every turn, queries ONLY the `documents` collection (RAG) — never
-  `memory`. Concretely: a fact stored via `/remember` never resurfaces on
-  its own in a conversation, and there is currently no MCP tool nor slash
-  command to store or recall one from the chat — only a direct call to the
-  `context-manager` API (curl, etc.) allows using it.
+  conversation**: `POST /remember`/`POST /retrieve?collection=memory` work
+  and are tested standalone, but `langgraph-agent`'s `retrieve_context`
+  node only ever queries the `documents` (RAG) collection. A stored fact
+  never resurfaces in a conversation on its own — only a direct API call
+  can use it.
 
 ## Roadmap
 
