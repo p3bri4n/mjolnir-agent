@@ -154,62 +154,6 @@ them were thrown away.
   workaround in [docs/resolved-bugs.md](docs/resolved-bugs.md)).
 - A powerful inference backend for mixed Nvidia GPUs: TabbyAPI/ExLlamaV3
 
-## Roadmap
-
-Planned, not implemented — tracked in [PLAN.md](PLAN.md):
-
-- Egress firewall on the agent network (`agent-net` is currently a plain
-  Docker bridge) and network restriction on spawned MCP containers.
-- PromptGuard screening of untrusted web content.
-- Approval tiers refined by action nature (read / reversible write /
-  engagement) and per-task domain scope.
-- A prompt-injection benchmark family (v2, family C) to measure resistance
-  rather than assert it.
-
-## Documentation
-
-- [docs/layout.md](docs/layout.md) — directory tree, one line per service.
-- [docs/architecture/inference-backend.md](docs/architecture/inference-backend.md) — TabbyAPI, image
-  conversion, adaptive thinking.
-- [docs/architecture/autonomy.md](docs/architecture/autonomy.md) — plan → act → verify → replan loop
-  ("cognitive core" Phase 1), supplementary OCR.
-- [docs/architecture/tool-supervision.md](docs/architecture/tool-supervision.md) — human approval, reversibility
-  tiers, session grants, audit log.
-- [docs/architecture/observability.md](docs/architecture/observability.md) — dashboard, data persistence.
-- [docs/operations/testing.md](docs/operations/testing.md) — per-service test suites, SSE streaming.
-- [docs/operations/runbook.md](docs/operations/runbook.md) — rebuild/restart commands.
-- [docs/project-status.md](docs/project-status.md) — progress status (changes at every checkpoint).
-- [docs/lessons-learned.md](docs/lessons-learned.md) — 42 engineering rules, each anchored to the
-  incident and numbers that produced it.
-- [docs/methodology.md](docs/methodology.md) — the six measurement principles behind those
-  rules (read once, not every session).
-- [PLAN.md](PLAN.md) — roadmap (changes rarely, source of truth).
-- [docs/engineering-log.md](docs/engineering-log.md) / [docs/resolved-bugs.md](docs/resolved-bugs.md) — progress log and resolved bugs
-  (consult by targeted search, never read in full — see [CLAUDE.md](CLAUDE.md)).
-- [docs/briefs/](docs/briefs/) — briefs for ongoing work.
-
-## Notes
-
-Long-form field reports, kept separate from the reference docs above because
-they are narrative and dated rather than current-state:
-
-- [docs/notes/llamacpp-dual-gpu.md](docs/notes/llamacpp-dual-gpu.md) — six weeks debugging llama.cpp on two
-  mismatched GPUs: build traps, a reasoning/tool-call parsing gap, and a
-  cross-GPU crash diagnosis.
-- [docs/notes/agent-benchmarking.md](docs/notes/agent-benchmarking.md) — what eleven measurement campaigns on
-  the autonomous agent taught us, and the four that regressed on purpose.
-
-## Troubleshooting
-
-- **OOM at model load, or after switching quant/model**: `gpu_split_auto:
-  true` is the shipped default and adapts to your hardware, but the
-  combined VRAM still has to fit the quant plus `cache_size`. First thing
-  to reduce is `cache_size` (`services/tabbyapi/config.yml`) — it's
-  usually the biggest lever, well before switching quant. Pinning a manual
-  `gpu_split` (per-model, per-machine, not a global setting) is a
-  reproducibility choice for measurement, not a fix for insufficient VRAM
-  — see [docs/architecture/inference-backend.md](docs/architecture/inference-backend.md), "GPU split".
-
 ## Known, accepted limitations (design choices, not bugs)
 
 - **`mcp-client` mounts `/var/run/docker.sock`**: equivalent to root access
@@ -266,3 +210,60 @@ they are narrative and dated rather than current-state:
   its own in a conversation, and there is currently no MCP tool nor slash
   command to store or recall one from the chat — only a direct call to the
   `context-manager` API (curl, etc.) allows using it.
+
+## Roadmap
+
+Planned, not implemented — tracked in [PLAN.md](PLAN.md):
+
+- Egress firewall on the agent network (`agent-net` is currently a plain
+  Docker bridge) and network restriction on spawned MCP containers.
+- PromptGuard screening of untrusted web content.
+- Approval tiers refined by action nature (read / reversible write /
+  engagement) and per-task domain scope.
+- A prompt-injection benchmark family (v2, family C) to measure resistance
+  rather than assert it.
+
+## Documentation
+
+- [docs/layout.md](docs/layout.md) — directory tree, one line per service.
+- [docs/architecture/inference-backend.md](docs/architecture/inference-backend.md) — TabbyAPI, image
+  conversion, adaptive thinking.
+- [docs/architecture/autonomy.md](docs/architecture/autonomy.md) — plan → act → verify → replan loop
+  ("cognitive core" Phase 1), supplementary OCR.
+- [docs/architecture/tool-supervision.md](docs/architecture/tool-supervision.md) — human approval, reversibility
+  tiers, session grants, audit log.
+- [docs/architecture/observability.md](docs/architecture/observability.md) — dashboard, data persistence.
+- [docs/operations/testing.md](docs/operations/testing.md) — per-service test suites, SSE streaming.
+- [docs/operations/runbook.md](docs/operations/runbook.md) — rebuild/restart commands.
+- [docs/project-status.md](docs/project-status.md) — progress status (changes at every checkpoint).
+- [docs/lessons-learned.md](docs/lessons-learned.md) — 42 engineering rules, each anchored to the
+  incident and numbers that produced it.
+- [docs/methodology.md](docs/methodology.md) — the six measurement principles behind those
+  rules (read once, not every session).
+- [PLAN.md](PLAN.md) — roadmap (changes rarely, source of truth).
+- [docs/engineering-log.md](docs/engineering-log.md) / [docs/resolved-bugs.md](docs/resolved-bugs.md) — progress log and resolved bugs
+  (consult by targeted search, never read in full — see [CLAUDE.md](CLAUDE.md)).
+- [docs/briefs/](docs/briefs/) — briefs for ongoing work.
+
+## Notes
+
+Long-form field reports, kept separate from the reference docs above because
+they are narrative and dated rather than current-state:
+
+- [docs/notes/llamacpp-dual-gpu.md](docs/notes/llamacpp-dual-gpu.md) — six weeks debugging llama.cpp on two
+  mismatched GPUs: build traps, a reasoning/tool-call parsing gap, and a
+  cross-GPU crash diagnosis.
+- [docs/notes/agent-benchmarking.md](docs/notes/agent-benchmarking.md) — what eleven measurement campaigns on
+  the autonomous agent taught us, and the four that regressed on purpose.
+
+## Troubleshooting
+
+- **OOM at model load, or after switching quant/model**: `gpu_split_auto:
+  true` is the shipped default and adapts to your hardware, but the
+  combined VRAM still has to fit the quant plus `cache_size`. First thing
+  to reduce is `cache_size` (`services/tabbyapi/config.yml`) — it's
+  usually the biggest lever, well before switching quant. Pinning a manual
+  `gpu_split` (per-model, per-machine, not a global setting) is a
+  reproducibility choice for measurement, not a fix for insufficient VRAM
+  — see [docs/architecture/inference-backend.md](docs/architecture/inference-backend.md), "GPU split".
+
