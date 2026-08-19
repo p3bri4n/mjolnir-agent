@@ -1,5 +1,46 @@
 # Repository gaps — corrective brief
 
+> **Status: closed (2026-08-19).** All 6 points delivered, in the order
+> declared at the bottom of this brief (1, 2, 5, 3, 4, 6). Summary result
+> per point:
+>
+> 1. **Field-note preservation**: both notes already existed on disk
+>    (drafted earlier the same day, untracked), one paragraph short of
+>    this brief's own spec (`browser_inspect`, the dt/dd defect) —
+>    completed from `docs/resolved-bugs.md` #43 and EFFORT 2.3
+>    (`docs/engineering-log.md`), not reinvented. Renamed without the
+>    `note-` prefix, cross-linked, README `## Notes` section added.
+> 2. **`project-status.md` cognitive-core paragraph**: rewritten against
+>    the code (`app/graph.py`), citing the real cfg1/cfg8 sweep (15/15 vs
+>    13/15, +76% time) and `PLAN_VALIDATION_ENABLED`'s de facto inert
+>    state without a planner. **Deviation**: at the user's separate
+>    request, also generalized into a standing rule — `CLAUDE.md` rule 9
+>    extended, new entry in `docs/lessons-learned.md`.
+> 3. **`docs/history.md` → `docs/engineering-log.md`**: renamed (own
+>    commit, no content change), title + 94-entry dated index added
+>    (dates from `git blame`'s author-time per heading, not guessed),
+>    entry convention recorded in `CLAUDE.md` rule 3, every active
+>    reference fixed except `docs/briefs/archives/update-plan.md` line
+>    467 (left as written — it narrates this exact task, stale by
+>    construction once the task closes).
+> 4. **`PLAN.md`/`update-plan.md` dual authority**: resolved per this
+>    brief's stated preference — absorbed into a new `PLAN.md` `##
+>    Roadmap` section, `update-plan.md` archived with its own status
+>    header. **Deviation**: absorption was not a copy — 3 factual drifts
+>    in `update-plan.md`'s own text were caught and corrected against
+>    current reality (effort 6's brief already committed, B5 closed and
+>    archived, the `docs/history.md` rename done).
+> 5. **Audit-log `TIER_READ` blind spot**: inventory (the whole
+>    `_DEFAULT_TIER_READ` class, not `browser_extract` alone) and
+>    consequence (SCAFFOLDING 3.1 point 2's false premise, traced and
+>    confirmed) recorded in `docs/resolved-bugs.md` #52, and fixed per
+>    this brief's own point 5.4: `log_tool_call` now covers every tier;
+>    2 tests flipped, 1 new test on a wrapper-dispatched tool
+>    (`browser_extract`); `langgraph-agent` suite 492/492.
+> 6. **README missing `docs/methodology.md`**: added.
+>
+> Full commit-by-commit detail: `git log` on `dev`, this session's range.
+
 > Six gaps found during a full-repo review (2026-08-17). None is urgent
 > engineering; two are urgent *preservation*. One commit per nature of
 > change, as usual.
