@@ -3,11 +3,13 @@
 1. At session start, read in this order: `CLAUDE.md` →
    `docs/project-status.md` (where we are) → `README.md` (short) → the
    brief of the ongoing effort (`docs/briefs/`). Never load in full:
-   `docs/history.md`, `docs/resolved-bugs.md`, `docs/briefs/archive/`,
+   `docs/engineering-log.md`, `docs/resolved-bugs.md`, `docs/briefs/archive/`,
    `docs/campaigns/` reports — consult them via targeted search. Startup
    budget: ~5000 tokens; report it rather than loading more.
 2. resolved bugs must be recorded in docs/resolved-bugs.md
-3. progress history must be recorded in docs/history.md
+3. progress history must be recorded in `docs/engineering-log.md`, one
+   entry per `## YYYY-MM-DD — <effort>: <title>` heading, then context /
+   measurements / verdict / decision.
 4. always inform the user of the commands they need to type if a docker
    service needs restarting/rebuilding
 5. one phase = one PR. One commit = one nature of change (never a move
@@ -30,7 +32,7 @@
     `docs/briefs/`): new content in English — docstrings, comments,
     non-exposed internal identifiers, README/CLAUDE.md/PLAN.md/docs.
     **Always write documents in English** — this includes new entries in
-    `docs/history.md`/`docs/resolved-bugs.md`: only their already-written
+    `docs/engineering-log.md`/`docs/resolved-bugs.md`: only their already-written
     (dated) entries stay French as archives, never used as a template for
     new ones. Stays in French: system prompts/directives sent to the
     model and benchmark task prompts (behavior, not documentation —
@@ -61,7 +63,7 @@
       just new ones: the planner/plan validation/plan judge shipped
       without a coverage counter, and that exact gap requalified the
       first cognitive-core ablation campaign as not conclusive — see
-      docs/history.md, EFFORT 2 "judge validity check". An existing
+      docs/engineering-log.md, EFFORT 2 "judge validity check". An existing
       conditional mechanism found without a trigger-rate counter is a
       blocker for the NEXT measurement that depends on it, not a
       pre-existing condition to work around.
@@ -73,7 +75,7 @@
       mechanism: validated empirically across five smokes, five bugs
       caught before the measurement they preceded would have counted —
       a stale Docker image, a missing root route, two fixture leaks, and
-      a judge blind to the audit log (see docs/history.md for each). A
+      a judge blind to the audit log (see docs/engineering-log.md for each). A
       sixth: the multi-turn compaction exercise's own live smoke caught a
       real `/approve` bookkeeping defect (docs/resolved-bugs.md #44)
       before the measurement it fed into.
@@ -90,7 +92,7 @@
 - the comment explains the WHY; code that requires explaining the WHAT
   should be rewritten instead;
 - history does not live in the code ("fixed in iteration 3") → a
-  one-line pointer to `docs/history.md`/`docs/resolved-bugs.md`, never
+  one-line pointer to `docs/engineering-log.md`/`docs/resolved-bugs.md`, never
   the detail copied in;
 - **accepted exception**: a block documenting a verified external
   constraint (library behavior, backend gotcha, reason for a flag)
@@ -101,11 +103,11 @@
 
 A tool that acts returns the resulting STATE of its action, never a bare
 acknowledgment — confirmed recurring defect, not a one-off: `browser_extract`
-returned a matched label without its adjacent value (docs/history.md,
+returned a matched label without its adjacent value (docs/engineering-log.md,
 "EFFORT 2.3"), `manage_plan` returned `{"ok": true}` without the plan
-(docs/history.md, "EFFORT 2", merged-planning fix 1/2), `browser_navigate`/
+(docs/engineering-log.md, "EFFORT 2", merged-planning fix 1/2), `browser_navigate`/
 `browser_click` returned an action confirmation without the resulting page
-state (docs/history.md, "SCAFFOLDING 3.1"). Check any new or revised tool
+state (docs/engineering-log.md, "SCAFFOLDING 3.1"). Check any new or revised tool
 against this before shipping.
 
 ## Markdown contract
@@ -148,7 +150,7 @@ single-variable validation campaign:
   CODE that would read it is stale — producing a misleadingly clean
   preflight (flags match) while the mechanism actually under test never
   ran. Hit twice in one session, on two different services (`mcp-client`
-  then `langgraph-agent` — docs/history.md, "SCAFFOLDING 3.1, POINT 1"
+  then `langgraph-agent` — docs/engineering-log.md, "SCAFFOLDING 3.1, POINT 1"
   and the history-diff live smoke). Verify before trusting any live
   result: compare `metadata.image_ids` across campaign JSONs (identical
   digest despite an advancing commit = stale image), or a direct `/call`
