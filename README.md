@@ -1,29 +1,57 @@
 # Mjolnir agent
 
 ![CI](https://github.com/p3bri4n/mjolnir-agent/actions/workflows/ci.yml/badge.svg)
+![Backend](https://img.shields.io/badge/backend-TabbyAPI%2FExLlamaV3-blue)
 
-![Logo](docs/assets/logo.jpeg)
-
-**A fully local, autonomous web agent that runs on consumer NVIDIA GPUs —
-with human approval tiers, mechanical guardrails, and a benchmark that
-measures whether any of it actually works.**
-
-No API keys, no data leaving the machine. The whole stack is dockerised.
-Tested on Qwen3.6-27B (EXL3) across a dual-GPU setup (RTX 4070 Ti Super +
-RTX 5060 Ti).
+**A fully local, autonomous web agent for consumer dual-GPU hardware, no API
+keys and no data leaving the machine — with human approval tiers, mechanical
+guardrails, and a benchmark that measures whether any of it actually
+works.**
 
 Open WebUI → LangGraph agent → (Skill Manager / Context Manager / MCP
-Client) → TabbyAPI.
+Client) → TabbyAPI. Tested on Qwen3.6-27B (EXL3) across a dual-GPU setup
+(RTX 4070 Ti Super + RTX 5060 Ti).
 
-Tested the hard way: [six weeks of llama.cpp on two mismatched GPUs](https://github.com/p3bri4n/mjolnir-agent/discussions/10)
-before switching engines — build traps, a tool-calling grammar hole, and an
-intermittent multi-GPU crash isolated to a prefill batch-size threshold.
+<!-- Demo: docs/assets/demo.gif — scripted recording, see
+     docs/briefs/readme-rework.md §2. Not embedded until that script has
+     produced a real capture; a placeholder image would be worse than none. -->
 
-Scores went from 16/33 to 30/33 over eleven campaigns — [docs/notes/agent-benchmarking.md](https://github.com/p3bri4n/mjolnir-agent/discussions/12). 
+- **22-task, 6-family benchmark** (`docs/benchmark-v2.md`) — programmatic
+  assertions, no LLM-as-judge on the score.
+- **Latest full campaign: 53/56** across every family (one known limit:
+  E2's vision-reading, see `docs/resolved-bugs.md`).
+- **91 archived campaigns**, every raw result kept — `docs/campaigns/`.
+- Runs on **consumer dual-GPU hardware** (RTX 4070 Ti Super + RTX 5060 Ti,
+  16 GB each).
+
+Scores went from 16/33 to 30/33 over eleven campaigns on the original
+11-task suite — [docs/notes/agent-benchmarking.md](docs/notes/agent-benchmarking.md).
+Tested the hard way first, too:
+[six weeks of llama.cpp on two mismatched GPUs](docs/notes/llamacpp-dual-gpu.md)
+before switching engines.
 
 Forty-two engineering rules, each with the incident and the numbers that
 produced it — including the one where we measured that our own cognitive
 core did nothing: [docs/lessons-learned.md](docs/lessons-learned.md).
+
+## Quick start
+
+```bash
+cp .env.example .env
+# edit .env: WORKSPACE_HOST_PATH must be the ABSOLUTE path of ./workspace on the host
+# (required because mcp-client mounts this path into containers it spawns itself)
+# place the model's EXL3 quant (safetensors + config.json + tokenizer,
+# HuggingFace format) under ./models/agent-llm/ — TabbyAPI is the default
+# backend, never downloaded automatically (see docs/architecture/inference-backend.md).
+
+docker pull mcp/filesystem:latest
+docker pull mcp/playwright:latest   # persistent HTTP server (playwright-mcp service), see docs/resolved-bugs.md
+
+docker compose up -d
+```
+
+UI available at http://localhost:3000 (Open WebUI). Rebuild/restart
+commands: see `docs/operations/runbook.md`.
 
 ## Features
 
@@ -70,9 +98,12 @@ core did nothing: [docs/lessons-learned.md](docs/lessons-learned.md).
 
 ### Measured, not asserted
 
-- **Task-level benchmark**: 11 web tasks with programmatic assertions (7 on
-  self-hosted fixtures with known ground truth, 3 on real sites, 1 live
-  staleness probe) — no LLM-as-judge on the final score.
+- **Task-level benchmark**: 22 tasks across 6 families
+  (`docs/benchmark-v2.md`) — regression core (F), long-horizon multi-page
+  tasks (A), policy compliance under session grants (B), hostile content
+  and prompt injection (C), honesty on unanswerable/stale questions (D),
+  perception channels (E) — programmatic assertions only, no LLM-as-judge
+  on the final score.
 - **Permanent judges**: success rate, average time per task, prompt tokens
   per task, URL-fabrication count, verification coverage, human
   interventions, prefill cost.
@@ -95,9 +126,10 @@ core did nothing: [docs/lessons-learned.md](docs/lessons-learned.md).
   persisted as JSONL, which is how most of this project's bugs were
   diagnosed without re-running anything.
 
-Latest campaign: **29/33** — see `docs/campaigns/` for the full history,
-and `docs/methodology.md` for how these numbers are produced and why some
-of them were thrown away.
+Latest full campaign: **53/56** across every family (one known limit: E2's
+vision-reading) — see `docs/campaigns/` for the full history, and
+`docs/methodology.md` for how these numbers are produced and why some of
+them were thrown away.
 
 ### Security posture
 
@@ -130,25 +162,6 @@ Planned, not implemented — tracked in `PLAN.md`:
   engagement) and per-task domain scope.
 - A prompt-injection benchmark family (v2, family C) to measure resistance
   rather than assert it.
-
-## Quick start
-
-```bash
-cp .env.example .env
-# edit .env: WORKSPACE_HOST_PATH must be the ABSOLUTE path of ./workspace on the host
-# (required because mcp-client mounts this path into containers it spawns itself)
-# place the model's EXL3 quant (safetensors + config.json + tokenizer,
-# HuggingFace format) under ./models/agent-llm/ — TabbyAPI is the default
-# backend, never downloaded automatically (see docs/architecture/inference-backend.md).
-
-docker pull mcp/filesystem:latest
-docker pull mcp/playwright:latest   # persistent HTTP server (playwright-mcp service), see docs/resolved-bugs.md
-
-docker compose up -d
-```
-
-UI available at http://localhost:3000 (Open WebUI). Rebuild/restart
-commands: see `docs/operations/runbook.md`.
 
 ## Layout
 
