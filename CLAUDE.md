@@ -20,7 +20,11 @@
    README or public docs is verified against the installed code before
    publication. Planned features go under Roadmap, never under Features.
    Security claims are the strictest case: a reader may deploy on the
-   strength of them.
+   strength of them. This applies to any document describing current state
+   (`project-status.md` included) at every update, not only when the claim
+   is first written — a document that says where we are must not
+   contradict the code (docs/briefs/repository-gaps.md, point 2; see also
+   `docs/lessons-learned.md`).
 10. Suggest obvious simplifications when it's opportune
 11. Code/doc language ("restructuring + English" effort, see
     `docs/briefs/`): new content in English — docstrings, comments,
