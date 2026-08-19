@@ -19,11 +19,11 @@ Client) → TabbyAPI. Tested on Qwen3.6-27B (EXL3) across a dual-GPU setup
      docs/briefs/readme-rework.md §2. Not embedded until that script has
      produced a real capture; a placeholder image would be worse than none. -->
 
-- **22-task, 6-family benchmark** (`docs/benchmark-v2.md`) — programmatic
+- **22-task, 6-family benchmark** ([docs/benchmark-v2.md](docs/benchmark-v2.md)) — programmatic
   assertions, no LLM-as-judge on the score.
 - **Latest full campaign: 53/56** across every family (one known limit:
-  E2's vision-reading, see `docs/resolved-bugs.md`).
-- **91 archived campaigns**, every raw result kept — `docs/campaigns/`.
+  E2's vision-reading, see [docs/resolved-bugs.md](docs/resolved-bugs.md)).
+- **91 archived campaigns**, every raw result kept — [docs/campaigns/](docs/campaigns/).
 - Runs on **consumer dual-GPU hardware** (RTX 4070 Ti Super + RTX 5060 Ti,
   16 GB each).
 
@@ -54,7 +54,7 @@ docker compose up -d
 ```
 
 UI available at http://localhost:3000 (Open WebUI). Rebuild/restart
-commands: see `docs/operations/runbook.md`.
+commands: see [docs/operations/runbook.md](docs/operations/runbook.md).
 
 ## Features
 
@@ -102,7 +102,7 @@ commands: see `docs/operations/runbook.md`.
 ### Measured, not asserted
 
 - **Task-level benchmark**: 22 tasks across 6 families
-  (`docs/benchmark-v2.md`) — regression core (F), long-horizon multi-page
+  ([docs/benchmark-v2.md](docs/benchmark-v2.md)) — regression core (F), long-horizon multi-page
   tasks (A), policy compliance under session grants (B), hostile content
   and prompt injection (C), honesty on unanswerable/stale questions (D),
   perception channels (E) — programmatic assertions only, no LLM-as-judge
@@ -130,8 +130,8 @@ commands: see `docs/operations/runbook.md`.
   diagnosed without re-running anything.
 
 Latest full campaign: **53/56** across every family (one known limit: E2's
-vision-reading) — see `docs/campaigns/` for the full history, and
-`docs/methodology.md` for how these numbers are produced and why some of
+vision-reading) — see [docs/campaigns/](docs/campaigns/) for the full history, and
+[docs/methodology.md](docs/methodology.md) for how these numbers are produced and why some of
 them were thrown away.
 
 ### Security posture
@@ -151,12 +151,12 @@ them were thrown away.
 
 - Dual-GPU heterogeneous setups supported (documented Ada + Blackwell
   configuration, including the tensor-split crash diagnosis and its
-  workaround in `docs/resolved-bugs.md`).
+  workaround in [docs/resolved-bugs.md](docs/resolved-bugs.md)).
 - A powerful inference backend for mixed Nvidia GPUs: TabbyAPI/ExLlamaV3
 
 ## Roadmap
 
-Planned, not implemented — tracked in `PLAN.md`:
+Planned, not implemented — tracked in [PLAN.md](PLAN.md):
 
 - Egress firewall on the agent network (`agent-net` is currently a plain
   Docker bridge) and network restriction on spawned MCP containers.
@@ -212,34 +212,34 @@ models/     weights (exl3) of the model and multimodal projector served by
 
 ## Documentation
 
-- `docs/architecture/inference-backend.md` — TabbyAPI, image
+- [docs/architecture/inference-backend.md](docs/architecture/inference-backend.md) — TabbyAPI, image
   conversion, adaptive thinking.
-- `docs/architecture/autonomy.md` — plan → act → verify → replan loop
+- [docs/architecture/autonomy.md](docs/architecture/autonomy.md) — plan → act → verify → replan loop
   ("cognitive core" Phase 1), supplementary OCR.
-- `docs/architecture/tool-supervision.md` — human approval, reversibility
+- [docs/architecture/tool-supervision.md](docs/architecture/tool-supervision.md) — human approval, reversibility
   tiers, session grants, audit log.
-- `docs/architecture/observability.md` — dashboard, data persistence.
-- `docs/operations/testing.md` — per-service test suites, SSE streaming.
-- `docs/operations/runbook.md` — rebuild/restart commands.
-- `docs/project-status.md` — progress status (changes at every checkpoint).
-- `docs/lessons-learned.md` — 42 engineering rules, each anchored to the
+- [docs/architecture/observability.md](docs/architecture/observability.md) — dashboard, data persistence.
+- [docs/operations/testing.md](docs/operations/testing.md) — per-service test suites, SSE streaming.
+- [docs/operations/runbook.md](docs/operations/runbook.md) — rebuild/restart commands.
+- [docs/project-status.md](docs/project-status.md) — progress status (changes at every checkpoint).
+- [docs/lessons-learned.md](docs/lessons-learned.md) — 42 engineering rules, each anchored to the
   incident and numbers that produced it.
-- `docs/methodology.md` — the six measurement principles behind those
+- [docs/methodology.md](docs/methodology.md) — the six measurement principles behind those
   rules (read once, not every session).
-- `PLAN.md` — roadmap (changes rarely, source of truth).
-- `docs/engineering-log.md` / `docs/resolved-bugs.md` — progress log and resolved bugs
-  (consult by targeted search, never read in full — see `CLAUDE.md`).
-- `docs/briefs/` — briefs for ongoing work.
+- [PLAN.md](PLAN.md) — roadmap (changes rarely, source of truth).
+- [docs/engineering-log.md](docs/engineering-log.md) / [docs/resolved-bugs.md](docs/resolved-bugs.md) — progress log and resolved bugs
+  (consult by targeted search, never read in full — see [CLAUDE.md](CLAUDE.md)).
+- [docs/briefs/](docs/briefs/) — briefs for ongoing work.
 
 ## Notes
 
 Long-form field reports, kept separate from the reference docs above because
 they are narrative and dated rather than current-state:
 
-- `docs/notes/llamacpp-dual-gpu.md` — six weeks debugging llama.cpp on two
+- [docs/notes/llamacpp-dual-gpu.md](docs/notes/llamacpp-dual-gpu.md) — six weeks debugging llama.cpp on two
   mismatched GPUs: build traps, a reasoning/tool-call parsing gap, and a
   cross-GPU crash diagnosis.
-- `docs/notes/agent-benchmarking.md` — what eleven measurement campaigns on
+- [docs/notes/agent-benchmarking.md](docs/notes/agent-benchmarking.md) — what eleven measurement campaigns on
   the autonomous agent taught us, and the four that regressed on purpose.
 
 ## Troubleshooting
@@ -251,7 +251,7 @@ they are narrative and dated rather than current-state:
   usually the biggest lever, well before switching quant. Pinning a manual
   `gpu_split` (per-model, per-machine, not a global setting) is a
   reproducibility choice for measurement, not a fix for insufficient VRAM
-  — see `docs/architecture/inference-backend.md`, "GPU split".
+  — see [docs/architecture/inference-backend.md](docs/architecture/inference-backend.md), "GPU split".
 
 ## Known, accepted limitations (design choices, not bugs)
 
@@ -268,12 +268,12 @@ they are narrative and dated rather than current-state:
   images leave no trace in `browser_snapshot`'s text for any after-the-
   fact heuristic to catch. Replaced by a tool-description routing hint on
   `browser_take_screenshot` instead (`mcp-client`, see
-  `docs/architecture/autonomy.md`) — the model reads a screenshot
+  [docs/architecture/autonomy.md](docs/architecture/autonomy.md)) — the model reads a screenshot
   directly rather than an OCR pass. `ocr-service` stays deployed as a
   standalone capability, kept for a possible future role, not currently
   wired into the agent loop.
 - **`playwright-mcp` (the "browser" server) has been a persistent HTTP
-  server since the fix documented in detail in `docs/resolved-bugs.md`** —
+  server since the fix documented in detail in [docs/resolved-bugs.md](docs/resolved-bugs.md)** —
   it used to be spawned as an ephemeral STDIO process
   (`docker run -i --rm mcp/playwright:latest` per call), losing all
   navigation state between two tool calls. The official image natively
@@ -286,7 +286,7 @@ they are narrative and dated rather than current-state:
   `services/mcp-client/app/main.py`), instead of reopening a fresh one
   every time as it does for the other servers.
 - **Shared download volume `agent-downloads`** (Phase 1d-revised, see
-  docs/engineering-log.md, T5): `playwright-mcp` keeps its `--isolated` browser
+  [docs/engineering-log.md](docs/engineering-log.md), T5): `playwright-mcp` keeps its `--isolated` browser
   profile (in memory, never persisted), but a download triggered on the
   page (a link/button with `Content-Disposition: attachment`) now lands in
   an EXPLICIT, shared path (`--output-dir=/downloads`, named volume
