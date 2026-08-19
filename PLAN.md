@@ -9,19 +9,20 @@ Phases 0–2 below are delivered (see `docs/project-status.md` for the
 detail). Phase 3 is superseded by `docs/briefs/security-hardening.md` and
 by benchmark v2's family C. Phase 4 (consolidation) survives as the final
 step. For everything past this point — sequencing, open efforts, what's
-missing — see `docs/briefs/update-plan.md`, the authoritative roadmap.
+missing — see `## Roadmap` below.
 
 ## Context
 
 The stack now serves Qwen3.6-27B EXL3 via TabbyAPI/ExLlamaV3 (dual-GPU,
 vision + MTP), the langgraph/langchain-openai/openai trio is migrated to
-1.x/2.x, and an MCP Playwright server is wired in alongside GhostDesk
-(removal decided — see `docs/briefs/update-plan.md` effort 3). Goal of
-this effort: move the agent from "executes approved actions" to
-"accomplishes multi-step web tasks autonomously", without weakening the
-existing security model (approval tiers). PromptGuard and an egress
-firewall do not exist yet — they are planned under
-`docs/briefs/security-hardening.md`, not part of the current stack.
+1.x/2.x, and an MCP Playwright server is wired in — GhostDesk has been
+fully removed (Roadmap effort 3): `browser_take_screenshot` covers every
+case that channel used to. Goal of this effort: move the agent from
+"executes approved actions" to "accomplishes multi-step web tasks
+autonomously", without weakening the existing security model (approval
+tiers). PromptGuard and an egress firewall do not exist yet — they are
+planned under `docs/briefs/security-hardening.md`, not part of the
+current stack.
 
 ## Phase 0 — The instrument first: TASK-level harness
 
@@ -104,9 +105,9 @@ In `app/graph.py`, without breaking the existing approval flow:
    explicit fallback (canvas, outside the browser, Playwright failure).
    **Superseded**: the visual-channel feasibility probe found nothing
    tested is lost without GhostDesk (`browser_take_screenshot` covers
-   canvas/WebGL/images/native PDF); the decision is removal, with
-   `ocr-service` kept but moved from a callable tool to a graph
-   capability — see `docs/briefs/update-plan.md` effort 3.
+   canvas/WebGL/images/native PDF); GhostDesk is removed, `ocr-service`
+   kept but moved from a callable tool to a graph capability — see
+   Roadmap effort 3 below.
 7. **Temporal awareness** (from the dedicated amendment):
    a. Date injection into the system prompt on EVERY request: DAY
       granularity (never the time — preserves the prefix cache), format
@@ -144,7 +145,7 @@ for this number to GO DOWN at equal or better control. 🧑 **Checkpoint.**
 **Not started as written.** Superseded by `docs/briefs/security-hardening.md`
 and by benchmark v2: point 4 below is stale (see correction after it).
 Kept for historical context; execution order and pass criteria now live
-in the security-hardening brief, per `docs/briefs/update-plan.md` effort 5.
+in the security-hardening brief (Roadmap effort 5).
 
 Extend the existing approval policy, without removing from it:
 
@@ -164,19 +165,120 @@ Extend the existing approval policy, without removing from it:
    is an UNTRUSTED INPUT; the plan was to add 2 trapped tasks to the
    Phase 0 suite (11 → 13 tasks). **Superseded**: benchmark v2's family C
    already covers injection and scope (C1/C2/C3), measured 9/9 at
-   baseline — see `docs/briefs/update-plan.md` effort 5, which also notes
-   this 9/9 leaves no progression margin for a security campaign and
-   requires a new hostile family (v2.1) first.
+   baseline — see Roadmap effort 5 below, which also notes this 9/9 leaves
+   no progression margin for a security campaign and requires a new
+   hostile family (v2.1) first.
 
 🧑 **Checkpoint: review the nature×tier matrix together before merging.**
 
 ## Phase 4 — Consolidation
 
-Final step, once the efforts in `docs/briefs/update-plan.md` land: replay
+Final step, once the Roadmap efforts below land: replay
 the current frozen suite (v2, not the stale "13 tasks" figure above), 3
 repetitions, record the phase-by-phase evolution table under
 `docs/campaigns/`. README: new "Autonomy" section (loop architecture, web
 tier policy, known and accepted limitations). 🧑 **Final checkpoint.**
+
+## Roadmap
+
+Everything past Phase 4, absorbed from `docs/briefs/update-plan.md`
+(archived — see `docs/briefs/archives/update-plan.md`) now that this
+section is the single authoritative source for sequencing and status.
+**Sequencing principle**: what makes every later measurement cheaper
+comes first; what may *remove* mechanisms comes before what improves
+them; what needs an instrument waits for the instrument. Full narrative
+and campaign numbers for every item below: `docs/project-status.md`
+(current state) and `docs/engineering-log.md` (entry-by-entry history).
+
+### Effort 1 — Make campaigns cheap (prerequisite to everything)
+
+1.1 (tool-schema weight audit) and 1.2 (remove/trim heavy unused MCP
+servers) — **done**. 1.3 (reopen parallel campaign execution) —
+**deferred**, quantified (×2.2–×3 expected gain), blocked on per-worker
+isolation (session reset, volume purge, distinct thread ids covering
+four known contamination incidents). Brief:
+`docs/briefs/effort-1.3-parallel-campaigns.md`.
+
+### Effort 2 — Factorial ablation of the cognitive-core flags
+
+**Closed.** Decisive cfg1-vs-cfg8 measurement: cfg1 (all four flags off)
+15/15 vs cfg8 (all on) 13/15 on the success judge, +76% cumulative time
+for essentially identical real work → defaults flipped to `false` for
+`PLANNER_ENABLED`/`VERIFICATION_ENABLED`/`PLAN_JUDGE_ENABLED`.
+`PLAN_VALIDATION_ENABLED` kept `true` (safety-value exception, no LLM
+call — de facto inert without a planner, see `docs/project-status.md`).
+A fifth "merged planning" condition was tried and dropped: it engaged on
+one task family but never revised a plan mid-task, so it had nothing to
+demonstrate. Full v2 campaign confirms no family regressed, family A
+materially improved. Removal PR: defaults-to-`false` done; deleting the
+now flag-gated-dead code (`plan_task`/`verify_action`/the judge, their
+directives and tests) is **not done**.
+
+### Effort 3 — GhostDesk removal
+
+**Closed.** GhostDesk fully removed (container, image, volume, secrets).
+`browser_take_screenshot` covers every case it used to (canvas, WebGL,
+images, native PDF) — the feasibility probe found nothing tested is
+lost. `ocr-service` kept as a graph capability, not a callable tool; a
+proactive-trigger design was tried and **abandoned, not implemented** —
+empirically falsified (`browser_snapshot`'s text carries no detectable
+canvas/WebGL/alt-less-image signal). Replaced by a routing hint on
+`browser_take_screenshot`'s own tool description. Live-verified: E1 3/3,
+E2 2/3 (a vision-reading limit, not a routing defect), E3 3/3.
+
+### Effort 4 — Scaffolding improvements
+
+Brief: `docs/briefs/scaffolding-optimisation.md`. Diff-based observation
+history: built, live-measured, result mixed/within noise on short tasks
+— flag stays off, a longer task is the natural next candidate if
+revisited. Coarse-grained actions: `browser_click`/`browser_navigate`
+now return the resulting page state in their own response (closed,
+live-verified, turns and tokens both down on the two tasks measured);
+bulk `browser_extract` adoption closed as a non-problem (already
+adopted, the "never chosen" premise was itself an audit-log blind spot
+— `docs/resolved-bugs.md` #52); a form-filling composite tool is
+shelved, no measured bottleneck.
+
+### Effort 5 — Security
+
+Brief: `docs/briefs/security-hardening.md`. Gated on a working
+instrument: benchmark v2's family C already measures 9/9 at baseline, so
+a new hostile family (v2.1: indirect/multi-step injection, a
+canary-token task) must ship first — a perfect score leaves no
+progression margin to demonstrate an improvement against. **Not
+started.**
+
+### Effort 6 — Unblocking and session persistence
+
+Brief: `docs/briefs/unblocking-and-session.md`, committed. Worth doing
+only if usage frequency justifies it — currently one task blocked across
+the whole v2 suite. **Not started.**
+
+### Effort 7 — Quantisation evaluation
+
+Brief: `docs/briefs/quantisation-evaluation.md`. Gated on a stable
+baseline, sequenced last. **Not started.**
+
+### Effort 8 — Visual-only navigation mode
+
+A `VISUAL_NAVIGATION_ONLY` mode (capture + OCR only, no DOM/accessibility
+tree, coordinate-based interaction) — kept separate from effort 3
+deliberately: effort 3 redistributes a capability, this would create a
+whole operating mode with its own action space. Prerequisites: effort 3
+(done) and effort 1 (campaigns cheap enough to afford a second
+reference — not yet). **Not started.**
+
+### Backlog (not sequenced into an effort above)
+
+- **External calibration**: one held-out WebArena run via BrowserGym,
+  never done — no current signal on whether ten-plus campaigns of tuning
+  against the same fixtures has caused overfitting to them.
+- **Campaign control** (`docs/briefs/archives/campaign-control.md`) never
+  verified end-to-end against a real live campaign — unit-level only.
+- **Multi-agent / sub-agent tool**: discussed as a context-boundary
+  mechanism (a single parameterised READ-tier tool, own budget,
+  closed-question outputs only), no brief yet — belongs in the Mjolnir
+  folder arbitration below, not a separate effort.
 
 ## Explicitly out of scope
 
@@ -185,9 +287,9 @@ tier policy, known and accepted limitations). 🧑 **Final checkpoint.**
   need, don't add it).
 - Agent authentication on real accounts, payments, captchas.
 - Multi-agent / parallel sub-agents (a single parameterised READ-tier tool
-  is discussed, not yet a brief — see `docs/briefs/update-plan.md`).
-- Any task requiring more than the current browser scope (GhostDesk
-  removal decided, see `docs/briefs/update-plan.md` effort 3).
+  is discussed, not yet a brief — see the Roadmap backlog below).
+- Any task requiring more than the current browser scope (GhostDesk is
+  removed — see Roadmap effort 3).
 
 ## Deferred architecture effort: Mjolnir folder (second model)
 
