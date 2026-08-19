@@ -37,6 +37,22 @@ Forty-two engineering rules, each with the incident and the numbers that
 produced it — including the one where we measured that our own cognitive
 core did nothing: [docs/lessons-learned.md](docs/lessons-learned.md).
 
+## Requirements
+
+- **NVIDIA GPU(s), ~19 GB combined VRAM** for the shipped config (Qwen3.6-27B,
+  EXL3 3.50bpw, vision on, `cache_size: 65536`) — weights alone are ~14.3 GB.
+  `gpu_split_auto: true` (the shipped default) spreads this across however
+  many GPUs are present; a single 16 GB card does **not** fit the shipped
+  config as-is.
+- **Fits on one 16 GB card** only with vision disabled and a much smaller
+  `cache_size` (e.g. 8192) — see
+  [docs/architecture/inference-backend.md](docs/architecture/inference-backend.md),
+  "GPU split", and [Troubleshooting](#troubleshooting) below if you're short
+  on VRAM.
+- **Tested on**: RTX 4070 Ti Super + RTX 5060 Ti (16 GB each, dual-GPU).
+  Other GPU counts/models should work through `gpu_split_auto` but are
+  unverified — report back if you try one.
+
 ## Quick start
 
 ```bash
