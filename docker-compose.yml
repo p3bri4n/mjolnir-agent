@@ -577,6 +577,36 @@ services:
     networks:
       - agent-net
 
+  # ──────────────────────────────────────────────────────────────
+  # Demo recording (scripts/record-demo.sh, docs/briefs/readme-rework.md
+  # point 2): styled DUPLICATES of fixture-catalog/fixture-admin above,
+  # not the benchmark fixtures themselves -- those are frozen and hashed
+  # (see their own HASHES.txt), never touched for a cosmetic purpose.
+  # These live under scripts/demo/fixtures/, are never hashed, and only
+  # exist to look good on camera. Dedicated profile: never run with the
+  # rest of the stack or with --profile test-fixtures.
+  #   docker compose --profile demo up -d fixture-demo-catalog fixture-demo-admin
+  # ──────────────────────────────────────────────────────────────
+  fixture-demo-catalog:
+    build: ./scripts/demo/fixtures/catalog
+    container_name: fixture-demo-catalog
+    profiles: ["demo"]
+    networks:
+      - agent-net
+
+  fixture-demo-admin:
+    build: ./scripts/demo/fixtures/admin
+    container_name: fixture-demo-admin
+    profiles: ["demo"]
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=3)\" || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - agent-net
+
 networks:
   agent-net:
     driver: bridge
