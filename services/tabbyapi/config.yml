@@ -59,28 +59,11 @@ model:
   vision: true
   tool_format: qwen3_coder
   reasoning: true
-  # Shipped default: autosplit. A visitor's GPU count/VRAM/bus order is
-  # unknown ahead of time — a hardcoded manual split tuned to one specific
-  # pair of cards would be wrong (and possibly OOM) on anyone else's
-  # hardware (docs/briefs/readme-rework.md, point 5).
-  #
-  # Manual split is an OPTIONAL override for reproducible measurement
-  # (docs/briefs/archives/deterministic-gpu-placement.md): this project's own
-  # dev hardware runs `gpu_split_auto: false` / `gpu_split: [5, 14]`,
-  # indexed by device index and therefore dependent on
-  # CUDA_DEVICE_ORDER=PCI_BUS_ID (docker-compose.yml, service tabbyapi) —
-  # index 0 = RTX 5060 Ti (bus 04:00.0, 16311 MiB), index 1 = RTX 4070 Ti
-  # SUPER (bus 08:00.0, 16376 MiB, drives the display). Total footprint
-  # observed ~18.5 GiB (14131+4424 MiB under autosplit) — 14 GB on the
-  # 4070 Ti SUPER (~2.4 GiB margin on the display-driving card), the rest
-  # (5 GB) on the 5060 Ti (ample margin, no display on it). Verified in the
-  # installed image's backends/exllamav3/model.py: gpu_split_auto is
-  # ignored whenever gpu_split is non-empty (~line 277), and
-  # autosplit_reserve (96 MiB/GPU by default) is forced to None as soon as
-  # a manual split is given (~line 275) — no margin is added automatically
-  # once you opt into a manual split, all of it is in the two values
-  # themselves. Set `gpu_split_auto: false` and `gpu_split: [5, 14]` (or
-  # your own values) to reproduce that measurement setup.
+  # Shipped default: autosplit, works on any GPU count/VRAM/bus order.
+  # gpu_split is a per-model, per-machine value (VRAM footprint changes
+  # with the quant) — set your own in a local, untracked override rather
+  # than editing this file: docs/architecture/inference-backend.md, "GPU
+  # split".
   gpu_split_auto: true
   gpu_split: []
 
