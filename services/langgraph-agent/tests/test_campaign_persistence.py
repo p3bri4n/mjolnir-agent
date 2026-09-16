@@ -204,8 +204,14 @@ def test_collect_metadata_includes_gpu_devices(monkeypatch):
 # ─────────────────────────────────────────────────────────────────────────
 
 _SAMPLE_LOG_LINE = (
-    "12 tokens generated in 0.5 seconds (Queue: 0.0 s, Process: 100 cached tokens "
-    "and 50 new tokens at 200.0 T/s)"
+    "#1 chat/completions: 12 tokens generated at 24.0 T/s · prompt 150 tokens, "
+    "100 cached, 50 new in 0.25 s · first token 0.25 s, total 0.75 s"
+)
+
+_SAMPLE_LOG_LINE_WITH_MTP = (
+    "#1 chat/completions: 234 tokens generated at 61.8 T/s · prompt 36 tokens, "
+    "none cached, 36 new in 0.12 s · first token 0.12 s, total 3.91 s · "
+    "draft 163/284 accepted (57%)"
 )
 
 
@@ -223,11 +229,30 @@ def test_collect_tabbyapi_raw_samples_parses_each_request(monkeypatch):
     assert samples[0] == {
         "tokens_generated": 12,
         "generation_seconds": 0.5,
-        "queue_seconds": 0.0,
+        "queue_seconds": None,
         "cached_tokens": 100,
         "new_tokens": 50,
         "process_speed_tps": 200.0,
+        "draft_accepted": None,
+        "draft_total": None,
     }
+
+
+def test_collect_tabbyapi_raw_samples_captures_mtp_draft_acceptance(monkeypatch):
+    class _Result:
+        returncode = 0
+        stdout = _SAMPLE_LOG_LINE_WITH_MTP
+        stderr = ""
+
+    monkeypatch.setattr(cp.subprocess, "run", lambda *a, **k: _Result())
+    samples = cp.collect_tabbyapi_raw_samples(
+        datetime(2026, 1, 1, tzinfo=timezone.utc), datetime(2026, 1, 1, 0, 1, tzinfo=timezone.utc)
+    )
+    assert len(samples) == 1
+    assert samples[0]["draft_accepted"] == 163
+    assert samples[0]["draft_total"] == 284
+    assert samples[0]["cached_tokens"] == 0
+    assert samples[0]["process_speed_tps"] == 300.0
 
 
 def test_collect_tabbyapi_raw_samples_empty_on_docker_failure(monkeypatch):
