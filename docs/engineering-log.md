@@ -105,6 +105,7 @@ for jumping to a specific entry.
 - **2026-09-16** — [Qwen3.8-27B evaluation, Phase 0 CLOSED — production Dockerfile bumped, model directory incident, regression smoke clean](#qwen38-27b-evaluation-phase-0-closed-production-dockerfile-bumped-model-directory-incident-regression-smoke-clean)
 - **2026-09-16** — [Qwen3.8-27B evaluation, Phase 1 CLOSED — ADAPTIVE_THINKING migration, mechanistic proof clean](#qwen38-27b-evaluation-phase-1-closed-adaptive_thinking-migration-mechanistic-proof-clean)
 - **2026-09-16** — [Qwen3.8-27B evaluation, Phase 2 partial — staged VRAM measurement, tool-calling sanity check](#qwen38-27b-evaluation-phase-2-partial-staged-vram-measurement-tool-calling-sanity-check)
+- **2026-09-16** — [Qwen3.8-27B evaluation, Phase 2 CLOSED — throughput with/without MTP, cold-vs-warm found to matter more than MTP itself on the first read](#qwen38-27b-evaluation-phase-2-closed-throughput-withwithout-mtp-cold-vs-warm-found-to-matter-more-than-mtp-itself-on-the-first-read)
 
 ---
 
@@ -6742,3 +6743,69 @@ brief — are not yet measured.
 
 **Decision**: 🧑 Checkpoint — record now, continue to throughput/MTP
 acceptance measurement in a follow-up session.
+
+## Qwen3.8-27B evaluation, Phase 2 CLOSED — throughput with/without MTP, cold-vs-warm found to matter more than MTP itself on the first read
+
+**Context**: completing Phase 2 of `docs/briefs/qwen3.8-27b-evaluation.md`
+— raw prefill/decode throughput and MTP acceptance rate, single variable
+(same fixed prompt, only `draft_model` toggled),
+`scripts/probe-qwen38-throughput-mtp.sh`.
+
+**Real log-format bug found and fixed along the way, twice**:
+1. The actual per-request log line on this exllamav3 1.5.0 build is
+   structurally different from what
+   `tests_integration/campaign_persistence.py`'s `_TABBY_METRICS_RE`
+   expects (`"X tokens generated in Y seconds (Queue: ..."`). Real
+   format: `"#1 chat/completions: N tokens generated at X T/s · prompt P
+   tokens, [C cached|none cached], W new in Y s · first token F s, total
+   T s [· draft A/D accepted (P%)]"` — this project's own production
+   measurement tooling has been silently matching **zero** requests on
+   every campaign since the Phase 0 image bump (the `tabbyapi_requests:
+   0` aggregate already printed, unremarked, during the Phase 1 smoke).
+   Not yet fixed in `campaign_persistence.py` itself — flagged as a
+   separate, higher-priority follow-up (production-facing, not specific
+   to this evaluation).
+2. `docker compose logs` prefixes EVERY wrapped terminal line with the
+   container name, including mid-message when the app's own logger wraps
+   a single log entry across several lines — first parsing attempt
+   normalized whitespace but left the prefix planted inside the text
+   (literally between "first" and "token"), breaking the match. Fixed
+   with `--no-log-prefix` on the parsing invocation only.
+
+**Cold vs. warm, the actual finding that mattered most**: the first
+request after ANY model load carries a large, one-time JIT-compilation
+tax — prefill 5.4–6.7 T/s cold vs. **300 T/s warm** (~50x), decode
+16.0–16.9 T/s cold vs. warm (see below). A same-container, no-reload
+second request removes it. The brief's own quantisation-evaluation
+sibling already warned "measure it, do not assume it" for throughput
+deltas; this cold/warm gap turned out to dominate the very question
+being asked.
+
+**Warm reading (the real with/without-MTP comparison)**:
+
+| | with MTP | without MTP |
+|---|---|---|
+| decode | **61.8 T/s** | **25.0 T/s** |
+| prefill | 300.0 T/s | 300.0 T/s (expected — MTP affects decode, not prefill) |
+| MTP acceptance | 57% (163/284, consistent cold and warm — `temperature=0`, greedy) | n/a |
+
+**Reading**: MTP gives a real **×2.47 decode speedup** on this build,
+consistent with its 57% acceptance rate. The COLD reading alone (16.9 vs
+16.2 T/s, ~flat) would have wrongly concluded MTP does nothing — it was
+measuring first-call JIT overhead, not MTP's effect. Single request per
+condition (warm) — no repetition, but the two conditions are otherwise
+identical (same prompt, `temperature=0`, greedy), and the direction is
+large enough not to hinge on run-to-run noise the way a few-percent delta
+would.
+
+**Verdict**: Phase 2 CLOSED. All four required measurements done: VRAM
+(previous entry), tool-calling sanity (previous entry, no crash), decode/
+prefill throughput with vs. without MTP (this entry), MTP acceptance
+rate (this entry, 57%).
+
+**Decision**: 🧑 Checkpoint before Phase 3 (the actual Qwen3.6-vs-Qwen3.8
+campaign, re-baselined on the upgraded stack — see the brief). Separately
+flagged, not yet actioned: `campaign_persistence.py`'s
+`_TABBY_METRICS_RE` needs the same log-format fix applied here, or every
+future production campaign's `prefill_seconds`/`tabbyapi_requests`
+judges stay silently zeroed.

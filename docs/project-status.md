@@ -852,7 +852,7 @@ leaking ~5 GiB from an earlier crashed load, a host-side audit-log fetch
 that could never reach `langgraph-agent`'s unpublished port) — full
 detail: `docs/engineering-log.md`, "Qwen3.8-27B evaluation, Phase 1".
 
-**Phase 2 PARTIAL.** VRAM measured staged (vision alone, +MTP,
+**Phase 2 CLOSED.** VRAM measured staged (vision alone, +MTP,
 +tool_format), all three loading cleanly: 14 787 MiB / 16 311 MiB on
 GPU 0 (~91%, only ~1.5 GiB free — autosplit put nearly the whole model
 there), 7 459 MiB / 16 376 MiB on GPU 1 (~45%). A hand-picked, more
@@ -861,9 +861,22 @@ result. Tool-calling sanity check (JSON-string-valued argument): no
 crash — contradicts the external "official templates crash" claim for
 this model/backend — but the model returned the value as a nested
 object rather than the JSON-string type the schema declared, a fidelity
-gap worth knowing about, not itself a blocker. Full detail:
-`docs/engineering-log.md`, "Qwen3.8-27B evaluation, Phase 2 partial".
+gap worth knowing about, not itself a blocker.
 
-🧑 **Not yet done**: raw throughput (prefill/decode tokens/s, with vs.
-without MTP) and MTP acceptance rate — both required by the brief before
-Phase 2 can close.
+**Throughput, with vs. without MTP** (warm reading — the first request
+after any load carries a large one-time JIT tax, ~50x on prefill alone,
+that dominated and inverted the first attempt's reading): **decode 61.8
+T/s with MTP vs. 25.0 T/s without — a real ×2.47 speedup**, consistent
+with MTP's 57% acceptance rate (163/284). Prefill identical either way
+(300 T/s), as expected. Full detail: `docs/engineering-log.md`,
+"Qwen3.8-27B evaluation, Phase 2" entries (partial + closed).
+
+**Separately flagged, not yet actioned**: this same session found
+`tests_integration/campaign_persistence.py`'s `_TABBY_METRICS_RE` no
+longer matches TabbyAPI's actual log format on the upgraded (Phase 0)
+image — every production campaign since that bump has silently recorded
+`tabbyapi_requests: 0`/`prefill_seconds: 0.0`. Production-facing, not
+specific to this evaluation; needs its own fix.
+
+🧑 Checkpoint before Phase 3 (the actual Qwen3.6-vs-Qwen3.8 campaign,
+re-baselined on the upgraded stack — see the brief).
