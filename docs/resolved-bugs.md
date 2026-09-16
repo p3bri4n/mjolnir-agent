@@ -374,3 +374,44 @@ Un test utilisait un monkeypatch global de `httpx.AsyncClient` pour simuler les 
 **Why it went unnoticed for a month**: no v2 campaign's preflight ran between `662bcba` (2026-08-19) and this smoke (2026-09-16) — the last campaign JSON in `docs/campaigns/` before this gap is dated 2026-08-12, predating the fix itself. This is the first live preflight run to exercise that specific comparison since the mismatch was introduced.
 
 **Fix**: `EXPECTED_AGENT_FLAGS["ADAPTIVE_THINKING"]` corrected to `"false"`, with a comment pointing at `662bcba` and this entry so the next reader sees why. No test in `tests/test_campaign_preflight.py` hardcodes this specific key's value, so nothing else needed updating. Full suite not re-run in this session (no `pytest` available in this environment) — verify on the next real run of `tests/test_campaign_preflight.py`.
+
+### 54. `services/langgraph-agent/tests_integration/campaign_persistence.py` (`_TABBY_METRICS_RE`) — stale log-format regex, every campaign since the Phase 0 image bump silently recorded zero TabbyAPI requests — CLOSED
+
+**Symptom, confirmed cause**: measuring Qwen3.8 throughput
+(`docs/briefs/qwen3.8-27b-evaluation.md`, Phase 2) required parsing
+TabbyAPI's own per-request log line directly, which surfaced that the
+real format on `exllamav3 1.5.0` (`"#1 chat/completions: N tokens
+generated at X T/s · prompt P tokens, [C cached|none cached], W new in Y
+s · first token F s, total T s [· draft A/D accepted (P%)]"`) is
+structurally different from what `_TABBY_METRICS_RE` expected (`"N
+tokens generated in Y seconds (Queue: Z s, Process: ...)"`). The old
+regex has matched **zero** requests on every campaign run since
+`services/tabbyapi/Dockerfile`'s digest was bumped for the Qwen3.8
+evaluation's Phase 0 — `tabbyapi_requests: 0`/`prefill_seconds: 0.0` was
+already visibly printed during the Phase 1 adaptive-thinking smoke in
+this same session, unremarked at the time.
+
+**Fix**: `_TABBY_METRICS_RE` rewritten to match the real format.
+`generation_seconds` now derived as `total - first_token` (the old
+format reported decode duration directly; the new one only reports a
+rate and separate total/first-token timestamps).  `process_speed_tps`
+(prefill) derived as `new_tokens / prefill_seconds` — same effective
+metric as before, computed from what the new format actually exposes.
+`queue_seconds` is now `None`, not `0.0`: this format doesn't expose a
+queue figure at all, and a bare `0.0` would have read as a genuine
+measured zero instead of "not available". New fields
+`draft_accepted`/`draft_total` capture MTP's acceptance rate, previously
+never persisted, `None` on any sample where MTP didn't fire.
+`aggregate_prefill_stats` needed no change — it only reads
+`cached_tokens`/`new_tokens`/`process_speed_tps`, all still present with
+the same meaning. `tests/test_campaign_persistence.py` updated (new
+fixture log lines, one with an MTP draft clause); full suite 492 → 493
+passed, 0 regressions.
+
+**Not yet done**: no archive re-analysis — this fix only affects
+requests logged from here on; every already-archived campaign JSON
+between the image bump and this fix keeps its `tabbyapi_requests: 0`
+blind spot, per this project's own "archives first" discipline (past
+data isn't retroactively rewritten). Any campaign run between the Phase
+0 image bump and this fix should be treated as missing its TabbyAPI
+throughput judge, not as having measured a real zero.

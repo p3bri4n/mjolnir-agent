@@ -871,12 +871,16 @@ with MTP's 57% acceptance rate (163/284). Prefill identical either way
 (300 T/s), as expected. Full detail: `docs/engineering-log.md`,
 "Qwen3.8-27B evaluation, Phase 2" entries (partial + closed).
 
-**Separately flagged, not yet actioned**: this same session found
-`tests_integration/campaign_persistence.py`'s `_TABBY_METRICS_RE` no
-longer matches TabbyAPI's actual log format on the upgraded (Phase 0)
-image — every production campaign since that bump has silently recorded
-`tabbyapi_requests: 0`/`prefill_seconds: 0.0`. Production-facing, not
-specific to this evaluation; needs its own fix.
+**Separately flagged issue FIXED**: `tests_integration/campaign_persistence.py`'s
+`_TABBY_METRICS_RE` no longer matched TabbyAPI's actual log format on the
+upgraded (Phase 0) image — every production campaign since that bump had
+silently recorded `tabbyapi_requests: 0`/`prefill_seconds: 0.0`. Regex
+rewritten to match the real format, `queue_seconds` now `None` (not a
+false `0.0`, this format doesn't expose it), new `draft_accepted`/
+`draft_total` fields capture MTP's acceptance rate. Full suite 492 → 493
+passed. Every campaign JSON between the image bump and this fix keeps its
+blind spot (archives not retroactively rewritten) — see
+`docs/resolved-bugs.md` #54.
 
 **Explicit `gpu_split: [10, 13]` adopted for the PoC**, replacing
 autosplit (~91% full on GPU 0, only ~1.5 GiB free, and documented
