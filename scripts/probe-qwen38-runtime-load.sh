@@ -17,10 +17,20 @@
 # Uses the existing isolated PoC (poc/qwen3.8/, container
 # qwen38-tabbyapi, port 5001, added 2026-08-19, commit aa5f96c) — does
 # NOT touch services/tabbyapi/*, docker-compose.yml, or the production
-# `tabbyapi` container. That PoC config has vision/MTP/tool_format
-# disabled — this script only clears Phase 0's gate (does the codebook
-# decode correctly at all); Phase 2's static measurements (VRAM, MTP,
-# tool-calling) need those re-enabled separately, later.
+# `tabbyapi` container. poc/qwen3.8/Dockerfile applies the same
+# python3-dev patch as services/tabbyapi/Dockerfile (gated_delta_net's
+# Triton JIT compile, same architecture family, see that file's comment)
+# on top of the digest this brief resolved live — a first run without
+# this patch timed out with neither a load confirmation nor a recognized
+# error string in the logs, because the stock image lacks the patch and
+# this script's failure detection didn't cover that error text; fixed
+# here on both sides (build the patched image, AND never tear down
+# without dumping the logs first).
+#
+# That PoC config has vision/MTP/tool_format disabled — this script only
+# clears Phase 0's gate (does the codebook decode correctly at all);
+# Phase 2's static measurements (VRAM, MTP, tool-calling) need those
+# re-enabled separately, later.
 #
 # Usage: bash scripts/probe-qwen38-runtime-load.sh
 
@@ -32,6 +42,8 @@ POC_DIR="$PROJECT_DIR/poc/qwen3.8"
 
 MIN_EXLLAMAV3_MAJOR=1
 MIN_EXLLAMAV3_MINOR=4
+LOAD_TIMEOUT_SECONDS=600
+POLL_INTERVAL_SECONDS=5
 
 if [ ! -d "$POC_DIR" ]; then
   echo "Expected $POC_DIR — the PoC compose/config this script drives. Not found." >&2
@@ -58,44 +70,56 @@ EOF
   fi
 fi
 
-echo "=== Pulling ghcr.io/theroyallab/tabbyapi:latest ==="
-docker compose pull tabbyapi
-
-IMAGE_DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/theroyallab/tabbyapi:latest 2>/dev/null || echo "unknown")"
-echo "Resolved image: $IMAGE_DIGEST"
-echo "(this is 'latest' resolved NOW — not reproducible by name alone; record this exact digest, not the tag, if you act on this result)"
+BASE_DIGEST="$(grep -m1 '^FROM' Dockerfile | awk '{print $2}')"
+echo "=== Building the patched image (python3-dev on top of $BASE_DIGEST) ==="
+docker compose build --pull tabbyapi
 
 echo
 echo "=== Starting the isolated PoC container (qwen38-tabbyapi, port 5001) ==="
 docker compose up -d --force-recreate tabbyapi
 
+LOAD_CONFIRMED=false
 cleanup() {
+  echo
+  echo "=== Last 120 log lines (captured before teardown, whatever the outcome) ==="
+  docker compose logs tabbyapi 2>/dev/null | tail -120
   echo
   echo "=== Tearing down the isolated PoC container ==="
   docker compose down
+  if [ "$LOAD_CONFIRMED" != "true" ]; then
+    echo
+    echo "Run did NOT reach a confirmed clean load — see the log tail above for the" >&2
+    echo "actual reason (this script no longer discards it on timeout/failure)." >&2
+  fi
 }
 trap cleanup EXIT
 
 echo
-echo "=== Waiting for a load outcome (timeout 300s) ==="
+echo "=== Waiting for a load outcome (timeout ${LOAD_TIMEOUT_SECONDS}s) ==="
 waited=0
-timeout=300
-interval=5
-until docker compose logs tabbyapi 2>/dev/null | grep -qE "Model successfully loaded|Traceback|CUDA out of memory|CUDA error"; do
-  if (( waited >= timeout )); then
-    echo "TIMEOUT waiting for a load outcome — inspect manually:" >&2
-    echo "  cd $POC_DIR && docker compose logs tabbyapi" >&2
+until docker compose logs tabbyapi 2>/dev/null \
+  | grep -qE "Model successfully loaded|Traceback|CUDA out of memory|CUDA error|fatal error|Segmentation fault|Exception"; do
+  if ! docker compose ps --status running --services 2>/dev/null | grep -qx tabbyapi; then
+    echo "Container exited before reaching a recognized log outcome — treating as a failure." >&2
     exit 1
   fi
-  sleep "$interval"
-  waited=$((waited + interval))
+  if (( waited >= LOAD_TIMEOUT_SECONDS )); then
+    echo "TIMEOUT — no load confirmation and no recognized error string after ${LOAD_TIMEOUT_SECONDS}s." >&2
+    echo "Log tail follows (see below); if it's still visibly progressing (reading" >&2
+    echo "safetensors, allocating cache), just raise LOAD_TIMEOUT_SECONDS and re-run —" >&2
+    echo "this mount may simply be slow for a first, cold read of a ~15GB model." >&2
+    exit 1
+  fi
+  sleep "$POLL_INTERVAL_SECONDS"
+  waited=$((waited + POLL_INTERVAL_SECONDS))
 done
 
-if docker compose logs tabbyapi 2>/dev/null | grep -qE "Traceback|CUDA out of memory|CUDA error"; then
-  echo "LOAD FAILED — see the log tail below." >&2
-  echo "This is the SAFE failure mode the brief expects if the runtime is still" >&2
-  echo "too old for this architecture. Do NOT proceed to Phase 1 on this result." >&2
-  docker compose logs tabbyapi | tail -60
+if docker compose logs tabbyapi 2>/dev/null \
+  | grep -qE "Traceback|CUDA out of memory|CUDA error|fatal error|Segmentation fault|Exception"; then
+  echo "LOAD FAILED — see the log tail below (also printed again on teardown)." >&2
+  echo "If this is a CUDA/codebook-shaped error: that is the SAFE failure mode the" >&2
+  echo "brief expects if the runtime is still wrong for this architecture/quant." >&2
+  echo "Do NOT proceed to Phase 1 on this result." >&2
   exit 1
 fi
 
@@ -131,16 +155,16 @@ else
   exit 1
 fi
 
+LOAD_CONFIRMED=true
+
 echo
 echo "=== Next steps (manual, per docs/briefs/qwen3.8-27b-evaluation.md, Phase 0) ==="
-echo "1. Record in docs/engineering-log.md: this triplet, and image digest:"
-echo "     $IMAGE_DIGEST"
-echo "2. Bump services/tabbyapi/Dockerfile's pinned digest to the value above"
-echo "   (or a tag you deliberately choose to track instead of a moving 'latest')."
-echo "3. Re-check whether the python3-dev JIT patch in that Dockerfile is still"
-echo "   needed on the new base image — do not assume it carries over."
-echo "4. docker compose build tabbyapi && docker compose up -d --force-recreate tabbyapi"
-echo "5. Run the standard A1/A2 smoke on the CURRENT Qwen3.6 production model on"
+echo "1. Record in docs/engineering-log.md: this triplet, and base image digest:"
+echo "     $BASE_DIGEST"
+echo "2. Bump services/tabbyapi/Dockerfile's pinned digest to the value above."
+echo "3. docker compose build tabbyapi && docker compose up -d --force-recreate tabbyapi"
+echo "   (from the project root, not this poc/ directory)."
+echo "4. Run the standard A1/A2 smoke on the CURRENT Qwen3.6 production model on"
 echo "   this new image BEFORE loading the 3.8 weights into production — isolates"
 echo "   the image-upgrade effect from the model-swap effect (Phase 0, step 3)."
 echo
