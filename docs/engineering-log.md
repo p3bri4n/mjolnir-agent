@@ -106,6 +106,7 @@ for jumping to a specific entry.
 - **2026-09-16** — [Qwen3.8-27B evaluation, Phase 1 CLOSED — ADAPTIVE_THINKING migration, mechanistic proof clean](#qwen38-27b-evaluation-phase-1-closed-adaptive_thinking-migration-mechanistic-proof-clean)
 - **2026-09-16** — [Qwen3.8-27B evaluation, Phase 2 partial — staged VRAM measurement, tool-calling sanity check](#qwen38-27b-evaluation-phase-2-partial-staged-vram-measurement-tool-calling-sanity-check)
 - **2026-09-16** — [Qwen3.8-27B evaluation, Phase 2 CLOSED — throughput with/without MTP, cold-vs-warm found to matter more than MTP itself on the first read](#qwen38-27b-evaluation-phase-2-closed-throughput-withwithout-mtp-cold-vs-warm-found-to-matter-more-than-mtp-itself-on-the-first-read)
+- **2026-09-16** — [Qwen3.8-27B evaluation — explicit gpu_split adopted, verified stable across 3 reloads](#qwen38-27b-evaluation-explicit-gpu_split-adopted-verified-stable-across-3-reloads)
 
 ---
 
@@ -6809,3 +6810,45 @@ flagged, not yet actioned: `campaign_persistence.py`'s
 `_TABBY_METRICS_RE` needs the same log-format fix applied here, or every
 future production campaign's `prefill_seconds`/`tabbyapi_requests`
 judges stay silently zeroed.
+
+## Qwen3.8-27B evaluation — explicit gpu_split adopted, verified stable across 3 reloads
+
+**Context**: Phase 2's autosplit result put ~91% of GPU 0's capacity in
+use (14 787/16 311 MiB, only ~1.5 GiB free) vs. ~45% on GPU 1 — too thin
+a margin for a multi-task, multi-repetition campaign, and autosplit
+itself is documented as unstable for reproducible placement
+(`docs/briefs/archive/deterministic-gpu-placement.md`, the exact reason
+production uses an explicit `gpu_split` instead). Same method used to
+originally derive production's own `[5, 14]`: measure with autosplit
+first, then hand-pick and verify an explicit split.
+
+**Margin target reasoned from first principles** (no existing house
+rule found): ~10-15% of each card's capacity free, ~1.5-2 GiB on these
+~16.3 GiB cards — covers CUDA context overhead, allocator fragmentation,
+and per-request transient buffers (vision tensors). Grounded in this
+project's own prior incident: a documented ~822 MiB margin was flagged
+as insufficient (`services/tabbyapi/config.yml`'s own historical
+comment, "largement inférieur au besoin réel de la tour vision").
+`cache_size` is a fixed pool pre-allocated at load, not something that
+grows with conversation length, so the margin only needs to cover
+runtime variance, not context growth.
+
+**Candidate `gpu_split: [10, 13]` verified**
+(`scripts/probe-qwen38-explicit-split-stability.sh`, 3 reloads):
+
+| | GPU 0 | GPU 1 |
+|---|---|---|
+| readings (MiB) | 10991, 10991, 10991 | 10909, 11011, 10951 |
+| spread | 0 MiB | 102 MiB (noise) |
+| worst-case free | ~5.3 GiB | ~5.4 GiB |
+
+Both far more comfortable than the ~1.5-2 GiB target, and — the more
+important result — GPU 0 landed on the exact same byte count all three
+times, a direct, positive contrast with autosplit's own documented
+instability.
+
+**Decision**: `gpu_split: [10, 13]` adopted in `poc/qwen3.8/config.yml`
+(`gpu_split_auto: false`). Candidate for Phase 3's own config once that
+phase starts — not yet applied to production (`services/tabbyapi/
+config.yml` keeps its own `[5, 14]` for the current Qwen3.6 build,
+untouched).

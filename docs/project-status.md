@@ -878,5 +878,14 @@ image — every production campaign since that bump has silently recorded
 `tabbyapi_requests: 0`/`prefill_seconds: 0.0`. Production-facing, not
 specific to this evaluation; needs its own fix.
 
+**Explicit `gpu_split: [10, 13]` adopted for the PoC**, replacing
+autosplit (~91% full on GPU 0, only ~1.5 GiB free, and documented
+unstable for reproducible placement). Verified stable across 3 reloads:
+GPU 0 landed on the exact same 10 991 MiB every time, GPU 1 within
+102 MiB — ~5.3-5.4 GiB free on each card. Not yet applied to production
+(`services/tabbyapi/config.yml` keeps `[5, 14]` for the current Qwen3.6
+build). Full detail: `docs/engineering-log.md`, "Qwen3.8-27B evaluation
+— explicit gpu_split adopted".
+
 🧑 Checkpoint before Phase 3 (the actual Qwen3.6-vs-Qwen3.8 campaign,
 re-baselined on the upgraded stack — see the brief).
