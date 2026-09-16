@@ -112,7 +112,7 @@ req = urllib.request.Request(
 )
 with urllib.request.urlopen(req, timeout=60) as resp:
     body = json.loads(resp.read().decode())
-usage = body.get('usage', {})
+usage = body.get('usage') or {}
 print(f\"completion_tokens (usage): {usage.get('completion_tokens')}, prompt_tokens: {usage.get('prompt_tokens')}\")
 " || { echo "Request failed for $label" >&2; return 1; }
 
