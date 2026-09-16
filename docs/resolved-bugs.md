@@ -415,3 +415,47 @@ blind spot, per this project's own "archives first" discipline (past
 data isn't retroactively rewritten). Any campaign run between the Phase
 0 image bump and this fix should be treated as missing its TabbyAPI
 throughput judge, not as having measured a real zero.
+
+### 55. `services/langgraph-agent` (family E2, visual-only channel) — E2_visual_only regressed to 0/3 on both Phase 3 baseline campaigns, real behavior change from the documented post-fix state — OPEN, not yet diagnosed
+
+**Symptom, confirmed via the raw audit log (not just the campaign
+score)**: both Phase 3 baseline campaigns
+(`campaign-20260916T160905Z-qwen38-eval-phase3-baseline-qwen36.json`,
+`campaign-20260916T164143Z-qwen38-eval-phase3-baseline-qwen36-v2.json`)
+show `E2_visual_only` 0/3, 6/6 failures total. This is NOT the same
+failure signature as the last documented E2 state (`docs/engineering-log.md`,
+"PROBE VISUEL — SIGNAL BROWSER_SNAPSHOT": "all 3/3 E2 runs correctly
+called `browser_take_screenshot`... the one E2 failure is a genuine
+vision misread", i.e. the model reliably took the right action and
+sometimes misread the pixels). Checked each run's final text via the
+campaign JSON:
+- 1/6 runs (`87ee2f72d736fdae`, `beaecceaf38a9dfc`) did take a real
+  screenshot and misread the code (`2ae7ef14` vs. ground truth
+  `ZK-3392`) — consistent with the historical failure mode.
+- 5/6 runs never got that far: the model tried to read the PNG's text
+  content through non-visual tools instead — verbatim quotes from the
+  audit log: "I can't read image files with the filesystem tool", "I
+  can't easily decode base64 to binary", "I can't directly decode a PNG
+  image to extract text from it" — i.e. the routing reflex onto
+  `browser_take_screenshot` that Effort 3's fix (`_tool_description_with_appends`,
+  `services/mcp-client/app/main.py`) was built to produce is no longer
+  firing reliably.
+
+**Candidate cause, NOT confirmed**: the only change touching this path
+since the last documented 3/3 routing success is the `exllamav3`
+1.1.0 → 1.5.0 runtime bump (`services/tabbyapi/Dockerfile`, this same
+effort's Phase 0) — a major version jump that could plausibly affect
+image/vision-token handling or chat-template rendering in a way that
+degrades this specific reflex. Purely a temporal correlation, not yet
+tested in isolation (no A/B done between the two exllamav3 versions on
+this specific task).
+
+**Not yet done**: root-cause investigation (deliberately deferred, user
+decision, to not block Phase 3's Qwen3.6-vs-Qwen3.8 comparison — if the
+cause is the shared inference engine rather than either model, it
+affects both arms equally and doesn't invalidate that comparison, just
+sits as an orthogonal, pre-existing condition). Whoever picks this up:
+start from the audit log entries above (thread ids given), then
+consider re-running Effort 3's own `scripts/probe-visual-snapshot-signal.sh`-style
+isolated check against the current image before assuming the routing
+hint text itself regressed.

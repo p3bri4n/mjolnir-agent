@@ -894,7 +894,14 @@ build). Full detail: `docs/engineering-log.md`, "Qwen3.8-27B evaluation
 **Phase 3, Qwen3.6 baseline ESTABLISHED**
 (`qwen38-eval-phase3-baseline-qwen36-v2`): F 8/8, A 12/12, B CuP pattern
 consistent with history, C 9/9, D 5/6 (D1 2/3, one hallucination —
-natural n=3 variance, not a regression), E1/E3 3/3, E2 0/3. Real
+natural n=3 variance, not a regression), E1/E3 3/3, **E2 0/3 on BOTH
+baseline campaigns (6/6 failures) — a real behavior change from the
+last documented E2 state, not just noise: audit log shows 5/6 runs never
+even attempted `browser_take_screenshot`, trying to decode the PNG via
+non-visual tools instead ("I can't decode base64 to binary"). Deferred,
+user decision — see `docs/resolved-bugs.md` #55 — doesn't block Phase 3
+if the cause is the shared inference engine (affects both models
+equally).** Real
 TabbyAPI throughput data: 355 requests, 3,552,785 prompt tokens,
 403.3s prefill, zero cache-miss requests. A second, real
 `_TABBY_METRICS_RE` break was found and fixed along the way (this
