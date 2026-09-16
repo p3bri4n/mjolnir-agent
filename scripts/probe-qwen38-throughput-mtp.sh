@@ -128,23 +128,48 @@ print(f\"completion_tokens (usage): {usage.get('completion_tokens')}, prompt_tok
   docker compose logs --since "$before" --until "$after" tabbyapi 2>/dev/null | python3 -c "
 import re, sys
 
+# Real log format on exllamav3 1.5.0/tabbyAPI (found live — this is NOT
+# the format tests_integration/campaign_persistence.py's _TABBY_METRICS_RE
+# expects; that regex is now stale against production's own upgraded
+# image, see docs/resolved-bugs.md and the engineering log entry this
+# probe fed into):
+# '#1 chat/completions: 234 tokens generated at 16.9 T/s . prompt 36
+#  tokens, none cached, 36 new in 6.73 s . first token 6.73 s, total
+#  20.6 s . draft 163/284 accepted (57%)'
+# The trailing 'draft N/M accepted (P%)' clause is only present when MTP
+# is active — its absence IS the without-MTP signal, no separate flag
+# needed.
 text = re.sub(r'\s+', ' ', sys.stdin.read())
 pattern = re.compile(
-    r'(\d+) tokens generated in ([\d.]+) seconds \(Queue: ([\d.]+) s, Process: (\d+) cached tokens '
-    r'and (\d+) new tokens at ([\d.]+) T/s'
+    r'(\d+) tokens generated at ([\d.]+) T/s . prompt (\d+) tokens, '
+    r'(?:(\d+) cached|none cached), (\d+) new in ([\d.]+) s . '
+    r'first token ([\d.]+) s, total ([\d.]+) s'
+    r'(?: . draft (\d+)/(\d+) accepted \((\d+)%\))?'
 )
 matches = list(pattern.finditer(text))
 if not matches:
     print('No matching tabbyapi metrics line found in this window.')
     sys.exit(1)
 m = matches[-1]
-tokens_generated, generation_seconds, queue_seconds, cached, new, prefill_tps = (
-    int(m.group(1)), float(m.group(2)), float(m.group(3)), int(m.group(4)), int(m.group(5)), float(m.group(6))
-)
-decode_tps = tokens_generated / generation_seconds if generation_seconds > 0 else 0
-print(f'tokens_generated={tokens_generated} generation_seconds={generation_seconds}')
-print(f'decode_tps={decode_tps:.1f} T/s')
-print(f'prefill_tps={prefill_tps:.1f} T/s (cached={cached} new={new})')
+tokens_generated = int(m.group(1))
+decode_tps = float(m.group(2))
+prompt_tokens = int(m.group(3))
+cached = int(m.group(4)) if m.group(4) else 0
+new = int(m.group(5))
+prefill_seconds = float(m.group(6))
+first_token_s = float(m.group(7))
+total_s = float(m.group(8))
+prefill_tps = new / prefill_seconds if prefill_seconds > 0 else 0
+
+print(f'tokens_generated={tokens_generated} decode_tps={decode_tps:.1f} T/s')
+print(f'prompt_tokens={prompt_tokens} cached={cached} new={new} prefill_seconds={prefill_seconds}')
+print(f'prefill_tps={prefill_tps:.1f} T/s (computed: new/prefill_seconds)')
+print(f'first_token_s={first_token_s} total_s={total_s}')
+if m.group(9):
+    accepted, drafted, pct = int(m.group(9)), int(m.group(10)), int(m.group(11))
+    print(f'MTP acceptance: {accepted}/{drafted} accepted ({pct}%)')
+else:
+    print('MTP acceptance: n/a (no draft clause in this log line — MTP inactive this run)')
 "
 }
 
