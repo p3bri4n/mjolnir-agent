@@ -173,15 +173,22 @@ else:
 "
 }
 
-echo "=== Ensuring the PoC is up with the current staged config ==="
+echo "=== Ensuring the PoC is up with the current staged config (MTP on) ==="
+add_mtp
 docker compose up -d --force-recreate tabbyapi
 wait_for_load_or_fail || exit 1
 
 echo
 echo "=========================================="
-echo "=== RUN 1: WITH MTP (current config) ==="
+echo "=== WITH MTP: request 1/2 (cold — first call after load, JIT-contaminated) ==="
 echo "=========================================="
-send_and_measure "with-mtp"
+send_and_measure "with-mtp-cold"
+
+echo
+echo "=========================================="
+echo "=== WITH MTP: request 2/2 (warm — same container, no reload) ==="
+echo "=========================================="
+send_and_measure "with-mtp-warm"
 
 echo
 echo "=== Removing MTP, reloading with the SAME prompt ==="
@@ -191,11 +198,18 @@ wait_for_load_or_fail || exit 1
 
 echo
 echo "=========================================="
-echo "=== RUN 2: WITHOUT MTP ==="
+echo "=== WITHOUT MTP: request 1/2 (cold) ==="
 echo "=========================================="
-send_and_measure "without-mtp"
+send_and_measure "without-mtp-cold"
 
 echo
-echo "=== Done. Compare decode_tps/prefill_tps between the two runs above. ==="
+echo "=========================================="
+echo "=== WITHOUT MTP: request 2/2 (warm) ==="
+echo "=========================================="
+send_and_measure "without-mtp-warm"
+
+echo
+echo "=== Done. The *-warm readings are the fair with/without MTP comparison — ==="
+echo "the *-cold ones quantify the first-call JIT overhead itself, a separate finding."
 echo "Record the read in docs/engineering-log.md / docs/architecture/inference-backend.md."
 echo "Container left running — tear down when finished: cd $POC_DIR && docker compose down"
