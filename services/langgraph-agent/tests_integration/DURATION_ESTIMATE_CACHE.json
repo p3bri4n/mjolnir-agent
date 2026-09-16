@@ -2,117 +2,117 @@
   "_note": "Cache glissant d'ESTIMATION de dur\u00e9e, PAS un historique de campagnes : \"estimates\" est r\u00e9\u00e9crit (m\u00e9diane+plage fusionn\u00e9es) \u00e0 la fin de CHAQUE campagne, compl\u00e8te ou smoke \u2014 la valeur d'une t\u00e2che ne refl\u00e8te donc que la DERNI\u00c8RE campagne qui l'a mesur\u00e9e, jamais une s\u00e9rie dans le temps. Chaque entr\u00e9e est {median, min, max, n} sur les n r\u00e9p\u00e9titions de CETTE campagne (B2 Part 1.4, docs/briefs/B2-campaign-control.md \u2014 la plage sert l'ETA, jamais un point unique). Sert \u00e0 estimer la dur\u00e9e d'un prochain lancement avant de le d\u00e9marrer (scripts/run-campaign.sh). Pour un historique par campagne (thread_id, m\u00e9tadonn\u00e9es, m\u00e9triques par run), voir campaign-<timestamp>-<label>.json (campaign_persistence.py).",
   "estimates": {
     "A1_reconciliation_croisee": {
-      "max": 127.2,
-      "median": 127.2,
-      "min": 127.2,
-      "n": 1
+      "max": 89.6,
+      "median": 88.6,
+      "min": 77.5,
+      "n": 3
     },
     "A2_schema_references": {
-      "max": 58.2,
-      "median": 58.2,
-      "min": 58.2,
-      "n": 1
+      "max": 50.7,
+      "median": 47.8,
+      "min": 36.7,
+      "n": 3
     },
     "A3_contact_conges": {
-      "max": 96.5,
-      "median": 95.3,
-      "min": 48.0,
-      "n": 3
-    },
-    "A4_parcours_guide": {
-      "max": 116.5,
-      "median": 115.0,
-      "min": 104.0,
-      "n": 3
-    },
-    "B1_conge_easy": {
-      "max": 20.6,
-      "median": 20.0,
-      "min": 19.5,
-      "n": 3
-    },
-    "B1_conge_hard": {
-      "max": 203.0,
-      "median": 69.3,
-      "min": 42.0,
-      "n": 3
-    },
-    "B1_conge_medium": {
-      "max": 23.4,
-      "median": 23.3,
-      "min": 22.4,
-      "n": 3
-    },
-    "B2_stock_easy": {
-      "max": 14.5,
-      "median": 14.4,
-      "min": 13.3,
-      "n": 3
-    },
-    "B2_stock_hard": {
-      "max": 16.3,
-      "median": 15.7,
-      "min": 15.5,
-      "n": 3
-    },
-    "B2_stock_medium": {
-      "max": 17.0,
-      "median": 16.2,
-      "min": 14.3,
-      "n": 3
-    },
-    "C1_injection_extraction": {
-      "max": 9.8,
-      "median": 9.7,
-      "min": 6.4,
-      "n": 3
-    },
-    "C2_injection_engagement": {
-      "max": 14.8,
-      "median": 13.0,
-      "min": 12.7,
-      "n": 3
-    },
-    "C3_invitation_hors_perimetre": {
-      "max": 15.3,
+      "max": 13.7,
       "median": 13.4,
-      "min": 13.2,
-      "n": 3
-    },
-    "D1_cible_inexistante": {
-      "max": 167.8,
-      "median": 147.9,
-      "min": 56.2,
-      "n": 3
-    },
-    "D2_sonde_peremption": {
-      "max": 14.0,
-      "median": 13.8,
-      "min": 12.8,
-      "n": 3
-    },
-    "E1_dom_only": {
-      "max": 15.7,
-      "median": 9.0,
-      "min": 8.0,
-      "n": 3
-    },
-    "E2_visual_only": {
-      "max": 29.1,
-      "median": 14.3,
       "min": 13.0,
       "n": 3
     },
+    "A4_parcours_guide": {
+      "max": 35.8,
+      "median": 35.0,
+      "min": 23.2,
+      "n": 3
+    },
+    "B1_conge_easy": {
+      "max": 22.7,
+      "median": 17.4,
+      "min": 16.2,
+      "n": 3
+    },
+    "B1_conge_hard": {
+      "max": 16.0,
+      "median": 15.9,
+      "min": 15.8,
+      "n": 3
+    },
+    "B1_conge_medium": {
+      "max": 16.4,
+      "median": 16.1,
+      "min": 15.8,
+      "n": 3
+    },
+    "B2_stock_easy": {
+      "max": 11.4,
+      "median": 11.1,
+      "min": 10.8,
+      "n": 3
+    },
+    "B2_stock_hard": {
+      "max": 11.5,
+      "median": 11.3,
+      "min": 11.2,
+      "n": 3
+    },
+    "B2_stock_medium": {
+      "max": 15.5,
+      "median": 11.3,
+      "min": 11.2,
+      "n": 3
+    },
+    "C1_injection_extraction": {
+      "max": 7.9,
+      "median": 7.5,
+      "min": 7.2,
+      "n": 3
+    },
+    "C2_injection_engagement": {
+      "max": 11.6,
+      "median": 9.5,
+      "min": 8.6,
+      "n": 3
+    },
+    "C3_invitation_hors_perimetre": {
+      "max": 10.5,
+      "median": 10.3,
+      "min": 10.1,
+      "n": 3
+    },
+    "D1_cible_inexistante": {
+      "max": 96.9,
+      "median": 76.4,
+      "min": 50.9,
+      "n": 3
+    },
+    "D2_sonde_peremption": {
+      "max": 19.3,
+      "median": 12.6,
+      "min": 11.7,
+      "n": 3
+    },
+    "E1_dom_only": {
+      "max": 7.3,
+      "median": 6.6,
+      "min": 6.6,
+      "n": 3
+    },
+    "E2_visual_only": {
+      "max": 119.1,
+      "median": 61.0,
+      "min": 34.8,
+      "n": 3
+    },
     "E3_routing_equivalence": {
-      "max": 8.1,
-      "median": 8.0,
-      "min": 7.9,
+      "max": 7.0,
+      "median": 6.9,
+      "min": 6.8,
       "n": 3
     },
     "T10_books_toscrape": {
-      "max": 86.3,
-      "median": 84.1,
-      "min": 81.9,
+      "max": 97.4,
+      "median": 83.2,
+      "min": 69.1,
       "n": 2
     },
     "T11_sonde_peremption": {
@@ -134,9 +134,9 @@
       "n": 3
     },
     "T3_tableau_dynamique": {
-      "max": 16.4,
-      "median": 14.0,
-      "min": 11.6,
+      "max": 9.5,
+      "median": 9.2,
+      "min": 9.0,
       "n": 2
     },
     "T4_recherche_multi_sauts": {
@@ -146,15 +146,15 @@
       "n": 3
     },
     "T5_telechargement_calcul": {
-      "max": 10.2,
-      "median": 9.9,
-      "min": 9.6,
+      "max": 9.6,
+      "median": 9.3,
+      "min": 9.0,
       "n": 2
     },
     "T6_session_authentifiee": {
-      "max": 14.9,
-      "median": 14.9,
-      "min": 14.9,
+      "max": 12.4,
+      "median": 12.2,
+      "min": 12.0,
       "n": 2
     },
     "T7_impossible_par_construction": {
