@@ -852,6 +852,18 @@ leaking ~5 GiB from an earlier crashed load, a host-side audit-log fetch
 that could never reach `langgraph-agent`'s unpublished port) — full
 detail: `docs/engineering-log.md`, "Qwen3.8-27B evaluation, Phase 1".
 
-🧑 **Checkpoint before Phase 2** (static measurements — VRAM, MTP
-acceptance, tool-calling sanity check with a JSON-string argument — see
-the brief).
+**Phase 2 PARTIAL.** VRAM measured staged (vision alone, +MTP,
++tool_format), all three loading cleanly: 14 787 MiB / 16 311 MiB on
+GPU 0 (~91%, only ~1.5 GiB free — autosplit put nearly the whole model
+there), 7 459 MiB / 16 376 MiB on GPU 1 (~45%). A hand-picked, more
+balanced split would give more headroom than reusing this autosplit
+result. Tool-calling sanity check (JSON-string-valued argument): no
+crash — contradicts the external "official templates crash" claim for
+this model/backend — but the model returned the value as a nested
+object rather than the JSON-string type the schema declared, a fidelity
+gap worth knowing about, not itself a blocker. Full detail:
+`docs/engineering-log.md`, "Qwen3.8-27B evaluation, Phase 2 partial".
+
+🧑 **Not yet done**: raw throughput (prefill/decode tokens/s, with vs.
+without MTP) and MTP acceptance rate — both required by the brief before
+Phase 2 can close.

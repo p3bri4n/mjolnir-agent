@@ -104,6 +104,7 @@ for jumping to a specific entry.
 - **2026-09-16** — [Qwen3.8-27B evaluation, Phase 0 — runtime upgrade probe: gate passed, two script bugs fixed along the way](#qwen38-27b-evaluation-phase-0-runtime-upgrade-probe-gate-passed-two-script-bugs-fixed-along-the-way)
 - **2026-09-16** — [Qwen3.8-27B evaluation, Phase 0 CLOSED — production Dockerfile bumped, model directory incident, regression smoke clean](#qwen38-27b-evaluation-phase-0-closed-production-dockerfile-bumped-model-directory-incident-regression-smoke-clean)
 - **2026-09-16** — [Qwen3.8-27B evaluation, Phase 1 CLOSED — ADAPTIVE_THINKING migration, mechanistic proof clean](#qwen38-27b-evaluation-phase-1-closed-adaptive_thinking-migration-mechanistic-proof-clean)
+- **2026-09-16** — [Qwen3.8-27B evaluation, Phase 2 partial — staged VRAM measurement, tool-calling sanity check](#qwen38-27b-evaluation-phase-2-partial-staged-vram-measurement-tool-calling-sanity-check)
 
 ---
 
@@ -6684,3 +6685,60 @@ measurements — VRAM, MTP acceptance, tool-calling sanity check with a
 JSON-string argument) and Phase 3 (the actual Qwen3.6-vs-Qwen3.8
 campaign, re-baselined on the now-upgraded stack). 🧑 Checkpoint before
 Phase 2.
+
+## Qwen3.8-27B evaluation, Phase 2 partial — staged VRAM measurement, tool-calling sanity check
+
+**Context**: Phase 2 of `docs/briefs/qwen3.8-27b-evaluation.md` measures
+VRAM footprint, throughput, MTP acceptance rate, and a tool-calling
+sanity check — staged one feature at a time
+(`scripts/probe-qwen38-staged-vram.sh`) rather than all at once, since
+production's own VRAM margin is documented as already thin with the
+CURRENT, lighter 3.50bpw build, and this 4.5bpw build is heavier.
+
+**Prerequisite found mid-session**: production `tabbyapi` and the
+isolated PoC cannot run concurrently — both reserve all GPUs, and their
+combined footprint (~19 GiB production + a comparable-or-larger PoC
+load) exceeds the 32.7 GiB combined budget across both cards. Production
+was stopped (`docker compose stop tabbyapi`) before this measurement;
+Phase 2 does not need it running.
+
+**VRAM, staged, autosplit (deliberately, for this discovery run only —
+see the script's own rationale)**:
+
+| Stage | GPU 0 (RTX 5060 Ti, 16 311 MiB) | GPU 1 (RTX 4070 Ti SUPER, 16 376 MiB) |
+|---|---|---|
+| vision alone | +14 790 MiB | +3 567 MiB |
+| + native MTP | ~0 (noise) | +2 799 MiB |
+| + tool_format | 0 | 0 |
+| **Total resident** | **14 787 MiB (~91%)** | **7 459 MiB (~45%)** |
+
+All three stages loaded cleanly, no OOM. `tool_format` costing exactly 0
+VRAM confirms it's purely a config string, as expected.
+
+**Reading**: autosplit put nearly the whole model on GPU 0, leaving only
+~1.5 GiB free there against ~8.9 GiB free on GPU 1 — a much more
+lopsided split than production's own hand-picked `[5, 14]` for the
+lighter 3.50bpw build. If this build proceeds to Phase 3, a hand-picked,
+better-balanced split (same method that originally produced production's
+own numbers — autosplit observation first, explicit split second) would
+leave more headroom than reusing this autosplit result as-is.
+
+**Tool-calling sanity check** (`save_note` tool, `metadata` declared
+`type: string`, prompted to pass a JSON-encoded string verbatim): **no
+crash** — directly contradicts the external "official Qwen3.8 templates
+crash on JSON-string tool arguments" claim, at least for this exact
+model/backend/prompt. Nuance found instead: the model returned
+`metadata` as a **nested JSON object**, not the JSON-encoded *string*
+requested and declared in the schema — a fidelity-to-declared-type gap,
+not a parser failure. Not yet checked whether any of this project's own
+real tool schemas rely on a string-typed parameter holding embedded
+JSON — the test tool here was synthetic, built for this probe, not
+drawn from the actual MCP tool catalog.
+
+**Verdict**: VRAM and tool-calling sanity both clear, no blocker found.
+Phase 2 NOT closed: raw throughput (prefill/decode tokens/s, with vs.
+without MTP) and MTP acceptance rate — both explicitly required by the
+brief — are not yet measured.
+
+**Decision**: 🧑 Checkpoint — record now, continue to throughput/MTP
+acceptance measurement in a follow-up session.
