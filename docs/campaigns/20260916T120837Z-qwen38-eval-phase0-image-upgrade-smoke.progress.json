@@ -1,0 +1,55 @@
+{
+  "active": [],
+  "campaign_id": "20260916T120837Z-qwen38-eval-phase0-image-upgrade-smoke",
+  "completed": [
+    {
+      "approvals": 3,
+      "cup": null,
+      "duration_s": 127.2,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A1_reconciliation_croisee",
+      "thread_id": "a9e71266b0b877e9",
+      "tool_calls": 15
+    },
+    {
+      "approvals": 2,
+      "cup": null,
+      "duration_s": 49.0,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A2_schema_references",
+      "thread_id": "21e7dcc70e89b0f2",
+      "tool_calls": 9
+    }
+  ],
+  "config_digest": "3f282ed12d71a2bf",
+  "current": null,
+  "label": "qwen38-eval-phase0-image-upgrade-smoke",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "A1_reconciliation_croisee"
+    },
+    {
+      "repetition": 1,
+      "task_id": "A2_schema_references"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-09-16T12:11:34.220902+00:00",
+      "index": 0,
+      "started_at": "2026-09-16T12:08:37.251430+00:00"
+    }
+  ],
+  "started_at": "2026-09-16T12:08:37.251430+00:00",
+  "total_runs": 2
+}
