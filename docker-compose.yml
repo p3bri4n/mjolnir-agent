@@ -50,17 +50,14 @@ services:
       # llama-server, dont le fork llama.cpp décode le WebP nativement — voir
       # tableau des bugs du README.
       - IMAGE_FORMAT_PASSTHROUGH=${IMAGE_FORMAT_PASSTHROUGH:-}
-      # Qwen3.6 raisonne par défaut sur chaque tour : coûteux pour une
-      # boucle rapide d'outils auto-approuvés. Injecte /no_think dans le
-      # system prompt quand tous les tool_calls du tour précédent sont
-      # auto-approuvés (voir approval_policy.py). CONFIRMED NO EFFECT ON
-      # THE DEFAULT TABBYAPI BACKEND (see the comment above
-      # PLANNER_MAX_TOKENS, app/graph.py) -- only llama-server/Ollama
-      # respect the "/no_think" prefix, and llama-server is no longer a
-      # runnable service in this compose file. Default false: was
-      # inconsistently true here while app/graph.py's own fallback reads
-      # false -- harmless in practice (no-op either way on TabbyAPI) but
-      # now aligned, not left as a live doc/code/deploy mismatch.
+      # Qwen models reason by default on every turn: costly for a fast
+      # auto-approved tool loop. Disables thinking for that one request
+      # (extra_body={"enable_thinking": False}, a real per-request
+      # TabbyAPI/ExLlamaV3 parameter) when all of the previous turn's
+      # tool_calls were auto-approved (see approval_policy.py,
+      # _should_suppress_thinking in app/graph.py). Migrated off an
+      # earlier `/no_think` text prefix, confirmed to have no effect on
+      # this backend — see docs/briefs/qwen3.8-27b-evaluation.md, Phase 1.
       - ADAPTIVE_THINKING=${ADAPTIVE_THINKING:-false}
       # Explicit plan (Phase 1 "cognitive core", Iteration 1 — see
       # docs/briefs/phase-1-coeur-cognitif.md). DEFAULT FLIPPED BACK TO
