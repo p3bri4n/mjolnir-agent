@@ -891,5 +891,21 @@ GPU 0 landed on the exact same 10 991 MiB every time, GPU 1 within
 build). Full detail: `docs/engineering-log.md`, "Qwen3.8-27B evaluation
 — explicit gpu_split adopted".
 
-🧑 Checkpoint before Phase 3 (the actual Qwen3.6-vs-Qwen3.8 campaign,
-re-baselined on the upgraded stack — see the brief).
+**Phase 3, Qwen3.6 baseline ESTABLISHED**
+(`qwen38-eval-phase3-baseline-qwen36-v2`): F 8/8, A 12/12, B CuP pattern
+consistent with history, C 9/9, D 5/6 (D1 2/3, one hallucination —
+natural n=3 variance, not a regression), E1/E3 3/3, E2 0/3. Real
+TabbyAPI throughput data: 355 requests, 3,552,785 prompt tokens,
+403.3s prefill, zero cache-miss requests. A second, real
+`_TABBY_METRICS_RE` break was found and fixed along the way (this
+session's own earlier fix matched zero real streaming/multi-turn
+requests — verified only against non-streaming probes; real traffic
+reports cache as a percentage with comma-separated numbers, neither
+handled — see `docs/engineering-log.md`, "Qwen3.8-27B evaluation, Phase
+3"). Two earlier baseline attempts (tabbyapi not running, then the
+pre-fix zero-samples run) stay archived, superseded.
+
+🧑 Checkpoint before switching production to Qwen3.8 (symlink repoint,
+`config.local.yml` gpu_split, `EXPECTED_GPU_DEVICES` update — prepared
+but deliberately not applied until the baseline above was confirmed
+valid) and running the identical suite.

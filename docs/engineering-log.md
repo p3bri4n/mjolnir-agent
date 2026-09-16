@@ -107,6 +107,7 @@ for jumping to a specific entry.
 - **2026-09-16** — [Qwen3.8-27B evaluation, Phase 2 partial — staged VRAM measurement, tool-calling sanity check](#qwen38-27b-evaluation-phase-2-partial-staged-vram-measurement-tool-calling-sanity-check)
 - **2026-09-16** — [Qwen3.8-27B evaluation, Phase 2 CLOSED — throughput with/without MTP, cold-vs-warm found to matter more than MTP itself on the first read](#qwen38-27b-evaluation-phase-2-closed-throughput-withwithout-mtp-cold-vs-warm-found-to-matter-more-than-mtp-itself-on-the-first-read)
 - **2026-09-16** — [Qwen3.8-27B evaluation — explicit gpu_split adopted, verified stable across 3 reloads](#qwen38-27b-evaluation-explicit-gpu_split-adopted-verified-stable-across-3-reloads)
+- **2026-09-16** — [Qwen3.8-27B evaluation, Phase 3 — Qwen3.6 baseline established, a second real _TABBY_METRICS_RE break found and fixed](#qwen38-27b-evaluation-phase-3-qwen36-baseline-established-a-second-real-_tabby_metrics_re-break-found-and-fixed)
 
 ---
 
@@ -6852,3 +6853,61 @@ instability.
 phase starts — not yet applied to production (`services/tabbyapi/
 config.yml` keeps its own `[5, 14]` for the current Qwen3.6 build,
 untouched).
+
+## Qwen3.8-27B evaluation, Phase 3 — Qwen3.6 baseline established, a second real _TABBY_METRICS_RE break found and fixed
+
+**Context**: Phase 3 of `docs/briefs/qwen3.8-27b-evaluation.md` requires
+re-establishing the Qwen3.6 baseline on the now-upgraded stack (image,
+`_should_suppress_thinking` migration) before touching Qwen3.8 — the
+brief's own single-variable discipline.
+
+**First baseline attempt** (`campaign-20260916T160905Z-qwen38-eval-phase3-baseline-qwen36.json`):
+production `tabbyapi` had been stopped earlier in the session (Phase 2's
+VRAM probing on the isolated PoC) and never restarted — preflight's
+`wait_for_llm_ready` correctly refused after 180s (no completion
+possible from a container that isn't running). Fixed by starting it
+(`docker compose up -d tabbyapi`) and re-running.
+
+**Second attempt, real bug surfacing**: the campaign passed (F 8/8, A
+12/12, B CuP pattern consistent with history, C 9/9, D 6/6, E1/E3 3/3,
+E2 0/3) but its own printed TabbyAPI aggregate showed
+`tabbyapi_requests: 0` — the SAME-SESSION `_TABBY_METRICS_RE` fix
+(`docs/resolved-bugs.md` #54) had itself been verified only against
+short, single-turn, non-streaming probe calls (Phase 2's throughput
+probes), never against real streaming, multi-turn, cache-hitting agent
+traffic. Real production log lines look structurally different: cache
+reported as a PERCENTAGE ("98% cached", never an absolute count or bare
+"none cached" alone), comma thousands separators on larger numbers
+("14,303 tokens"), and an optional parenthetical prefill-rate annotation
+("0.81 s (526 T/s)") the regex didn't expect. All three broke the match
+silently (zero exceptions, zero samples — exactly the same class of
+flattering zero the first fix was supposed to close).
+
+**Second fix**: `_TABBY_METRICS_RE` rewritten again against the user's
+real, pasted `docker logs tabbyapi` output (timestamps, wrapped lines,
+interleaved "parsed N tool call(s)" lines included) —
+`cached_tokens` now derived as `prompt_tokens - new_tokens` (both given
+as absolute counts) instead of parsed from the rounded percentage,
+sidestepping the percentage-vs-count question entirely. Verified
+end-to-end against the exact real log text before committing. Full
+suite 494 passed.
+
+**Third campaign, the valid baseline**
+(`campaign-20260916T164143Z-qwen38-eval-phase3-baseline-qwen36-v2.json`):
+same result profile as the second attempt, EXCEPT
+`D1_cible_inexistante` 2/3 (one hallucination) instead of 3/3 — natural
+task-level variance at n=3, already documented as a live possibility for
+this specific task, not a regression. TabbyAPI aggregate now real:
+`tabbyapi_requests: 355`, `prompt_tokens_total: 3,552,785`,
+`prefill_seconds: 403.3`, `cache_zero_requests: 0` (every request hit the
+cache to some degree — healthy).
+
+**Decision**: `qwen38-eval-phase3-baseline-qwen36-v2` is the OFFICIAL
+Qwen3.6 reference for Phase 3's comparison — complete data (score +
+TabbyAPI throughput). The first (no TabbyAPI data) and second (zero
+TabbyAPI data, pre-fix) attempts stay archived, superseded, not used for
+comparison. Next: switch production to Qwen3.8 (symlink repoint,
+`config.local.yml` gpu_split, `EXPECTED_GPU_DEVICES` update — all held
+until this baseline was confirmed valid, per the same discipline that
+caught the earlier premature edit this session) and run the identical
+suite.
