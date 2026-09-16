@@ -20,12 +20,16 @@
 # `tabbyapi` container. poc/qwen3.8/Dockerfile applies the same
 # python3-dev patch as services/tabbyapi/Dockerfile (gated_delta_net's
 # Triton JIT compile, same architecture family, see that file's comment)
-# on top of the digest this brief resolved live — a first run without
-# this patch timed out with neither a load confirmation nor a recognized
-# error string in the logs, because the stock image lacks the patch and
-# this script's failure detection didn't cover that error text; fixed
-# here on both sides (build the patched image, AND never tear down
-# without dumping the logs first).
+# on top of the digest this brief resolved live.
+#
+# History: a first run (stock image, no patch) timed out at 300s with no
+# recognized log outcome — fixed by adding the patch. A second run (this
+# script's previous revision, patched image) ALSO timed out at 600s
+# despite a genuinely clean load — the real log line is "Model loaded in
+# 35.9 s", not "Model successfully loaded" as this script assumed
+# (copied from a different, older TabbyAPI release's wording via
+# probe-cache-size-headroom.sh). Load is fast (~36s); the timeout exists
+# for a genuine hang, not as the expected path.
 #
 # That PoC config has vision/MTP/tool_format disabled — this script only
 # clears Phase 0's gate (does the codebook decode correctly at all);
@@ -42,7 +46,7 @@ POC_DIR="$PROJECT_DIR/poc/qwen3.8"
 
 MIN_EXLLAMAV3_MAJOR=1
 MIN_EXLLAMAV3_MINOR=4
-LOAD_TIMEOUT_SECONDS=600
+LOAD_TIMEOUT_SECONDS=180
 POLL_INTERVAL_SECONDS=5
 
 if [ ! -d "$POC_DIR" ]; then
@@ -98,16 +102,15 @@ echo
 echo "=== Waiting for a load outcome (timeout ${LOAD_TIMEOUT_SECONDS}s) ==="
 waited=0
 until docker compose logs tabbyapi 2>/dev/null \
-  | grep -qE "Model successfully loaded|Traceback|CUDA out of memory|CUDA error|fatal error|Segmentation fault|Exception"; do
+  | grep -qE "Model loaded in|Serving OAI API on|Traceback|CUDA out of memory|CUDA error|fatal error|Segmentation fault|Exception"; do
   if ! docker compose ps --status running --services 2>/dev/null | grep -qx tabbyapi; then
     echo "Container exited before reaching a recognized log outcome — treating as a failure." >&2
     exit 1
   fi
   if (( waited >= LOAD_TIMEOUT_SECONDS )); then
     echo "TIMEOUT — no load confirmation and no recognized error string after ${LOAD_TIMEOUT_SECONDS}s." >&2
-    echo "Log tail follows (see below); if it's still visibly progressing (reading" >&2
-    echo "safetensors, allocating cache), just raise LOAD_TIMEOUT_SECONDS and re-run —" >&2
-    echo "this mount may simply be slow for a first, cold read of a ~15GB model." >&2
+    echo "A clean load normally takes ~36s (measured) — this long a wait means either" >&2
+    echo "a genuine hang, or the log wording changed again: read the tail below." >&2
     exit 1
   fi
   sleep "$POLL_INTERVAL_SECONDS"
@@ -123,7 +126,7 @@ if docker compose logs tabbyapi 2>/dev/null \
   exit 1
 fi
 
-echo "Log shows 'Model successfully loaded'. Confirming via GET /v1/model..."
+echo "Log shows the model loaded. Confirming via GET /v1/model..."
 sleep 2
 curl -sf http://localhost:5001/v1/model || {
   echo "Model reported loaded but /v1/model didn't respond as expected — investigate before trusting this run." >&2
