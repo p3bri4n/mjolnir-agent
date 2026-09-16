@@ -19,7 +19,14 @@
 # (TIER_READ/TIER_REVERSIBLE), the exact shape needed for
 # ADAPTIVE_THINKING to fire more than once in one run.
 #
-# Only rebuilds/recreates langgraph-agent — tabbyapi/mcp-client untouched.
+# Only REBUILDS langgraph-agent (code changed there, nothing else) — but
+# `docker compose up -d langgraph-agent` still brings up any other
+# service in the project that wasn't already running (observed live: a
+# first attempt hit every container, tabbyapi included, going from
+# stopped to "Started"), so this waits on tabbyapi's own load
+# confirmation too, not just langgraph-agent's health endpoint — a first
+# run without this wait hit campaign_preflight's LLM-readiness check
+# timing out at 180s while tabbyapi was still loading.
 #
 # Usage: bash scripts/smoke-adaptive-thinking.sh
 
@@ -44,6 +51,23 @@ restore() {
   docker compose up -d --force-recreate langgraph-agent
 }
 trap restore EXIT
+
+echo "Waiting for tabbyapi to confirm a model load (may have been brought up as a side effect)..."
+waited=0
+until docker compose logs tabbyapi 2>/dev/null | tail -80 | grep -qE "Model loaded in|Serving OAI API on"; do
+  if docker compose logs tabbyapi 2>/dev/null | tail -80 | grep -qE "Traceback|CUDA out of memory|CUDA error|fatal error"; then
+    echo "tabbyapi failed to load — see the log tail below." >&2
+    docker compose logs tabbyapi | tail -60 >&2
+    exit 1
+  fi
+  if (( waited >= 180 )); then
+    echo "tabbyapi hasn't confirmed a load after 180s — see docker compose logs tabbyapi" >&2
+    exit 1
+  fi
+  sleep 5
+  waited=$((waited + 5))
+done
+echo "tabbyapi ready."
 
 echo "Waiting for langgraph-agent to be ready..."
 waited=0
