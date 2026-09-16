@@ -820,3 +820,23 @@ actions) now fully closed**: point 1 shipped and live-verified, point 2
 closed as a non-problem, point 3 (form-filling composite) shelved
 (not a measured bottleneck). No new composite tool built — the
 catalog did not grow, per the checkpoint decision's own point 4.
+
+## Qwen3.8-27B evaluation (`docs/briefs/qwen3.8-27b-evaluation.md`)
+
+**Phase 0 (runtime upgrade prerequisite) CLOSED.** exllamav3 bumped
+1.1.0 → 1.5.0 (`services/tabbyapi/Dockerfile`, digest verified in
+isolation first via `poc/qwen3.8/`), required for Qwen3.8's EXL3
+codebook version to decode correctly rather than silently mis-decode.
+Qwen3.6 regression smoke on the upgraded image: clean, A1/A2 1/1, no
+drift outside documented run-to-run noise. Two pre-existing, unrelated
+issues surfaced along the way and fixed: production's `agent-llm` model
+directory found empty (traced to 2026-08-19, unrelated to this effort,
+model redownloaded by the user) and a stale `ADAPTIVE_THINKING` preflight
+expectation dating to the same day (`docs/resolved-bugs.md` #53) — both
+had gone unnoticed for a month since no live v2 campaign ran in that
+window. Full detail: `docs/engineering-log.md`, "Qwen3.8-27B evaluation,
+Phase 0" entries.
+
+🧑 **Checkpoint before Phase 1** (migrating `ADAPTIVE_THINKING`/
+`NO_THINK_DIRECTIVE` off the confirmed-dead `/no_think` text prefix onto
+the real per-request `chat_template_kwargs` path — see the brief).

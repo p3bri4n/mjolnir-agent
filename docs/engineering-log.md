@@ -102,6 +102,7 @@ for jumping to a specific entry.
 - **2026-08-12** — [SCAFFOLDING 3.1, POINT 2 — CLOSED, PREMISE ALREADY FALSE](#scaffolding-31-point-2-closed-premise-already-false)
 - **2026-08-12** — [HISTORY-DIFF LIVE SMOKE — STALE IMAGE, THEN PREFLIGHT CORRECTLY REFUSED](#history-diff-live-smoke-stale-image-then-preflight-correctly-refused)
 - **2026-09-16** — [Qwen3.8-27B evaluation, Phase 0 — runtime upgrade probe: gate passed, two script bugs fixed along the way](#qwen38-27b-evaluation-phase-0-runtime-upgrade-probe-gate-passed-two-script-bugs-fixed-along-the-way)
+- **2026-09-16** — [Qwen3.8-27B evaluation, Phase 0 CLOSED — production Dockerfile bumped, model directory incident, regression smoke clean](#qwen38-27b-evaluation-phase-0-closed-production-dockerfile-bumped-model-directory-incident-regression-smoke-clean)
 
 ---
 
@@ -6562,3 +6563,57 @@ value above, then run the standard A1/A2 smoke on the CURRENT production
 Qwen3.6 model on the upgraded image BEFORE loading the 3.8 weights into
 production — isolates the image-upgrade effect from the model-swap
 effect. 🧑 Checkpoint before that step, per the brief.
+
+## Qwen3.8-27B evaluation, Phase 0 CLOSED — production Dockerfile bumped, model directory incident, regression smoke clean
+
+**Context**: continuing from the isolated-PoC gate above (exllamav3 1.5.0,
+clean load), the remaining Phase 0 steps per
+`docs/briefs/qwen3.8-27b-evaluation.md`: bump the production
+`services/tabbyapi/Dockerfile`'s pinned digest, then confirm the CURRENT
+Qwen3.6 production model still loads and performs correctly on the new
+image, isolating the image-upgrade effect from the model-swap effect.
+
+**Production Dockerfile bumped** (commit `a284aee`): digest updated to
+`ghcr.io/theroyallab/tabbyapi@sha256:10bfcf9d27d1b3a5c7ada786f814b9da43fadad35643362f2fe0816082893172`,
+the same one verified in isolation.
+
+**Unrelated incident found mid-smoke: production's `agent-llm` model
+directory was empty**. `FileNotFoundError: /models/agent-llm/config.json`
+on the first recreate attempt — traced to filesystem timestamps
+(`agent-llm` touched 26s before `qwen3.6-27b-exl3-5.00bpw` was created,
+2026-08-19), not to anything in this session: most likely `agent-llm`
+was cleared while preparing the 5.0bpw/Qwen3.8 downloads that same day
+and never restored. User confirmed: the symlink was broken and the
+original Qwen3.6 3.50bpw build had been accidentally deleted. Re-acquired
+by the user (redownload) outside this session — not a code or
+infrastructure fix, recorded here only because it blocked this Phase 0
+step and explains the gap. No live v2 campaign exists in
+`docs/campaigns/` between 2026-08-12 and this session, meaning this
+directory's state was untested for over a month.
+
+**Second, real bug found via the resulting preflight failure**: see
+`docs/resolved-bugs.md` #53 — `EXPECTED_AGENT_FLAGS["ADAPTIVE_THINKING"]`
+stale at `"true"` since `662bcba` fixed the actual default to `"false"`
+without updating this dict. Fixed (commit `2069949`). Same "no live
+campaign ran in the gap" root cause as the model-directory incident above
+— both were latent for a month, both surfaced by the same live smoke.
+
+**Regression smoke, clean** (`campaign-20260916T120837Z-qwen38-eval-phase0-image-upgrade-smoke.json`):
+Qwen3.6 / `agent-llm` unchanged, only the image upgraded.
+- A1_reconciliation_croisee: 1/1, 127.2s (historical baseline ~97-115s —
+  within the already-documented ±10-30s run-to-run variance)
+- A2_schema_references: 1/1, 49.0s (historical baseline ~40-50s)
+- `env_flags.ADAPTIVE_THINKING`: `false`, confirmed applied
+- `metadata.image_ids.tabbyapi`: `sha256:2f3741089a48c92...`, matches the
+  manifest actually exported by this build — not a stale image
+- GPU placement: ~6 GiB / 13.4 GiB across the two cards, consistent with
+  `gpu_split: [5, 14]`
+
+**Verdict**: no regression from the image upgrade alone. Phase 0 is now
+fully closed — all four of its steps are done (isolated gate, production
+digest bump, real triplet recorded, Qwen3.6 regression smoke clean).
+
+**Decision**: 🧑 Checkpoint per the brief — before Phase 1 (migrating
+`ADAPTIVE_THINKING`/`NO_THINK_DIRECTIVE` off the confirmed-dead
+`/no_think` text prefix onto the real per-request `chat_template_kwargs`
+path), awaiting the go-ahead.
