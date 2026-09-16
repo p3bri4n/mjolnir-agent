@@ -125,7 +125,7 @@ print(f\"completion_tokens (usage): {usage.get('completion_tokens')}, prompt_tok
 
   echo
   echo "--- Parsed metrics ($label) ---"
-  docker compose logs --since "$before" --until "$after" tabbyapi 2>/dev/null | python3 -c "
+  docker compose logs --no-log-prefix --since "$before" --until "$after" tabbyapi 2>/dev/null | python3 -c "
 import re, sys
 
 # Real log format on exllamav3 1.5.0/tabbyAPI (found live — this is NOT
