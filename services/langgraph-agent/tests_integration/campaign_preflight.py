@@ -102,7 +102,11 @@ EXPECTED_AGENT_FLAGS = {
     "PLAN_VALIDATION_ENABLED": "true",
     "PLAN_JUDGE_ENABLED": "false",
     "PLANNING_MODE": "nodes",
-    "ADAPTIVE_THINKING": "true",
+    # Stale since 662bcba (2026-08-19) fixed docker-compose.yml's own
+    # default from "true" to "false" to match app/graph.py's actual
+    # Python-level default — this dict was never updated to match, see
+    # docs/resolved-bugs.md #53.
+    "ADAPTIVE_THINKING": "false",
     "MAX_IMAGES_IN_CONTEXT": "1",
     "IMAGE_FORMAT_PASSTHROUGH": "",
     "IMAGE_TOKEN_ESTIMATE": "1500",
