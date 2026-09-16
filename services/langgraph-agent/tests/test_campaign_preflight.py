@@ -17,12 +17,12 @@ from tests_integration import campaign_preflight as preflight
 # from EXPECTED_GPU_DEVICES itself, which is the expected SPEC (no
 # memory_used_mib key), not a shape of what nvidia-smi actually reports.
 _OK_GPU_DEVICES = [
-    {"index": 0, "name": "NVIDIA GeForce RTX 5060 Ti", "bus_id": "00000000:04:00.0", "memory_used_mib": 6052.0},
+    {"index": 0, "name": "NVIDIA GeForce RTX 5060 Ti", "bus_id": "00000000:04:00.0", "memory_used_mib": 10991.0},
     {
         "index": 1,
         "name": "NVIDIA GeForce RTX 4070 Ti SUPER",
         "bus_id": "00000000:08:00.0",
-        "memory_used_mib": 12616.0,
+        "memory_used_mib": 10970.0,
     },
 ]
 
@@ -121,7 +121,7 @@ def test_check_device_placement_ok_when_within_tolerance():
 
 
 def test_check_device_placement_flags_missing_device():
-    devices = [preflight.EXPECTED_GPU_DEVICES[0] | {"memory_used_mib": 5 * 1024}]
+    devices = [preflight.EXPECTED_GPU_DEVICES[0] | {"memory_used_mib": 10 * 1024}]
     error = preflight.check_device_placement(devices)
     assert error is not None
     assert "carte absente" in error
@@ -130,8 +130,8 @@ def test_check_device_placement_flags_missing_device():
 
 def test_check_device_placement_flags_wrong_identity():
     devices = [
-        {"index": 0, "name": "NVIDIA GeForce RTX 5060 Ti", "bus_id": "00000000:04:00.0", "memory_used_mib": 5 * 1024},
-        {"index": 1, "name": "NVIDIA GeForce RTX 4070 Ti SUPER", "bus_id": "00000000:04:00.0", "memory_used_mib": 14 * 1024},
+        {"index": 0, "name": "NVIDIA GeForce RTX 5060 Ti", "bus_id": "00000000:04:00.0", "memory_used_mib": 10 * 1024},
+        {"index": 1, "name": "NVIDIA GeForce RTX 4070 Ti SUPER", "bus_id": "00000000:04:00.0", "memory_used_mib": 13 * 1024},
     ]
     error = preflight.check_device_placement(devices)
     assert error is not None
