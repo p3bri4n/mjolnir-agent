@@ -248,24 +248,43 @@ def collect_metadata(label: str, repo_dir: Optional[Path] = None) -> dict:
 
 
 # Format changed on exllamav3 1.5.0/tabbyAPI (found live, docs/briefs/
-# qwen3.8-27b-evaluation.md, Phase 2): the old "(Queue: Z s, Process: ...)"
-# shape stopped matching anything the day the pinned image was bumped
-# (services/tabbyapi/Dockerfile) — every campaign since then silently
-# recorded tabbyapi_requests=0 (a flattering zero CLAUDE.md's own
-# trigger-rate rule exists to catch, missed here because this specific
-# counter predates that rule). Real current example: "#1
-# chat/completions: 234 tokens generated at 16.9 T/s . prompt 36 tokens,
-# none cached, 36 new in 6.73 s . first token 6.73 s, total 20.6 s .
-# draft 163/284 accepted (57%)" — the trailing "draft" clause only
-# appears when MTP is active. No "Queue: Z s" figure is exposed by this
-# format at all (queue_seconds becomes None, not 0.0 — that would falsely
-# read as a measured zero).
+# qwen3.8-27b-evaluation.md, Phase 2/3): the old "(Queue: Z s, Process:
+# ...)" shape stopped matching anything the day the pinned image was
+# bumped (services/tabbyapi/Dockerfile) — every campaign since then
+# silently recorded tabbyapi_requests=0 (a flattering zero CLAUDE.md's
+# own trigger-rate rule exists to catch, missed here because this
+# specific counter predates that rule).
+#
+# A FIRST fix (this same effort) was itself wrong in production: it was
+# verified only against short, single-turn, non-streaming probe calls,
+# which never exercise prompt caching — real multi-turn agent traffic
+# (streaming, via bound_llm.astream()) looks structurally different and
+# that first fix's regex matched zero real requests too (see
+# docs/resolved-bugs.md #54's follow-up). Real streaming example, cache
+# hit, comma thousands separators, and the optional parenthetical
+# prefill-rate annotation all present:
+#   "#325 chat/completions (stream): 136 tokens generated at 67.5 T/s .
+#    prompt 14,303 tokens, 98% cached, 223 new in 0.39 s . first token
+#    0.43 s, total 2.44 s . draft 95/164 accepted (58%)"
+# Cache is reported as a PERCENTAGE ("98% cached") or "none cached" —
+# never an absolute count — so cached_tokens is derived as
+# prompt_tokens - new_tokens (both given as absolute counts) rather than
+# parsed from the rounded percentage. The "(stream)" tag and an optional
+# preceding "parsed N tool call(s) (qwen3_coder)" line are both ignored:
+# neither sits inside the pattern this regex actually matches. No
+# "Queue: Z s" figure is exposed by this format at all (queue_seconds is
+# None, not 0.0 — that would falsely read as a measured zero).
+_TABBY_NUM = r"[\d,]+"
 _TABBY_METRICS_RE = re.compile(
-    r"(\d+) tokens generated at ([\d.]+) T/s . prompt (\d+) tokens, "
-    r"(?:(\d+) cached|none cached), (\d+) new in ([\d.]+) s . "
-    r"first token ([\d.]+) s, total ([\d.]+) s"
-    r"(?: . draft (\d+)/(\d+) accepted \(\d+%\))?"
+    rf"({_TABBY_NUM}) tokens generated at ([\d.]+) T/s . prompt ({_TABBY_NUM}) tokens, "
+    rf"(?:{_TABBY_NUM}% cached|none cached), ({_TABBY_NUM}) new in ([\d.]+) s"
+    rf"(?: \({_TABBY_NUM} T/s\))? . first token ([\d.]+) s, total ([\d.]+) s"
+    rf"(?: . draft ({_TABBY_NUM})/({_TABBY_NUM}) accepted \(\d+%\))?"
 )
+
+
+def _tabby_int(value: str) -> int:
+    return int(value.replace(",", ""))
 
 
 def collect_tabbyapi_raw_samples(since_dt: datetime, until_dt: datetime, container: str = TABBYAPI_CONTAINER) -> list:
@@ -288,19 +307,20 @@ def collect_tabbyapi_raw_samples(since_dt: datetime, until_dt: datetime, contain
     normalized = re.sub(r"\s+", " ", text)
     samples = []
     for m in _TABBY_METRICS_RE.finditer(normalized):
-        prefill_seconds = float(m.group(6))
-        new_tokens = int(m.group(5))
-        generation_seconds = max(float(m.group(8)) - float(m.group(7)), 0.0)
+        prompt_tokens = _tabby_int(m.group(3))
+        new_tokens = _tabby_int(m.group(4))
+        prefill_seconds = float(m.group(5))
+        generation_seconds = max(float(m.group(7)) - float(m.group(6)), 0.0)
         samples.append(
             {
-                "tokens_generated": int(m.group(1)),
+                "tokens_generated": _tabby_int(m.group(1)),
                 "generation_seconds": round(generation_seconds, 4),
                 "queue_seconds": None,
-                "cached_tokens": int(m.group(4)) if m.group(4) else 0,
+                "cached_tokens": max(prompt_tokens - new_tokens, 0),
                 "new_tokens": new_tokens,
                 "process_speed_tps": round(new_tokens / prefill_seconds, 2) if prefill_seconds > 0 else 0.0,
-                "draft_accepted": int(m.group(9)) if m.group(9) else None,
-                "draft_total": int(m.group(10)) if m.group(10) else None,
+                "draft_accepted": int(m.group(8)) if m.group(8) else None,
+                "draft_total": int(m.group(9)) if m.group(9) else None,
             }
         )
     return samples

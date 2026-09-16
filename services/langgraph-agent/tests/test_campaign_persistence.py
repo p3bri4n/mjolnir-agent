@@ -203,15 +203,34 @@ def test_collect_metadata_includes_gpu_devices(monkeypatch):
 # Échantillons TabbyAPI bruts (regex sur docker logs) + agrégat dérivé
 # ─────────────────────────────────────────────────────────────────────────
 
+# Real production log lines (docs/briefs/qwen3.8-27b-evaluation.md, Phase
+# 3 baseline campaign — the FIRST fix, verified only against short,
+# non-streaming, no-cache probe calls, matched zero real requests: real
+# streaming/multi-turn traffic reports cache as a PERCENTAGE, uses comma
+# thousands separators, and sometimes adds a parenthetical prefill-rate
+# annotation, none of which the first regex handled — see
+# docs/resolved-bugs.md #54's follow-up).
 _SAMPLE_LOG_LINE = (
-    "#1 chat/completions: 12 tokens generated at 24.0 T/s · prompt 150 tokens, "
-    "100 cached, 50 new in 0.25 s · first token 0.25 s, total 0.75 s"
+    "#325 chat/completions (stream): 136 tokens generated at 67.5 T/s · "
+    "prompt 14,303 tokens, 98% cached, 223 new in 0.39 s · first token "
+    "0.43 s, total 2.44 s · draft 95/164 accepted (58%)"
 )
 
-_SAMPLE_LOG_LINE_WITH_MTP = (
-    "#1 chat/completions: 234 tokens generated at 61.8 T/s · prompt 36 tokens, "
-    "none cached, 36 new in 0.12 s · first token 0.12 s, total 3.91 s · "
-    "draft 163/284 accepted (57%)"
+# Same shape, with the optional parenthetical prefill-rate annotation
+# ("(526 T/s)") that only appears on some requests.
+_SAMPLE_LOG_LINE_WITH_RATE_ANNOTATION = (
+    "#326 chat/completions (stream): 160 tokens generated at 63.9 T/s · "
+    "prompt 14,506 tokens, 97% cached, 426 new in 0.81 s (526 T/s) · "
+    "first token 0.85 s, total 3.36 s · draft 109/204 accepted (53%)"
+)
+
+# Synthetic (production always has MTP configured, so a real "no draft
+# clause" line isn't available to lift verbatim) — exercises the
+# optional draft group correctly resolving to None when MTP doesn't fire.
+_SAMPLE_LOG_LINE_NO_MTP = (
+    "#1 chat/completions (stream): 12 tokens generated at 24.0 T/s · "
+    "prompt 150 tokens, none cached, 50 new in 0.25 s · first token "
+    "0.25 s, total 0.75 s"
 )
 
 
@@ -227,21 +246,21 @@ def test_collect_tabbyapi_raw_samples_parses_each_request(monkeypatch):
     )
     assert len(samples) == 2
     assert samples[0] == {
-        "tokens_generated": 12,
-        "generation_seconds": 0.5,
+        "tokens_generated": 136,
+        "generation_seconds": 2.01,
         "queue_seconds": None,
-        "cached_tokens": 100,
-        "new_tokens": 50,
-        "process_speed_tps": 200.0,
-        "draft_accepted": None,
-        "draft_total": None,
+        "cached_tokens": 14080,
+        "new_tokens": 223,
+        "process_speed_tps": 571.79,
+        "draft_accepted": 95,
+        "draft_total": 164,
     }
 
 
-def test_collect_tabbyapi_raw_samples_captures_mtp_draft_acceptance(monkeypatch):
+def test_collect_tabbyapi_raw_samples_handles_comma_numbers_and_rate_annotation(monkeypatch):
     class _Result:
         returncode = 0
-        stdout = _SAMPLE_LOG_LINE_WITH_MTP
+        stdout = _SAMPLE_LOG_LINE_WITH_RATE_ANNOTATION
         stderr = ""
 
     monkeypatch.setattr(cp.subprocess, "run", lambda *a, **k: _Result())
@@ -249,10 +268,27 @@ def test_collect_tabbyapi_raw_samples_captures_mtp_draft_acceptance(monkeypatch)
         datetime(2026, 1, 1, tzinfo=timezone.utc), datetime(2026, 1, 1, 0, 1, tzinfo=timezone.utc)
     )
     assert len(samples) == 1
-    assert samples[0]["draft_accepted"] == 163
-    assert samples[0]["draft_total"] == 284
-    assert samples[0]["cached_tokens"] == 0
-    assert samples[0]["process_speed_tps"] == 300.0
+    assert samples[0]["cached_tokens"] == 14080
+    assert samples[0]["new_tokens"] == 426
+    assert samples[0]["draft_accepted"] == 109
+    assert samples[0]["draft_total"] == 204
+
+
+def test_collect_tabbyapi_raw_samples_no_draft_clause_when_mtp_inactive(monkeypatch):
+    class _Result:
+        returncode = 0
+        stdout = _SAMPLE_LOG_LINE_NO_MTP
+        stderr = ""
+
+    monkeypatch.setattr(cp.subprocess, "run", lambda *a, **k: _Result())
+    samples = cp.collect_tabbyapi_raw_samples(
+        datetime(2026, 1, 1, tzinfo=timezone.utc), datetime(2026, 1, 1, 0, 1, tzinfo=timezone.utc)
+    )
+    assert len(samples) == 1
+    assert samples[0]["draft_accepted"] is None
+    assert samples[0]["draft_total"] is None
+    assert samples[0]["cached_tokens"] == 100
+    assert samples[0]["process_speed_tps"] == 200.0
 
 
 def test_collect_tabbyapi_raw_samples_empty_on_docker_failure(monkeypatch):
