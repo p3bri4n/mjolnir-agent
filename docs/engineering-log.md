@@ -101,6 +101,7 @@ for jumping to a specific entry.
 - **2026-08-12** — [SCAFFOLDING 3.1, POINT 1 — BROWSER_CLICK/NAVIGATE RETURN RESULTING PAGE STATE, BUILT](#scaffolding-31-point-1-browser_clicknavigate-return-resulting-page-state-built)
 - **2026-08-12** — [SCAFFOLDING 3.1, POINT 2 — CLOSED, PREMISE ALREADY FALSE](#scaffolding-31-point-2-closed-premise-already-false)
 - **2026-08-12** — [HISTORY-DIFF LIVE SMOKE — STALE IMAGE, THEN PREFLIGHT CORRECTLY REFUSED](#history-diff-live-smoke-stale-image-then-preflight-correctly-refused)
+- **2026-09-16** — [Qwen3.8-27B evaluation, Phase 0 — runtime upgrade probe: gate passed, two script bugs fixed along the way](#qwen38-27b-evaluation-phase-0-runtime-upgrade-probe-gate-passed-two-script-bugs-fixed-along-the-way)
 
 ---
 
@@ -6497,3 +6498,67 @@ no further action this session** — a longer task (A4, historically
 19-41 messages) would give the mechanism more to work with and is the
 natural next candidate if this gets revisited, but that is not decided
 here.
+
+## Qwen3.8-27B evaluation, Phase 0 — runtime upgrade probe: gate passed, two script bugs fixed along the way
+
+**Context**: `docs/briefs/qwen3.8-27b-evaluation.md` Phase 0 gates the whole
+evaluation on the installed TabbyAPI/exllamav3 runtime being new enough to
+decode this build's EXL3 codebook correctly — production is pinned to
+exllamav3 `1.1.0` (older than the `1.4.1` quantizer that produced the 3.8
+file), the dangerous direction: a version mismatch here mis-decodes
+silently, it does not fail cleanly. `scripts/probe-qwen38-runtime-load.sh`
+drives the pre-existing isolated PoC (`poc/qwen3.8/`, container
+`qwen38-tabbyapi`, port 5001, commit `aa5f96c`) to check this without
+touching the production `tabbyapi` service.
+
+**Two script bugs surfaced and fixed in the same session, each on a
+user-run attempt on the real host**:
+1. First run pulled the stock `tabbyapi:latest` image (the PoC's original
+   config) — timed out at 300s with neither a load confirmation nor a
+   recognized error string. Root cause: the stock image lacks the
+   `python3-dev` patch `services/tabbyapi/Dockerfile` already carries for
+   `gated_delta_net`'s Triton JIT compile (same architecture family,
+   `config.json` confirmed identical between the 3.6/3.8 builds beyond
+   version metadata) — the likely real error (`fatal error: Python.h: No
+   such file or directory`) wasn't in the script's grep list anyway, and
+   the `EXIT` trap discarded the container's logs before they could be
+   read. Fixed: added `poc/qwen3.8/Dockerfile` mirroring the production
+   patch on top of the digest resolved that run, switched the PoC compose
+   to build it instead of pulling the raw image, and made the script
+   always dump the log tail before tearing down regardless of outcome.
+2. Second run (patched image) timed out again at 600s despite loading
+   cleanly in reality — the script's success grep (`"Model successfully
+   loaded"`) was copied from a different, older TabbyAPI release's
+   wording (via `probe-cache-size-headroom.sh`) and never verified
+   against this specific image; the real log line is `"Model loaded in
+   35.9 s"`. Fixed the grep string, dropped the timeout back to 180s now
+   that a real load time is known (~35s).
+
+**Measurements (clean run, `/v1/model` + `pip show` cross-checked)**:
+- Image: `ghcr.io/theroyallab/tabbyapi@sha256:10bfcf9d27d1b3a5c7ada786f814b9da43fadad35643362f2fe0816082893172`
+- Triplet: `exllamav3 1.5.0+cu128.torch2.9.0`, `torch 2.9.0+cu128`, `tabbyAPI 0.0.1`
+- Model load time: ~35s (vision off, no draft/MTP configured in this
+  minimal PoC — expected, not yet tested here)
+- `/v1/model`'s `prompt_template_content` matches Qwen3.8's own
+  `chat_template.jinja` verbatim (the `reasoning_effort`/`xhigh` block is
+  present in the served template) — confirms empirically, on our own
+  install, that TabbyAPI sources its chat/tool-call template from the
+  model repo itself rather than a template bundled with TabbyAPI. This
+  resolves, against our own installed code rather than an external
+  report, one of the two open compatibility questions raised in the
+  brief's prerequisites.
+
+**Verdict**: GATE PASSED — `exllamav3 1.5.0 >= 1.4.0`, clean load, no
+traceback, no CUDA error. This clears the specific risk the probe was
+built for (a silent codebook mis-decode from an under-versioned runtime).
+It does NOT yet validate vision, MTP, or `tool_format` (this PoC config
+has them off/absent) — that is Phase 2's static measurements, still to
+come.
+
+**Decision**: Phase 0's isolated-PoC gate is cleared; the isolated PoC
+itself is not the production stack. Remaining Phase 0 work per the brief,
+not yet done: bump `services/tabbyapi/Dockerfile`'s pinned digest to the
+value above, then run the standard A1/A2 smoke on the CURRENT production
+Qwen3.6 model on the upgraded image BEFORE loading the 3.8 weights into
+production — isolates the image-upgrade effect from the model-swap
+effect. 🧑 Checkpoint before that step, per the brief.
