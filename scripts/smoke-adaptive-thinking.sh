@@ -106,7 +106,17 @@ echo "thread_id: $THREAD_ID"
 
 echo
 echo "=== Audit log analysis (raw transcript, not the campaign score) ==="
-curl -s "http://localhost:8000/audit?thread_id=${THREAD_ID}" | python3 -c "
+# langgraph-agent publishes no host port (only reachable on the internal
+# agent-net network, e.g. http://langgraph-agent:8000 from other
+# containers) — fetch from inside the container, same technique as the
+# readiness check above, not a host-side curl. THREAD_ID passed via -e
+# (never interpolated into the Python source itself, same discipline as
+# probe-qwen38-thinking-control.sh).
+docker exec -e THREAD_ID="$THREAD_ID" langgraph-agent python3 -c "
+import os, urllib.request
+url = f\"http://localhost:8000/audit?thread_id={os.environ['THREAD_ID']}\"
+print(urllib.request.urlopen(url, timeout=10).read().decode())
+" | python3 -c "
 import json, sys
 
 data = json.load(sys.stdin)
