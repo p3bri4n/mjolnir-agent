@@ -837,6 +837,21 @@ had gone unnoticed for a month since no live v2 campaign ran in that
 window. Full detail: `docs/engineering-log.md`, "Qwen3.8-27B evaluation,
 Phase 0" entries.
 
-🧑 **Checkpoint before Phase 1** (migrating `ADAPTIVE_THINKING`/
-`NO_THINK_DIRECTIVE` off the confirmed-dead `/no_think` text prefix onto
-the real per-request `chat_template_kwargs` path — see the brief).
+**Phase 1 (ADAPTIVE_THINKING migration) CLOSED.** `_apply_adaptive_thinking`'s
+dead `/no_think` text prefix replaced by `_should_suppress_thinking` +
+`bound_llm.bind(extra_body={"enable_thinking": False})`, the same real
+per-request parameter `planner_llm` already used — verified first against
+the actual downloaded Qwen3.8 files, then live-smoked on production
+Qwen3.6. Full suite 492 passed, 0 regressions. Live audit-log read
+(`scripts/read-adaptive-thinking-audit.py`, thread `0085499748bfe2ff`,
+7 turns): turn 1 not suppressed with reasoning present, turns 2–7 all
+suppressed with zero `<think>` blocks — clean mechanistic proof, 6/7
+trigger rate (no flattering zero). Three real bugs found and fixed along
+the way (a smoke-script readiness-wait gap, an orphaned GPU process
+leaking ~5 GiB from an earlier crashed load, a host-side audit-log fetch
+that could never reach `langgraph-agent`'s unpublished port) — full
+detail: `docs/engineering-log.md`, "Qwen3.8-27B evaluation, Phase 1".
+
+🧑 **Checkpoint before Phase 2** (static measurements — VRAM, MTP
+acceptance, tool-calling sanity check with a JSON-string argument — see
+the brief).

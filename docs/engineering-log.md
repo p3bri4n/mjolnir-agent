@@ -103,6 +103,7 @@ for jumping to a specific entry.
 - **2026-08-12** — [HISTORY-DIFF LIVE SMOKE — STALE IMAGE, THEN PREFLIGHT CORRECTLY REFUSED](#history-diff-live-smoke-stale-image-then-preflight-correctly-refused)
 - **2026-09-16** — [Qwen3.8-27B evaluation, Phase 0 — runtime upgrade probe: gate passed, two script bugs fixed along the way](#qwen38-27b-evaluation-phase-0-runtime-upgrade-probe-gate-passed-two-script-bugs-fixed-along-the-way)
 - **2026-09-16** — [Qwen3.8-27B evaluation, Phase 0 CLOSED — production Dockerfile bumped, model directory incident, regression smoke clean](#qwen38-27b-evaluation-phase-0-closed-production-dockerfile-bumped-model-directory-incident-regression-smoke-clean)
+- **2026-09-16** — [Qwen3.8-27B evaluation, Phase 1 CLOSED — ADAPTIVE_THINKING migration, mechanistic proof clean](#qwen38-27b-evaluation-phase-1-closed-adaptive_thinking-migration-mechanistic-proof-clean)
 
 ---
 
@@ -6617,3 +6618,69 @@ digest bump, real triplet recorded, Qwen3.6 regression smoke clean).
 `ADAPTIVE_THINKING`/`NO_THINK_DIRECTIVE` off the confirmed-dead
 `/no_think` text prefix onto the real per-request `chat_template_kwargs`
 path), awaiting the go-ahead.
+
+## Qwen3.8-27B evaluation, Phase 1 CLOSED — ADAPTIVE_THINKING migration, mechanistic proof clean
+
+**Context**: Phase 1 of `docs/briefs/qwen3.8-27b-evaluation.md` replaced
+`_apply_adaptive_thinking`'s `/no_think` text-prefix injection (confirmed
+to have no effect on this backend, `docs/resolved-bugs.md` #32) with
+`_should_suppress_thinking` + a conditional
+`bound_llm.bind(extra_body={"enable_thinking": False})` in `call_llm` —
+the same real per-request parameter `planner_llm` already used. Full
+`langgraph-agent` suite: 492 passed, 0 regressions (run in a fresh venv
+against the system Python, the committed `.venv` symlinks to a path only
+present on the user's host).
+
+**Live smoke, three real bugs found and fixed before a valid read was
+obtained** (same "live smoke catches a real bug" pattern as every other
+phase this session):
+1. First run: `docker compose up -d langgraph-agent` also brought
+   `tabbyapi` up from a stopped state as a side effect, and the smoke
+   script only waited on `langgraph-agent`'s own health endpoint —
+   `campaign_preflight`'s LLM-readiness check timed out at 180s while
+   `tabbyapi` was still loading. Fixed: the script now waits on
+   `tabbyapi`'s own load confirmation first (`scripts/smoke-adaptive-thinking.sh`).
+2. Second run: a genuine `RuntimeError: Insufficient VRAM in split for
+   model and cache` — traced to an orphaned `python3 main.py` process
+   (5.2 GiB on GPU 0 alone, no GPU 1 counterpart, PID no longer even
+   present in `ps` by the time it was checked) left over from an earlier
+   crashed load, never released by `docker compose down`. Killed by hand
+   (`kill`), confirmed via `nvidia-smi`. A second orphaned instance (this
+   one still alive, `python3 main.py --host 0.0.0.0`) had to be killed
+   the same way before a clean load succeeded.
+3. The audit-log read-back step used a host-side `curl` against
+   `langgraph-agent:8000` — that service publishes no host port (only
+   reachable on `agent-net` from other containers), so the request
+   always returned empty. Fixed: fetch via `docker exec` +
+   `urllib.request` instead, same technique as the readiness check.
+   Along the way, an inline multi-line `python3 -c` block handed to the
+   user to paste directly broke on the terminal's own paste
+   auto-indentation (`IndentationError`) — extracted into a real file
+   (`scripts/read-adaptive-thinking-audit.py`) to make it paste-proof and
+   reusable standalone against an already-completed run's `thread_id`,
+   no need to re-run the campaign.
+
+Also found and fixed along the way, unrelated to the mechanism itself: a
+stale `ADAPTIVE_THINKING` comment in `docker-compose.yml` describing the
+now-removed `/no_think` mechanism as current — missed in Phase 1's own
+doc-cleanup commit because that grep sweep never covered
+`docker-compose.yml`.
+
+**Live measurement** (`campaign-20260916T142708Z-phase1-adaptive-thinking-smoke.json`,
+thread `0085499748bfe2ff`, A2_schema_references, `ADAPTIVE_THINKING=true`
+via `CAMPAIGN_EXPECTED_FLAGS_OVERRIDE`): task 1/1. Audit-log mechanistic
+read (`scripts/read-adaptive-thinking-audit.py`), 7 turns: turn 1 not
+suppressed, reasoning present (`<think>` block in the assistant message);
+turns 2–7 all suppressed, **zero** `<think>` blocks across all six —
+clean, unambiguous correlation, no flattering zero (the mechanism fired
+6/7 turns, not once).
+
+**Verdict**: PASS. `_should_suppress_thinking` genuinely suppresses
+reasoning exactly on the turns it fires on, confirmed against the raw
+transcript rather than the campaign's success/failure score.
+
+**Decision**: Phase 1 CLOSED. Remaining per the brief: Phase 2 (static
+measurements — VRAM, MTP acceptance, tool-calling sanity check with a
+JSON-string argument) and Phase 3 (the actual Qwen3.6-vs-Qwen3.8
+campaign, re-baselined on the now-upgraded stack). 🧑 Checkpoint before
+Phase 2.
