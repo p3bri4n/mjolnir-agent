@@ -122,7 +122,7 @@ Any change to the following alters results and requires its own
 single-variable validation campaign:
 - system prompts and directives sent to the model (`GROUNDING_DIRECTIVE`,
   `DOWNLOAD_DIRECTIVE`, `BULK_CHECK_DIRECTIVE`, `PEREMPTION_DIRECTIVE`,
-  `NO_THINK_DIRECTIVE`, `PLANNER_SYSTEM_PROMPT`, `PLAN_JUDGE_SYSTEM_PROMPT`);
+  `PLANNER_SYSTEM_PROMPT`, `PLAN_JUDGE_SYSTEM_PROMPT`);
 - cognitive-core flags (`PLANNER_ENABLED`, `VERIFICATION_ENABLED`,
   `PLAN_VALIDATION_ENABLED`, `PLAN_JUDGE_ENABLED`, `PLANNER_THINKING_ENABLED`),
   budgets (`MAX_TOOL_ITERATIONS`, `SUBTASK_ATTEMPT_BUDGET`,

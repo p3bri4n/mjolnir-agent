@@ -194,6 +194,8 @@ Chaque service a été exécuté réellement (pas seulement relu) avant livraiso
 
 **Correctif** : Nouveau client `planner_llm` (`app/graph.py`), séparé de `llm`, avec son propre budget `PLANNER_MAX_TOKENS` (défaut `8192`) — `llm`/`LLM_MAX_TOKENS` (2048) reste inchangé, toujours le filet de sécurité voulu contre les dérives de répétition de la boucle principale. Revérifié par un appel direct à TabbyAPI avec `max_tokens=6000` : réponse JSON complète, `finish_reason="stop"`
 
+**Follow-up (2026-09-16)**: `ADAPTIVE_THINKING` itself has since migrated off this same ineffective `/no_think` text prefix onto the real per-request `enable_thinking` parameter demonstrated working right here — see `docs/briefs/qwen3.8-27b-evaluation.md`, Phase 1.
+
 ### 33. `langgraph-agent` (planificateur, Itération 3) — Même campagne live : le planificateur déclarait systématiquement des outils inventés mais…
 
 **Symptôme / cause confirmée** : Même campagne live : le planificateur déclarait systématiquement des outils inventés mais inexistants (`web_browser`, `search`, `extract_text`...), rejetés à chaque fois par l'heuristique "outils référencés existants" (`app/plan_validation.py`) — aucun plan ne passait jamais la validation, quelle que soit la qualité de la décomposition elle-même

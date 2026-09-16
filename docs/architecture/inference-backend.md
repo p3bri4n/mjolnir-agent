@@ -98,13 +98,17 @@ costly in visual tokens, for near-zero value beyond the most recent one
 (the only one reflecting the screen's current state).
 
 **Adaptive thinking** (`ADAPTIVE_THINKING`, env var, default `false`):
-Qwen3.6 reasons by default on every turn (extended thinking tags), costly
+Qwen models reason by default on every turn (extended thinking), costly
 in latency for a fast perception-action loop where each turn only has to
-decide "where to click next". If enabled, `_apply_adaptive_thinking` adds
-a transient `/no_think` system prompt (also never persisted in the
-graph's state, same principle as the image retention above) when **all**
-tool_calls of the previous turn were auto-approved (same per-tier policy
-as `has_tool_calls`, session grants included — see `approval_policy.py`).
-No injection on a task's very first turn (no previous tool_calls to
-evaluate) nor as soon as a sensitive tool was involved in that previous
-turn: full reasoning keeps its full value there.
+decide "where to click next". If enabled, `_should_suppress_thinking`
+disables reasoning for that one request
+(`bound_llm.bind(extra_body={"enable_thinking": False})`, a real
+per-request TabbyAPI/ExLlamaV3 parameter — never a prompt-level
+injection) when **all** tool_calls of the previous turn were
+auto-approved (same per-tier policy as `has_tool_calls`, session grants
+included — see `approval_policy.py`). Thinking stays on for a task's very
+first turn (no previous tool_calls to evaluate) or as soon as a sensitive
+tool was involved in that previous turn: full reasoning keeps its full
+value there. Migrated off an earlier `/no_think` text-prefix mechanism,
+confirmed to have no effect on this backend — see
+`docs/briefs/qwen3.8-27b-evaluation.md`, Phase 1.
