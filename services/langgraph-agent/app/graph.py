@@ -538,19 +538,22 @@ PLAN_VALIDATION_CYCLES_MAX = 2
 # planning responsibility moves into manage_plan alone.
 PLANNING_MODE = os.environ.get("PLANNING_MODE", "nodes")
 
-# Qwen3.6 reasons by default on every turn (extended thinking tags) —
+# Qwen models reason by default on every turn (extended thinking) —
 # useful for an initial decision, costly in latency/tokens for a fast
-# perception-action loop (capture -> click -> capture...) where each
-# turn only has to decide "where to click next" without reconsidering
-# the whole task. If ADAPTIVE_THINKING is enabled, /no_think is injected
-# (transient system prompt, not persisted — see
-# _apply_adaptive_thinking) when ALL of the previous turn's tool_calls
-# were auto-approved (same per-tier policy as has_tool_calls, see
-# approval_policy.py); normal thinking stays active for a task's first
-# turn or as soon as a sensitive tool is involved, where reasoning has
-# the most value.
+# perception-action loop (capture -> click -> capture...) where each turn
+# only has to decide "where to click next" without reconsidering the
+# whole task. If ADAPTIVE_THINKING is enabled, thinking is disabled for
+# that one request (extra_body={"enable_thinking": False}, see
+# _should_suppress_thinking/call_llm) when ALL of the previous turn's
+# tool_calls were auto-approved (same per-tier policy as has_tool_calls,
+# see approval_policy.py); normal thinking stays active for a task's
+# first turn or as soon as a sensitive tool is involved, where reasoning
+# has the most value. Migrated off an earlier `/no_think` text prefix,
+# confirmed to have no effect on this backend (docs/resolved-bugs.md
+# #entries at the time) onto this real per-request parameter — verified
+# against the actual downloaded Qwen3.8 files before writing this
+# (docs/briefs/qwen3.8-27b-evaluation.md, Phase 1).
 ADAPTIVE_THINKING = os.environ.get("ADAPTIVE_THINKING", "false").lower() == "true"
-NO_THINK_DIRECTIVE = "/no_think"
 
 # DOCUMENTED file-consumption path (Phase 1d-revised, see docs/history.md,
 # T5): a download triggered in the browser lands in a volume now shared
@@ -1320,23 +1323,30 @@ llm = ChatOpenAI(
 # TabbyAPI); this reasoning, often long, consumed the whole budget on its
 # own, truncating `content` to empty or mid-JSON (finish_reason="length")
 # — every validator then systematically fell back to its error path,
-# never a real evaluation. `/no_think` as a prompt prefix (the existing
-# ADAPTIVE_THINKING mechanism) does NOT suppress reasoning on this backend
-# (verified by the same direct call) — solution adopted: a more generous
-# token budget, dedicated to these structured calls, separate from the
-# main loop's budget (whose small value remains an intentional safety net
-# against repetition drift, see LLM_MAX_TOKENS).
+# never a real evaluation. `/no_think` as a prompt prefix — ADAPTIVE_THINKING's
+# mechanism at the time — did NOT suppress reasoning on this backend
+# (verified by the same direct call; ADAPTIVE_THINKING has since migrated
+# to the same real per-request parameter used below, see
+# docs/briefs/qwen3.8-27b-evaluation.md, Phase 1) — solution adopted here:
+# a more generous token budget, dedicated to these structured calls,
+# separate from the main loop's budget (whose small value remains an
+# intentional safety net against repetition drift, see LLM_MAX_TOKENS).
 PLANNER_MAX_TOKENS = int(os.environ.get("PLANNER_MAX_TOKENS", "8192"))
 # Thinking curbed on auxiliary calls (plan_task/revise_plan/
-# replan_task/_judge_plan, all via planner_llm) — unlike `/no_think` as a
-# prompt prefix (ADAPTIVE_THINKING, confirmed to have no effect on this
-# backend, see comment above), TabbyAPI exposes a real PER-REQUEST
-# server-side parameter (`GET /openapi.json`, ChatCompletionRequest
-# schema: `enable_thinking: bool`), verified LIVE before writing this fix
-# (real call with a JSON planning prompt, see docs/history.md):
-# `reasoning_content: null`, immediate valid JSON, no reasoning.
-# `extra_body` is a native langchain-openai parameter (verified:
-# `"extra_body" in inspect.signature(ChatOpenAI).parameters`).
+# replan_task/_judge_plan, all via planner_llm) — TabbyAPI exposes a real
+# PER-REQUEST server-side parameter (`GET /openapi.json`,
+# ChatCompletionRequest schema: `enable_thinking: bool`), verified LIVE
+# before writing this fix (real call with a JSON planning prompt, see
+# docs/history.md): `reasoning_content: null`, immediate valid JSON, no
+# reasoning. `extra_body` is a native langchain-openai parameter
+# (verified: `"extra_body" in inspect.signature(ChatOpenAI).parameters`).
+# Fixed here at client construction (planner_llm never varies); the main
+# loop's ADAPTIVE_THINKING uses the same parameter but bound per-call
+# instead, since it's conditional turn-to-turn (see
+# _should_suppress_thinking) — it originally used a `/no_think` text
+# prefix, confirmed ineffective on this backend by the same direct call
+# that motivated this fix, migrated since (docs/briefs/
+# qwen3.8-27b-evaluation.md, Phase 1).
 # PLANNER_THINKING_ENABLED (default false = thinking curbed) rather than a
 # hardcoded disable: allows a rollback with no code redeploy if plan/
 # judge quality were to degrade in practice.
@@ -2029,41 +2039,30 @@ def _previous_turn_tool_calls(messages: list) -> Optional[list]:
     return None
 
 
-def _apply_adaptive_thinking(messages: list, session_grants) -> list:
+def _should_suppress_thinking(messages: list, session_grants) -> bool:
     """
-    Adds a transient "/no_think" system prompt (never persisted in graph
-    state, see _apply_image_retention for the same principle) when
-    ADAPTIVE_THINKING is enabled AND the previous turn was fully
-    auto-approved (same tier policy as has_tool_calls) — typically a
-    repeated read/reversible tool loop where Qwen3.6's extended reasoning
-    costs more than it's worth. No injection
-    on a task's very first turn (no previous tool_calls) nor as soon as a
-    sensitive tool was involved: reasoning has the most value there.
+    True when ADAPTIVE_THINKING is enabled AND the previous turn was
+    fully auto-approved (same tier policy as has_tool_calls) — typically
+    a repeated read/reversible tool loop where extended reasoning costs
+    more than it's worth. Applied by call_llm via
+    bound_llm.bind(extra_body={"enable_thinking": False}), a real
+    per-request parameter (kwargs passed to Runnable.bind() override
+    _default_params in langchain_openai's _get_request_payload, verified
+    against the installed langchain-openai==0.2.2) — never a prompt-level
+    injection, so no message-ordering constraint to satisfy, unlike the
+    text-prefix mechanism this replaced. False on a task's very first
+    turn (no previous tool_calls) or as soon as a sensitive tool was
+    involved: reasoning has the most value there.
     """
     if not ADAPTIVE_THINKING:
-        return messages
+        return False
     previous_tool_calls = _previous_turn_tool_calls(messages)
     if not previous_tool_calls:
-        return messages
-    all_auto_approved = all(
+        return False
+    return all(
         approval_policy.is_auto_approved(tc["name"], tc.get("args"), session_grants)
         for tc in previous_tool_calls
     )
-    if not all_auto_approved:
-        return messages
-    # Merged into the leading system message if there is one (real case:
-    # DOWNLOAD_DIRECTIVE and friends, added by call_llm right before this
-    # call), otherwise inserted at position 0 — never at the end of the list:
-    # some backends (TabbyAPI/ExLlamaV3, Qwen3.6's strict Jinja template)
-    # explicitly reject a second system message or one not at the head
-    # ("TemplateError: System message must be at the beginning") —
-    # llama-server/Ollama tolerate both forms, so this bug stayed
-    # invisible before the migration to TabbyAPI.
-    if messages and isinstance(messages[0], SystemMessage):
-        head, *rest = messages
-        merged_head = SystemMessage(content=f"{head.content}\n{NO_THINK_DIRECTIVE}")
-        return [merged_head] + rest
-    return [SystemMessage(content=NO_THINK_DIRECTIVE)] + messages
 
 
 def _verification_directive(state: AgentState) -> str:
@@ -2224,7 +2223,18 @@ async def call_llm(state: AgentState, config: dict) -> dict:
         },
     )
     messages_for_llm = history_diffed
-    messages_for_llm = _apply_adaptive_thinking(messages_for_llm, state.get("session_grants") or [])
+    # Coverage judge for adaptive thinking (retroactive per CLAUDE.md's
+    # trigger-rate-counter rule — this mechanism predates it): logged on
+    # EVERY call_llm invocation regardless of ADAPTIVE_THINKING, same
+    # discipline as episode_compaction/history_diff above.
+    suppress_thinking = _should_suppress_thinking(messages_for_llm, state.get("session_grants") or [])
+    audit_log.log_message(
+        config.get("configurable", {}).get("thread_id", ""),
+        "adaptive_thinking",
+        {"suppressed": suppress_thinking},
+    )
+    if suppress_thinking:
+        bound_llm = bound_llm.bind(extra_body={"enable_thinking": False})
     # Carried over as-is from the previous call within this turn (see
     # AgentState.think_opened/think_closed) rather than reset to False, so
     # as to produce only one continuous <think> tag even if call_llm loops
