@@ -44,8 +44,14 @@ restore_and_restart() {
 trap 'if [ "$RELOAD_CONFIRMED" != "true" ]; then restore_and_restart; fi' EXIT
 
 wait_for_tabbyapi_loaded() {
+  # "Model successfully loaded" was this backend's load-confirmation
+  # string when this script was written; it changed to "Model loaded in
+  # N s" on a later tabbyAPI release without this script being updated —
+  # matches both so a stale string never silently times out again (see
+  # docs/resolved-bugs.md #54, the same class of drift found in
+  # campaign_persistence.py's log-format regex).
   local waited=0 timeout=180 interval=5
-  until docker compose logs tabbyapi 2>/dev/null | tail -80 | grep -q "Model successfully loaded"; do
+  until docker compose logs tabbyapi 2>/dev/null | tail -80 | grep -qE "Model successfully loaded|Model loaded in|Serving OAI API on"; do
     if (( waited >= timeout )); then
       return 1
     fi
