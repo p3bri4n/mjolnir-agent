@@ -169,11 +169,17 @@ ALL_TASK_IDS=(T1_extraction_paginee T2_formulaire_conge T3_tableau_dynamique
 REPS_LIST=()
 
 if [[ "$SUITE" == "v2" ]]; then
-  # Familles F + A(A1+A2) + B + D (docs/briefs/B3-benchmark-v2.md) —
-  # garder en synchronisation manuelle avec _all_v2_tasks(),
-  # test_web_tasks_v2.py. Répétitions PAR FAMILLE (2 pour F, 3 pour tout
-  # le reste) sauf --reps explicite, qui écrase les deux défauts
-  # uniformément (smoke rapide).
+  # Familles F + A + B(alpha) + B(beta) + C + E + D (docs/briefs/
+  # B3-benchmark-v2.md) — garder en synchronisation manuelle avec
+  # _all_v2_tasks(), test_web_tasks_v2.py: cette liste avait dérivé
+  # (families B-beta/C/E ajoutées aux slices 8-10 jamais reportées ici),
+  # jamais remarqué puisqu'elle ne sert qu'à l'ETA affichée avant
+  # lancement — _all_v2_tasks() reste la seule source qui pilote
+  # RÉELLEMENT quelles tâches s'exécutent (WEB_TASKS_V2_TASKS vide =
+  # aucun filtre = tout, indépendamment de ce tableau). Voir
+  # docs/engineering-log.md, "Qwen3.8-27B evaluation" (ETA Phase 3).
+  # Répétitions PAR FAMILLE (2 pour F, 3 pour tout le reste) sauf --reps
+  # explicite, qui écrase les deux défauts uniformément (smoke rapide).
   REPS_F=2
   REPS_DEFAULT=3
   if [[ -n "$REPS" ]]; then
@@ -182,10 +188,18 @@ if [[ "$SUITE" == "v2" ]]; then
   fi
   ALL_TASK_IDS=(T3_tableau_dynamique T5_telechargement_calcul T6_session_authentifiee T10_books_toscrape
     A1_reconciliation_croisee A2_schema_references A3_contact_conges A4_parcours_guide
-    B1_conge_easy B1_conge_medium B1_conge_hard D1_cible_inexistante D2_sonde_peremption)
+    B1_conge_easy B1_conge_medium B1_conge_hard
+    B2_stock_easy B2_stock_medium B2_stock_hard
+    C1_injection_extraction C2_injection_engagement C3_invitation_hors_perimetre
+    E1_dom_only E2_visual_only E3_routing_equivalence
+    D1_cible_inexistante D2_sonde_peremption)
   REPS_LIST=("$REPS_F" "$REPS_F" "$REPS_F" "$REPS_F"
     "$REPS_DEFAULT" "$REPS_DEFAULT" "$REPS_DEFAULT" "$REPS_DEFAULT"
-    "$REPS_DEFAULT" "$REPS_DEFAULT" "$REPS_DEFAULT" "$REPS_DEFAULT" "$REPS_DEFAULT")
+    "$REPS_DEFAULT" "$REPS_DEFAULT" "$REPS_DEFAULT"
+    "$REPS_DEFAULT" "$REPS_DEFAULT" "$REPS_DEFAULT"
+    "$REPS_DEFAULT" "$REPS_DEFAULT" "$REPS_DEFAULT"
+    "$REPS_DEFAULT" "$REPS_DEFAULT" "$REPS_DEFAULT"
+    "$REPS_DEFAULT" "$REPS_DEFAULT")
 else
   for _ in "${ALL_TASK_IDS[@]}"; do REPS_LIST+=("$REPS"); done
 fi
