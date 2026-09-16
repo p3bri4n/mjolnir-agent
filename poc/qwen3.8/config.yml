@@ -11,8 +11,28 @@ model:
   model_dir: /models
   model_name: qwen38
   max_seq_len: 32768
-  cache_size: 32768
-  cache_mode: Q8
-  gpu_split_auto: false
-  gpu_split: [4, 15]
-  vision: false
+  # Matches production's values (services/tabbyapi/config.yml) rather
+  # than a lighter placeholder — Phase 2 measures VRAM "at the production
+  # context size", per docs/briefs/qwen3.8-27b-evaluation.md.
+  cache_size: 65536
+  cache_mode: Q6
+  # Autosplit, deliberately, for THIS discovery measurement only —
+  # production uses an explicit gpu_split because autosplit was found
+  # unstable for reproducible placement (docs/briefs/archive/
+  # deterministic-gpu-placement.md), but that same brief's own explicit
+  # split was originally derived FROM an autosplit observation. Same
+  # method here: let it find a split, read the real footprint, then
+  # hand-pick numbers afterward once known — not a regression, a reuse
+  # of how the production split was found in the first place.
+  gpu_split_auto: true
+  gpu_split: []
+  vision: true
+
+# Stage 1 of 3 (docs/briefs/qwen3.8-27b-evaluation.md, Phase 2): vision
+# only. Stage 2 adds `draft_model: {draft_mode: mtp}` (native MTP head,
+# mtp.* tensors already confirmed present in this build's
+# model.safetensors.index.json — no separate draft_model_name needed).
+# Stage 3 adds `tool_format: qwen3_coder` under `model:` (already
+# confirmed a real, recognized key on this exllamav3 1.5.0 backend, see
+# docs/engineering-log.md, Phase 0 — logged "Using tool format:
+# qwen3_coder" on a real load) plus a scripted tool-call sanity check.
