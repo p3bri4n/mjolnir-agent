@@ -59,6 +59,12 @@ services:
       # earlier `/no_think` text prefix, confirmed to have no effect on
       # this backend — see docs/briefs/qwen3.8-27b-evaluation.md, Phase 1.
       - ADAPTIVE_THINKING=${ADAPTIVE_THINKING:-false}
+      # Independent mechanism from ADAPTIVE_THINKING above — caps
+      # reasoning DEPTH (extra_body={"reasoning_effort": ...}) rather than
+      # suppressing it entirely, unconditional on every call. Empty by
+      # default (no override, the model's own "xhigh" default applies).
+      # See docs/briefs/reasoning-effort-tuning.md.
+      - REASONING_EFFORT=${REASONING_EFFORT:-}
       # Explicit plan (Phase 1 "cognitive core", Iteration 1 — see
       # docs/briefs/phase-1-coeur-cognitif.md). DEFAULT FLIPPED BACK TO
       # false (EFFORT 2.4, docs/history.md/docs/briefs/update-plan.md):

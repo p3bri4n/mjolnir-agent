@@ -527,3 +527,34 @@ caught the real-conditions case found: server not yet listening despite
 a model already loaded"), which this ad hoc script duplicate had drifted
 from. Applied to both `scripts/smoke-adaptive-thinking.sh` and
 `scripts/campaign-adaptive-thinking-qwen38.sh`.
+
+### 58. `docker-compose.yml` — `REASONING_EFFORT` never declared in `langgraph-agent`'s `environment:`, so the shell-level override never reached the container — CLOSED
+
+**Symptom, confirmed cause**: first live run of
+`scripts/campaign-reasoning-effort-medium-qwen38.sh`
+(`REASONING_EFFORT=medium docker compose up -d --force-recreate
+langgraph-agent`) — the script's own effective-env check (`docker exec
+langgraph-agent env | grep '^REASONING_EFFORT='`) came back `ABSENT`,
+aborting before running anything, exactly as designed. Root cause: Phase
+1 of `docs/briefs/reasoning-effort-tuning.md` added `REASONING_EFFORT`
+to `app/graph.py` (`os.environ.get("REASONING_EFFORT", "")`) but never
+added a passthrough line to `docker-compose.yml`'s `langgraph-agent`
+service — unlike `ADAPTIVE_THINKING`, which has its own explicit
+`- ADAPTIVE_THINKING=${ADAPTIVE_THINKING:-false}` line. Docker Compose
+does not forward the calling shell's environment into a container
+automatically; only variables explicitly listed under `environment:`
+(with `${VAR:-default}` interpolation) are passed through — a shell-
+level `REASONING_EFFORT=medium` ahead of `docker compose up` had no
+effect at all without that line.
+
+**Fix**: `- REASONING_EFFORT=${REASONING_EFFORT:-}` added to
+`docker-compose.yml`, `langgraph-agent` service, mirroring
+`ADAPTIVE_THINKING`'s own line.
+
+**Not a silent gap**: the campaign script's own effective-env
+verification step (same discipline documented for `ADAPTIVE_THINKING`'s
+own script) caught this immediately and refused to run the campaign on
+an unverified config — CLAUDE.md's "verify effective configuration,
+never assume" rule doing exactly its job. No campaign ran on a
+mis-wired flag; the Phase 2 campaign was simply re-launched after this
+fix.
