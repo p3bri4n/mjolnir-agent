@@ -13,7 +13,7 @@ missing — see `## Roadmap` below.
 
 ## Context
 
-The stack now serves Qwen3.6-27B EXL3 via TabbyAPI/ExLlamaV3 (dual-GPU,
+The stack now serves Qwen3.8-27B EXL3 via TabbyAPI/ExLlamaV3 (dual-GPU,
 vision + MTP), the langgraph/langchain-openai/openai trio is migrated to
 1.x/2.x, and an MCP Playwright server is wired in — GhostDesk has been
 fully removed (Roadmap effort 3): `browser_take_screenshot` covers every

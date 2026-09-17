@@ -1,7 +1,7 @@
 """
 OCR Service: a graph-internal capability, called directly by
 langgraph-agent over plain HTTP — not an MCP server, no model-facing
-tool, no GhostDesk dependency. Complements the VLM (Qwen3.6 MoE), which
+tool, no GhostDesk dependency. Complements the VLM (Qwen3.8, 27B dense), which
 reasons well but localizes poorly (imprecise grounding from a
 general-purpose vision model with no dedicated UI-element detection).
 

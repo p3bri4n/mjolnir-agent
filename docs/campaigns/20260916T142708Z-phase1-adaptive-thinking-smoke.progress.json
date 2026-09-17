@@ -1,0 +1,38 @@
+{
+  "active": [],
+  "campaign_id": "20260916T142708Z-phase1-adaptive-thinking-smoke",
+  "completed": [
+    {
+      "approvals": 1,
+      "cup": null,
+      "duration_s": 58.2,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A2_schema_references",
+      "thread_id": "0085499748bfe2ff",
+      "tool_calls": 7
+    }
+  ],
+  "config_digest": "8af2b8cef0432fca",
+  "current": null,
+  "label": "phase1-adaptive-thinking-smoke",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "A2_schema_references"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-09-16T14:28:06.629617+00:00",
+      "index": 0,
+      "started_at": "2026-09-16T14:27:08.076646+00:00"
+    }
+  ],
+  "started_at": "2026-09-16T14:27:08.076646+00:00",
+  "total_runs": 1
+}

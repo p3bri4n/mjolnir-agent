@@ -4,12 +4,21 @@ Content moved as-is from README.md (restructuring effort, see docs/briefs/restru
 
 The default backend is **TabbyAPI** (official image
 [`ghcr.io/theroyallab/tabbyapi`](https://github.com/theroyallab/tabbyAPI),
-ExLlamaV3 backend), serving **Qwen3.6-27B in EXL3 quantization** (VL
-variant, vision preserved for `browser_take_screenshot`/the proactive OCR
-capability — see Images and adaptive thinking and Proactive OCR
-enrichment below), with **native MTP** (`draft_mode:
-mtp` in `services/tabbyapi/config.yml`, the model's own multi-token
-prediction head, no separate draft model to load).
+ExLlamaV3 backend, runtime triplet `exllamav3 1.5.0+cu128.torch2.9.0` /
+`torch 2.9.0+cu128` / `tabbyAPI 0.0.1`), serving **Qwen3.8-27B in EXL3
+quantization (4.50bpw)** (VL variant, vision preserved for
+`browser_take_screenshot`/the proactive OCR capability — see Images and
+adaptive thinking and Proactive OCR enrichment below), with **native
+MTP** (`draft_mode: mtp` in `services/tabbyapi/config.yml`, the model's
+own multi-token prediction head, no separate draft model to load; ×2.47
+decode speedup measured warm, 61.8 T/s vs. 25.0 T/s without, 57%
+acceptance — see `docs/engineering-log.md`, "Qwen3.8-27B evaluation,
+Phase 2 CLOSED"). Adopted over the prior Qwen3.6-27B (3.50bpw) build
+after the Phase 3 campaign comparison — no meaningful net score gain
+(within documented run-to-run noise) and a real, uncontrolled latency
+cost from the model's own default thinking effort, but adopted anyway;
+full reasoning in `docs/engineering-log.md`, "Qwen3.8-27B evaluation,
+Phase 3 CLOSED".
 
 Config `services/tabbyapi/config.yml` (mounted read-only): key fields
 `model_dir`/`model_name` (HuggingFace-style directory of the EXL3 quant
@@ -72,6 +81,19 @@ split (autosplit left on, config drifted, wrong card at a given index) is
 refused before the first task starts, rather than producing numbers that
 look comparable and aren't.
 
+**Current production value**: `gpu_split: [10, 13]` (Qwen3.8-27B
+4.50bpw, `services/tabbyapi/config.local.yml`) — hand-picked after
+autosplit put ~91% of GPU 0's capacity in use (14 787/16 311 MiB, only
+~1.5 GiB free) vs. ~45% on GPU 1, too thin a margin for a
+multi-repetition campaign. Verified stable across 3 reloads: GPU 0
+landed on the exact same 10 991 MiB every time, GPU 1 within 102 MiB
+(noise) — ~5.3-5.4 GiB free on each card, comfortably above the
+~1.5-2 GiB target reasoned from this project's own prior incident (a
+documented ~822 MiB margin flagged as insufficient for the vision
+tower). Superseded the prior Qwen3.6 (3.50bpw) build's `[5, 14]`. Full
+detail: `docs/engineering-log.md`, "Qwen3.8-27B evaluation — explicit
+gpu_split adopted".
+
 
 ## Images and adaptive thinking (`services/langgraph-agent/app/graph.py`)
 
@@ -98,13 +120,17 @@ costly in visual tokens, for near-zero value beyond the most recent one
 (the only one reflecting the screen's current state).
 
 **Adaptive thinking** (`ADAPTIVE_THINKING`, env var, default `false`):
-Qwen3.6 reasons by default on every turn (extended thinking tags), costly
+Qwen models reason by default on every turn (extended thinking), costly
 in latency for a fast perception-action loop where each turn only has to
-decide "where to click next". If enabled, `_apply_adaptive_thinking` adds
-a transient `/no_think` system prompt (also never persisted in the
-graph's state, same principle as the image retention above) when **all**
-tool_calls of the previous turn were auto-approved (same per-tier policy
-as `has_tool_calls`, session grants included — see `approval_policy.py`).
-No injection on a task's very first turn (no previous tool_calls to
-evaluate) nor as soon as a sensitive tool was involved in that previous
-turn: full reasoning keeps its full value there.
+decide "where to click next". If enabled, `_should_suppress_thinking`
+disables reasoning for that one request
+(`bound_llm.bind(extra_body={"enable_thinking": False})`, a real
+per-request TabbyAPI/ExLlamaV3 parameter — never a prompt-level
+injection) when **all** tool_calls of the previous turn were
+auto-approved (same per-tier policy as `has_tool_calls`, session grants
+included — see `approval_policy.py`). Thinking stays on for a task's very
+first turn (no previous tool_calls to evaluate) or as soon as a sensitive
+tool was involved in that previous turn: full reasoning keeps its full
+value there. Migrated off an earlier `/no_think` text-prefix mechanism,
+confirmed to have no effect on this backend — see
+`docs/briefs/qwen3.8-27b-evaluation.md`, Phase 1.

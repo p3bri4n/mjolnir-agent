@@ -122,7 +122,7 @@ Any change to the following alters results and requires its own
 single-variable validation campaign:
 - system prompts and directives sent to the model (`GROUNDING_DIRECTIVE`,
   `DOWNLOAD_DIRECTIVE`, `BULK_CHECK_DIRECTIVE`, `PEREMPTION_DIRECTIVE`,
-  `NO_THINK_DIRECTIVE`, `PLANNER_SYSTEM_PROMPT`, `PLAN_JUDGE_SYSTEM_PROMPT`);
+  `PLANNER_SYSTEM_PROMPT`, `PLAN_JUDGE_SYSTEM_PROMPT`);
 - cognitive-core flags (`PLANNER_ENABLED`, `VERIFICATION_ENABLED`,
   `PLAN_VALIDATION_ENABLED`, `PLAN_JUDGE_ENABLED`, `PLANNER_THINKING_ENABLED`),
   budgets (`MAX_TOOL_ITERATIONS`, `SUBTASK_ATTEMPT_BUDGET`,
@@ -185,6 +185,11 @@ single-variable validation campaign:
   place per sweep rather than passing flags — sweeps differ campaign to
   campaign, not worth a CLI. Use when a measurement needs several env
   configurations compared, not just one.
+- `record-demo.sh` — records `docs/assets/demo.gif` (README, above the
+  fold): brings up `--profile demo` fixtures (`scripts/demo/fixtures/`,
+  styled duplicates, never the frozen benchmark ones), drives Open WebUI
+  via Playwright (`scripts/demo/drive_demo.py`), captures with `ffmpeg`.
+  Cosmetic tooling only, touches nothing measured.
 
 This list evolves with the project — update it when a script is added,
 renamed, or retired, don't treat it as frozen. One-off campaign scripts
@@ -196,7 +201,7 @@ don't let single-use scripts accumulate in `scripts/`.
 
 # Context
 
-The stack now serves Qwen3.6-27B EXL3 via TabbyAPI/ExLlamaV3 (dual-GPU,
+The stack now serves Qwen3.8-27B EXL3 via TabbyAPI/ExLlamaV3 (dual-GPU,
 vision + MTP), the langgraph/langchain-openai/openai trio is migrated to
 1.x/2.x, and an MCP Playwright server is wired in alongside GhostDesk.
 Goal of this effort: move the agent from "executes approved actions" to

@@ -302,9 +302,12 @@ endpoint, unlike llama-server (see Observability below and the comment
 already present in `docker-compose.yml`, `dashboard` service) — a
 "before/after" reading on this endpoint couldn't have retrieved
 anything. The persisted samples therefore come from the container's log
-text (regex on "N tokens generated in ... Process: X cached tokens and Y
-new tokens at Z T/s"), the only real per-request performance source
-available — hence also the `logging` config (max-size/max-file) added to
+text (regex on the real format currently emitted — see
+`campaign_persistence.py`'s `_TABBY_METRICS_RE` and its own comment for
+the exact pattern, not duplicated here since this exact quote already
+went stale once when the format changed on an image bump, see
+`docs/resolved-bugs.md` #54), the only real per-request performance
+source available — hence also the `logging` config (max-size/max-file) added to
 the `tabbyapi` service in `docker-compose.yml`: these logs must no longer
 disappear at the whim of a Docker daemon default stricter than expected.
 

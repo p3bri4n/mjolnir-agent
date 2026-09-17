@@ -2,7 +2,8 @@ name: qwen38-test
 
 services:
   tabbyapi:
-    image: ghcr.io/theroyallab/tabbyapi:latest
+    build: .
+    image: qwen38-tabbyapi-patched
     container_name: qwen38-tabbyapi
     environment:
       - CUDA_DEVICE_ORDER=PCI_BUS_ID

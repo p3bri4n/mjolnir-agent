@@ -13,7 +13,7 @@ import json
 import httpx
 import pytest
 import respx
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from PIL import Image
 
 from tests.fixtures.llm_sse import multi_tool_call_response, text_response, tool_call_response
@@ -122,18 +122,16 @@ def _ai_with_tool_calls(tool_calls):
     return AIMessage(content="", tool_calls=tool_calls)
 
 
-def test_adaptive_thinking_disabled_by_default_never_injects(monkeypatch):
+def test_adaptive_thinking_disabled_by_default_never_suppresses(monkeypatch):
     import app.graph as g
 
     monkeypatch.setattr(g, "ADAPTIVE_THINKING", False)
     messages = [_ai_with_tool_calls([{"name": "mouse_click", "args": {}, "id": "1"}])]
 
-    result = g._apply_adaptive_thinking(messages, [])
-
-    assert result == messages
+    assert g._should_suppress_thinking(messages, []) is False
 
 
-def test_adaptive_thinking_injects_no_think_after_auto_approved_turn(monkeypatch):
+def test_adaptive_thinking_suppresses_after_auto_approved_turn(monkeypatch):
     import app.graph as g
 
     monkeypatch.setattr(g, "ADAPTIVE_THINKING", True)
@@ -143,14 +141,7 @@ def test_adaptive_thinking_injects_no_think_after_auto_approved_turn(monkeypatch
         ToolMessage(content="ok", tool_call_id="1"),
     ]
 
-    result = g._apply_adaptive_thinking(messages, [])
-
-    # Ajouté en position 0 (pas en fin de liste) : un message système doit
-    # être en tête pour rester compatible avec des backends à template
-    # Jinja strict (voir docstring de _apply_adaptive_thinking).
-    assert len(result) == len(messages) + 1
-    assert isinstance(result[0], SystemMessage)
-    assert result[0].content == g.NO_THINK_DIRECTIVE
+    assert g._should_suppress_thinking(messages, []) is True
 
 
 def test_adaptive_thinking_skips_when_previous_turn_has_sensitive_tool(monkeypatch):
@@ -163,9 +154,7 @@ def test_adaptive_thinking_skips_when_previous_turn_has_sensitive_tool(monkeypat
         ToolMessage(content="ok", tool_call_id="1"),
     ]
 
-    result = g._apply_adaptive_thinking(messages, [])
-
-    assert result == messages
+    assert g._should_suppress_thinking(messages, []) is False
 
 
 def test_adaptive_thinking_skips_on_first_turn_without_previous_tool_calls(monkeypatch):
@@ -174,9 +163,7 @@ def test_adaptive_thinking_skips_on_first_turn_without_previous_tool_calls(monke
     monkeypatch.setattr(g, "ADAPTIVE_THINKING", True)
     messages = [HumanMessage(content="Salut")]
 
-    result = g._apply_adaptive_thinking(messages, [])
-
-    assert result == messages
+    assert g._should_suppress_thinking(messages, []) is False
 
 
 def test_adaptive_thinking_respects_session_grants(monkeypatch):
@@ -186,9 +173,7 @@ def test_adaptive_thinking_respects_session_grants(monkeypatch):
     monkeypatch.setattr(g, "ADAPTIVE_THINKING", True)
     messages = [_ai_with_tool_calls([{"name": "key_type", "args": {"text": "x" * 60}, "id": "1"}])]
 
-    result = g._apply_adaptive_thinking(messages, ["key_type"])
-
-    assert isinstance(result[0], SystemMessage)
+    assert g._should_suppress_thinking(messages, ["key_type"]) is True
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -329,7 +314,7 @@ async def test_png_conversion_is_the_default_in_the_llm_request_body(mock_side_s
 
 
 @pytest.mark.asyncio
-async def test_no_think_injected_in_llm_request_after_auto_approved_tool_call(mock_side_services, monkeypatch):
+async def test_enable_thinking_false_sent_in_llm_request_after_auto_approved_tool_call(mock_side_services, monkeypatch):
     import app.graph as g
 
     monkeypatch.setattr(g, "ADAPTIVE_THINKING", True)
@@ -347,17 +332,15 @@ async def test_no_think_injected_in_llm_request_after_auto_approved_tool_call(mo
     state = {"messages": [{"role": "user", "content": "Écris ce fichier"}], "tool_iterations": 0, "approved": None}
     await g.agent_graph.ainvoke(state, CONFIG)
 
-    # Fusionné dans le message système de tête (DOWNLOAD_DIRECTIVE et
-    # consorts) plutôt qu'ajouté en fin de liste : voir docstring de
-    # _apply_adaptive_thinking.
+    # extra_body is merged into the top-level request body by the openai
+    # SDK (see openai._base_client._build_request), never nested under an
+    # "extra_body" key — see _should_suppress_thinking's docstring.
     second_request_body = json.loads(route.calls[1].request.content)
-    head = second_request_body["messages"][0]
-    assert head["role"] == "system"
-    assert head["content"].endswith("/no_think")
+    assert second_request_body.get("enable_thinking") is False
 
 
 @pytest.mark.asyncio
-async def test_no_think_not_injected_when_adaptive_thinking_disabled(mock_side_services, monkeypatch):
+async def test_enable_thinking_not_sent_when_adaptive_thinking_disabled(mock_side_services, monkeypatch):
     import app.graph as g
 
     monkeypatch.setattr(g, "ADAPTIVE_THINKING", False)
@@ -376,17 +359,16 @@ async def test_no_think_not_injected_when_adaptive_thinking_disabled(mock_side_s
     await g.agent_graph.ainvoke(state, CONFIG)
 
     second_request_body = json.loads(route.calls[1].request.content)
-    head = second_request_body["messages"][0]
-    assert not (head["role"] == "system" and head["content"].endswith("/no_think"))
+    assert "enable_thinking" not in second_request_body
 
 
 @pytest.mark.asyncio
-async def test_no_think_not_injected_when_previous_tool_call_is_sensitive(mock_side_services, monkeypatch):
+async def test_enable_thinking_not_sent_when_previous_tool_call_is_sensitive(mock_side_services, monkeypatch):
     """
     Un tour mixte (sensible + auto-approuvé) passe par require_approval :
     une fois approuvé par un humain, le tour précédent contenait un outil
     sensible (browser_navigate) — le raisonnement complet reste utile ici,
-    pas d'injection de /no_think.
+    enable_thinking n'est pas désactivé.
     """
     import app.graph as g
 
@@ -415,5 +397,4 @@ async def test_no_think_not_injected_when_previous_tool_call_is_sensitive(mock_s
     await g.agent_graph.ainvoke(None, CONFIG)
 
     second_request_body = json.loads(route.calls[1].request.content)
-    head = second_request_body["messages"][0]
-    assert not (head["role"] == "system" and head["content"].endswith("/no_think"))
+    assert "enable_thinking" not in second_request_body

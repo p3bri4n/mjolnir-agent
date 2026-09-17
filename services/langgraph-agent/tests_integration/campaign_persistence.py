@@ -37,14 +37,18 @@ services/dashboard/app/prometheus.py et le commentaire déjà présent dans
 docker-compose.yml, service dashboard : "Pas d'équivalent /metrics/{slots}
 pour TabbyAPI à ce jour"). Il n'y a donc rien à "relever avant/après" sur un
 endpoint qui n'existe pas. La seule source réelle de performance par
-requête reste le texte des logs du conteneur (regex sur "N tokens generated
-in ... Process: X cached tokens and Y new tokens at Z T/s", reprise ici de
-l'ancien `_fetch_tabbyapi_prefill_stats` de test_web_tasks.py, qui
-n'agrégeait QUE la somme/moyenne — voir aggregate_prefill_stats plus bas
-pour l'équivalent agrégé, désormais dérivé des échantillons plutôt que
-recalculé séparément) : `collect_tabbyapi_raw_samples` ci-dessous persiste
-un échantillon PAR REQUÊTE journalisée dans la fenêtre du run, ce qui rend
-un delta a posteriori calculable — l'intention de la demande — sans
+requête reste le texte des logs du conteneur (regex sur le format réel
+constaté — voir le commentaire de `_TABBY_METRICS_RE`, pas dupliqué ici
+pour éviter une seconde source qui se périme sans qu'on le remarque,
+précisément ce qui s'est produit une première fois : voir
+docs/engineering-log.md, "Qwen3.8-27B evaluation, Phase 2 CLOSED" —
+motif d'origine repris de l'ancien `_fetch_tabbyapi_prefill_stats` de
+test_web_tasks.py, qui n'agrégeait QUE la somme/moyenne — voir
+aggregate_prefill_stats plus bas pour l'équivalent agrégé, désormais
+dérivé des échantillons plutôt que recalculé séparément) :
+`collect_tabbyapi_raw_samples` ci-dessous persiste un échantillon PAR
+REQUÊTE journalisée dans la fenêtre du run, ce qui rend un delta a
+posteriori calculable — l'intention de la demande — sans
 prétendre à un endpoint fictif.
 """
 
@@ -243,17 +247,53 @@ def collect_metadata(label: str, repo_dir: Optional[Path] = None) -> dict:
     }
 
 
+# Format changed on exllamav3 1.5.0/tabbyAPI (found live, docs/briefs/
+# qwen3.8-27b-evaluation.md, Phase 2/3): the old "(Queue: Z s, Process:
+# ...)" shape stopped matching anything the day the pinned image was
+# bumped (services/tabbyapi/Dockerfile) — every campaign since then
+# silently recorded tabbyapi_requests=0 (a flattering zero CLAUDE.md's
+# own trigger-rate rule exists to catch, missed here because this
+# specific counter predates that rule).
+#
+# A FIRST fix (this same effort) was itself wrong in production: it was
+# verified only against short, single-turn, non-streaming probe calls,
+# which never exercise prompt caching — real multi-turn agent traffic
+# (streaming, via bound_llm.astream()) looks structurally different and
+# that first fix's regex matched zero real requests too (see
+# docs/resolved-bugs.md #54's follow-up). Real streaming example, cache
+# hit, comma thousands separators, and the optional parenthetical
+# prefill-rate annotation all present:
+#   "#325 chat/completions (stream): 136 tokens generated at 67.5 T/s .
+#    prompt 14,303 tokens, 98% cached, 223 new in 0.39 s . first token
+#    0.43 s, total 2.44 s . draft 95/164 accepted (58%)"
+# Cache is reported as a PERCENTAGE ("98% cached") or "none cached" —
+# never an absolute count — so cached_tokens is derived as
+# prompt_tokens - new_tokens (both given as absolute counts) rather than
+# parsed from the rounded percentage. The "(stream)" tag and an optional
+# preceding "parsed N tool call(s) (qwen3_coder)" line are both ignored:
+# neither sits inside the pattern this regex actually matches. No
+# "Queue: Z s" figure is exposed by this format at all (queue_seconds is
+# None, not 0.0 — that would falsely read as a measured zero).
+_TABBY_NUM = r"[\d,]+"
 _TABBY_METRICS_RE = re.compile(
-    r"(\d+) tokens generated in ([\d.]+) seconds \(Queue: ([\d.]+) s, Process: (\d+) cached tokens "
-    r"and (\d+) new tokens at ([\d.]+) T/s"
+    rf"({_TABBY_NUM}) tokens generated at ([\d.]+) T/s . prompt ({_TABBY_NUM}) tokens, "
+    rf"(?:{_TABBY_NUM}% cached|none cached), ({_TABBY_NUM}) new in ([\d.]+) s"
+    rf"(?: \({_TABBY_NUM} T/s\))? . first token ([\d.]+) s, total ([\d.]+) s"
+    rf"(?: . draft ({_TABBY_NUM})/({_TABBY_NUM}) accepted \(\d+%\))?"
 )
+
+
+def _tabby_int(value: str) -> int:
+    return int(value.replace(",", ""))
 
 
 def collect_tabbyapi_raw_samples(since_dt: datetime, until_dt: datetime, container: str = TABBYAPI_CONTAINER) -> list:
     """Un échantillon PAR REQUÊTE TabbyAPI journalisée dans la fenêtre
     [since_dt, until_dt] (voir docstring du module pour pourquoi ce n'est
     pas un relevé /metrics). Best-effort, jamais d'exception : renvoie []
-    si `docker logs` échoue (conteneur redémarré/arrêté entre-temps)."""
+    si `docker logs` échoue (conteneur redémarré/arrêté entre-temps).
+    `draft_accepted`/`draft_total` are None on any sample where MTP didn't
+    fire (or isn't configured) — see _TABBY_METRICS_RE's comment."""
     since_iso = since_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     until_iso = until_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
@@ -267,14 +307,20 @@ def collect_tabbyapi_raw_samples(since_dt: datetime, until_dt: datetime, contain
     normalized = re.sub(r"\s+", " ", text)
     samples = []
     for m in _TABBY_METRICS_RE.finditer(normalized):
+        prompt_tokens = _tabby_int(m.group(3))
+        new_tokens = _tabby_int(m.group(4))
+        prefill_seconds = float(m.group(5))
+        generation_seconds = max(float(m.group(7)) - float(m.group(6)), 0.0)
         samples.append(
             {
-                "tokens_generated": int(m.group(1)),
-                "generation_seconds": float(m.group(2)),
-                "queue_seconds": float(m.group(3)),
-                "cached_tokens": int(m.group(4)),
-                "new_tokens": int(m.group(5)),
-                "process_speed_tps": float(m.group(6)),
+                "tokens_generated": _tabby_int(m.group(1)),
+                "generation_seconds": round(generation_seconds, 4),
+                "queue_seconds": None,
+                "cached_tokens": max(prompt_tokens - new_tokens, 0),
+                "new_tokens": new_tokens,
+                "process_speed_tps": round(new_tokens / prefill_seconds, 2) if prefill_seconds > 0 else 0.0,
+                "draft_accepted": int(m.group(8)) if m.group(8) else None,
+                "draft_total": int(m.group(9)) if m.group(9) else None,
             }
         )
     return samples

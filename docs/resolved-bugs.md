@@ -194,6 +194,8 @@ Chaque service a été exécuté réellement (pas seulement relu) avant livraiso
 
 **Correctif** : Nouveau client `planner_llm` (`app/graph.py`), séparé de `llm`, avec son propre budget `PLANNER_MAX_TOKENS` (défaut `8192`) — `llm`/`LLM_MAX_TOKENS` (2048) reste inchangé, toujours le filet de sécurité voulu contre les dérives de répétition de la boucle principale. Revérifié par un appel direct à TabbyAPI avec `max_tokens=6000` : réponse JSON complète, `finish_reason="stop"`
 
+**Follow-up (2026-09-16)**: `ADAPTIVE_THINKING` itself has since migrated off this same ineffective `/no_think` text prefix onto the real per-request `enable_thinking` parameter demonstrated working right here — see `docs/briefs/qwen3.8-27b-evaluation.md`, Phase 1.
+
 ### 33. `langgraph-agent` (planificateur, Itération 3) — Même campagne live : le planificateur déclarait systématiquement des outils inventés mais…
 
 **Symptôme / cause confirmée** : Même campagne live : le planificateur déclarait systématiquement des outils inventés mais inexistants (`web_browser`, `search`, `extract_text`...), rejetés à chaque fois par l'heuristique "outils référencés existants" (`app/plan_validation.py`) — aucun plan ne passait jamais la validation, quelle que soit la qualité de la décomposition elle-même
@@ -364,3 +366,108 @@ Un test utilisait un monkeypatch global de `httpx.AsyncClient` pour simuler les 
 **Not re-run**: no archive re-analysis was performed — this fix only affects entries written from here on; every already-archived JSONL file keeps its pre-fix blind spot, per CLAUDE.md's own "archives first" discipline (past data isn't retroactively rewritten). `scripts/analyze-tool-call-ngrams.sh`'s next real run will be the first to see `browser_extract`/`browser_snapshot`/etc. volume — worth a deliberate re-read once enough post-fix archive accumulates, not before.
 
 **Caveat, reported not smoothed over**: `TIER_READ` tools are the most frequently called class by design (auto, silent) — logging them now adds meaningfully more entries per day than before, which will make `AUDIT_LOG_MAX_BYTES` rotation trigger more often. Not a correctness problem (rotation already handles unbounded growth, `_rotate_if_needed`), but a volume change worth knowing about if daily audit file counts jump after this ships.
+
+### 53. `services/langgraph-agent/tests_integration/campaign_preflight.py` (`EXPECTED_AGENT_FLAGS`) — stale `ADAPTIVE_THINKING` expectation blocked the first live v2 campaign since the fix it should have followed — CLOSED
+
+**Symptom, confirmed cause**: `docs/briefs/qwen3.8-27b-evaluation.md` Phase 0's regression smoke (`scripts/smoke-tabbyapi-image-upgrade.sh`) failed preflight: `check_agent_flags` reported `ADAPTIVE_THINKING` expected `"true"`, effective `"false"`. The running container was correct — `"false"` matches both `app/graph.py`'s own Python-level default and `docker-compose.yml`'s current default. `EXPECTED_AGENT_FLAGS["ADAPTIVE_THINKING"]` was the stale side: set to `"true"` back in `219907a` (an earlier phase when the cognitive-core flags defaulted to `true`), never updated when `662bcba` (2026-08-19) fixed `docker-compose.yml`'s own fallback from `${ADAPTIVE_THINKING:-true}` to `${ADAPTIVE_THINKING:-false}` to match the code. That commit's own message notes every archived campaign JSON through that date shows `ADAPTIVE_THINKING=true` (docker-compose's default always won while unset) and calls the mechanism harmless either way (confirmed no-effect on this backend, `docs/resolved-bugs.md` #entries referenced there) — but it only touched `docker-compose.yml`, not this dict.
+
+**Why it went unnoticed for a month**: no v2 campaign's preflight ran between `662bcba` (2026-08-19) and this smoke (2026-09-16) — the last campaign JSON in `docs/campaigns/` before this gap is dated 2026-08-12, predating the fix itself. This is the first live preflight run to exercise that specific comparison since the mismatch was introduced.
+
+**Fix**: `EXPECTED_AGENT_FLAGS["ADAPTIVE_THINKING"]` corrected to `"false"`, with a comment pointing at `662bcba` and this entry so the next reader sees why. No test in `tests/test_campaign_preflight.py` hardcodes this specific key's value, so nothing else needed updating. Full suite not re-run in this session (no `pytest` available in this environment) — verify on the next real run of `tests/test_campaign_preflight.py`.
+
+### 54. `services/langgraph-agent/tests_integration/campaign_persistence.py` (`_TABBY_METRICS_RE`) — stale log-format regex, every campaign since the Phase 0 image bump silently recorded zero TabbyAPI requests — CLOSED
+
+**Symptom, confirmed cause**: measuring Qwen3.8 throughput
+(`docs/briefs/qwen3.8-27b-evaluation.md`, Phase 2) required parsing
+TabbyAPI's own per-request log line directly, which surfaced that the
+real format on `exllamav3 1.5.0` (`"#1 chat/completions: N tokens
+generated at X T/s · prompt P tokens, [C cached|none cached], W new in Y
+s · first token F s, total T s [· draft A/D accepted (P%)]"`) is
+structurally different from what `_TABBY_METRICS_RE` expected (`"N
+tokens generated in Y seconds (Queue: Z s, Process: ...)"`). The old
+regex has matched **zero** requests on every campaign run since
+`services/tabbyapi/Dockerfile`'s digest was bumped for the Qwen3.8
+evaluation's Phase 0 — `tabbyapi_requests: 0`/`prefill_seconds: 0.0` was
+already visibly printed during the Phase 1 adaptive-thinking smoke in
+this same session, unremarked at the time.
+
+**Fix**: `_TABBY_METRICS_RE` rewritten to match the real format.
+`generation_seconds` now derived as `total - first_token` (the old
+format reported decode duration directly; the new one only reports a
+rate and separate total/first-token timestamps).  `process_speed_tps`
+(prefill) derived as `new_tokens / prefill_seconds` — same effective
+metric as before, computed from what the new format actually exposes.
+`queue_seconds` is now `None`, not `0.0`: this format doesn't expose a
+queue figure at all, and a bare `0.0` would have read as a genuine
+measured zero instead of "not available". New fields
+`draft_accepted`/`draft_total` capture MTP's acceptance rate, previously
+never persisted, `None` on any sample where MTP didn't fire.
+`aggregate_prefill_stats` needed no change — it only reads
+`cached_tokens`/`new_tokens`/`process_speed_tps`, all still present with
+the same meaning. `tests/test_campaign_persistence.py` updated (new
+fixture log lines, one with an MTP draft clause); full suite 492 → 493
+passed, 0 regressions.
+
+**Not yet done**: no archive re-analysis — this fix only affects
+requests logged from here on; every already-archived campaign JSON
+between the image bump and this fix keeps its `tabbyapi_requests: 0`
+blind spot, per this project's own "archives first" discipline (past
+data isn't retroactively rewritten). Any campaign run between the Phase
+0 image bump and this fix should be treated as missing its TabbyAPI
+throughput judge, not as having measured a real zero.
+
+### 55. `services/langgraph-agent` (family E2, visual-only channel) — E2_visual_only regressed to 0/3 on both Phase 3 baseline campaigns, real behavior change from the documented post-fix state — OPEN, not yet diagnosed
+
+**Symptom, confirmed via the raw audit log (not just the campaign
+score)**: both Phase 3 baseline campaigns
+(`campaign-20260916T160905Z-qwen38-eval-phase3-baseline-qwen36.json`,
+`campaign-20260916T164143Z-qwen38-eval-phase3-baseline-qwen36-v2.json`)
+show `E2_visual_only` 0/3, 6/6 failures total. This is NOT the same
+failure signature as the last documented E2 state (`docs/engineering-log.md`,
+"PROBE VISUEL — SIGNAL BROWSER_SNAPSHOT": "all 3/3 E2 runs correctly
+called `browser_take_screenshot`... the one E2 failure is a genuine
+vision misread", i.e. the model reliably took the right action and
+sometimes misread the pixels). Checked each run's final text via the
+campaign JSON:
+- 1/6 runs (`87ee2f72d736fdae`, `beaecceaf38a9dfc`) did take a real
+  screenshot and misread the code (`2ae7ef14` vs. ground truth
+  `ZK-3392`) — consistent with the historical failure mode.
+- 5/6 runs never got that far: the model tried to read the PNG's text
+  content through non-visual tools instead — verbatim quotes from the
+  audit log: "I can't read image files with the filesystem tool", "I
+  can't easily decode base64 to binary", "I can't directly decode a PNG
+  image to extract text from it" — i.e. the routing reflex onto
+  `browser_take_screenshot` that Effort 3's fix (`_tool_description_with_appends`,
+  `services/mcp-client/app/main.py`) was built to produce is no longer
+  firing reliably.
+
+**Candidate cause, NOT confirmed**: the only change touching this path
+since the last documented 3/3 routing success is the `exllamav3`
+1.1.0 → 1.5.0 runtime bump (`services/tabbyapi/Dockerfile`, this same
+effort's Phase 0) — a major version jump that could plausibly affect
+image/vision-token handling or chat-template rendering in a way that
+degrades this specific reflex. Purely a temporal correlation, not yet
+tested in isolation (no A/B done between the two exllamav3 versions on
+this specific task).
+
+**Not yet done**: root-cause investigation (deliberately deferred, user
+decision, to not block Phase 3's Qwen3.6-vs-Qwen3.8 comparison — if the
+cause is the shared inference engine rather than either model, it
+affects both arms equally and doesn't invalidate that comparison, just
+sits as an orthogonal, pre-existing condition). Whoever picks this up:
+start from the audit log entries above (thread ids given), then
+consider re-running Effort 3's own `scripts/probe-visual-snapshot-signal.sh`-style
+isolated check against the current image before assuming the routing
+hint text itself regressed.
+
+**Follow-up (2026-09-16)**: the Phase 3 Qwen3.8 campaign
+(`docs/engineering-log.md`, "Phase 3 CLOSED") ran `E2_visual_only` on the
+SAME upgraded exllamav3 1.5.0 runtime as both baseline campaigns above —
+only the served model differs — and got 3/3, no reproduction. This is
+evidence AGAINST the "candidate cause: shared runtime bump" hypothesis
+above: the runtime is held constant here, so a routing-reflex regression
+specific to Qwen3.6 is now the better-supported explanation. Still OPEN
+for Qwen3.6 (root cause not confirmed, no isolated A/B run), but
+practically moot for production now that it is switched to Qwen3.8
+(`docs/engineering-log.md`, "Phase 3 CLOSED" decision) — left open
+rather than closed since Qwen3.6 remains a documented fallback target.

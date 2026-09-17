@@ -20,7 +20,7 @@ flowchart LR
     MC --> FS[filesystem]
 ```
 
-Tested on Qwen3.6-27B (EXL3) across a dual-GPU setup (RTX 4070 Ti Super +
+Tested on Qwen3.8-27B (EXL3) across a dual-GPU setup (RTX 4070 Ti Super +
 RTX 5060 Ti). Full architecture, including Skill Manager/Context Manager:
 [docs/architecture/](docs/architecture/).
 
@@ -48,13 +48,12 @@ core did nothing: [docs/lessons-learned.md](docs/lessons-learned.md).
 
 ## Requirements
 
-- **NVIDIA GPU(s), ~19 GB combined VRAM** for the shipped config (Qwen3.6-27B,
-  EXL3 3.50bpw, vision on, `cache_size: 65536`) — weights alone are ~14.3 GB.
-  `gpu_split_auto: true` (the shipped default) spreads this across however
-  many GPUs are present; a single 16 GB card does **not** fit the shipped
-  config as-is.
-- **Fits on one 16 GB card** only with vision disabled and a much smaller
-  `cache_size` (e.g. 8192) — see
+- **NVIDIA GPU(s), ~22 GB combined VRAM** for the shipped config (Qwen3.8-27B,
+  EXL3 4.50bpw, vision on, `cache_size: 65536`) — weights alone are ~18 GB
+  (autosplit measurement, `docs/engineering-log.md`, "Qwen3.8-27B evaluation,
+  Phase 2 partial"). `gpu_split_auto: true` (the shipped default) spreads
+  this across however many GPUs are present; **weights alone already exceed
+  a single 16 GB card**, so this build does not fit on one — see
   [docs/architecture/inference-backend.md](docs/architecture/inference-backend.md),
   "GPU split", and [Troubleshooting](#troubleshooting) below if you're short
   on VRAM.

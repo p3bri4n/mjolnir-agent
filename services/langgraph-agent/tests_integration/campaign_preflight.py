@@ -102,7 +102,11 @@ EXPECTED_AGENT_FLAGS = {
     "PLAN_VALIDATION_ENABLED": "true",
     "PLAN_JUDGE_ENABLED": "false",
     "PLANNING_MODE": "nodes",
-    "ADAPTIVE_THINKING": "true",
+    # Stale since 662bcba (2026-08-19) fixed docker-compose.yml's own
+    # default from "true" to "false" to match app/graph.py's actual
+    # Python-level default — this dict was never updated to match, see
+    # docs/resolved-bugs.md #53.
+    "ADAPTIVE_THINKING": "false",
     "MAX_IMAGES_IN_CONTEXT": "1",
     "IMAGE_FORMAT_PASSTHROUGH": "",
     "IMAGE_TOKEN_ESTIMATE": "1500",
@@ -121,18 +125,21 @@ EXPECTED_AGENT_FLAGS = {
 }
 
 
-# Deterministic GPU placement (docs/briefs/deterministic-gpu-placement.md,
-# step 5): expected device identity + configured split, mirrored from
-# services/tabbyapi/config.yml's gpu_split ([5, 14] GB, index 0 = RTX 5060
-# Ti bus 04:00.0, index 1 = RTX 4070 Ti SUPER bus 08:00.0) — kept in sync
-# manually like EXPECTED_AGENT_FLAGS above, verified against nvidia-smi's
-# own fields, never guessed. Tolerance from the real measured spread
-# (docs/history.md, "DETERMINISTIC GPU PLACEMENT": budget [5, 14] GB,
-# observed 5.91/12.32 GB used — whole-layer granularity, the loader can't
-# split mid-layer, so exact equality would never hold).
+# Deterministic GPU placement (docs/briefs/archive/deterministic-gpu-
+# placement.md, step 5): expected device identity + configured split,
+# mirrored from services/tabbyapi/config.local.yml's gpu_split — kept in
+# sync manually like EXPECTED_AGENT_FLAGS above, verified against
+# nvidia-smi's own fields, never guessed. Tolerance from the real
+# measured spread. Bumped from [5, 14] to [10, 13] for the Qwen3.8
+# evaluation (docs/briefs/qwen3.8-27b-evaluation.md, Phase 3): the 4.5bpw
+# build needs more VRAM than Qwen3.6's 3.50bpw, [5, 14] no longer fits —
+# verified stable across 3 reloads on the isolated PoC first
+# (docs/engineering-log.md, "Qwen3.8-27B evaluation — explicit gpu_split
+# adopted": GPU 0 landed on exactly 10991 MiB every time, GPU 1 within
+# 102 MiB of ~10970) before applying it here.
 EXPECTED_GPU_DEVICES = [
-    {"index": 0, "name": "NVIDIA GeForce RTX 5060 Ti", "bus_id": "00000000:04:00.0", "expected_gb": 5},
-    {"index": 1, "name": "NVIDIA GeForce RTX 4070 Ti SUPER", "bus_id": "00000000:08:00.0", "expected_gb": 14},
+    {"index": 0, "name": "NVIDIA GeForce RTX 5060 Ti", "bus_id": "00000000:04:00.0", "expected_gb": 10},
+    {"index": 1, "name": "NVIDIA GeForce RTX 4070 Ti SUPER", "bus_id": "00000000:08:00.0", "expected_gb": 13},
 ]
 GPU_PLACEMENT_TOLERANCE_GB = 3.0
 

@@ -11,8 +11,34 @@ model:
   model_dir: /models
   model_name: qwen38
   max_seq_len: 32768
-  cache_size: 32768
-  cache_mode: Q8
+  # Matches production's values (services/tabbyapi/config.yml) rather
+  # than a lighter placeholder — Phase 2 measures VRAM "at the production
+  # context size", per docs/briefs/qwen3.8-27b-evaluation.md.
+  cache_size: 65536
+  cache_mode: Q6
+  # Explicit split, same method that produced production's own [5, 14]:
+  # autosplit was measured first (Phase 2, docs/briefs/
+  # qwen3.8-27b-evaluation.md) — it put ~91% of GPU 0's capacity in use,
+  # only ~1.5 GiB free, and autosplit itself is documented as unstable
+  # for reproducible placement (docs/briefs/archive/
+  # deterministic-gpu-placement.md). [10, 13] verified stable across 3
+  # reloads (scripts/probe-qwen38-explicit-split-stability.sh): GPU 0
+  # exactly 10991 MiB every time (spread 0), GPU 1 within 102 MiB —
+  # ~5.3-5.4 GiB free on each card, comfortably above the ~1.5-2 GiB
+  # target margin.
   gpu_split_auto: false
-  gpu_split: [4, 15]
-  vision: false
+  gpu_split: [10, 13]
+  vision: true
+  tool_format: qwen3_coder
+
+# Stage 1 of 3 (docs/briefs/qwen3.8-27b-evaluation.md, Phase 2): vision
+# only. Stage 2 adds `draft_model: {draft_mode: mtp}` (native MTP head,
+# mtp.* tensors already confirmed present in this build's
+# model.safetensors.index.json — no separate draft_model_name needed).
+# Stage 3 adds `tool_format: qwen3_coder` under `model:` (already
+# confirmed a real, recognized key on this exllamav3 1.5.0 backend, see
+# docs/engineering-log.md, Phase 0 — logged "Using tool format:
+# qwen3_coder" on a real load) plus a scripted tool-call sanity check.
+
+draft_model:
+  draft_mode: mtp

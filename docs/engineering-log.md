@@ -101,6 +101,13 @@ for jumping to a specific entry.
 - **2026-08-12** — [SCAFFOLDING 3.1, POINT 1 — BROWSER_CLICK/NAVIGATE RETURN RESULTING PAGE STATE, BUILT](#scaffolding-31-point-1-browser_clicknavigate-return-resulting-page-state-built)
 - **2026-08-12** — [SCAFFOLDING 3.1, POINT 2 — CLOSED, PREMISE ALREADY FALSE](#scaffolding-31-point-2-closed-premise-already-false)
 - **2026-08-12** — [HISTORY-DIFF LIVE SMOKE — STALE IMAGE, THEN PREFLIGHT CORRECTLY REFUSED](#history-diff-live-smoke-stale-image-then-preflight-correctly-refused)
+- **2026-09-16** — [Qwen3.8-27B evaluation, Phase 0 — runtime upgrade probe: gate passed, two script bugs fixed along the way](#qwen38-27b-evaluation-phase-0-runtime-upgrade-probe-gate-passed-two-script-bugs-fixed-along-the-way)
+- **2026-09-16** — [Qwen3.8-27B evaluation, Phase 0 CLOSED — production Dockerfile bumped, model directory incident, regression smoke clean](#qwen38-27b-evaluation-phase-0-closed-production-dockerfile-bumped-model-directory-incident-regression-smoke-clean)
+- **2026-09-16** — [Qwen3.8-27B evaluation, Phase 1 CLOSED — ADAPTIVE_THINKING migration, mechanistic proof clean](#qwen38-27b-evaluation-phase-1-closed-adaptive_thinking-migration-mechanistic-proof-clean)
+- **2026-09-16** — [Qwen3.8-27B evaluation, Phase 2 partial — staged VRAM measurement, tool-calling sanity check](#qwen38-27b-evaluation-phase-2-partial-staged-vram-measurement-tool-calling-sanity-check)
+- **2026-09-16** — [Qwen3.8-27B evaluation, Phase 2 CLOSED — throughput with/without MTP, cold-vs-warm found to matter more than MTP itself on the first read](#qwen38-27b-evaluation-phase-2-closed-throughput-withwithout-mtp-cold-vs-warm-found-to-matter-more-than-mtp-itself-on-the-first-read)
+- **2026-09-16** — [Qwen3.8-27B evaluation — explicit gpu_split adopted, verified stable across 3 reloads](#qwen38-27b-evaluation-explicit-gpu_split-adopted-verified-stable-across-3-reloads)
+- **2026-09-16** — [Qwen3.8-27B evaluation, Phase 3 — Qwen3.6 baseline established, a second real _TABBY_METRICS_RE break found and fixed](#qwen38-27b-evaluation-phase-3-qwen36-baseline-established-a-second-real-_tabby_metrics_re-break-found-and-fixed)
 
 ---
 
@@ -6497,3 +6504,480 @@ no further action this session** — a longer task (A4, historically
 19-41 messages) would give the mechanism more to work with and is the
 natural next candidate if this gets revisited, but that is not decided
 here.
+
+## Qwen3.8-27B evaluation, Phase 0 — runtime upgrade probe: gate passed, two script bugs fixed along the way
+
+**Context**: `docs/briefs/qwen3.8-27b-evaluation.md` Phase 0 gates the whole
+evaluation on the installed TabbyAPI/exllamav3 runtime being new enough to
+decode this build's EXL3 codebook correctly — production is pinned to
+exllamav3 `1.1.0` (older than the `1.4.1` quantizer that produced the 3.8
+file), the dangerous direction: a version mismatch here mis-decodes
+silently, it does not fail cleanly. `scripts/probe-qwen38-runtime-load.sh`
+drives the pre-existing isolated PoC (`poc/qwen3.8/`, container
+`qwen38-tabbyapi`, port 5001, commit `aa5f96c`) to check this without
+touching the production `tabbyapi` service.
+
+**Two script bugs surfaced and fixed in the same session, each on a
+user-run attempt on the real host**:
+1. First run pulled the stock `tabbyapi:latest` image (the PoC's original
+   config) — timed out at 300s with neither a load confirmation nor a
+   recognized error string. Root cause: the stock image lacks the
+   `python3-dev` patch `services/tabbyapi/Dockerfile` already carries for
+   `gated_delta_net`'s Triton JIT compile (same architecture family,
+   `config.json` confirmed identical between the 3.6/3.8 builds beyond
+   version metadata) — the likely real error (`fatal error: Python.h: No
+   such file or directory`) wasn't in the script's grep list anyway, and
+   the `EXIT` trap discarded the container's logs before they could be
+   read. Fixed: added `poc/qwen3.8/Dockerfile` mirroring the production
+   patch on top of the digest resolved that run, switched the PoC compose
+   to build it instead of pulling the raw image, and made the script
+   always dump the log tail before tearing down regardless of outcome.
+2. Second run (patched image) timed out again at 600s despite loading
+   cleanly in reality — the script's success grep (`"Model successfully
+   loaded"`) was copied from a different, older TabbyAPI release's
+   wording (via `probe-cache-size-headroom.sh`) and never verified
+   against this specific image; the real log line is `"Model loaded in
+   35.9 s"`. Fixed the grep string, dropped the timeout back to 180s now
+   that a real load time is known (~35s).
+
+**Measurements (clean run, `/v1/model` + `pip show` cross-checked)**:
+- Image: `ghcr.io/theroyallab/tabbyapi@sha256:10bfcf9d27d1b3a5c7ada786f814b9da43fadad35643362f2fe0816082893172`
+- Triplet: `exllamav3 1.5.0+cu128.torch2.9.0`, `torch 2.9.0+cu128`, `tabbyAPI 0.0.1`
+- Model load time: ~35s (vision off, no draft/MTP configured in this
+  minimal PoC — expected, not yet tested here)
+- `/v1/model`'s `prompt_template_content` matches Qwen3.8's own
+  `chat_template.jinja` verbatim (the `reasoning_effort`/`xhigh` block is
+  present in the served template) — confirms empirically, on our own
+  install, that TabbyAPI sources its chat/tool-call template from the
+  model repo itself rather than a template bundled with TabbyAPI. This
+  resolves, against our own installed code rather than an external
+  report, one of the two open compatibility questions raised in the
+  brief's prerequisites.
+
+**Verdict**: GATE PASSED — `exllamav3 1.5.0 >= 1.4.0`, clean load, no
+traceback, no CUDA error. This clears the specific risk the probe was
+built for (a silent codebook mis-decode from an under-versioned runtime).
+It does NOT yet validate vision, MTP, or `tool_format` (this PoC config
+has them off/absent) — that is Phase 2's static measurements, still to
+come.
+
+**Decision**: Phase 0's isolated-PoC gate is cleared; the isolated PoC
+itself is not the production stack. Remaining Phase 0 work per the brief,
+not yet done: bump `services/tabbyapi/Dockerfile`'s pinned digest to the
+value above, then run the standard A1/A2 smoke on the CURRENT production
+Qwen3.6 model on the upgraded image BEFORE loading the 3.8 weights into
+production — isolates the image-upgrade effect from the model-swap
+effect. 🧑 Checkpoint before that step, per the brief.
+
+## Qwen3.8-27B evaluation, Phase 0 CLOSED — production Dockerfile bumped, model directory incident, regression smoke clean
+
+**Context**: continuing from the isolated-PoC gate above (exllamav3 1.5.0,
+clean load), the remaining Phase 0 steps per
+`docs/briefs/qwen3.8-27b-evaluation.md`: bump the production
+`services/tabbyapi/Dockerfile`'s pinned digest, then confirm the CURRENT
+Qwen3.6 production model still loads and performs correctly on the new
+image, isolating the image-upgrade effect from the model-swap effect.
+
+**Production Dockerfile bumped** (commit `a284aee`): digest updated to
+`ghcr.io/theroyallab/tabbyapi@sha256:10bfcf9d27d1b3a5c7ada786f814b9da43fadad35643362f2fe0816082893172`,
+the same one verified in isolation.
+
+**Unrelated incident found mid-smoke: production's `agent-llm` model
+directory was empty**. `FileNotFoundError: /models/agent-llm/config.json`
+on the first recreate attempt — traced to filesystem timestamps
+(`agent-llm` touched 26s before `qwen3.6-27b-exl3-5.00bpw` was created,
+2026-08-19), not to anything in this session: most likely `agent-llm`
+was cleared while preparing the 5.0bpw/Qwen3.8 downloads that same day
+and never restored. User confirmed: the symlink was broken and the
+original Qwen3.6 3.50bpw build had been accidentally deleted. Re-acquired
+by the user (redownload) outside this session — not a code or
+infrastructure fix, recorded here only because it blocked this Phase 0
+step and explains the gap. No live v2 campaign exists in
+`docs/campaigns/` between 2026-08-12 and this session, meaning this
+directory's state was untested for over a month.
+
+**Second, real bug found via the resulting preflight failure**: see
+`docs/resolved-bugs.md` #53 — `EXPECTED_AGENT_FLAGS["ADAPTIVE_THINKING"]`
+stale at `"true"` since `662bcba` fixed the actual default to `"false"`
+without updating this dict. Fixed (commit `2069949`). Same "no live
+campaign ran in the gap" root cause as the model-directory incident above
+— both were latent for a month, both surfaced by the same live smoke.
+
+**Regression smoke, clean** (`campaign-20260916T120837Z-qwen38-eval-phase0-image-upgrade-smoke.json`):
+Qwen3.6 / `agent-llm` unchanged, only the image upgraded.
+- A1_reconciliation_croisee: 1/1, 127.2s (historical baseline ~97-115s —
+  within the already-documented ±10-30s run-to-run variance)
+- A2_schema_references: 1/1, 49.0s (historical baseline ~40-50s)
+- `env_flags.ADAPTIVE_THINKING`: `false`, confirmed applied
+- `metadata.image_ids.tabbyapi`: `sha256:2f3741089a48c92...`, matches the
+  manifest actually exported by this build — not a stale image
+- GPU placement: ~6 GiB / 13.4 GiB across the two cards, consistent with
+  `gpu_split: [5, 14]`
+
+**Verdict**: no regression from the image upgrade alone. Phase 0 is now
+fully closed — all four of its steps are done (isolated gate, production
+digest bump, real triplet recorded, Qwen3.6 regression smoke clean).
+
+**Decision**: 🧑 Checkpoint per the brief — before Phase 1 (migrating
+`ADAPTIVE_THINKING`/`NO_THINK_DIRECTIVE` off the confirmed-dead
+`/no_think` text prefix onto the real per-request `chat_template_kwargs`
+path), awaiting the go-ahead.
+
+## Qwen3.8-27B evaluation, Phase 1 CLOSED — ADAPTIVE_THINKING migration, mechanistic proof clean
+
+**Context**: Phase 1 of `docs/briefs/qwen3.8-27b-evaluation.md` replaced
+`_apply_adaptive_thinking`'s `/no_think` text-prefix injection (confirmed
+to have no effect on this backend, `docs/resolved-bugs.md` #32) with
+`_should_suppress_thinking` + a conditional
+`bound_llm.bind(extra_body={"enable_thinking": False})` in `call_llm` —
+the same real per-request parameter `planner_llm` already used. Full
+`langgraph-agent` suite: 492 passed, 0 regressions (run in a fresh venv
+against the system Python, the committed `.venv` symlinks to a path only
+present on the user's host).
+
+**Live smoke, three real bugs found and fixed before a valid read was
+obtained** (same "live smoke catches a real bug" pattern as every other
+phase this session):
+1. First run: `docker compose up -d langgraph-agent` also brought
+   `tabbyapi` up from a stopped state as a side effect, and the smoke
+   script only waited on `langgraph-agent`'s own health endpoint —
+   `campaign_preflight`'s LLM-readiness check timed out at 180s while
+   `tabbyapi` was still loading. Fixed: the script now waits on
+   `tabbyapi`'s own load confirmation first (`scripts/smoke-adaptive-thinking.sh`).
+2. Second run: a genuine `RuntimeError: Insufficient VRAM in split for
+   model and cache` — traced to an orphaned `python3 main.py` process
+   (5.2 GiB on GPU 0 alone, no GPU 1 counterpart, PID no longer even
+   present in `ps` by the time it was checked) left over from an earlier
+   crashed load, never released by `docker compose down`. Killed by hand
+   (`kill`), confirmed via `nvidia-smi`. A second orphaned instance (this
+   one still alive, `python3 main.py --host 0.0.0.0`) had to be killed
+   the same way before a clean load succeeded.
+3. The audit-log read-back step used a host-side `curl` against
+   `langgraph-agent:8000` — that service publishes no host port (only
+   reachable on `agent-net` from other containers), so the request
+   always returned empty. Fixed: fetch via `docker exec` +
+   `urllib.request` instead, same technique as the readiness check.
+   Along the way, an inline multi-line `python3 -c` block handed to the
+   user to paste directly broke on the terminal's own paste
+   auto-indentation (`IndentationError`) — extracted into a real file
+   (`scripts/read-adaptive-thinking-audit.py`) to make it paste-proof and
+   reusable standalone against an already-completed run's `thread_id`,
+   no need to re-run the campaign.
+
+Also found and fixed along the way, unrelated to the mechanism itself: a
+stale `ADAPTIVE_THINKING` comment in `docker-compose.yml` describing the
+now-removed `/no_think` mechanism as current — missed in Phase 1's own
+doc-cleanup commit because that grep sweep never covered
+`docker-compose.yml`.
+
+**Live measurement** (`campaign-20260916T142708Z-phase1-adaptive-thinking-smoke.json`,
+thread `0085499748bfe2ff`, A2_schema_references, `ADAPTIVE_THINKING=true`
+via `CAMPAIGN_EXPECTED_FLAGS_OVERRIDE`): task 1/1. Audit-log mechanistic
+read (`scripts/read-adaptive-thinking-audit.py`), 7 turns: turn 1 not
+suppressed, reasoning present (`<think>` block in the assistant message);
+turns 2–7 all suppressed, **zero** `<think>` blocks across all six —
+clean, unambiguous correlation, no flattering zero (the mechanism fired
+6/7 turns, not once).
+
+**Verdict**: PASS. `_should_suppress_thinking` genuinely suppresses
+reasoning exactly on the turns it fires on, confirmed against the raw
+transcript rather than the campaign's success/failure score.
+
+**Decision**: Phase 1 CLOSED. Remaining per the brief: Phase 2 (static
+measurements — VRAM, MTP acceptance, tool-calling sanity check with a
+JSON-string argument) and Phase 3 (the actual Qwen3.6-vs-Qwen3.8
+campaign, re-baselined on the now-upgraded stack). 🧑 Checkpoint before
+Phase 2.
+
+## Qwen3.8-27B evaluation, Phase 2 partial — staged VRAM measurement, tool-calling sanity check
+
+**Context**: Phase 2 of `docs/briefs/qwen3.8-27b-evaluation.md` measures
+VRAM footprint, throughput, MTP acceptance rate, and a tool-calling
+sanity check — staged one feature at a time
+(`scripts/probe-qwen38-staged-vram.sh`) rather than all at once, since
+production's own VRAM margin is documented as already thin with the
+CURRENT, lighter 3.50bpw build, and this 4.5bpw build is heavier.
+
+**Prerequisite found mid-session**: production `tabbyapi` and the
+isolated PoC cannot run concurrently — both reserve all GPUs, and their
+combined footprint (~19 GiB production + a comparable-or-larger PoC
+load) exceeds the 32.7 GiB combined budget across both cards. Production
+was stopped (`docker compose stop tabbyapi`) before this measurement;
+Phase 2 does not need it running.
+
+**VRAM, staged, autosplit (deliberately, for this discovery run only —
+see the script's own rationale)**:
+
+| Stage | GPU 0 (RTX 5060 Ti, 16 311 MiB) | GPU 1 (RTX 4070 Ti SUPER, 16 376 MiB) |
+|---|---|---|
+| vision alone | +14 790 MiB | +3 567 MiB |
+| + native MTP | ~0 (noise) | +2 799 MiB |
+| + tool_format | 0 | 0 |
+| **Total resident** | **14 787 MiB (~91%)** | **7 459 MiB (~45%)** |
+
+All three stages loaded cleanly, no OOM. `tool_format` costing exactly 0
+VRAM confirms it's purely a config string, as expected.
+
+**Reading**: autosplit put nearly the whole model on GPU 0, leaving only
+~1.5 GiB free there against ~8.9 GiB free on GPU 1 — a much more
+lopsided split than production's own hand-picked `[5, 14]` for the
+lighter 3.50bpw build. If this build proceeds to Phase 3, a hand-picked,
+better-balanced split (same method that originally produced production's
+own numbers — autosplit observation first, explicit split second) would
+leave more headroom than reusing this autosplit result as-is.
+
+**Tool-calling sanity check** (`save_note` tool, `metadata` declared
+`type: string`, prompted to pass a JSON-encoded string verbatim): **no
+crash** — directly contradicts the external "official Qwen3.8 templates
+crash on JSON-string tool arguments" claim, at least for this exact
+model/backend/prompt. Nuance found instead: the model returned
+`metadata` as a **nested JSON object**, not the JSON-encoded *string*
+requested and declared in the schema — a fidelity-to-declared-type gap,
+not a parser failure. Not yet checked whether any of this project's own
+real tool schemas rely on a string-typed parameter holding embedded
+JSON — the test tool here was synthetic, built for this probe, not
+drawn from the actual MCP tool catalog.
+
+**Verdict**: VRAM and tool-calling sanity both clear, no blocker found.
+Phase 2 NOT closed: raw throughput (prefill/decode tokens/s, with vs.
+without MTP) and MTP acceptance rate — both explicitly required by the
+brief — are not yet measured.
+
+**Decision**: 🧑 Checkpoint — record now, continue to throughput/MTP
+acceptance measurement in a follow-up session.
+
+## Qwen3.8-27B evaluation, Phase 2 CLOSED — throughput with/without MTP, cold-vs-warm found to matter more than MTP itself on the first read
+
+**Context**: completing Phase 2 of `docs/briefs/qwen3.8-27b-evaluation.md`
+— raw prefill/decode throughput and MTP acceptance rate, single variable
+(same fixed prompt, only `draft_model` toggled),
+`scripts/probe-qwen38-throughput-mtp.sh`.
+
+**Real log-format bug found and fixed along the way, twice**:
+1. The actual per-request log line on this exllamav3 1.5.0 build is
+   structurally different from what
+   `tests_integration/campaign_persistence.py`'s `_TABBY_METRICS_RE`
+   expects (`"X tokens generated in Y seconds (Queue: ..."`). Real
+   format: `"#1 chat/completions: N tokens generated at X T/s · prompt P
+   tokens, [C cached|none cached], W new in Y s · first token F s, total
+   T s [· draft A/D accepted (P%)]"` — this project's own production
+   measurement tooling has been silently matching **zero** requests on
+   every campaign since the Phase 0 image bump (the `tabbyapi_requests:
+   0` aggregate already printed, unremarked, during the Phase 1 smoke).
+   Not yet fixed in `campaign_persistence.py` itself — flagged as a
+   separate, higher-priority follow-up (production-facing, not specific
+   to this evaluation).
+2. `docker compose logs` prefixes EVERY wrapped terminal line with the
+   container name, including mid-message when the app's own logger wraps
+   a single log entry across several lines — first parsing attempt
+   normalized whitespace but left the prefix planted inside the text
+   (literally between "first" and "token"), breaking the match. Fixed
+   with `--no-log-prefix` on the parsing invocation only.
+
+**Cold vs. warm, the actual finding that mattered most**: the first
+request after ANY model load carries a large, one-time JIT-compilation
+tax — prefill 5.4–6.7 T/s cold vs. **300 T/s warm** (~50x), decode
+16.0–16.9 T/s cold vs. warm (see below). A same-container, no-reload
+second request removes it. The brief's own quantisation-evaluation
+sibling already warned "measure it, do not assume it" for throughput
+deltas; this cold/warm gap turned out to dominate the very question
+being asked.
+
+**Warm reading (the real with/without-MTP comparison)**:
+
+| | with MTP | without MTP |
+|---|---|---|
+| decode | **61.8 T/s** | **25.0 T/s** |
+| prefill | 300.0 T/s | 300.0 T/s (expected — MTP affects decode, not prefill) |
+| MTP acceptance | 57% (163/284, consistent cold and warm — `temperature=0`, greedy) | n/a |
+
+**Reading**: MTP gives a real **×2.47 decode speedup** on this build,
+consistent with its 57% acceptance rate. The COLD reading alone (16.9 vs
+16.2 T/s, ~flat) would have wrongly concluded MTP does nothing — it was
+measuring first-call JIT overhead, not MTP's effect. Single request per
+condition (warm) — no repetition, but the two conditions are otherwise
+identical (same prompt, `temperature=0`, greedy), and the direction is
+large enough not to hinge on run-to-run noise the way a few-percent delta
+would.
+
+**Verdict**: Phase 2 CLOSED. All four required measurements done: VRAM
+(previous entry), tool-calling sanity (previous entry, no crash), decode/
+prefill throughput with vs. without MTP (this entry), MTP acceptance
+rate (this entry, 57%).
+
+**Decision**: 🧑 Checkpoint before Phase 3 (the actual Qwen3.6-vs-Qwen3.8
+campaign, re-baselined on the upgraded stack — see the brief). Separately
+flagged, not yet actioned: `campaign_persistence.py`'s
+`_TABBY_METRICS_RE` needs the same log-format fix applied here, or every
+future production campaign's `prefill_seconds`/`tabbyapi_requests`
+judges stay silently zeroed.
+
+## Qwen3.8-27B evaluation — explicit gpu_split adopted, verified stable across 3 reloads
+
+**Context**: Phase 2's autosplit result put ~91% of GPU 0's capacity in
+use (14 787/16 311 MiB, only ~1.5 GiB free) vs. ~45% on GPU 1 — too thin
+a margin for a multi-task, multi-repetition campaign, and autosplit
+itself is documented as unstable for reproducible placement
+(`docs/briefs/archive/deterministic-gpu-placement.md`, the exact reason
+production uses an explicit `gpu_split` instead). Same method used to
+originally derive production's own `[5, 14]`: measure with autosplit
+first, then hand-pick and verify an explicit split.
+
+**Margin target reasoned from first principles** (no existing house
+rule found): ~10-15% of each card's capacity free, ~1.5-2 GiB on these
+~16.3 GiB cards — covers CUDA context overhead, allocator fragmentation,
+and per-request transient buffers (vision tensors). Grounded in this
+project's own prior incident: a documented ~822 MiB margin was flagged
+as insufficient (`services/tabbyapi/config.yml`'s own historical
+comment, "largement inférieur au besoin réel de la tour vision").
+`cache_size` is a fixed pool pre-allocated at load, not something that
+grows with conversation length, so the margin only needs to cover
+runtime variance, not context growth.
+
+**Candidate `gpu_split: [10, 13]` verified**
+(`scripts/probe-qwen38-explicit-split-stability.sh`, 3 reloads):
+
+| | GPU 0 | GPU 1 |
+|---|---|---|
+| readings (MiB) | 10991, 10991, 10991 | 10909, 11011, 10951 |
+| spread | 0 MiB | 102 MiB (noise) |
+| worst-case free | ~5.3 GiB | ~5.4 GiB |
+
+Both far more comfortable than the ~1.5-2 GiB target, and — the more
+important result — GPU 0 landed on the exact same byte count all three
+times, a direct, positive contrast with autosplit's own documented
+instability.
+
+**Decision**: `gpu_split: [10, 13]` adopted in `poc/qwen3.8/config.yml`
+(`gpu_split_auto: false`). Candidate for Phase 3's own config once that
+phase starts — not yet applied to production (`services/tabbyapi/
+config.yml` keeps its own `[5, 14]` for the current Qwen3.6 build,
+untouched).
+
+## Qwen3.8-27B evaluation, Phase 3 — Qwen3.6 baseline established, a second real _TABBY_METRICS_RE break found and fixed
+
+**Context**: Phase 3 of `docs/briefs/qwen3.8-27b-evaluation.md` requires
+re-establishing the Qwen3.6 baseline on the now-upgraded stack (image,
+`_should_suppress_thinking` migration) before touching Qwen3.8 — the
+brief's own single-variable discipline.
+
+**First baseline attempt** (`campaign-20260916T160905Z-qwen38-eval-phase3-baseline-qwen36.json`):
+production `tabbyapi` had been stopped earlier in the session (Phase 2's
+VRAM probing on the isolated PoC) and never restarted — preflight's
+`wait_for_llm_ready` correctly refused after 180s (no completion
+possible from a container that isn't running). Fixed by starting it
+(`docker compose up -d tabbyapi`) and re-running.
+
+**Second attempt, real bug surfacing**: the campaign passed (F 8/8, A
+12/12, B CuP pattern consistent with history, C 9/9, D 6/6, E1/E3 3/3,
+E2 0/3) but its own printed TabbyAPI aggregate showed
+`tabbyapi_requests: 0` — the SAME-SESSION `_TABBY_METRICS_RE` fix
+(`docs/resolved-bugs.md` #54) had itself been verified only against
+short, single-turn, non-streaming probe calls (Phase 2's throughput
+probes), never against real streaming, multi-turn, cache-hitting agent
+traffic. Real production log lines look structurally different: cache
+reported as a PERCENTAGE ("98% cached", never an absolute count or bare
+"none cached" alone), comma thousands separators on larger numbers
+("14,303 tokens"), and an optional parenthetical prefill-rate annotation
+("0.81 s (526 T/s)") the regex didn't expect. All three broke the match
+silently (zero exceptions, zero samples — exactly the same class of
+flattering zero the first fix was supposed to close).
+
+**Second fix**: `_TABBY_METRICS_RE` rewritten again against the user's
+real, pasted `docker logs tabbyapi` output (timestamps, wrapped lines,
+interleaved "parsed N tool call(s)" lines included) —
+`cached_tokens` now derived as `prompt_tokens - new_tokens` (both given
+as absolute counts) instead of parsed from the rounded percentage,
+sidestepping the percentage-vs-count question entirely. Verified
+end-to-end against the exact real log text before committing. Full
+suite 494 passed.
+
+**Third campaign, the valid baseline**
+(`campaign-20260916T164143Z-qwen38-eval-phase3-baseline-qwen36-v2.json`):
+same result profile as the second attempt, EXCEPT
+`D1_cible_inexistante` 2/3 (one hallucination) instead of 3/3 — natural
+task-level variance at n=3, already documented as a live possibility for
+this specific task, not a regression. TabbyAPI aggregate now real:
+`tabbyapi_requests: 355`, `prompt_tokens_total: 3,552,785`,
+`prefill_seconds: 403.3`, `cache_zero_requests: 0` (every request hit the
+cache to some degree — healthy).
+
+**Decision**: `qwen38-eval-phase3-baseline-qwen36-v2` is the OFFICIAL
+Qwen3.6 reference for Phase 3's comparison — complete data (score +
+TabbyAPI throughput). The first (no TabbyAPI data) and second (zero
+TabbyAPI data, pre-fix) attempts stay archived, superseded, not used for
+comparison. Next: switch production to Qwen3.8 (symlink repoint,
+`config.local.yml` gpu_split, `EXPECTED_GPU_DEVICES` update — all held
+until this baseline was confirmed valid, per the same discipline that
+caught the earlier premature edit this session) and run the identical
+suite.
+
+## Qwen3.8-27B evaluation, Phase 3 CLOSED — campaign run, decision: adopt Qwen3.8
+
+**Context**: production repointed to Qwen3.8
+(`scripts/switch-production-to-qwen38.sh`, `gpu_split: [10, 13]`,
+`EXPECTED_GPU_DEVICES` updated to match — commit `1d0721e`), then the
+identical v2 suite run against it
+(`campaign-20260916T173945Z-qwen38-eval-phase3-qwen38.json`) for
+comparison against the official baseline above
+(`qwen38-eval-phase3-baseline-qwen36-v2`). Same `langgraph-agent` image
+digest and `ADAPTIVE_THINKING=false` on both sides — only the served
+model differs.
+
+**Score, read per the brief's frozen judges, without advocacy**: 57/62
+successes (Qwen3.8) vs. 58/62 (Qwen3.6 baseline) — under the brief's own
+~2-point noise threshold, i.e. no meaningful net gain or loss at the
+aggregate level.
+
+**Per-family reading**:
+- F, B (CuP), C, D: unchanged — same pattern of successes/failures as
+  the baseline (B's medium/hard CuP=0/3 is the pre-existing
+  `no_grant_relaxation` behavior, model-independent; D1's hallucination
+  rate 2/3 identical on both sides).
+- A: regressed — `A1_reconciliation_croisee` 3/3 → 2/3 (one extraction
+  failure); `A3_contact_conges` `correct=3` (full success) →
+  `safe_deferral=3` (never counted as a success per the brief's own
+  counting rule, but not a hallucination either — the model declines to
+  guess between the two ambiguous candidates instead of picking one).
+- E: improved — `E2_visual_only` 0/3 → 3/3. This is the SAME open
+  regression as `docs/resolved-bugs.md` #55, and it fails to reproduce
+  on Qwen3.8 under the identical, already-upgraded exllamav3 1.5.0
+  runtime used by both arms — evidence AGAINST that bug's "candidate
+  cause: the shared runtime bump" hypothesis, since the runtime is held
+  constant here and only the model differs. Follow-up note added to
+  bug #55 below.
+
+**Thinking-token judge (read before CuP, per the brief)**: both
+campaigns ran with `ADAPTIVE_THINKING=false` — a clean, apples-to-apples
+comparison of each model's own untouched default, but it means Phase
+1's per-request thinking control was never engaged on either side: Qwen3.8
+ran under its native default (`reasoning_effort: xhigh` on every call,
+per the brief's own opening context) uncontrolled. Confirmed directly in
+the raw per-run samples: `T3_tableau_dynamique` #1 (a one-fact lookup)
+generated 6 886 `new_tokens` on Qwen3.8 vs. 190–402 on the identical task
+on Qwen3.6. This shows up in cumulative campaign time: summing all
+`duration_seconds` gives ~1 618s (Qwen3.6 baseline) vs. ~1 818s
+(Qwen3.8), **+15%**, concentrated in family A (+30%, 525s → 683s) and
+`D1_cible_inexistante` (+63%, 224s → 365s) — both long-horizon,
+multi-turn tasks where the extra reasoning tokens compound turn over
+turn. `E2_visual_only` is the one exception: faster AND correct on
+Qwen3.8 (215s cumulative, failing → 37s cumulative, passing), consistent
+with a genuine perceptual-capability difference rather than a
+thinking-token effect (short single-turn task).
+
+**Verdict against the brief's decision table**: closest row is "No
+meaningful gain → keep current model", aggravated by the uncontrolled
+latency cost above and one family-A regression, offset by a genuine
+family-E gain. Reported here without advocacy, exactly as measured.
+
+**Decision** (user, in full knowledge of the above): adopt Qwen3.8 in
+production. Production `models/agent-llm` already repoints there
+(`scripts/switch-production-to-qwen38.sh`, run this session).
+`ADAPTIVE_THINKING` was NOT toggled on as part of this decision — the
+brief's Phase 1 mechanism exists and is verified working
+(`docs/engineering-log.md`, "Phase 1 CLOSED"), but turning it on to
+control this newly-observed latency cost is its own single-variable
+follow-up, not yet run. Effort's outstanding deliverable per the brief:
+`docs/architecture/inference-backend.md` updated (this session) to
+describe the now-current Qwen3.8 model, runtime triplet, and VRAM
+budget.

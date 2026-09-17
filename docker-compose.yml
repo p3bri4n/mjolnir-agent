@@ -50,17 +50,14 @@ services:
       # llama-server, dont le fork llama.cpp décode le WebP nativement — voir
       # tableau des bugs du README.
       - IMAGE_FORMAT_PASSTHROUGH=${IMAGE_FORMAT_PASSTHROUGH:-}
-      # Qwen3.6 raisonne par défaut sur chaque tour : coûteux pour une
-      # boucle rapide d'outils auto-approuvés. Injecte /no_think dans le
-      # system prompt quand tous les tool_calls du tour précédent sont
-      # auto-approuvés (voir approval_policy.py). CONFIRMED NO EFFECT ON
-      # THE DEFAULT TABBYAPI BACKEND (see the comment above
-      # PLANNER_MAX_TOKENS, app/graph.py) -- only llama-server/Ollama
-      # respect the "/no_think" prefix, and llama-server is no longer a
-      # runnable service in this compose file. Default false: was
-      # inconsistently true here while app/graph.py's own fallback reads
-      # false -- harmless in practice (no-op either way on TabbyAPI) but
-      # now aligned, not left as a live doc/code/deploy mismatch.
+      # Qwen models reason by default on every turn: costly for a fast
+      # auto-approved tool loop. Disables thinking for that one request
+      # (extra_body={"enable_thinking": False}, a real per-request
+      # TabbyAPI/ExLlamaV3 parameter) when all of the previous turn's
+      # tool_calls were auto-approved (see approval_policy.py,
+      # _should_suppress_thinking in app/graph.py). Migrated off an
+      # earlier `/no_think` text prefix, confirmed to have no effect on
+      # this backend — see docs/briefs/qwen3.8-27b-evaluation.md, Phase 1.
       - ADAPTIVE_THINKING=${ADAPTIVE_THINKING:-false}
       # Explicit plan (Phase 1 "cognitive core", Iteration 1 — see
       # docs/briefs/phase-1-coeur-cognitif.md). DEFAULT FLIPPED BACK TO
@@ -392,7 +389,7 @@ services:
     # pas de port publié : uniquement accessible via le réseau interne (mcp-client)
 
   # --- OCR proactif : PaddleOCR CPU, capacité interne du graphe --------
-  # Grounding du VLM (Qwen3.6 MoE) sur canvas/WebGL/image/PDF natif : ces
+  # Grounding du VLM (Qwen3.8, 27B dense) sur canvas/WebGL/image/PDF natif : ces
   # contenus sont illisibles par tout canal DOM (browser_snapshot/
   # browser_extract), seule la capture visuelle les lit (voir
   # docs/architecture/visual-channel-feasibility.md, VP1-VP4). GhostDesk a
@@ -420,7 +417,7 @@ services:
   # Inférence
   # ──────────────────────────────────────────────────────────────
   # Backend par défaut : TabbyAPI (image officielle ghcr.io/theroyallab/
-  # tabbyapi, backend ExLlamaV3) servant Qwen3.6-27B en quantisation EXL3
+  # tabbyapi, backend ExLlamaV3) servant Qwen3.8-27B en quantisation EXL3
   # (variante VL, vision préservée pour browser_take_screenshot) avec MTP natif
   # (draft_mode: mtp dans services/tabbyapi/config.yml, pas de modèle de
   # draft séparé). Remplace llama-server comme défaut : ce dernier restait
@@ -568,6 +565,36 @@ services:
       # par l'app elle-même après écriture — même convention que
       # fixture-hr-app.
       - ./workspace/admin-app-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=3)\" || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - agent-net
+
+  # ──────────────────────────────────────────────────────────────
+  # Demo recording (scripts/record-demo.sh, docs/briefs/readme-rework.md
+  # point 2): styled DUPLICATES of fixture-catalog/fixture-admin above,
+  # not the benchmark fixtures themselves -- those are frozen and hashed
+  # (see their own HASHES.txt), never touched for a cosmetic purpose.
+  # These live under scripts/demo/fixtures/, are never hashed, and only
+  # exist to look good on camera. Dedicated profile: never run with the
+  # rest of the stack or with --profile test-fixtures.
+  #   docker compose --profile demo up -d fixture-demo-catalog fixture-demo-admin
+  # ──────────────────────────────────────────────────────────────
+  fixture-demo-catalog:
+    build: ./scripts/demo/fixtures/catalog
+    container_name: fixture-demo-catalog
+    profiles: ["demo"]
+    networks:
+      - agent-net
+
+  fixture-demo-admin:
+    build: ./scripts/demo/fixtures/admin
+    container_name: fixture-demo-admin
+    profiles: ["demo"]
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=3)\" || exit 1"]
       interval: 5s
