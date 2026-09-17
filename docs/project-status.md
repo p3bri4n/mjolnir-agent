@@ -937,3 +937,51 @@ follow-up, not yet run. Full detail: `docs/engineering-log.md`,
 "Qwen3.8-27B evaluation, Phase 3 CLOSED". `docs/architecture/
 inference-backend.md` updated to describe the now-current model, runtime
 triplet, and GPU split.
+
+**Follow-up: `ADAPTIVE_THINKING=true` measured — real time gain, real
+reliability loss, REJECTED.** Full v2 campaign
+(`campaign-20260917T062658Z-qwen38-adaptive-thinking-campaign.json`):
+**-21% cumulative time** (24min41 vs. 31min05), trigger rate 301/365
+turns suppressed (82.5%, 0 real suppression failures — mechanism itself
+confirmed sound), but **score dropped to 53/62** (from 57/62), past the
+noise threshold. Mechanistically traced (`scripts/dump-audit-thread.py`,
+raw tool-call sequence, not just the score): `T10_books_toscrape` froze
+into 18 byte-identical `browser_navigate` calls in a row (2/2 → 0/2,
+both `boucle`); `A1_reconciliation_croisee` wandered through unfocused
+exploration and ran out of budget just short of the page it had already
+found (3/3 → 1/3). Both are the model losing its ability to notice a
+dead end and self-correct once reasoning is fully suppressed — matches
+Qwen3.8's own official model-card warning about multi-turn agentic
+tasks. **Not adopted.** Full detail:
+`docs/engineering-log.md`, "ADAPTIVE_THINKING=true campaign".
+
+**Follow-up to the follow-up: `REASONING_EFFORT` mechanism built and
+measured — best result so far, adoption decision pending.** New,
+independent mechanism (`REASONING_EFFORT` env var, `app/graph.py`,
+unconditional on every call, no turn-based gate like
+`ADAPTIVE_THINKING`) — caps reasoning DEPTH instead of suppressing it
+entirely. Wire format confirmed empirically (Phase 0, bare `extra_body`
+key, same convention as `enable_thinking`) before writing any code.
+Full v2 campaign at `REASONING_EFFORT=medium`
+(`campaign-20260917T080205Z-qwen38-reasoning-effort-medium-campaign.json`):
+**60/62 — the best of all three Qwen3.8 variants measured** (xhigh
+57/62, full suppression 53/62). `T10`/`A1` both fully recover (T10 2/2,
+A1 3/3, even better than xhigh's own 2/3), zero `boucle` failures
+anywhere, cumulative time **-7.9%** vs. xhigh (real but smaller than full
+suppression's -21%, as expected for a less radical cut). One wrinkle:
+`D1_cible_inexistante` dropped to 1/3 — investigated via raw transcript,
+neither failure reads as a confident fabrication (one likely a test
+regex false-positive on a real product's price mentioned in passing, one
+the model never reaching a conclusion after hitting a navigation
+guardrail) — most likely a test failure-cause labeling gap, not a real
+`REASONING_EFFORT` cost, though not proven with certainty. A live bug
+was also found and fixed on the first campaign attempt:
+`docker-compose.yml` never passed `REASONING_EFFORT` through to the
+container (unlike `ADAPTIVE_THINKING`'s own explicit line) —
+`docs/resolved-bugs.md` #58. Follow-up brief opened, not yet
+implemented: `docs/briefs/d1-failure-cause-granularity.md` (splits the
+single `"hallucination"` failure_cause label into three, pass/fail logic
+untouched — not a new benchmark version). **Decision on adopting
+`REASONING_EFFORT=medium` as the new default: pending, not yet made.**
+Full detail: `docs/engineering-log.md`, "reasoning_effort tuning, Phase
+0" and "Phase 2".

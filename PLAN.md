@@ -280,9 +280,23 @@ thinking effort untested — +15% cumulative campaign time). **Adopted in
 production anyway, by explicit user decision** made in full knowledge of
 that reading, not because the brief's decision table selected it. Full
 detail: `docs/engineering-log.md`, "Qwen3.8-27B evaluation, Phase 3
-CLOSED". Follow-up not yet run: an `ADAPTIVE_THINKING=true` measurement
-on Qwen3.8 to check whether Phase 1's thinking-control mechanism absorbs
-this cost — its own single-variable campaign.
+CLOSED".
+
+Follow-up run: `ADAPTIVE_THINKING=true` measured — real -21% cumulative
+time, but a real score regression (57/62 → 53/62) mechanistically traced
+to two long-horizon tasks losing their ability to self-correct once
+reasoning is fully suppressed (a frozen 18-call navigate loop on T10, an
+unfinished search on A1). **Rejected.**
+
+Second follow-up: a new, independent `REASONING_EFFORT` mechanism
+(caps reasoning depth instead of suppressing it, brief:
+`docs/briefs/reasoning-effort-tuning.md`) built and measured at
+`medium` — **60/62, the best of all three variants**, T10/A1 fully
+recover, -7.9% time vs. xhigh, zero new `boucle` failures. One `D1`
+regression under investigation, most likely a test-labeling gap (own
+follow-up brief: `docs/briefs/d1-failure-cause-granularity.md`, not yet
+implemented). **Adoption decision pending** — not yet made. Full
+detail: `docs/engineering-log.md`, "reasoning_effort tuning" entries.
 
 ### Effort 8 — Visual-only navigation mode
 
