@@ -912,7 +912,28 @@ handled — see `docs/engineering-log.md`, "Qwen3.8-27B evaluation, Phase
 3"). Two earlier baseline attempts (tabbyapi not running, then the
 pre-fix zero-samples run) stay archived, superseded.
 
-🧑 Checkpoint before switching production to Qwen3.8 (symlink repoint,
-`config.local.yml` gpu_split, `EXPECTED_GPU_DEVICES` update — prepared
-but deliberately not applied until the baseline above was confirmed
-valid) and running the identical suite.
+**Phase 3 CLOSED — Qwen3.8 adopted.** Production switched
+(`scripts/switch-production-to-qwen38.sh`, `gpu_split: [10, 13]`,
+`EXPECTED_GPU_DEVICES` updated) and the identical suite run
+(`campaign-20260916T173945Z-qwen38-eval-phase3-qwen38.json`): 57/62
+successes vs. the baseline's 58/62 — under the brief's own ~2-point
+noise threshold, no meaningful net score change. F/B/C/D families
+unchanged; family A regressed (`A1` 3/3 → 2/3, `A3` full `correct`
+successes → `safe_deferral`, never counted as success but not a
+hallucination either); family E improved (`E2_visual_only` 0/3 → 3/3,
+the exact regression tracked in `docs/resolved-bugs.md` #55 fails to
+reproduce on Qwen3.8 under the identical runtime — evidence the cause is
+model-specific, not the shared exllamav3 bump). Both campaigns ran with
+`ADAPTIVE_THINKING=false`, so Qwen3.8's own default thinking effort went
+uncontrolled: confirmed directly in the raw samples (6 886 `new_tokens`
+for a one-fact lookup vs. 190–402 on the same task on Qwen3.6) and in
+cumulative campaign time, **+15%** (~1 618s → ~1 818s), concentrated in
+family A (+30%) and `D1_cible_inexistante` (+63%). Closest row in the
+brief's decision table: "no meaningful gain → keep current model" —
+**adopted anyway, decision made in full knowledge of this latency cost**
+(user decision). `ADAPTIVE_THINKING` was not turned on as part of this
+decision; doing so to control the newly-observed cost is its own
+follow-up, not yet run. Full detail: `docs/engineering-log.md`,
+"Qwen3.8-27B evaluation, Phase 3 CLOSED". `docs/architecture/
+inference-backend.md` updated to describe the now-current model, runtime
+triplet, and GPU split.

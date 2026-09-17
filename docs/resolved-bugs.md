@@ -459,3 +459,15 @@ start from the audit log entries above (thread ids given), then
 consider re-running Effort 3's own `scripts/probe-visual-snapshot-signal.sh`-style
 isolated check against the current image before assuming the routing
 hint text itself regressed.
+
+**Follow-up (2026-09-16)**: the Phase 3 Qwen3.8 campaign
+(`docs/engineering-log.md`, "Phase 3 CLOSED") ran `E2_visual_only` on the
+SAME upgraded exllamav3 1.5.0 runtime as both baseline campaigns above —
+only the served model differs — and got 3/3, no reproduction. This is
+evidence AGAINST the "candidate cause: shared runtime bump" hypothesis
+above: the runtime is held constant here, so a routing-reflex regression
+specific to Qwen3.6 is now the better-supported explanation. Still OPEN
+for Qwen3.6 (root cause not confirmed, no isolated A/B run), but
+practically moot for production now that it is switched to Qwen3.8
+(`docs/engineering-log.md`, "Phase 3 CLOSED" decision) — left open
+rather than closed since Qwen3.6 remains a documented fallback target.

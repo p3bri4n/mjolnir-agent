@@ -6911,3 +6911,73 @@ comparison. Next: switch production to Qwen3.8 (symlink repoint,
 until this baseline was confirmed valid, per the same discipline that
 caught the earlier premature edit this session) and run the identical
 suite.
+
+## Qwen3.8-27B evaluation, Phase 3 CLOSED — campaign run, decision: adopt Qwen3.8
+
+**Context**: production repointed to Qwen3.8
+(`scripts/switch-production-to-qwen38.sh`, `gpu_split: [10, 13]`,
+`EXPECTED_GPU_DEVICES` updated to match — commit `1d0721e`), then the
+identical v2 suite run against it
+(`campaign-20260916T173945Z-qwen38-eval-phase3-qwen38.json`) for
+comparison against the official baseline above
+(`qwen38-eval-phase3-baseline-qwen36-v2`). Same `langgraph-agent` image
+digest and `ADAPTIVE_THINKING=false` on both sides — only the served
+model differs.
+
+**Score, read per the brief's frozen judges, without advocacy**: 57/62
+successes (Qwen3.8) vs. 58/62 (Qwen3.6 baseline) — under the brief's own
+~2-point noise threshold, i.e. no meaningful net gain or loss at the
+aggregate level.
+
+**Per-family reading**:
+- F, B (CuP), C, D: unchanged — same pattern of successes/failures as
+  the baseline (B's medium/hard CuP=0/3 is the pre-existing
+  `no_grant_relaxation` behavior, model-independent; D1's hallucination
+  rate 2/3 identical on both sides).
+- A: regressed — `A1_reconciliation_croisee` 3/3 → 2/3 (one extraction
+  failure); `A3_contact_conges` `correct=3` (full success) →
+  `safe_deferral=3` (never counted as a success per the brief's own
+  counting rule, but not a hallucination either — the model declines to
+  guess between the two ambiguous candidates instead of picking one).
+- E: improved — `E2_visual_only` 0/3 → 3/3. This is the SAME open
+  regression as `docs/resolved-bugs.md` #55, and it fails to reproduce
+  on Qwen3.8 under the identical, already-upgraded exllamav3 1.5.0
+  runtime used by both arms — evidence AGAINST that bug's "candidate
+  cause: the shared runtime bump" hypothesis, since the runtime is held
+  constant here and only the model differs. Follow-up note added to
+  bug #55 below.
+
+**Thinking-token judge (read before CuP, per the brief)**: both
+campaigns ran with `ADAPTIVE_THINKING=false` — a clean, apples-to-apples
+comparison of each model's own untouched default, but it means Phase
+1's per-request thinking control was never engaged on either side: Qwen3.8
+ran under its native default (`reasoning_effort: xhigh` on every call,
+per the brief's own opening context) uncontrolled. Confirmed directly in
+the raw per-run samples: `T3_tableau_dynamique` #1 (a one-fact lookup)
+generated 6 886 `new_tokens` on Qwen3.8 vs. 190–402 on the identical task
+on Qwen3.6. This shows up in cumulative campaign time: summing all
+`duration_seconds` gives ~1 618s (Qwen3.6 baseline) vs. ~1 818s
+(Qwen3.8), **+15%**, concentrated in family A (+30%, 525s → 683s) and
+`D1_cible_inexistante` (+63%, 224s → 365s) — both long-horizon,
+multi-turn tasks where the extra reasoning tokens compound turn over
+turn. `E2_visual_only` is the one exception: faster AND correct on
+Qwen3.8 (215s cumulative, failing → 37s cumulative, passing), consistent
+with a genuine perceptual-capability difference rather than a
+thinking-token effect (short single-turn task).
+
+**Verdict against the brief's decision table**: closest row is "No
+meaningful gain → keep current model", aggravated by the uncontrolled
+latency cost above and one family-A regression, offset by a genuine
+family-E gain. Reported here without advocacy, exactly as measured.
+
+**Decision** (user, in full knowledge of the above): adopt Qwen3.8 in
+production. Production `models/agent-llm` already repoints there
+(`scripts/switch-production-to-qwen38.sh`, run this session).
+`ADAPTIVE_THINKING` was NOT toggled on as part of this decision — the
+brief's Phase 1 mechanism exists and is verified working
+(`docs/engineering-log.md`, "Phase 1 CLOSED"), but turning it on to
+control this newly-observed latency cost is its own single-variable
+follow-up, not yet run. Effort's outstanding deliverable per the brief:
+`docs/architecture/inference-backend.md` updated (this session) to
+describe the now-current Qwen3.8 model, runtime triplet, and VRAM
+budget.

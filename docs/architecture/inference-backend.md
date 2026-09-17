@@ -4,12 +4,21 @@ Content moved as-is from README.md (restructuring effort, see docs/briefs/restru
 
 The default backend is **TabbyAPI** (official image
 [`ghcr.io/theroyallab/tabbyapi`](https://github.com/theroyallab/tabbyAPI),
-ExLlamaV3 backend), serving **Qwen3.6-27B in EXL3 quantization** (VL
-variant, vision preserved for `browser_take_screenshot`/the proactive OCR
-capability — see Images and adaptive thinking and Proactive OCR
-enrichment below), with **native MTP** (`draft_mode:
-mtp` in `services/tabbyapi/config.yml`, the model's own multi-token
-prediction head, no separate draft model to load).
+ExLlamaV3 backend, runtime triplet `exllamav3 1.5.0+cu128.torch2.9.0` /
+`torch 2.9.0+cu128` / `tabbyAPI 0.0.1`), serving **Qwen3.8-27B in EXL3
+quantization (4.50bpw)** (VL variant, vision preserved for
+`browser_take_screenshot`/the proactive OCR capability — see Images and
+adaptive thinking and Proactive OCR enrichment below), with **native
+MTP** (`draft_mode: mtp` in `services/tabbyapi/config.yml`, the model's
+own multi-token prediction head, no separate draft model to load; ×2.47
+decode speedup measured warm, 61.8 T/s vs. 25.0 T/s without, 57%
+acceptance — see `docs/engineering-log.md`, "Qwen3.8-27B evaluation,
+Phase 2 CLOSED"). Adopted over the prior Qwen3.6-27B (3.50bpw) build
+after the Phase 3 campaign comparison — no meaningful net score gain
+(within documented run-to-run noise) and a real, uncontrolled latency
+cost from the model's own default thinking effort, but adopted anyway;
+full reasoning in `docs/engineering-log.md`, "Qwen3.8-27B evaluation,
+Phase 3 CLOSED".
 
 Config `services/tabbyapi/config.yml` (mounted read-only): key fields
 `model_dir`/`model_name` (HuggingFace-style directory of the EXL3 quant
@@ -71,6 +80,19 @@ whatever split is configured — a campaign run under a silently different
 split (autosplit left on, config drifted, wrong card at a given index) is
 refused before the first task starts, rather than producing numbers that
 look comparable and aren't.
+
+**Current production value**: `gpu_split: [10, 13]` (Qwen3.8-27B
+4.50bpw, `services/tabbyapi/config.local.yml`) — hand-picked after
+autosplit put ~91% of GPU 0's capacity in use (14 787/16 311 MiB, only
+~1.5 GiB free) vs. ~45% on GPU 1, too thin a margin for a
+multi-repetition campaign. Verified stable across 3 reloads: GPU 0
+landed on the exact same 10 991 MiB every time, GPU 1 within 102 MiB
+(noise) — ~5.3-5.4 GiB free on each card, comfortably above the
+~1.5-2 GiB target reasoned from this project's own prior incident (a
+documented ~822 MiB margin flagged as insufficient for the vision
+tower). Superseded the prior Qwen3.6 (3.50bpw) build's `[5, 14]`. Full
+detail: `docs/engineering-log.md`, "Qwen3.8-27B evaluation — explicit
+gpu_split adopted".
 
 
 ## Images and adaptive thinking (`services/langgraph-agent/app/graph.py`)
