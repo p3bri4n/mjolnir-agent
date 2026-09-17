@@ -471,3 +471,59 @@ for Qwen3.6 (root cause not confirmed, no isolated A/B run), but
 practically moot for production now that it is switched to Qwen3.8
 (`docs/engineering-log.md`, "Phase 3 CLOSED" decision) — left open
 rather than closed since Qwen3.6 remains a documented fallback target.
+
+### 56. `scripts/read-adaptive-thinking-audit.py` — `<think>` check was a structural blind spot on Qwen3.8, always false regardless of suppression — CLOSED
+
+**Symptom, confirmed cause**: preparing the `ADAPTIVE_THINKING=true`
+follow-up campaign (`docs/engineering-log.md`, "Qwen3.8-27B evaluation
+follow-up") required re-verifying Phase 1's mechanistic proof on Qwen3.8
+specifically — the original proof ran on Qwen3.6, before the production
+switch. The audit script's `has_think = "<think>" in content` check,
+correct for Qwen3.6 (our own reinjection code, `_convert_delta_with_
+reasoning`, adds both `<think>` and `</think>` around a populated
+`reasoning_content`), is a structural blind spot on Qwen3.8: its
+`chat_template.jinja` bakes the opening `<think>` into the generation
+PROMPT (verified directly, lines 163-168), never into what the model
+generates — `<think>` can never appear in a Qwen3.8 completion, whether
+or not suppression worked, making the check permanently uninformative on
+this model rather than loudly wrong.
+
+**Fix**: check `</think>` instead — the tag Qwen3.8 can actually generate
+(the model closes its own reasoning turn; the closed-empty-block case,
+`enable_thinking:false`, structurally cannot produce one). Backward-
+compatible with Qwen3.6 (both tags were already present there). A live
+smoke then surfaced a second nuance: a suppressed turn can show a bare
+`</think>` as the literal first characters of its content — the model
+re-closing an already-closed empty block out of habit, near-zero token
+cost, not a real failure. Verdict logic refined to classify by the
+length of any text before `</think>` (≤5 chars = stray marker,
+informational; more = a real suppression failure) rather than bare tag
+presence, which would have kept producing a false `FAIL` on this exact
+pattern.
+
+### 57. `scripts/smoke-adaptive-thinking.sh` (`wait_for_tabbyapi`) — log-tail scan false-timed-out on an already-healthy, non-recreated tabbyapi — CLOSED
+
+**Symptom, confirmed cause**: re-running the smoke a second time (Step 0
+added, `tabbyapi` untouched — only `langgraph-agent` gets recreated by
+this script) hit a 180s timeout claiming tabbyapi never confirmed a
+model load, while the container had in fact been running and serving
+correctly the whole time. Root cause: `wait_for_tabbyapi` grepped
+`docker compose logs tabbyapi | tail -80` for a `"Model loaded in"`/
+`"Serving OAI API on"` string — the original load-confirmation line from
+whenever tabbyapi last actually (re)started had, by this point, scrolled
+out of the last-80-lines window under later request traffic (this
+session's own earlier smoke and probe runs). The function's own design
+assumed tabbyapi was always freshly (re)started immediately before the
+wait; true the first time this pattern was used (Phase 1's original
+smoke), false as soon as a script stopped touching tabbyapi itself.
+
+**Fix**: replaced the log-tail scan with a real completion call via
+`docker exec langgraph-agent` (`POST /v1/chat/completions`,
+`max_tokens: 1`, `enable_thinking: false` for speed) polled every 5s up
+to 180s — the exact same technique and rationale already used by
+`services/langgraph-agent/tests_integration/campaign_preflight.py`'s
+`_fetch_llm_ready`/`wait_for_llm_ready` ("the only check that would have
+caught the real-conditions case found: server not yet listening despite
+a model already loaded"), which this ad hoc script duplicate had drifted
+from. Applied to both `scripts/smoke-adaptive-thinking.sh` and
+`scripts/campaign-adaptive-thinking-qwen38.sh`.

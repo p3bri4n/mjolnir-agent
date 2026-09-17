@@ -6981,3 +6981,184 @@ follow-up, not yet run. Effort's outstanding deliverable per the brief:
 `docs/architecture/inference-backend.md` updated (this session) to
 describe the now-current Qwen3.8 model, runtime triplet, and VRAM
 budget.
+
+## Qwen3.8-27B evaluation follow-up — ADAPTIVE_THINKING mechanism confirmed on Qwen3.8, two smoke-tooling bugs found and fixed
+
+**Context**: preparing the `ADAPTIVE_THINKING=true` follow-up campaign
+flagged at Phase 3's close (uncontrolled thinking cost, +15% cumulative
+time). Before spending a full campaign, re-verified the Phase 1
+suppression mechanism specifically on Qwen3.8 — the original Phase 1
+live smoke ran on Qwen3.6, before the production switch, never
+re-confirmed on the model actually serving today.
+
+**Root-cause investigation, one hypothesis tested and rejected**:
+Phase 3's raw campaign data showed `</think>` present in several
+`final_text` fields with no matching `<think>` ever added by our own
+reinjection code (`app/graph.py`, `_convert_delta_with_reasoning`) —
+suspected TabbyAPI's `start_in_reasoning: auto` (never overridden in our
+config, `reasoning_start_token`/`reasoning_end_token` either) failing to
+detect Qwen3.8's chat_template.jinja convention, which bakes the opening
+`<think>` into the generation PROMPT rather than the completion (verified
+directly against the installed `chat_template.jinja`, lines 163-168).
+**Tested empirically before touching any config** (`scripts/smoke-
+adaptive-thinking.sh`, Step 0, a direct non-streaming call to TabbyAPI
+bypassing langgraph-agent): default call returned `reasoning_content: 115
+chars` (populated), `enable_thinking: false` returned `reasoning_content:
+ABSENT` — `start_in_reasoning: auto` works correctly. Hypothesis
+rejected; no config change needed.
+
+**Live smoke (thread `8a0eba2250abe8fb`, `A2_schema_references`,
+`ADAPTIVE_THINKING=true`)**: 7 of 8 turns cleanly suppressed (zero
+`</think>`), one apparent failure on turn 8 (`suppressed=True`,
+`</think>` present) — raw dump (`read-adaptive-thinking-audit.py
+--dump=8`) showed `</think>` as the literal FIRST characters of the
+turn's content, zero text before it, followed by a correct, substantive
+final answer. Read as a harmless model habit — Qwen3.8 re-closes an
+already-closed empty think block (`enable_thinking:false` prefills the
+prompt with `<think>\n\n</think>\n\n`) as a reflex — not a real
+suppression failure (near-zero token cost). Audit script's heuristic
+fixed to classify by leading-text length before `</think>` (≤5 chars =
+stray marker, informational; more = a real failure) instead of bare tag
+presence, which would have produced a false FAIL. Re-run after the fix:
+clean PASS.
+
+**Two real script bugs found and fixed along the way** (same "live smoke
+catches a real bug" pattern as every earlier phase this effort):
+1. `read-adaptive-thinking-audit.py`'s `has_think` check looked for the
+   OPENING `<think>` tag — a structural blind spot on Qwen3.8 specifically
+   (the opener lives in the prompt, never in the completion; Qwen3.6's own
+   check worked because OUR code added both tags around a populated
+   `reasoning_content`). Fixed to check `</think>`, backward-compatible
+   with Qwen3.6.
+2. `wait_for_tabbyapi` (both smoke scripts) grepped `docker compose logs
+   tabbyapi | tail -80` for a load-confirmation string — fragile whenever
+   tabbyapi was NOT freshly recreated (this session's scripts only touch
+   `langgraph-agent`): the original confirmation line scrolls out of the
+   tail window after enough later traffic, producing a false 180s timeout
+   against an already-healthy tabbyapi (hit live). Fixed to poll a real
+   completion call via `docker exec`, the same technique and rationale
+   already used by `campaign_preflight.py`'s `_fetch_llm_ready` ("the only
+   check that would have caught the real-conditions case found").
+
+**New tooling**: `scripts/campaign-adaptive-thinking-qwen38.sh` (full v2
+campaign, `ADAPTIVE_THINKING=true`, same safety trap as the smoke) and
+`scripts/aggregate-adaptive-thinking-audit.py` (trigger-rate coverage
+counter across every run's thread — CLAUDE.md's own rule that a
+conditional mechanism ships with its trigger-rate counter, applied here
+before the campaign that depends on it rather than bolted on after).
+
+**Official guidance found, verified against the installed model card**
+(`models/qwen3.8-27b-exl3-4.50bpw/README.md`, not just external reports):
+`reasoning_effort` levels are `xhigh` (default, complex tasks), `medium`
+(balance), `low` (speed/cost) — with an explicit official caution
+relevant to this project's own agentic use case: "In multi-turn agentic
+tasks, lower reasoning effort does not always reduce overall task
+completion time... insufficient analysis, more failures, and repeated
+retries, which may increase total latency and token consumption."
+Relevant to a possible future `reasoning_effort` follow-up (distinct
+mechanism from `ADAPTIVE_THINKING`, never threaded in our code today,
+not yet briefed): if pursued, `medium` is the credible first candidate,
+not `low`. `preserve_thinking` also defaults to `true` on this model
+(replays past turns' `reasoning_content` back into context) — unexplored
+whether it contributes to the token-growth pattern observed in Phase 3;
+noted, not investigated.
+
+**Status**: mechanism confirmed, tooling fixed, full
+`ADAPTIVE_THINKING=true` v2 campaign in progress at time of writing —
+verdict (score vs. Phase 3, cumulative time/tokens vs. both prior
+campaigns, trigger rate) to follow in its own entry.
+
+**External corroboration found after the fact** (web search, cross-
+checked against our own empirical finding above rather than trusted
+alone): a bare `</think>` with no opening tag is documented as normal,
+intentional Qwen reasoning-model behavior — the chat template inserts
+`<think>` into the generation prompt itself, so only the closing tag can
+ever appear in the model's own output ([Feature Request: Consistent
+`<think>` Tag Behavior Across Qwen Models · QwenLM/Qwen3 Discussion
+#1657](https://github.com/QwenLM/Qwen3/discussions/1657)). More
+actionable: "`enable_thinking: false` silently ignored" is a **recurring,
+documented bug class across multiple inference backends**, not specific
+to TabbyAPI — each traced to the backend failing to actually inject the
+empty `<think></think>` prefix into the real prompt sent to the model:
+[OpenVINO GenAI #3937](https://github.com/openvinotoolkit/openvino.genai/issues/3937)
+(Qwen3.6-35B-A3B INT4), [LlamaFactory
+#8666](https://github.com/hiyouga/LlamaFactory/issues/8666), [Ray Serve
+#52979](https://github.com/ray-project/ray/issues/52979), [litellm
+#26413](https://github.com/BerriAI/litellm/issues/26413). Our own smoke
+only sampled one thread (8 turns) — given this bug class is documented
+as backend-specific and occasionally intermittent elsewhere, this raises
+the value of `aggregate-adaptive-thinking-audit.py`'s full-campaign
+trigger-rate reading (62 runs) already planned for this follow-up, over
+trusting the single-thread smoke alone.
+
+## Qwen3.8-27B evaluation follow-up — ADAPTIVE_THINKING=true campaign: real latency gain, real reliability regression, mechanistically confirmed
+
+**Context**: the follow-up campaign flagged at Phase 3's close
+(`scripts/campaign-adaptive-thinking-qwen38.sh`,
+`campaign-20260917T062658Z-qwen38-adaptive-thinking-campaign.json`), run
+after the mechanistic smoke above passed clean. Same v2 suite, same
+Qwen3.8 model/image as the Phase 3 campaign
+(`campaign-20260916T173945Z-qwen38-eval-phase3-qwen38.json`), only
+`ADAPTIVE_THINKING` differs (`true` here, `false` there) — single
+variable.
+
+**Trigger-rate coverage** (`aggregate-adaptive-thinking-audit.py`, all 62
+runs): 365 eligible turns, 301 suppressed (82.5%), **0 real suppression
+failures** (the stray-`</think>`-marker false positive from the smoke,
+now correctly excluded by the refined heuristic) — the mechanism itself
+worked exactly as designed at full campaign scale, not a flattering
+zero.
+
+**Cumulative time: real gain.** 24min41 vs. Phase 3's 31min05, **-21%**.
+
+**Score: real regression, not noise.** 53/62 vs. Phase 3's 58/62 — a
+5-point drop, past the brief's own ~2-point noise threshold. Concentrated
+entirely in two long-horizon, multi-turn tasks:
+- `T10_books_toscrape` (family F, frozen regression alarm): 2/2 → **0/2**,
+  both `failure_cause=boucle` (`MAX_TOOL_ITERATIONS` exhausted).
+- `A1_reconciliation_croisee` (family A): 3/3 → **1/3**, 2×`boucle`.
+
+Rest of the suite (B, C, D, E) unchanged or within already-documented
+n=3 variance.
+
+**Root cause, confirmed mechanistically** (`scripts/dump-audit-thread.py`,
+full raw tool-call sequence per turn, not just success/failure):
+- `T10` (`thread_id=8d8d662ace1e2aeb`): turn 1 (thinking on) issues
+  `browser_navigate(category_29.html)`; turn 2 (suppressed) reverses to
+  `browser_navigate(/)`; **turns 3–20 (all suppressed) reissue the exact
+  same `browser_navigate(category_29.html)` call 18 times in a row,
+  byte-identical, no variation, no `browser_extract` ever attempted**.
+  A clean, literal freeze — with reasoning suppressed on every one of
+  those turns, nothing prompts the model to notice it already tried this
+  and self-correct.
+- `A1` (`thread_id=0086816b006a04af`): no literal repeat, a different
+  failure shape — turn 1 (thinking on) starts a reasonable narrowing
+  strategy (catalog → 30-product batch extract → 4 plausible candidates);
+  every subsequent (suppressed) turn wanders through broad, unfocused
+  exploration (two 34-URL batch extracts across `fixture-docs`, the
+  site's own search feature, then a page-by-page sweep) — it DOES reach
+  `schema-references-catalogue.html`, plausibly the actual target, but
+  the budget runs out before ever extracting from it. Diffuse,
+  unprioritized search rather than a frozen loop, but the same
+  underlying gap: no deliberation between turns to prune dead ends or
+  recognize a promising lead.
+
+**Reading**: both failure shapes are direct, mechanistically-observed
+instances of the official Qwen3.8 model-card warning found in the prior
+entry — "lower reasoning effort... can lead to insufficient analysis,
+more failures, and repeated retries" — except this is full suppression
+(`enable_thinking: false`), a more extreme cut than the `reasoning_effort`
+levels that warning was written about. The TabbyAPI aggregate anomalies
+noted when the raw numbers first came in (`prefill_seconds` up, more
+`cache_zero_requests`) are largely explained by this: `boucle` failures
+burn their full 20-iteration budget rather than stopping early, adding
+real request volume on exactly the runs that failed.
+
+**Decision**: NOT adopted as-is — a real latency win purchased with a
+real reliability loss on exactly the long-horizon task family this
+project weighs most heavily. Next candidate, per the user's own read
+matching the official guidance: `reasoning_effort: medium` (keep some
+deliberation on every turn rather than fully suppressing it) — a
+genuinely different mechanism from `ADAPTIVE_THINKING`, not yet threaded
+in the code, requiring its own brief before the first line per this
+project's own discipline.
