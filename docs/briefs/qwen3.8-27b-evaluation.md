@@ -1,5 +1,28 @@
 # Qwen3.8-27B evaluation — brief
 
+**Status: closed (2026-09-16).** All four phases delivered and their own
+judges satisfied — full detail in `docs/engineering-log.md`, "Qwen3.8-27B
+evaluation, Phase 0/1/2/3" entries, and `docs/project-status.md`'s own
+section. Phase 3's campaign, read against the frozen decision table, is
+the closest thing to a deviation: score was flat within the brief's own
+noise threshold (57/62 vs. baseline 58/62), not the "clear gain" any row
+of the table actually adopts on — the model was **adopted anyway, by
+explicit user decision made in full knowledge of the reading**, not
+because a decision-table row selected it. The brief's own
+thinking-token judge ("read this before reading CuP") surfaced a real,
+uncontrolled cost: both the baseline and treatment campaigns ran with
+`ADAPTIVE_THINKING=false`, so Phase 1's per-request thinking control
+(itself delivered and mechanistically verified) was never engaged during
+the comparison — Qwen3.8's costlier default thinking effort drove a
+measured +15% cumulative campaign time. Turning `ADAPTIVE_THINKING` on to
+control this is flagged as a follow-up, not yet run, its own
+single-variable measurement. `docs/resolved-bugs.md` #55
+(`E2_visual_only` regression, opened against the Qwen3.6 baseline) picked
+up a relevant data point along the way — it fails to reproduce on
+Qwen3.8 under the identical runtime, evidence against its "shared
+runtime" hypothesis — but stays OPEN, not closed by this brief, since
+Qwen3.6 remains a documented fallback target.
+
 > **Context**: an EXL3 4.50bpw build of Qwen3.8-27B has been downloaded
 > (`models/qwen3.8-27b-exl3-4.50bpw/`), alongside the still-untested 5.0bpw
 > Qwen3.6 build from `quantisation-evaluation.md`. Architecturally the two
