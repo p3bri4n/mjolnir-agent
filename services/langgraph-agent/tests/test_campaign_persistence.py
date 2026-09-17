@@ -111,6 +111,15 @@ def test_campaign_env_flags_includes_planning_mode():
     assert "PLANNING_MODE" in cp.CAMPAIGN_ENV_FLAGS
 
 
+def test_campaign_env_flags_includes_reasoning_effort():
+    """Same class of gap as test_campaign_env_flags_includes_planning_mode
+    above — REASONING_EFFORT (docs/briefs/reasoning-effort-tuning.md) is a
+    new measured-behavior flag; added here at the same time it was added
+    to EXPECTED_AGENT_FLAGS rather than after a campaign already ran
+    blind to it."""
+    assert "REASONING_EFFORT" in cp.CAMPAIGN_ENV_FLAGS
+
+
 def test_collect_env_flags_empty_dict_when_container_unreachable(monkeypatch):
     class _Result:
         returncode = 1

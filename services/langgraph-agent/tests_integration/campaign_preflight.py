@@ -107,6 +107,10 @@ EXPECTED_AGENT_FLAGS = {
     # Python-level default — this dict was never updated to match, see
     # docs/resolved-bugs.md #53.
     "ADAPTIVE_THINKING": "false",
+    # docs/briefs/reasoning-effort-tuning.md — independent mechanism from
+    # ADAPTIVE_THINKING above, empty by default (app/graph.py's own
+    # default, no override).
+    "REASONING_EFFORT": "",
     "MAX_IMAGES_IN_CONTEXT": "1",
     "IMAGE_FORMAT_PASSTHROUGH": "",
     "IMAGE_TOKEN_ESTIMATE": "1500",
