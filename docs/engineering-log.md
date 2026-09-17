@@ -7210,3 +7210,83 @@ bare top-level key, identical to `enable_thinking`), reasoning-volume
 delta observed and real. 🧑 Checkpoint per the brief, cleared — Phase 1
 (`REASONING_EFFORT` threaded into `call_llm`, unconditional, independent
 of `ADAPTIVE_THINKING`) is next.
+
+## `reasoning_effort` tuning, Phase 2 — medium recovers T10/A1, real time gain, one D1 wrinkle traced to test-labeling, not the mechanism
+
+**Context**: Phase 1 delivered (`REASONING_EFFORT` threaded into
+`call_llm`, single merged `extra_body` dict with `ADAPTIVE_THINKING` to
+avoid a bind-call overwrite bug, full suite 498 passed). First live
+attempt (`scripts/campaign-reasoning-effort-medium-qwen38.sh`) caught a
+real bug before running anything: `docker-compose.yml` never declared a
+`REASONING_EFFORT` passthrough line for `langgraph-agent` (unlike
+`ADAPTIVE_THINKING`'s own explicit line) — a shell-level
+`REASONING_EFFORT=medium` had zero effect on the container. The script's
+own effective-env check caught this and aborted before running anything
+(`docs/resolved-bugs.md` #58) — fixed
+(`- REASONING_EFFORT=${REASONING_EFFORT:-}` added), campaign re-launched
+clean.
+
+**Campaign result**
+(`campaign-20260917T080205Z-qwen38-reasoning-effort-medium-campaign.json`),
+`REASONING_EFFORT=medium`, `ADAPTIVE_THINKING=false`, same v2 suite —
+**60/62**, the best of all three variants measured so far (xhigh 57/62,
+full suppression 53/62). Both tasks that broke under full suppression
+recover completely: `T10_books_toscrape` 2/2, `A1_reconciliation_croisee`
+3/3 (even better than xhigh's own 2/3 there). Zero `failure_cause=boucle`
+anywhere in the campaign. Unexpected bonus: `A3_contact_conges` moves
+from `safe_deferral=3` (xhigh's own ambiguity-avoidance, never counted as
+a success) to `correct=3` — `medium` reads as a genuine, if modest,
+capability improvement on this task too, not just a suppression-failure
+recovery. Cumulative time **-7.9%** vs. xhigh (28min38 vs 31min05) — real
+but smaller than full suppression's -21%, consistent with a less radical
+cut. `cache_zero_requests` back to 0 (healthy, matches xhigh — full
+suppression's 43 was a `boucle`-failure artifact, not a `medium`
+characteristic).
+
+**The one wrinkle**: `D1_cible_inexistante` drops to 1/3 (2
+`hallucination`-labeled failures) — the worst D1 reading in this whole
+effort (previously always 2/3). Investigated with the raw audit trail
+(`scripts/dump-audit-thread.py`, extended along the way — see the tool
+fix below) rather than taken at face value:
+- `thread_id=7e3595f922e184c3` (`prix_invente=True`): the transcript
+  shows the model correctly and repeatedly concluding the target
+  reference doesn't exist, methodically checking all 30 real references
+  against it multiple times ("let me double-check... let me verify...").
+  No sign of a fabricated price for the target in what's visible. The
+  test's price regex (`\d+[.,]\d{2}\s*€`, matched anywhere in the full
+  text) most plausibly caught a REAL product's price mentioned while the
+  model cross-checked the 30 real references — a detector false
+  positive on this run, not confirmed fabrication.
+- `thread_id=c38361d1a4cde2a5` (`absence_declaree=False`): a genuinely
+  different failure — the model hit `BROWSER_NAVIGATE_GUARDRAIL` (tried
+  a fabricated `page-100.html`), then spiraled into unresolved
+  deliberation ("let me think... actually wait... let me reconsider...")
+  and never reached any conclusion at all before the run ended (34
+  entries vs. 69 for the other thread) — not a wrong answer, no answer.
+
+Neither is a confident fabrication in the strict sense the "hallucination"
+label implies. `_assert_t7`'s single boolean
+(`declares_absence and not has_price`) and v2's own
+`_classify_failure_cause_v2` collapse three distinct failure shapes into
+one label — flagged as its own follow-up, not fixed inline:
+`docs/briefs/d1-failure-cause-granularity.md` (pass/fail logic untouched,
+only the failure_cause string gets more specific — deliberately NOT a
+new benchmark version under CLAUDE.md's frozen-assertion rule).
+
+**Tool bug found and fixed while investigating**:
+`scripts/dump-audit-thread.py`'s summary logic checked `"tool_calls" in
+content` — true even when the value is `None` (a normal shape for a
+text-only final message), so the final answer of both D1 threads printed
+blank instead of their actual text on the first attempt. Fixed to
+`content.get("tool_calls")` (truthy check). Truncation also widened
+150 → 4000 chars per entry — a final answer this long genuinely didn't
+fit in the original limit.
+
+**Verdict against the brief's decision table**: row 1 — T10/A1 recover,
+real time gain, zero new `boucle` failures. `REASONING_EFFORT=medium`
+reads as the strongest candidate measured in this whole follow-up,
+D1's dip most likely explained by test-labeling granularity rather than
+a real capability cost — not proven with certainty (the regex-false-
+positive read on thread 1 is inference from the transcript, not a
+rerun), but the more probable explanation given what's visible. Adoption
+decision: pending user sign-off, not yet made.
