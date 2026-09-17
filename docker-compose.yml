@@ -389,7 +389,7 @@ services:
     # pas de port publié : uniquement accessible via le réseau interne (mcp-client)
 
   # --- OCR proactif : PaddleOCR CPU, capacité interne du graphe --------
-  # Grounding du VLM (Qwen3.6 MoE) sur canvas/WebGL/image/PDF natif : ces
+  # Grounding du VLM (Qwen3.8, 27B dense) sur canvas/WebGL/image/PDF natif : ces
   # contenus sont illisibles par tout canal DOM (browser_snapshot/
   # browser_extract), seule la capture visuelle les lit (voir
   # docs/architecture/visual-channel-feasibility.md, VP1-VP4). GhostDesk a
@@ -417,7 +417,7 @@ services:
   # Inférence
   # ──────────────────────────────────────────────────────────────
   # Backend par défaut : TabbyAPI (image officielle ghcr.io/theroyallab/
-  # tabbyapi, backend ExLlamaV3) servant Qwen3.6-27B en quantisation EXL3
+  # tabbyapi, backend ExLlamaV3) servant Qwen3.8-27B en quantisation EXL3
   # (variante VL, vision préservée pour browser_take_screenshot) avec MTP natif
   # (draft_mode: mtp dans services/tabbyapi/config.yml, pas de modèle de
   # draft séparé). Remplace llama-server comme défaut : ce dernier restait

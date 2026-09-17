@@ -201,7 +201,7 @@ don't let single-use scripts accumulate in `scripts/`.
 
 # Context
 
-The stack now serves Qwen3.6-27B EXL3 via TabbyAPI/ExLlamaV3 (dual-GPU,
+The stack now serves Qwen3.8-27B EXL3 via TabbyAPI/ExLlamaV3 (dual-GPU,
 vision + MTP), the langgraph/langchain-openai/openai trio is migrated to
 1.x/2.x, and an MCP Playwright server is wired in alongside GhostDesk.
 Goal of this effort: move the agent from "executes approved actions" to

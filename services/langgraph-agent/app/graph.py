@@ -606,16 +606,19 @@ BULK_CHECK_DIRECTIVE = (
 # a version prefix drawn from ITS OWN frozen knowledge, missing the
 # version actually displayed (3.14.x).
 #
-# Cutoff date: NO official date published in the local model card
-# (models/qwen3.6-27b-exl3-3.50bpw/README.md, checked — no "knowledge
-# cutoff" mention). The model card places Qwen3.6's release after "the
-# February release of the Qwen3.5 series" and cites AIME 2026 issues in
-# its benchmarks — but the empirical observation above (Python 3.13
-# claimed as the latest version when 3.14 already exists) shows the
-# model's actual knowledge is older than its announced release date (a
-# common case: training data freezes months before release).
-# CONSERVATIVE bound chosen: don't trust volatile versions/facts without
-# checking, whatever the assumed date.
+# Cutoff date: NO official date published in the local model card, true
+# of both models served under this directive so far — checked again
+# against the current model (models/qwen3.8-27b-exl3-4.50bpw/README.md):
+# no "knowledge cutoff" mention, same gap as the original Qwen3.6 card
+# this directive was designed against (which also placed its release
+# after "the February release of the Qwen3.5 series" and cited AIME 2026
+# issues in its benchmarks — Qwen3.8's card makes no equivalent claims to
+# re-derive a bound from). The empirical grounding for the CONSERVATIVE
+# bound below (Python 3.13 claimed as the latest version when 3.14
+# already exists, i.e. actual knowledge older than the announced release
+# date) was observed on Qwen3.6 via the T11 probe (docs/history.md) and
+# has NOT been re-run on Qwen3.8 — kept as the safe default pending that
+# re-verification, not because it was re-confirmed.
 # Query-wording bias (found AFTER the first version of this directive,
 # see docs/history.md — T11 probe: the model does decide to check, "My
 # knowledge might be outdated", BUT then queries browser_extract with
@@ -1318,9 +1321,10 @@ llm = ChatOpenAI(
 # live campaign (see docs/history.md): auxiliary LLM calls (plan_task/
 # revise_plan/verify_action/_judge_plan) used `llm` above, capped at
 # LLM_MAX_TOKENS (2048, sized for the main conversational turn).
-# Qwen3.6/TabbyAPI reasons in a reasoning_content field SEPARATE from
+# TabbyAPI reasons in a reasoning_content field SEPARATE from
 # content before answering (confirmed via a direct non-streaming call to
-# TabbyAPI); this reasoning, often long, consumed the whole budget on its
+# TabbyAPI, originally on Qwen3.6 and re-confirmed on Qwen3.8 during the
+# Phase 1 migration, docs/briefs/qwen3.8-27b-evaluation.md); this reasoning, often long, consumed the whole budget on its
 # own, truncating `content` to empty or mid-JSON (finish_reason="length")
 # — every validator then systematically fell back to its error path,
 # never a real evaluation. `/no_think` as a prompt prefix — ADAPTIVE_THINKING's
