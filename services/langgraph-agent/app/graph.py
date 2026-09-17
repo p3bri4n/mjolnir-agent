@@ -555,6 +555,32 @@ PLANNING_MODE = os.environ.get("PLANNING_MODE", "nodes")
 # (docs/briefs/qwen3.8-27b-evaluation.md, Phase 1).
 ADAPTIVE_THINKING = os.environ.get("ADAPTIVE_THINKING", "false").lower() == "true"
 
+# Independent mechanism from ADAPTIVE_THINKING above — caps HOW DEEP
+# reasoning goes on every call (extra_body={"reasoning_effort": ...}, a
+# real per-request TabbyAPI parameter, bare top-level key — same wire
+# convention as enable_thinking, confirmed empirically against production
+# TabbyAPI/Qwen3.8 rather than assumed from the model card's own Python
+# example, which shows it as a separate SDK kwarg and could have implied
+# a different wire shape; docs/engineering-log.md, "reasoning_effort
+# tuning, Phase 0"), unconditionally — no turn-based gate like
+# ADAPTIVE_THINKING's approval-tier condition. Built after
+# ADAPTIVE_THINKING=true's own campaign showed full suppression breaks
+# long-horizon tasks that need to notice a dead end and self-correct
+# (docs/engineering-log.md, "ADAPTIVE_THINKING=true campaign": a frozen
+# 18-call navigate loop on T10, an unfinished wide search on A1) — this
+# keeps SOME reasoning on every turn instead of an all-or-nothing cut.
+# Empty by default (no override, the model's own "xhigh" default
+# applies, byte-for-byte unchanged behavior). Any other value is a
+# startup-time config error: an invalid reasoning_effort makes EVERY
+# call fail (TabbyAPI's chat template raises on it, confirmed in the
+# same Phase 0 probe), so failing loudly at import time beats a silent
+# per-request 400 discovered mid-campaign.
+REASONING_EFFORT = os.environ.get("REASONING_EFFORT", "")
+if REASONING_EFFORT and REASONING_EFFORT not in ("xhigh", "medium", "low"):
+    raise ValueError(
+        f"REASONING_EFFORT={REASONING_EFFORT!r} is not one of 'xhigh', 'medium', 'low' (or empty for no override)"
+    )
+
 # DOCUMENTED file-consumption path (Phase 1d-revised, see docs/history.md,
 # T5): a download triggered in the browser lands in a volume now shared
 # read-only with the filesystem MCP server (see docker-compose.yml,
@@ -2237,8 +2263,19 @@ async def call_llm(state: AgentState, config: dict) -> dict:
         "adaptive_thinking",
         {"suppressed": suppress_thinking},
     )
+    # Single extra_body dict for both mechanisms rather than two separate
+    # .bind() calls: chaining .bind(extra_body={...}) twice would let the
+    # second call's extra_body silently replace the first's (LangChain
+    # merges top-level bind() kwargs, not their nested dict values) —
+    # would have silently dropped enable_thinking:False whenever both
+    # ADAPTIVE_THINKING and REASONING_EFFORT fire on the same turn.
+    extra_body = {}
     if suppress_thinking:
-        bound_llm = bound_llm.bind(extra_body={"enable_thinking": False})
+        extra_body["enable_thinking"] = False
+    if REASONING_EFFORT:
+        extra_body["reasoning_effort"] = REASONING_EFFORT
+    if extra_body:
+        bound_llm = bound_llm.bind(extra_body=extra_body)
     # Carried over as-is from the previous call within this turn (see
     # AgentState.think_opened/think_closed) rather than reset to False, so
     # as to produce only one continuous <think> tag even if call_llm loops

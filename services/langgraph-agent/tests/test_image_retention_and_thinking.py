@@ -362,6 +362,79 @@ async def test_enable_thinking_not_sent_when_adaptive_thinking_disabled(mock_sid
     assert "enable_thinking" not in second_request_body
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# reasoning_effort (docs/briefs/reasoning-effort-tuning.md) — an
+# independent mechanism from ADAPTIVE_THINKING above: unconditional, no
+# turn-based gate, caps reasoning DEPTH rather than suppressing it
+# entirely.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_reasoning_effort_sent_unconditionally_on_first_turn(mock_side_services, monkeypatch):
+    """Unlike enable_thinking (needs a previous auto-approved turn),
+    reasoning_effort applies from the very first call — no gate."""
+    import app.graph as g
+
+    monkeypatch.setattr(g, "REASONING_EFFORT", "medium")
+
+    route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
+    route.side_effect = [_sse_response(text_response(["Bonjour", "."]))]
+    g.agent_graph = g.build_graph()
+
+    state = {"messages": [{"role": "user", "content": "Salut"}], "tool_iterations": 0, "approved": None}
+    await g.agent_graph.ainvoke(state, CONFIG)
+
+    first_request_body = json.loads(route.calls[0].request.content)
+    assert first_request_body.get("reasoning_effort") == "medium"
+
+
+@pytest.mark.asyncio
+async def test_reasoning_effort_not_sent_when_unset(mock_side_services, monkeypatch):
+    import app.graph as g
+
+    monkeypatch.setattr(g, "REASONING_EFFORT", "")
+
+    route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
+    route.side_effect = [_sse_response(text_response(["Bonjour", "."]))]
+    g.agent_graph = g.build_graph()
+
+    state = {"messages": [{"role": "user", "content": "Salut"}], "tool_iterations": 0, "approved": None}
+    await g.agent_graph.ainvoke(state, CONFIG)
+
+    first_request_body = json.loads(route.calls[0].request.content)
+    assert "reasoning_effort" not in first_request_body
+
+
+@pytest.mark.asyncio
+async def test_reasoning_effort_and_enable_thinking_coexist_in_one_extra_body(mock_side_services, monkeypatch):
+    """Both mechanisms firing on the same turn must land in the SAME
+    extra_body dict — a second .bind(extra_body=...) call would silently
+    replace the first's keys instead of merging (see call_llm's own
+    comment on this exact risk)."""
+    import app.graph as g
+
+    monkeypatch.setattr(g, "ADAPTIVE_THINKING", True)
+    monkeypatch.setattr(g, "REASONING_EFFORT", "medium")
+
+    route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
+    route.side_effect = [
+        _sse_response(tool_call_response("write_file", "call_1", '{"path": "/workspace/x.txt", "content": "y"}')),
+        _sse_response(text_response(["Écrit", "."])),
+    ]
+    mock_side_services.post("http://fake-mcp-client/call").mock(
+        return_value=httpx.Response(200, json={"content": [{"type": "text", "text": "ok"}]})
+    )
+    g.agent_graph = g.build_graph()
+
+    state = {"messages": [{"role": "user", "content": "Écris ce fichier"}], "tool_iterations": 0, "approved": None}
+    await g.agent_graph.ainvoke(state, CONFIG)
+
+    second_request_body = json.loads(route.calls[1].request.content)
+    assert second_request_body.get("enable_thinking") is False
+    assert second_request_body.get("reasoning_effort") == "medium"
+
+
 @pytest.mark.asyncio
 async def test_enable_thinking_not_sent_when_previous_tool_call_is_sensitive(mock_side_services, monkeypatch):
     """
