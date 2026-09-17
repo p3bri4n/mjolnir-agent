@@ -7162,3 +7162,51 @@ deliberation on every turn rather than fully suppressing it) — a
 genuinely different mechanism from `ADAPTIVE_THINKING`, not yet threaded
 in the code, requiring its own brief before the first line per this
 project's own discipline.
+
+## `reasoning_effort` tuning, Phase 0 — wire format confirmed on production TabbyAPI
+
+**Context**: `docs/briefs/reasoning-effort-tuning.md`, Phase 0 —
+`reasoning_effort` is never threaded in `call_llm` (`app/graph.py`)
+today; settle empirically how TabbyAPI expects it before writing
+anything (same discipline as `enable_thinking`'s own wire-format
+question, already settled once this effort). Direct, non-streaming calls
+to production TabbyAPI, bypassing langgraph-agent
+(`scripts/probe-qwen38-reasoning-effort.sh`), on a fixed reasoning
+prompt (a two-train meeting-time problem — chosen over a trivial "2+2"
+specifically because degree of reasoning, not just presence/absence,
+is what's being measured here).
+
+**Result**: `reasoning_content` length — 742 chars default (`xhigh`),
+201–220 chars at `reasoning_effort: medium` (bare top-level JSON key,
+same convention already confirmed for `enable_thinking`), 396 chars at
+`low`. An invalid value (`"not-a-real-level"`) returned `HTTP 400` with
+the exact `TemplateError` string from the installed
+`chat_template.jinja`'s own `raise_exception` — confirms the parameter
+genuinely reaches the chat template, not silently dropped upstream.
+
+**Script self-correction, recorded rather than silently fixed**: the
+probe's own variants 2 ("bare extra_body key") and 3 ("top-level kwarg,
+model-card style") were designed to distinguish two wire formats but
+turned out to send an IDENTICAL JSON body — `extra_body={...}` in
+langchain-openai merges its keys into the top-level request payload,
+never under a literal `"extra_body"` wrapper key, so there was only ever
+one wire format to test at the raw-HTTP level despite the model card's
+Python example showing `reasoning_effort` and `enable_thinking` on
+different-looking lines of SDK code. No real ambiguity was actually
+resolved by comparing variants 2/3 — the useful result is that the
+single format tested (bare top-level key) works, matching
+`enable_thinking`'s own convention exactly.
+
+**Noted, not chased**: `low` (396 chars) produced MORE reasoning than
+`medium` (201–220 chars) on this one prompt — counter-intuitive, but a
+single sample on a single task. Consistent in direction with the
+official model-card warning already on file ("low is both slower and
+worse than medium" per external reports cross-checked earlier) — Phase
+2's full 22-task campaign will give a far more reliable read than this
+one data point; not worth its own investigation now.
+
+**Decision**: Phase 0 CLOSED — wire format confirmed (`extra_body`,
+bare top-level key, identical to `enable_thinking`), reasoning-volume
+delta observed and real. 🧑 Checkpoint per the brief, cleared — Phase 1
+(`REASONING_EFFORT` threaded into `call_llm`, unconditional, independent
+of `ADAPTIVE_THINKING`) is next.

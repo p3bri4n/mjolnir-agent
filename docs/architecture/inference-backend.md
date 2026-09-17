@@ -133,4 +133,22 @@ first turn (no previous tool_calls to evaluate) or as soon as a sensitive
 tool was involved in that previous turn: full reasoning keeps its full
 value there. Migrated off an earlier `/no_think` text-prefix mechanism,
 confirmed to have no effect on this backend — see
-`docs/briefs/qwen3.8-27b-evaluation.md`, Phase 1.
+`docs/briefs/archives/qwen3.8-27b-evaluation.md`, Phase 1. **Not adopted
+as a default on Qwen3.8**: a full-campaign measurement showed a real
+-21% cumulative time gain, but also a real, mechanistically-confirmed
+score regression on long-horizon multi-turn tasks (full suppression
+removes the model's ability to notice a dead end and self-correct — see
+`docs/engineering-log.md`, "ADAPTIVE_THINKING=true campaign").
+
+**Reasoning effort** (`REASONING_EFFORT`, env var, default empty = no
+override): an independent mechanism from `ADAPTIVE_THINKING` above —
+caps HOW DEEP reasoning goes (`extra_body={"reasoning_effort": "xhigh" |
+"medium" | "low"}`, same bare-top-level-key wire convention as
+`enable_thinking`, confirmed empirically rather than assumed from the
+model's own Python example — see `docs/engineering-log.md`,
+"reasoning_effort tuning, Phase 0") rather than suppressing it entirely.
+Applied unconditionally on every `call_llm` invocation when set — no
+turn-based gate. Built as a candidate fix for the reliability regression
+above: keeps some deliberation on every turn instead of an all-or-
+nothing cut. Full detail and status: `docs/briefs/reasoning-effort-
+tuning.md`.
