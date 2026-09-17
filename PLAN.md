@@ -257,7 +257,32 @@ the whole v2 suite. **Not started.**
 ### Effort 7 — Quantisation evaluation
 
 Brief: `docs/briefs/quantisation-evaluation.md`. Gated on a stable
-baseline, sequenced last. **Not started.**
+baseline, sequenced last. **Not started** — its own literal scope
+(Qwen3.6 3.50bpw vs. 5.0bpw) is untouched. Its premise baseline is now
+stale, though: the brief assumes "current production model" = Qwen3.6
+3.50bpw, but production has since switched to Qwen3.8-27B 4.50bpw (see
+the adjacent, unplanned effort below) — re-check that premise before
+picking this effort up.
+
+### Effort 7b — Qwen3.8-27B evaluation (unplanned, adjacent to Effort 7)
+
+Brief: `docs/briefs/archives/qwen3.8-27b-evaluation.md` (closed, see its
+own status header). Surfaced mid-session as a genuine model swap rather
+than a quantisation question (same family as Effort 7's target, but a
+different, newer model) — done out of sequence, not part of the plan
+above. **Closed.** All four phases delivered; Phase 3's campaign showed
+no meaningful net score change against the re-established Qwen3.6
+baseline (within the brief's own noise threshold), one family regressed
+(A), one improved (E2 — incidentally clearing `docs/resolved-bugs.md`
+#55 on this model), and a real, uncontrolled latency cost surfaced
+(`ADAPTIVE_THINKING` off on both arms, Qwen3.8's costlier default
+thinking effort untested — +15% cumulative campaign time). **Adopted in
+production anyway, by explicit user decision** made in full knowledge of
+that reading, not because the brief's decision table selected it. Full
+detail: `docs/engineering-log.md`, "Qwen3.8-27B evaluation, Phase 3
+CLOSED". Follow-up not yet run: an `ADAPTIVE_THINKING=true` measurement
+on Qwen3.8 to check whether Phase 1's thinking-control mechanism absorbs
+this cost — its own single-variable campaign.
 
 ### Effort 8 — Visual-only navigation mode
 
