@@ -47,15 +47,15 @@ def main() -> int:
         content = e.get("content")
         summary = ""
         if isinstance(content, dict):
-            if "tool_calls" in content:
-                calls = content["tool_calls"] or []
+            if content.get("tool_calls"):
+                calls = content["tool_calls"]
                 summary = "; ".join(
                     f"{c.get('function', {}).get('name', c.get('name', '?'))}"
                     f"({c.get('function', {}).get('arguments', c.get('args', ''))})"
                     for c in calls
                 )
             elif "content" in content:
-                text = (content.get("content") or "")[:150].replace("\n", " ")
+                text = (content.get("content") or "")[:4000].replace("\n", " ")
                 summary = repr(text)
             elif "suppressed" in content:
                 summary = f"suppressed={content['suppressed']}"
