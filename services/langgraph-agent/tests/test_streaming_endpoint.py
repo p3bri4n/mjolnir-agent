@@ -389,6 +389,12 @@ async def test_streaming_endpoint_recovers_from_llm_connection_error(mock_side_s
     assert any('"finish_reason": "stop"' in l for l in lines)
     assert any("Erreur interne" in l for l in lines)
 
+    import app.audit_log as audit_log
+
+    notices = [e for e in audit_log.read_entries() if e.get("kind") == "failure_notice"]
+    assert len(notices) == 1
+    assert notices[0]["cause"] == "infra"
+
 
 @pytest.mark.asyncio
 async def test_non_streaming_endpoint_pauses_for_approval(mock_side_services):
@@ -454,6 +460,12 @@ async def test_non_streaming_endpoint_reports_iteration_limit_notice(mock_side_s
     assert "Limite d'itérations" in content
     assert "read_file" in content
 
+    import app.audit_log as audit_log
+
+    notices = [e for e in audit_log.read_entries() if e.get("kind") == "failure_notice"]
+    assert len(notices) == 1
+    assert notices[0]["cause"] == "boucle"
+
 
 @pytest.mark.asyncio
 async def test_non_streaming_endpoint_reports_empty_answer_notice(mock_side_services):
@@ -486,6 +498,12 @@ async def test_non_streaming_endpoint_reports_empty_answer_notice(mock_side_serv
     content = resp.json()["choices"][0]["message"]["content"]
     assert "réponse exploitable" in content
 
+    import app.audit_log as audit_log
+
+    notices = [e for e in audit_log.read_entries() if e.get("kind") == "failure_notice"]
+    assert len(notices) == 1
+    assert notices[0]["cause"] == "extraction"
+
 
 @pytest.mark.asyncio
 async def test_streaming_endpoint_reports_empty_answer_notice(mock_side_services):
@@ -507,6 +525,12 @@ async def test_streaming_endpoint_reports_empty_answer_notice(mock_side_services
     # the <think> tag must be closed BEFORE the notice, like for the
     # other notices (approval, iteration limit)
     assert content.index("</think>") < content.index("réponse exploitable")
+
+    import app.audit_log as audit_log
+
+    notices = [e for e in audit_log.read_entries() if e.get("kind") == "failure_notice"]
+    assert len(notices) == 1
+    assert notices[0]["cause"] == "extraction"
 
 
 @pytest.mark.asyncio

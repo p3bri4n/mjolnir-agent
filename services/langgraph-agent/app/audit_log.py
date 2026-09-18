@@ -122,6 +122,27 @@ def log_message(thread_id: str, role: str, content) -> None:
     )
 
 
+def log_failure_notice(thread_id: str, cause: str) -> None:
+    """Runtime counterpart to the test harness's post-hoc failure_cause
+    classification (tests_integration/test_web_tasks.py's boucle/
+    extraction/context_overflow/infra, see docs/engineering-log.md
+    "structural failure causes logged at execution time"): logged at the
+    moment each of these four notices is actually produced (app/main.py),
+    not inferred later from a campaign's text-matching — the only way to
+    know their real-usage trigger rate outside a benchmark run. The
+    task-specific causes (hallucination_*, blocage_externe, boucle_
+    fabrication/budget) need ground truth that only exists in the frozen
+    benchmark fixtures and never apply here."""
+    _append_entry(
+        {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "thread_id": thread_id,
+            "kind": "failure_notice",
+            "cause": cause,
+        }
+    )
+
+
 def _iter_log_files(root: Path):
     """Daily files, full (.jsonl) then compressed archives (.N.jsonl.gz)
     of the same day, sorted by name (hence in chronological rotation

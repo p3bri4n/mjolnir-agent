@@ -76,6 +76,12 @@ async def test_non_streaming_endpoint_reports_context_overflow_notice(mock_side_
     # "context_overflow" rather than "infra".
     assert resp.json()["choices"][0]["message"]["content"] == main_mod._CONTEXT_OVERFLOW_NOTICE
 
+    import app.audit_log as audit_log
+
+    notices = [e for e in audit_log.read_entries() if e.get("kind") == "failure_notice"]
+    assert len(notices) == 1
+    assert notices[0]["cause"] == "context_overflow"
+
 
 @pytest.mark.asyncio
 async def test_approve_reports_context_overflow_notice(mock_side_services):
@@ -149,6 +155,12 @@ async def test_approve_reports_context_overflow_notice(mock_side_services):
     assert resp.status_code == 200
     assert resp.json()["content"] == main_mod._CONTEXT_OVERFLOW_NOTICE
 
+    import app.audit_log as audit_log
+
+    notices = [e for e in audit_log.read_entries() if e.get("kind") == "failure_notice"]
+    assert len(notices) == 1
+    assert notices[0]["cause"] == "context_overflow"
+
 
 @pytest.mark.asyncio
 async def test_non_streaming_endpoint_reports_generic_notice_for_unrelated_error(mock_side_services):
@@ -177,6 +189,12 @@ async def test_non_streaming_endpoint_reports_generic_notice_for_unrelated_error
 
     assert resp.status_code == 200
     assert resp.json()["choices"][0]["message"]["content"] == main_mod._INTERNAL_ERROR_NOTICE
+
+    import app.audit_log as audit_log
+
+    notices = [e for e in audit_log.read_entries() if e.get("kind") == "failure_notice"]
+    assert len(notices) == 1
+    assert notices[0]["cause"] == "infra"
 
 
 def test_error_notice_for_context_length_exceeded():
@@ -207,3 +225,22 @@ def test_error_notice_for_non_openai_exception():
     import app.main as main_mod
 
     assert main_mod._error_notice_for(RuntimeError("connection reset")) == main_mod._INTERNAL_ERROR_NOTICE
+
+
+def test_error_cause_for_context_length_exceeded():
+    import app.main as main_mod
+
+    request = httpx.Request("POST", "http://fake-vllm/v1/chat/completions")
+    response = httpx.Response(400, request=request, json={})
+    exc = openai.BadRequestError(
+        "Prompt length 69510 exceeds the available context size of 32768 tokens",
+        response=response,
+        body={"code": "context_length_exceeded"},
+    )
+    assert main_mod._error_cause_for(exc) == "context_overflow"
+
+
+def test_error_cause_for_non_openai_exception():
+    import app.main as main_mod
+
+    assert main_mod._error_cause_for(RuntimeError("connection reset")) == "infra"
