@@ -1,0 +1,106 @@
+{
+  "active": [],
+  "campaign_id": "20260918T110454Z-reasoning-effort-medium-max-seq-len-d1-probe",
+  "completed": [
+    {
+      "approvals": 2,
+      "cup": null,
+      "duration_s": 99.7,
+      "fabricated_urls_count": 1,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "D1_cible_inexistante",
+      "thread_id": "b4238d99937a4830",
+      "tool_calls": 10
+    },
+    {
+      "approvals": 2,
+      "cup": null,
+      "duration_s": 106.7,
+      "fabricated_urls_count": 2,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "D1_cible_inexistante",
+      "thread_id": "1891bb80497edcd2",
+      "tool_calls": 12
+    },
+    {
+      "approvals": 2,
+      "cup": null,
+      "duration_s": 177.0,
+      "fabricated_urls_count": 2,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "D1_cible_inexistante",
+      "thread_id": "ab0d7218aa3e5f71",
+      "tool_calls": 14
+    },
+    {
+      "approvals": 2,
+      "cup": null,
+      "duration_s": 87.8,
+      "fabricated_urls_count": 1,
+      "failure_cause": "",
+      "repetition": 4,
+      "segment": 0,
+      "status": "success",
+      "task_id": "D1_cible_inexistante",
+      "thread_id": "7357e56f5834f73c",
+      "tool_calls": 11
+    },
+    {
+      "approvals": 3,
+      "cup": null,
+      "duration_s": 54.3,
+      "fabricated_urls_count": 1,
+      "failure_cause": "",
+      "repetition": 5,
+      "segment": 0,
+      "status": "success",
+      "task_id": "D1_cible_inexistante",
+      "thread_id": "2e39527458c51fb9",
+      "tool_calls": 12
+    }
+  ],
+  "config_digest": "2a9700291d35e710",
+  "current": null,
+  "label": "reasoning-effort-medium-max-seq-len-d1-probe",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "D1_cible_inexistante"
+    },
+    {
+      "repetition": 2,
+      "task_id": "D1_cible_inexistante"
+    },
+    {
+      "repetition": 3,
+      "task_id": "D1_cible_inexistante"
+    },
+    {
+      "repetition": 4,
+      "task_id": "D1_cible_inexistante"
+    },
+    {
+      "repetition": 5,
+      "task_id": "D1_cible_inexistante"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-09-18T11:13:41.983790+00:00",
+      "index": 0,
+      "started_at": "2026-09-18T11:04:54.457152+00:00"
+    }
+  ],
+  "started_at": "2026-09-18T11:04:54.457152+00:00",
+  "total_runs": 5
+}

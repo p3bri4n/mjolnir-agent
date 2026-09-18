@@ -157,6 +157,17 @@ single-variable validation campaign:
   probe / `docker exec <service> env` check.
 - Effective configuration is read from `/proc/1/cmdline` or
   `docker exec … env`, never from the file.
+- A tracked config file can have a gitignored, machine-local override
+  sitting next to it (e.g. `services/tabbyapi/config.local.yml` next to
+  the tracked `config.yml`) that `docker-compose.yml` actually mounts —
+  invisible to every git-based check (branch, diff, pull all show a
+  clean, synced, correct tracked file while the effective config stays
+  untouched). A third drift source distinct from the env-var and
+  stale-image traps above — same fix: read the effective config from the
+  actual mounted file inside the container (`docker exec <service> cat
+  <path>`), never inferred from repo/git state. Hit on `tabbyapi`
+  (`config.local.yml`, `docs/engineering-log.md`, "D1 context-overflow
+  mitigation probe — max_seq_len/cache_size").
 - No campaign starts without a green preflight (tool schema, image
   freshness, effective flags, resets and purges). A campaign started on
   an unverified stack is void.

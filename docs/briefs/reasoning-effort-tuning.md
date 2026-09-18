@@ -313,6 +313,22 @@ allocation), confirm 3 clean reloads land on consistent per-GPU VRAM
 `campaign_persistence.collect_gpu_devices`), and a trivial
 `/v1/chat/completions` call succeeds before running anything bigger.
 
+**Result (2026-09-18)**: a real operational trap surfaced first —
+`services/tabbyapi/config.yml` (tracked) isn't what the user's machine
+actually mounts; `services/tabbyapi/config.local.yml` (gitignored,
+machine-specific override, see its own header comment) is, and it still
+had the old `32768`/`65536` values untouched by any git sync. No amount
+of `git pull`/branch-checking could have caught this — worth its own
+`CLAUDE.md` operational-trap entry (see below). Once corrected on
+`config.local.yml` directly: 2 clean reloads, GPU0 identical both times
+(11009 MiB), GPU1 within 63 MiB (11651/11714) — consistent with this
+project's own already-established tolerance for that card. **Only 2
+reloads, not 3, a deliberate deviation**: `gpu_split` here is explicit,
+not autosplit — the instability 3 reloads were originally designed to
+catch (placement drift) doesn't apply to a fixed-size cache allocation
+under an already-fixed split. Free VRAM post-load: ~5.18 GiB (GPU0),
+~4.61 GiB (GPU1) — comfortable margin, no OOM at any point.
+
 ### Phase 2 — D1 campaign, single variable
 
 `REASONING_EFFORT=medium`, `HISTORY_DIFF_ENABLED=false`, new
@@ -347,3 +363,19 @@ CAMPAIGN_EXPECTED_FLAGS_OVERRIDE='{"REASONING_EFFORT": "medium"}' \
 🧑 **Checkpoint**: report Phase 0's VRAM numbers first — the specific
 `max_seq_len`/`cache_size` values in this section are provisional until
 then.
+
+**Result (2026-09-18)**: matches row 1 — `context_overflow → 0/5`,
+`cache_zero_requests` stable. Also 5/5 success (D1's best result all
+session), but read cautiously: the longest run peaked at 25,235 tokens,
+comfortably under even the OLD 32768 ceiling — this sample never
+produced a near-miss the new ceiling actually had to save, so the
+mechanistic proof is weaker than `HISTORY_DIFF_ENABLED`'s flattened
+token-growth trace. The 5/5 score is more likely D1's known run-to-run
+variance than a causal effect of a larger context window. Full detail:
+`docs/engineering-log.md`, "D1 context-overflow mitigation probe —
+max_seq_len/cache_size, applied and measured" (also covers a real
+operational trap found along the way: `config.local.yml`, gitignored,
+was the file actually in effect, invisible to every git-based check).
+**Not adopted as a new default yet** — both this and `HISTORY_DIFF_
+ENABLED` are measured, positive, and independent; the adoption decision
+(for either, or `REASONING_EFFORT=medium` itself) is still pending.

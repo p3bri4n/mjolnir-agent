@@ -7586,3 +7586,66 @@ for `HISTORY_DIFF_ENABLED` (past `browser_*` calls / total messages at
 trigger time) to distinguish "no opportunity" from "broken mechanism"
 without waiting for a full campaign — a measurement-quality nicety, not
 a correctness fix.
+
+## 2026-09-18 — D1 context-overflow mitigation probe: max_seq_len/cache_size, applied and measured
+
+Context: `docs/briefs/reasoning-effort-tuning.md`, "D1 context-ceiling
+mitigation probe — max_seq_len/cache_size".
+
+**A new operational trap surfaced before any measurement could
+happen**: `services/tabbyapi/config.yml` (tracked, edited and pushed)
+turned out not to be the file the user's machine actually reads —
+`services/tabbyapi/config.local.yml` (gitignored, machine-specific
+override per its own header comment) still held the old `32768`/`65536`
+values. Several rounds of `git checkout dev`/`git pull`/`--force-recreate`
+all correctly showed a clean, synced `dev` branch with the right
+`config.yml` content, yet the container's own boot log kept reporting
+the old numbers — no git-based check could have caught this, since the
+override file is invisible to git entirely. Diagnosed by reading
+`services/tabbyapi/config.local.yml` directly and cross-checking
+`docker-compose.yml`'s bind mounts. Fixed by editing
+`config.local.yml` on the user's machine directly (not something this
+session's git history can carry). **New `CLAUDE.md` operational-trap
+candidate**: a gitignored, machine-local config override sitting
+alongside a tracked template is invisible to every git-based
+verification (branch, diff, pull) — the effective config must be read
+from the ACTUAL running container/file, never inferred from repo state,
+exactly the same principle as the existing env-var/image-staleness traps
+but for a THIRD kind of drift source.
+
+**Phase 1 (reload stability)**: 2 clean reloads (not 3 — deliberate
+deviation, `gpu_split` is explicit here, not autosplit, so the placement
+instability 3 reloads were designed to catch doesn't apply to a
+fixed-size cache allocation). GPU0 identical both times (11009 MiB),
+GPU1 within 63 MiB (11651/11714) — within this project's own established
+tolerance for that card. Free VRAM: ~5.18 GiB (GPU0), ~4.61 GiB (GPU1).
+No OOM at any point.
+
+**Phase 2 (D1 campaign, n=5, `HISTORY_DIFF_ENABLED=false` held
+constant)**: `campaign-20260918T110454Z-reasoning-effort-medium-max-seq-
+len-d1-probe.json` — **5/5 success, 0 `context_overflow`**,
+`cache_zero_requests` stable (1, same order of magnitude as the
+baseline). Frozen judge satisfied on both counts.
+
+**Read with one caveat, stated honestly rather than oversold**: the
+longest run in this sample (14 tool_calls) peaked at 25,235 tokens —
+comfortably under even the OLD 32768 ceiling. This specific n=5 sample
+never produced a trajectory that would have overflowed under the
+previous config, so "0 context_overflow" here is consistent with the fix
+working but isn't a mechanistic proof of it catching a genuine near-miss
+the way the `HISTORY_DIFF_ENABLED` probe's flattened `cached_tokens`
+trace was. The 5/5 success rate itself (D1's best result all session,
+against 1/5 on the two prior REASONING_EFFORT=medium campaigns) most
+likely reflects D1's already-documented high run-to-run variance rather
+than a causal effect of the context-ceiling change — the two mechanisms
+target different failure modes (context capacity vs. detection/
+conclusion logic) and there's no reason the latter would improve from a
+larger ceiling per se.
+
+**Overall standing, both mitigations now measured**: `HISTORY_DIFF_ENABLED`
+has the stronger mechanistic evidence (direct, flattened token-growth
+trace); `max_seq_len`/`cache_size` removes the hard ceiling itself with
+no observed downside, but n=5 didn't stress it. Both are independent and
+compatible (never tested combined in this session). Neither change has
+been adopted as a new baseline default — that decision, along with
+`REASONING_EFFORT=medium`'s own adoption, is still the user's call.
