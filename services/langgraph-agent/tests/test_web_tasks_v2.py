@@ -454,6 +454,25 @@ def test_classify_a3_outcome_correct_when_alternative_name_cited_as_excluded():
     assert outcome == "correct"
 
 
+def test_classify_a3_outcome_correct_despite_describing_the_source_ambiguity():
+    # Real collision hit live (2026-09-18, HISTORY_DIFF_ENABLED v2
+    # regression campaign): a fully correct, resolved answer describes
+    # WHY disambiguation was needed ("deux personnes", "ambiguë") as
+    # context before concluding — must not be misread as the MODEL's own
+    # unresolved state just because it mentions the source data was
+    # ambiguous.
+    text = (
+        "Chloé Simon, chloe.simon@entreprise.fr. La page contacts de "
+        "l'application RH listait deux personnes avec le rôle « Congés "
+        "et absences » (Karim Haddad et Chloé Simon), ce qui rendait "
+        "l'information ambiguë. La documentation précise que, depuis la "
+        "réorganisation de janvier 2026, Chloé Simon est désormais la "
+        "seule responsable des demandes de congé."
+    )
+    outcome = v2._classify_a3_outcome(text)
+    assert outcome == "correct"
+
+
 def test_classify_a3_outcome_safe_deferral_when_ambiguity_flagged():
     outcome = v2._classify_a3_outcome(
         "Il y a une ambiguïté entre deux personnes possibles, pouvez-vous préciser ?"
