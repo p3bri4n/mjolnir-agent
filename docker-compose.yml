@@ -61,10 +61,15 @@ services:
       - ADAPTIVE_THINKING=${ADAPTIVE_THINKING:-false}
       # Independent mechanism from ADAPTIVE_THINKING above — caps
       # reasoning DEPTH (extra_body={"reasoning_effort": ...}) rather than
-      # suppressing it entirely, unconditional on every call. Empty by
-      # default (no override, the model's own "xhigh" default applies).
-      # See docs/briefs/reasoning-effort-tuning.md.
-      - REASONING_EFFORT=${REASONING_EFFORT:-}
+      # suppressing it entirely, unconditional on every call. DEFAULT
+      # FLIPPED TO "medium" (2026-09-18, decisive measurement): 60/62 vs
+      # "xhigh"'s own 57/62, -7.9% cumulative time, zero new boucle
+      # failures — met the brief's own frozen decision table's adopt row.
+      # The one open wrinkle (D1_cible_inexistante's dip) was resolved
+      # clean across two n=5 confirmation campaigns: zero confirmed
+      # fabrication, only detector noise/non-conclusions. See
+      # docs/briefs/archives/reasoning-effort-tuning.md.
+      - REASONING_EFFORT=${REASONING_EFFORT:-medium}
       # Explicit plan (Phase 1 "cognitive core", Iteration 1 — see
       # docs/briefs/phase-1-coeur-cognitif.md). DEFAULT FLIPPED BACK TO
       # false (EFFORT 2.4, docs/history.md/docs/briefs/update-plan.md):

@@ -107,10 +107,13 @@ EXPECTED_AGENT_FLAGS = {
     # Python-level default — this dict was never updated to match, see
     # docs/resolved-bugs.md #53.
     "ADAPTIVE_THINKING": "false",
-    # docs/briefs/reasoning-effort-tuning.md — independent mechanism from
-    # ADAPTIVE_THINKING above, empty by default (app/graph.py's own
-    # default, no override).
-    "REASONING_EFFORT": "",
+    # docs/briefs/archives/reasoning-effort-tuning.md — independent
+    # mechanism from ADAPTIVE_THINKING above. DEFAULT FLIPPED TO "medium"
+    # (2026-09-18, decisive measurement: 60/62 vs "xhigh"'s 57/62, -7.9%
+    # cumulative time) — docker-compose.yml's own default updated to
+    # match; app/graph.py's Python-level fallback stays "" (empty),
+    # unchanged, same pattern as PLANNER_ENABLED's own code-level default.
+    "REASONING_EFFORT": "medium",
     "MAX_IMAGES_IN_CONTEXT": "1",
     "IMAGE_FORMAT_PASSTHROUGH": "",
     "IMAGE_TOKEN_ESTIMATE": "1500",
