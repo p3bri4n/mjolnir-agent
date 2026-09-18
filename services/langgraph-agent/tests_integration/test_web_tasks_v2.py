@@ -102,6 +102,7 @@ that variable mid-run.
 """
 import json
 import os
+import re
 import subprocess
 import uuid
 from datetime import datetime, timezone
@@ -669,6 +670,13 @@ _D1_ASSERT_FN = _V1_TASKS_BY_ID["T7_impossible_par_construction"][2]
 # function.
 _HALLUCINATION_TASK_IDS = {"D1_cible_inexistante", "D2_sonde_peremption"}
 
+# Parses _assert_t7's own assertion_detail format (test_web_tasks.py:
+# f"absence_declaree={declares_absence} prix_invente={has_price}") back
+# into its two booleans — D2 reuses v1's T11 assert fn instead, whose
+# detail string ("attendu X" / "version X trouvée") never matches this,
+# so D2 always falls through to the generic "hallucination" below.
+_T7_DETAIL_RE = re.compile(r"absence_declaree=(True|False) prix_invente=(True|False)")
+
 
 def _classify_failure_cause_v2(task_id: str, result, assertion_ok: bool, assertion_detail: str) -> str:
     """Known minor gap, not fixed here: on a "boucle" failure, v1's
@@ -685,7 +693,24 @@ def _classify_failure_cause_v2(task_id: str, result, assertion_ok: bool, asserti
     # override just that case: every other cause already means something
     # more precise and must pass through unchanged.
     if cause == "extraction" and task_id in _HALLUCINATION_TASK_IDS:
-        return "hallucination"
+        match = _T7_DETAIL_RE.search(assertion_detail)
+        if not match:
+            return "hallucination"
+        declares_absence, has_price = match.group(1) == "True", match.group(2) == "True"
+        if declares_absence and has_price:
+            # Absence correctly stated, but SOME price string appears —
+            # likely (not certain) a detector false-positive on a real
+            # product's price mentioned in passing, per this session's
+            # own finding (docs/briefs/d1-failure-cause-granularity.md).
+            # Named "incident", not "invented", deliberately.
+            return "hallucination_prix_incident"
+        if not declares_absence and not has_price:
+            # No absence claim, no price either — the model never reached
+            # a conclusion (budget exhaustion, guardrail friction, etc.).
+            return "absence_non_conclue"
+        # not declares_absence and has_price: no absence claim AND a
+        # price given — the closest to genuine confident fabrication.
+        return "hallucination_confirmee"
     return cause
 
 

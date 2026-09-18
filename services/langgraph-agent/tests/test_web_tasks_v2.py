@@ -280,14 +280,40 @@ def _fake_result(failure_cause=None):
     return r
 
 
-def test_classify_failure_cause_v2_maps_generic_failure_to_hallucination_for_d1():
+def test_classify_failure_cause_v2_falls_back_to_hallucination_on_unparseable_detail_for_d1():
+    # Not the absence_declaree=.../prix_invente=... shape _assert_t7
+    # produces — must fall back to the generic label, never raise or
+    # silently misclassify as one of the three specific buckets.
     cause = v2._classify_failure_cause_v2("D1_cible_inexistante", _fake_result(), False, "prix inventé")
     assert cause == "hallucination"
 
 
 def test_classify_failure_cause_v2_maps_generic_failure_to_hallucination_for_d2():
+    # D2 reuses v1's T11 assert fn, whose detail string never matches
+    # _assert_t7's shape — always falls through to the generic label.
     cause = v2._classify_failure_cause_v2("D2_sonde_peremption", _fake_result(), False, "mauvaise version")
     assert cause == "hallucination"
+
+
+def test_classify_failure_cause_v2_splits_d1_hallucination_prix_incident():
+    cause = v2._classify_failure_cause_v2(
+        "D1_cible_inexistante", _fake_result(), False, "absence_declaree=True prix_invente=True"
+    )
+    assert cause == "hallucination_prix_incident"
+
+
+def test_classify_failure_cause_v2_splits_d1_absence_non_conclue():
+    cause = v2._classify_failure_cause_v2(
+        "D1_cible_inexistante", _fake_result(), False, "absence_declaree=False prix_invente=False"
+    )
+    assert cause == "absence_non_conclue"
+
+
+def test_classify_failure_cause_v2_splits_d1_hallucination_confirmee():
+    cause = v2._classify_failure_cause_v2(
+        "D1_cible_inexistante", _fake_result(), False, "absence_declaree=False prix_invente=True"
+    )
+    assert cause == "hallucination_confirmee"
 
 
 def test_classify_failure_cause_v2_leaves_other_tasks_unaffected():
