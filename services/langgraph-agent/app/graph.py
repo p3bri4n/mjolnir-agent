@@ -2274,11 +2274,21 @@ async def call_llm(state: AgentState, config: dict) -> dict:
     # messages_replaced is computed on messages_for_llm (the actual
     # effect of this call, downstream of episode compaction if both are
     # ever enabled together).
+    # total_messages_count alongside browser_messages_count lets a reader
+    # compute a REDUNDANCY DENSITY (browser_messages_count /
+    # total_messages_count) instead of just an absolute opportunity size —
+    # distinguishes "few browser_* results because the task is short" from
+    # "few browser_* results despite a long conversation dominated by
+    # something else", the exact ambiguity that made A1/A2's "mixed, not
+    # decisive" reading (docs/engineering-log.md, "HISTORY-DIFF LIVE
+    # SMOKE") hard to separate from a broken mechanism without a live
+    # re-run.
     audit_log.log_message(
         config.get("configurable", {}).get("thread_id", ""),
         "history_diff",
         {
             "browser_messages_count": len(_browser_result_indices(state["messages"])),
+            "total_messages_count": len(state["messages"]),
             "messages_replaced": sum(1 for a, b in zip(messages_for_llm, history_diffed) if a is not b),
         },
     )
