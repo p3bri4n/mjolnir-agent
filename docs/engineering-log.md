@@ -7685,3 +7685,43 @@ of the three pending items from this session:
 Full suite re-verified after the flag flips: 513 passed, 0 regressions
 (no test asserted the old `REASONING_EFFORT` default explicitly, unlike
 EFFORT 2.4's flip which needed 2 test updates).
+
+## 2026-09-18 — `HISTORY_DIFF_ENABLED` redundancy-density metric added
+
+Follow-up idea parked in the D1 confirmation entry above, now built: a
+future campaign's "no effect" reading on `HISTORY_DIFF_ENABLED` was hard
+to interpret without a live re-run, because the existing coverage
+counter (`history_diff_browser_messages_max`) is an ABSOLUTE opportunity
+size — it can't tell "few `browser_*` results because the task is
+genuinely short" (A1/A2's own reading) apart from "few results despite a
+long conversation dominated by something else" (which would instead
+point at a broken mechanism). A ratio settles this without waiting for a
+transcript dive.
+
+**Change**: `app/graph.py`'s existing `role="history_diff"` audit entry
+(logged on every `call_llm` regardless of the flag, per CLAUDE.md's
+trigger-rate-counter rule) gains a `total_messages_count` field alongside
+the existing `browser_messages_count`. The harness
+(`tests_integration/test_web_tasks.py`, reused by `test_web_tasks_v2.py`)
+computes `history_diff_redundancy_density_max` — the max, across the
+run's `history_diff` entries, of `browser_messages_count /
+total_messages_count` — and persists it in both the `TaskResult` object
+and the campaign JSON row, plus the per-run report line
+(`densité_max=...`). Division guarded against a missing key on older
+archived entries (defaults to 1, never a `ZeroDivisionError`).
+
+**Not unit-tested**: this harness's aggregation logic
+(`history_diff_browser_messages_max` and siblings) has never had
+dedicated unit tests — verified only by live campaigns, consistent with
+how the rest of `tests_integration/test_web_tasks.py`'s per-run
+aggregation is exercised in this project. Full suite re-run to confirm
+no regression from the added field: 513 passed (unchanged count, as
+expected — no new test functions, matching the existing coverage
+pattern for this code).
+
+**Reading guide for the next `HISTORY_DIFF_ENABLED` campaign**: a low
+`history_diff_redundancy_density_max` with no measured effect confirms
+"not enough opportunity" (A1/A2's case); a high density with no effect
+would instead flag the mechanism itself as broken — a distinction the
+D1 result didn't need (density was high AND the effect was clear) but
+future, less clear-cut tasks will.
