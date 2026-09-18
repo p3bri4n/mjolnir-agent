@@ -85,6 +85,89 @@ verification coverage, median time per task.
 
 🧑 Checkpoint.
 
+### Status update (2026-09-18) — built, two smokes in, closing campaign not yet run
+
+`HISTORY_DIFF_ENABLED` was built and shipped OFF by default
+(`_apply_history_diff`, `app/graph.py`), with its own coverage counters
+(`history_diff_applied_count`/`history_diff_messages_replaced`/
+`history_diff_browser_messages_max`, plus a `history_diff_redundancy_
+density_max` added later, see `docs/engineering-log.md`, "HISTORY_
+DIFF_ENABLED redundancy-density metric").
+
+- **A1/A2 smoke** (`docs/engineering-log.md`, "HISTORY-DIFF LIVE SMOKE"):
+  n=1/task, mixed — A2 tokens -20.7% at no turn cost, A1 essentially
+  flat. Read as "not enough redundant history left to compress on these
+  short (8-9 turn) tasks", not a mechanism defect.
+- **D1 probe** (`docs/engineering-log.md`, "D1 context-overflow
+  mitigation probe — HISTORY_DIFF_ENABLED"), n=5: 0/5 `context_overflow`
+  (vs. 2/7 unmitigated), and a direct mechanistic trace (`cached_tokens`
+  nearly flat instead of climbing to the ceiling) — the strongest
+  evidence of the three context-overflow mitigations tried that session.
+
+**Not yet at the evidence bar this brief's own judges call for**: both
+results above are single-task, thin-n smokes, never the full-suite
+regression this section's own judges (CuP, tokens, verification
+coverage, median time — ACROSS EVERY FAMILY) require before a default
+flip. `REASONING_EFFORT=medium` was held to exactly this bar (a 36-run,
+multi-task decisive measurement) before its own adoption
+(`docs/briefs/archives/reasoning-effort-tuning.md`) — this mechanism
+hasn't had its equivalent yet.
+
+### Closing campaign — full v2 regression (judge frozen before running)
+
+**Single variable**: `HISTORY_DIFF_ENABLED=true` only. Every other flag
+stays at its current (now `REASONING_EFFORT=medium` +
+`max_seq_len`/`cache_size`=40960/81920) default — this campaign is NOT
+re-testing those, only measuring the diff mechanism on top of the
+already-adopted baseline.
+
+**Scope**: full v2 suite, every family (F, A, B, C, D, E) — not just D1.
+Reuses each family's own established repetition count
+(`_repetitions_for_task`'s per-family defaults), no `--tasks` filter.
+
+**Judges, declared before running** (this brief's own Effort 2 judges,
+plus the two counters built since):
+- **CuP and per-family scores** vs. the current baseline (the last full
+  v2 campaign run without this flag) — must not regress on any family.
+  A regression here is the primary bar, same weight as `REASONING_
+  EFFORT`'s own "T10/A1 must not fail" primary bar.
+- **Cumulative `prompt_tokens_total`** vs. baseline — the expected gain,
+  read per-family (D1's win must not be the only family that moves).
+- **`verification_opportunities`/`exploitable`** — unaffected in
+  principle (`HISTORY_DIFF_ENABLED` never touches the most recent
+  observation, only past ones), but checked, not assumed.
+- **Coverage, read WITH the new density metric**: for any family showing
+  no effect, `history_diff_redundancy_density_max` distinguishes
+  "genuinely not enough opportunity" (A1/A2's own reading, expected on
+  short tasks) from "opportunity existed but nothing changed" (would
+  flag a regression in the mechanism itself, investigate before
+  concluding).
+- **`context_overflow` rate**: must not regress anywhere it wasn't
+  already occurring (this campaign doesn't specifically target it the
+  way the D1 probe did, but a new occurrence on a different family would
+  be a real finding).
+
+**Decision table**:
+
+| Result | Reading |
+|---|---|
+| No regression on any family, real token/context gain on at least the tasks with real redundancy density | Adopt `HISTORY_DIFF_ENABLED=true` as the new default |
+| No regression, but gains only where D1-like exhaustive verification already showed them (no broader benefit) | Record as-is; adopt or not is a judgment call on maintenance cost vs. a narrow win — not pre-decided here |
+| Any family regresses (CuP or a new failure mode) | Reject; the mechanism's cost on that family's shape outweighs its D1 benefit |
+
+**Command** (existing harness, no new code):
+
+```bash
+docker exec langgraph-agent env | grep -E '^(REASONING_EFFORT|HISTORY_DIFF_ENABLED)='
+HISTORY_DIFF_ENABLED=true docker compose up -d --force-recreate langgraph-agent
+
+CAMPAIGN_EXPECTED_FLAGS_OVERRIDE='{"HISTORY_DIFF_ENABLED": "true"}' \
+  scripts/run-campaign.sh --suite v2 --label "history-diff-enabled-v2-regression"
+```
+
+🧑 **Checkpoint**: report per-family CuP/tokens/coverage against the
+frozen judges above before touching the adoption decision.
+
 ## Effort 3 — Coarse-grained actions
 
 **Problem**: the action space is fine-grained, so a single intent costs ten
