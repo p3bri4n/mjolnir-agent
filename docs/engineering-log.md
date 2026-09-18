@@ -7406,3 +7406,41 @@ task, as declared going in.
 `REASONING_EFFORT=medium` adoption is now read clean. Adoption decision
 itself is still the user's call, per the brief's own checkpoint — not
 made here.
+
+## 2026-09-18 — context-overflow notice distinguished from generic infra failure
+
+Follow-up to the finding directly above: `docs/resolved-bugs.md` #59.
+`app/main.py` gets a new `_error_notice_for(exc)` helper, used at all
+three `agent_graph.ainvoke`/`.astream` call sites (`_stream_response`,
+`/approve`, non-streaming `/v1/chat/completions`) instead of the
+hardcoded `_INTERNAL_ERROR_NOTICE` — returns a distinct
+`_CONTEXT_OVERFLOW_NOTICE` when the caught exception is
+`openai.BadRequestError` with `code="context_length_exceeded"`, the
+generic notice otherwise. `tests_integration/test_web_tasks.py` matches
+the new notice text into a new `failure_cause="context_overflow"`
+bucket, separate from `"infra"` — both pass through
+`_classify_failure_cause`/`_classify_failure_cause_v2` unchanged (generic
+pass-through, same as `"infra"` already had). No pass/fail assertion
+touched, not a new benchmark version.
+
+**Tests**: `tests/test_internal_error_parity.py`'s two existing
+`context_length_exceeded` integration tests updated to assert the new
+specific notice (the mocked failure IS that exact case — a direct
+regression check that the fix actually fires on the real code path, not
+just a hand-constructed exception); added a same-status-different-code
+case to confirm the check discriminates rather than treating every
+`BadRequestError` as a context overflow, plus 3 unit tests directly on
+`_error_notice_for`. Full `langgraph-agent` suite 501 → 505 passed, 0
+regressions.
+
+**Scope note**: `tests_integration/probe_compaction_multi_turn.py` has
+the same generic `"infra"` pattern at its own two call sites — a
+diagnostic probe script, not the frozen benchmark, left untouched (out
+of what was asked).
+
+**Not live-verified yet**: application code change
+(`app/main.py`) — needs `docker compose build langgraph-agent &&
+docker compose up -d --force-recreate langgraph-agent` before any live
+campaign would actually exercise the new code path (CLAUDE.md's
+build-before-recreate operational trap). No campaign run against this
+fix in this session.

@@ -558,3 +558,55 @@ an unverified config — CLAUDE.md's "verify effective configuration,
 never assume" rule doing exactly its job. No campaign ran on a
 mis-wired flag; the Phase 2 campaign was simply re-launched after this
 fix.
+
+### 59. `app/main.py` — a genuine TabbyAPI context-window overflow was indistinguishable from a real infra fault, both surfacing as `failure_cause="infra"` — CLOSED
+
+**Symptom, confirmed cause**: the `REASONING_EFFORT=medium` D1
+confirmation campaign (n=5,
+`campaign-20260918T080708Z-reasoning-effort-medium-d1-confirmation.json`)
+came back with 2/5 runs at `failure_cause="infra"`. Investigated instead
+of retried blind: both runs were, by far, the longest of the five
+(206s/198.7s vs. 54-87s, 23/19 tool_calls vs. 10-13) and their
+`tabbyapi_raw_samples` showed `cached_tokens`+`new_tokens` climbing
+monotonically to 29240/32515 tokens by the last logged request —
+approaching `services/tabbyapi/config.yml`'s `max_seq_len: 32768`.
+Confirmed with certainty via `docker compose logs langgraph-agent`:
+`openai.BadRequestError: Error code: 400 - {'error': {'message': 'Prompt
+length 33040 exceeds the available context size of 32768 tokens', ...
+'code': 'context_length_exceeded'}}`. `app/main.py`'s three
+`agent_graph.ainvoke`/`.astream` call sites (`_stream_response`,
+`/approve`, non-streaming `/v1/chat/completions`) each caught this with a
+bare `except Exception`, discarding the exception type before it reached
+`_INTERNAL_ERROR_NOTICE` — the harness then matched the generic notice
+text and bucketed it as `failure_cause="infra"`
+(`tests_integration/test_web_tasks.py`), identical to an actual
+container-down/connection fault. D1's exhaustive-verification shape
+(many `browser_extract`/`browser_navigate` calls checking the catalog's
+30 real references, no compaction/diff enabled by default) accumulates
+raw tool output in context linearly, and the two runs that pushed
+verification furthest hit the wall.
+
+**Fix**: `_error_notice_for(exc)` (`app/main.py`) checks
+`isinstance(exc, openai.BadRequestError) and exc.code ==
+"context_length_exceeded"` and returns a distinct
+`_CONTEXT_OVERFLOW_NOTICE` instead of the generic
+`_INTERNAL_ERROR_NOTICE`, used at all three call sites. Harness side:
+`tests_integration/test_web_tasks.py` matches the new notice text and
+sets `failure_cause="context_overflow"`, a new bucket distinct from
+`"infra"` — both pass through `_classify_failure_cause`/
+`_classify_failure_cause_v2` unchanged (same generic pass-through as
+`"infra"` already had). No pass/fail assertion touched — diagnostic
+label only, not a new benchmark version.
+
+**Tests**: `tests/test_internal_error_parity.py`'s two existing
+context_length_exceeded integration tests now assert the specific
+notice; added a same-shape-different-code case (confirms the check
+actually discriminates, not just always-context-overflow) and 3 unit
+tests directly on `_error_notice_for` (context overflow, other
+`BadRequestError`, non-OpenAI exception). Full suite 501 → 505 passed, 0
+regressions.
+
+**Not yet retrofitted**: `tests_integration/probe_compaction_multi_turn.py`
+has the same generic `failure_cause="infra"` pattern at its own two call
+sites — a diagnostic probe script, not the frozen benchmark, left
+as-is (not exercised by this fix, not asked).
