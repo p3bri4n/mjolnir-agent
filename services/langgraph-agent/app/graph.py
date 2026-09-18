@@ -1874,11 +1874,39 @@ def _apply_image_retention(messages: list) -> list:
     return filtered
 
 
+def _subtask_state_anchor(turns: list) -> str:
+    """Factual state anchor from the LAST browser_* ToolMessage in `turns`
+    (URL + visible affordances) — reuses _apply_history_diff's own
+    extraction rather than a new parser. Added because _summarize_subtask
+    used to be narrative-only (intent + attempted actions + a generic
+    verdict) and never captured where a subtask actually LEFT the page;
+    the A4 negative result traced a stale summary to exactly this gap
+    (docs/engineering-log.md, "A4 / COMPACTION ... RÉSULTAT NÉGATIF NET").
+    Empty string if no structural browser_* result is found in range —
+    same degrade-gracefully-to-nothing rule as the rest of this module."""
+    browser_indices = _browser_result_indices(turns)
+    if not browser_indices:
+        return ""
+    try:
+        result = json.loads(turns[browser_indices[-1]].content)
+    except (json.JSONDecodeError, TypeError):
+        return ""
+    text = _browser_result_text(result)
+    if not _is_structural_browser_result(text):
+        return ""
+    url = _extract_page_url(text)
+    affordances = _extract_affordances_structured(text)
+    sample = ", ".join(f'{a["kind"]} "{a["label"]}"' for a in affordances[:5]) or "(aucun)"
+    more = f" (+{len(affordances) - 5} autres)" if len(affordances) > 5 else ""
+    return f"état constaté en fin de sous-tâche : URL={url or 'inconnue'} ; éléments visibles : {sample}{more}."
+
+
 def _summarize_subtask(subtask: dict, turns: list) -> str:
     """Structured summary replacing a completed subtask's raw turns (see
     _apply_episode_compaction): description, key actions distilled from
     the AI messages' tool_calls in that range (name + first argument
-    value, truncated), and the result verify_action recorded."""
+    value, truncated), the result verify_action recorded, and a factual
+    state anchor (_subtask_state_anchor) — appended only when found."""
     actions = []
     for m in turns:
         for call in getattr(m, "tool_calls", None) or []:
@@ -1886,10 +1914,12 @@ def _summarize_subtask(subtask: dict, turns: list) -> str:
             hint = str(next(iter(args.values()), ""))[:40]
             actions.append(f"{call.get('name', '?')}({hint})" if hint else call.get("name", "?"))
     result = subtask.get("result") or "(résultat non consigné)"
-    return (
+    summary = (
         f"[Sous-tâche compactée] {subtask.get('description', '')} — "
         f"actions : {', '.join(actions) or '(aucune)'} — résultat : {result}"
     )
+    anchor = _subtask_state_anchor(turns)
+    return f"{summary} — {anchor}" if anchor else summary
 
 
 def _apply_episode_compaction(messages: list, plan: list, subtask_message_start: list) -> list:

@@ -7,6 +7,8 @@ tests unitaires sur les fonctions pures uniquement, jamais de docker/LLM
 réel ici.
 """
 
+import json
+
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 
@@ -18,6 +20,27 @@ def _turn(tool_name="browser_navigate", arg_value="http://example/", call_id="ca
     return [
         AIMessage(content="", tool_calls=[{"id": call_id, "name": tool_name, "args": {"url": arg_value}}]),
         ToolMessage(content=result_text, tool_call_id=call_id),
+    ]
+
+
+def _result_json(text: str) -> str:
+    return json.dumps({"content": [{"type": "text", "text": text}]})
+
+
+def _snapshot(url: str, affordances=()) -> str:
+    lines = [f"Page URL: {url}"]
+    for kind, label in affordances:
+        lines.append(f'- {kind} "{label}"')
+    return "\n".join(lines)
+
+
+def _structural_turn(url: str, affordances=(), call_id="call_1"):
+    """Same shape as test_history_diff.py's _browser_turn — a REAL
+    structural browser_* result (JSON content, parseable snapshot), as
+    opposed to _turn()'s plain-string dummy content above."""
+    return [
+        AIMessage(content="", tool_calls=[{"id": call_id, "name": "browser_navigate", "args": {}}]),
+        ToolMessage(content=_result_json(_snapshot(url, affordances)), tool_call_id=call_id),
     ]
 
 
@@ -151,3 +174,69 @@ def test_summarize_subtask_handles_missing_result():
     summary = g._summarize_subtask(subtask, [])
 
     assert "résultat non consigné" in summary
+
+
+def test_summarize_subtask_omits_anchor_without_structural_browser_result():
+    """_turn()'s dummy content ("ok") isn't a real snapshot — must degrade
+    to the narrative-only summary, never raise or fabricate an anchor."""
+    import app.graph as g
+
+    subtask = _subtask()
+    turns = _turn()
+
+    summary = g._summarize_subtask(subtask, turns)
+
+    assert "état constaté" not in summary
+
+
+def test_summarize_subtask_appends_state_anchor_from_real_browser_result():
+    """The A4 fix: a REAL structural browser_* result in the subtask's
+    turns must surface its URL/affordances as a factual anchor, separate
+    from the narrative — this is exactly what the narrative-only version
+    never captured (docs/engineering-log.md, "A4 / COMPACTION")."""
+    import app.graph as g
+
+    subtask = _subtask(description="Aller aux employés")
+    turns = _structural_turn("http://fixture-hr-app:5000/employees", [("link", "Congés")])
+
+    summary = g._summarize_subtask(subtask, turns)
+
+    assert "état constaté en fin de sous-tâche" in summary
+    assert "URL=http://fixture-hr-app:5000/employees" in summary
+    assert 'link "Congés"' in summary
+
+
+def test_subtask_state_anchor_empty_without_browser_tool_call():
+    import app.graph as g
+
+    turns = _turn(tool_name="read_file", result_text="contenu")
+
+    assert g._subtask_state_anchor(turns) == ""
+
+
+def test_subtask_state_anchor_empty_on_non_structural_result():
+    """A guardrail/error feedback carries no page state — never used as a
+    fabricated anchor (see _is_structural_browser_result)."""
+    import app.graph as g
+
+    turns = [
+        AIMessage(content="", tool_calls=[{"id": "c1", "name": "browser_navigate", "args": {}}]),
+        ToolMessage(content=_result_json("Navigation refusée : URL fabriquée."), tool_call_id="c1"),
+    ]
+
+    assert g._subtask_state_anchor(turns) == ""
+
+
+def test_subtask_state_anchor_uses_the_last_browser_result():
+    """Multiple browser_* calls in range: the anchor reflects where the
+    subtask actually ENDED, not its first observation."""
+    import app.graph as g
+
+    turns = _structural_turn("http://catalog/page-1", call_id="c1") + _structural_turn(
+        "http://catalog/page-2", call_id="c2"
+    )
+
+    anchor = g._subtask_state_anchor(turns)
+
+    assert "http://catalog/page-2" in anchor
+    assert "http://catalog/page-1" not in anchor
