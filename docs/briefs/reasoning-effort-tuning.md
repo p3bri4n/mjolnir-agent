@@ -236,3 +236,87 @@ CAMPAIGN_EXPECTED_FLAGS_OVERRIDE='{"REASONING_EFFORT": "medium", "HISTORY_DIFF_E
 
 🧑 **Checkpoint**: report the context_overflow rate and coverage counters
 above before drawing any conclusion.
+
+## D1 context-ceiling mitigation probe — max_seq_len/cache_size (VRAM check required before any number is committed)
+
+**Why**: `services/tabbyapi/config.yml`'s `max_seq_len: 32768` is the
+literal ceiling `context_length_exceeded` hit (33040 > 32768). Raising it
+removes the wall directly, orthogonal to any application-level mechanism
+— but it's an infra/VRAM lever, not a behavior change, so it needs its
+own live verification discipline (same as
+`docs/briefs/archives/deterministic-gpu-placement.md`), not a guessed
+number.
+
+**Design constraint already recorded in config.yml's own comment,
+re-stated here so it isn't missed**: `cache_size` (65536) is
+DELIBERATELY set larger than `max_seq_len` (32768) — a 2x margin chosen
+so a short `planner_llm`-style request can share the KV cache pool
+alongside the main loop's long context without evicting it (the
+"cache=0 hunt" fix, docs/engineering-log.md). **Raising `max_seq_len`
+alone to match `cache_size` would erase that margin and reproduce the
+exact problem it was chosen to prevent.** Both values move together,
+preserving (at least) the current ratio — not a one-line edit.
+
+**Single variable, isolated from the `HISTORY_DIFF_ENABLED` probe
+above**: this campaign runs with `HISTORY_DIFF_ENABLED=false` (current
+default) so the two candidate fixes are never measured entangled. If
+both look promising independently, a combined config is its own later
+measurement, not assumed additive.
+
+### Phase 0 — live VRAM headroom check (prerequisite, own judge, requires the user's machine)
+
+`docker exec tabbyapi nvidia-smi` (or `scripts/gpu-placement-smoke.sh`'s
+own probe) BEFORE touching `config.yml` — confirms actual free VRAM per
+GPU under the current `gpu_split: [10, 13]`. Candidate target,
+provisional pending this check: `max_seq_len: 49152` (+50%),
+`cache_size: 98304` (keeps the current 2x ratio exactly). Do not commit
+to these numbers if the check shows insufficient headroom — scale both
+down proportionally instead, never `max_seq_len` alone.
+
+🧑 **Checkpoint**: report free VRAM per GPU before finalizing numbers.
+
+### Phase 1 — apply, verify stable across reloads
+
+Same discipline as `deterministic-gpu-placement.md`: edit `config.yml`,
+`docker compose up -d --force-recreate tabbyapi` (bind-mounted config,
+no `docker compose build` needed for this file — but DOES require a
+full container recreate, the model reloads with the new cache
+allocation), confirm 3 clean reloads land on consistent per-GPU VRAM
+(`docker exec tabbyapi nvidia-smi` or
+`campaign_persistence.collect_gpu_devices`), and a trivial
+`/v1/chat/completions` call succeeds before running anything bigger.
+
+### Phase 2 — D1 campaign, single variable
+
+`REASONING_EFFORT=medium`, `HISTORY_DIFF_ENABLED=false`, new
+`max_seq_len`/`cache_size`. n=5, `D1_cible_inexistante` only.
+
+**Judge, declared before running**:
+- `context_overflow` rate vs. the 2/7 baseline — should reach 0 given
+  the longest observed prompt so far (33040 tokens) fits comfortably
+  under a 49152 ceiling.
+- `cache_zero_requests` must NOT regress vs. the current baseline — a
+  regression here would mean the margin got squeezed despite scaling
+  both values, silently reintroducing the original cache-eviction
+  problem this ratio exists to prevent.
+
+**Decision table**:
+
+| Result | Reading |
+|---|---|
+| context_overflow → 0, cache_zero_requests stable | Adopt the new sizing (own status header on this brief's config change, not a "measured behavior" item per CLAUDE.md's frozen list, but a persistent infra change worth recording like deterministic-gpu-placement.md was) |
+| context_overflow → 0, cache_zero_requests regresses | Margin insufficient — revisit the ratio, not just the absolute numbers |
+| context_overflow persists | The task-shape's growth outpaces even this margin — `HISTORY_DIFF_ENABLED` (or a `BROWSER_TOOL_OUTPUT_MAX_CHARS` reduction, not yet probed) remain the live candidates |
+
+**Command** (after Phase 0/1 confirm specific numbers and a stable reload):
+
+```bash
+docker exec tabbyapi env  # sanity: config.yml is bind-mounted, not baked — no image rebuild needed
+CAMPAIGN_EXPECTED_FLAGS_OVERRIDE='{"REASONING_EFFORT": "medium"}' \
+  scripts/run-campaign.sh --suite v2 --tasks D1_cible_inexistante --reps 5 \
+  --label "reasoning-effort-medium-max-seq-len-d1-probe"
+```
+
+🧑 **Checkpoint**: report Phase 0's VRAM numbers first — the specific
+`max_seq_len`/`cache_size` values in this section are provisional until
+then.
