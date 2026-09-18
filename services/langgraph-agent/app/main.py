@@ -21,6 +21,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 
+import openai
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -216,6 +217,20 @@ def _parse_approval_reply(text: str) -> tuple:
 
 
 _INTERNAL_ERROR_NOTICE = "⚠️ Erreur interne pendant la génération, réessayez."
+_CONTEXT_OVERFLOW_NOTICE = "⚠️ Contexte de conversation trop long pour continuer, démarre une nouvelle tâche."
+
+
+def _error_notice_for(exc: Exception) -> str:
+    """Distinguishes a real context-window overflow (TabbyAPI rejects the
+    request outright, retrying the same thread can't help) from any other
+    failure caught by the generic safety nets below — both used to
+    collapse into the same generic notice, indistinguishable from a
+    campaign's failure_cause=infra bucket too (see
+    docs/engineering-log.md, "reasoning_effort tuning, Phase 2
+    follow-up")."""
+    if isinstance(exc, openai.BadRequestError) and exc.code == "context_length_exceeded":
+        return _CONTEXT_OVERFLOW_NOTICE
+    return _INTERNAL_ERROR_NOTICE
 
 
 def _format_iteration_limit_notice(tool_calls: list) -> str:
@@ -491,7 +506,7 @@ async def _stream_response(config: dict, run_input: Optional[dict], model: str):
                     notice = closing_prefix + _format_empty_answer_notice()
                     for chunk in _sse_content_chunks(completion_id, model, notice):
                         yield chunk
-    except Exception:
+    except Exception as exc:
         # Without this safety net, an error here (llama-server cutting the
         # connection mid-stream, checkpointer unavailable...) kills this
         # generator in the middle of an already-started
@@ -508,7 +523,7 @@ async def _stream_response(config: dict, run_input: Optional[dict], model: str):
         yield _sse_chunk(
             completion_id,
             model,
-            {"role": "assistant", "content": _INTERNAL_ERROR_NOTICE},
+            {"role": "assistant", "content": _error_notice_for(exc)},
         )
 
     yield _sse_chunk(completion_id, model, {}, finish_reason="stop")
@@ -718,7 +733,7 @@ async def approve(request: ApprovalDecisionRequest):
         )
     try:
         await agent_graph.ainvoke(None, config)
-    except Exception:
+    except Exception as exc:
         # Parity with _stream_response (streaming path): without this
         # safety net, an error here (e.g. LLM context overflow,
         # `llama-server`/TabbyAPI cutting the connection...) used to
@@ -728,7 +743,7 @@ async def approve(request: ApprovalDecisionRequest):
         # NOT called here: the graph may have stopped mid-way with no
         # coherent state to re-read.
         logger.exception("Error during /approve (thread_id=%s)", thread_id)
-        return {"content": _INTERNAL_ERROR_NOTICE}
+        return {"content": _error_notice_for(exc)}
 
     return {"content": await _current_answer(config)}
 
@@ -744,7 +759,7 @@ async def chat_completions(request: ChatCompletionRequest):
 
     try:
         await agent_graph.ainvoke(run_input, config)
-    except Exception:
+    except Exception as exc:
         # See the same note in /approve above: same safety net as the
         # streaming path (_stream_response), missing here until now.
         logger.exception(
@@ -759,7 +774,7 @@ async def chat_completions(request: ChatCompletionRequest):
             "choices": [
                 {
                     "index": 0,
-                    "message": {"role": "assistant", "content": _INTERNAL_ERROR_NOTICE},
+                    "message": {"role": "assistant", "content": _error_notice_for(exc)},
                     "finish_reason": "stop",
                 }
             ],

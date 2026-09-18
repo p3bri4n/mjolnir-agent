@@ -181,6 +181,13 @@ _PLAN_ESCALATION_PREFIX = "⚠️ Le plan proposé a été rejeté par la valida
 _ITERATION_LIMIT_PREFIX = "⚠️ Limite d'itérations d'outils atteinte"
 _EMPTY_NOTICE_PREFIX = "⚠️ Le modèle a terminé son tour sans réponse exploitable"
 _INTERNAL_ERROR_TEXT = "⚠️ Erreur interne pendant la génération, réessayez."
+# Distinct from _INTERNAL_ERROR_TEXT above: a genuine TabbyAPI context-
+# window overflow (openai.BadRequestError, code="context_length_exceeded",
+# app/main.py's _error_notice_for) used to collapse into the same generic
+# "infra" bucket, masking a real, task-shape-driven cause rather than a
+# transient fault — see docs/engineering-log.md, "reasoning_effort tuning,
+# Phase 2 follow-up".
+_CONTEXT_OVERFLOW_TEXT = "⚠️ Contexte de conversation trop long pour continuer, démarre une nouvelle tâche."
 
 
 def _is_approval_pending(content: str) -> bool:
@@ -501,6 +508,8 @@ def run_task(prompt: str, worker_id: str = None) -> TaskResult:
                     result.observed_navigate_urls.append(args["url"])
         elif content.startswith(_EMPTY_NOTICE_PREFIX):
             result.failure_cause = "extraction"
+        elif _CONTEXT_OVERFLOW_TEXT in content:
+            result.failure_cause = "context_overflow"
         elif _INTERNAL_ERROR_TEXT in content:
             result.failure_cause = "infra"
     except (RuntimeError, subprocess.TimeoutExpired) as exc:
