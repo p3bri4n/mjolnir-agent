@@ -289,6 +289,19 @@ down proportionally instead, never `max_seq_len` alone.
 
 🧑 **Checkpoint**: report free VRAM per GPU before finalizing numbers.
 
+**Result (2026-09-18)**: live check found less headroom than expected —
+~4.24 GiB free on GPU0, ~4.85 GiB on GPU1 (vs. the ~5.3-5.4 GiB recorded
+when `gpu_split: [10, 13]` was originally adopted, same model/split — the
+~1 GiB/~300 MiB drift isn't explained by any config change and is
+flagged as worth understanding later, not investigated here). Scaled
+down from the provisional +50% to **+25%**: `max_seq_len: 32768→40960`,
+`cache_size: 65536→81920` (ratio preserved). Committed to
+`services/tabbyapi/config.yml` as an empirical test, not a calculation —
+no validated VRAM/token ratio exists for this exact
+model/quant/cache_mode combination (the one in the config's own comment
+predates this model and is explicitly marked stale). Phase 1's
+reload-stability check is the real verification.
+
 ### Phase 1 — apply, verify stable across reloads
 
 Same discipline as `deterministic-gpu-placement.md`: edit `config.yml`,
@@ -308,7 +321,7 @@ allocation), confirm 3 clean reloads land on consistent per-GPU VRAM
 **Judge, declared before running**:
 - `context_overflow` rate vs. the 2/7 baseline — should reach 0 given
   the longest observed prompt so far (33040 tokens) fits comfortably
-  under a 49152 ceiling.
+  under the new 40960 ceiling.
 - `cache_zero_requests` must NOT regress vs. the current baseline — a
   regression here would mean the margin got squeezed despite scaling
   both values, silently reintroducing the original cache-eviction

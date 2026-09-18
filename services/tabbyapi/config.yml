@@ -43,6 +43,21 @@
 # (~822 Mio de plus sur la Blackwell à cache_size=8192 par tranche de
 # 8192 tokens Q6, extrapolé) ; à revalider par un rechargement réel si le
 # modèle change.
+#
+# max_seq_len 32768 → 40960 / cache_size 65536 → 81920 (2026-09-18, +25%
+# chacun, ratio 2x préservé) : `context_length_exceeded` observé en
+# conditions réelles sur D1_cible_inexistante (tâche de vérification
+# exhaustive, docs/engineering-log.md "reasoning_effort tuning, Phase 2
+# follow-up") — le plafond de 32768 était atteint avant même que
+# HISTORY_DIFF_ENABLED (autre mitigation, indépendante) n'entre en jeu.
+# Marge VRAM vérifiée live avant ce changement (`docker exec tabbyapi
+# nvidia-smi`) : ~4.24 Gio libres GPU0 / ~4.85 Gio GPU1 sous
+# gpu_split=[10,13] — plus serré que les ~5.3-5.4 Gio constatés lors de
+# l'adoption de ce split (écart non expliqué par la config, à surveiller,
+# pas encore compris) ; +25% choisi par prudence plutôt que le +50%
+# initialement envisagé. Chiffres traités comme un test empirique, pas un
+# calcul : à confirmer stable par un rechargement réel, voir
+# docs/briefs/reasoning-effort-tuning.md.
 
 network:
   host: 0.0.0.0
@@ -53,8 +68,8 @@ model:
   model_dir: /models
   model_name: agent-llm
   backend: exllamav3
-  max_seq_len: 32768
-  cache_size: 65536
+  max_seq_len: 40960
+  cache_size: 81920
   cache_mode: Q6
   vision: true
   tool_format: qwen3_coder
