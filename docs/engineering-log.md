@@ -7725,3 +7725,80 @@ pattern for this code).
 would instead flag the mechanism itself as broken — a distinction the
 D1 result didn't need (density was high AND the effect was clear) but
 future, less clear-cut tasks will.
+
+## 2026-09-18 — HISTORY_DIFF_ENABLED closing campaign: two apparent regressions, one real bug found (A3), one still open (T10)
+
+Context: `docs/briefs/scaffolding-optimisation.md`, "Closing campaign —
+full v2 regression". `HISTORY_DIFF_ENABLED=true` on top of the now-
+default `REASONING_EFFORT=medium`/`max_seq_len=40960`, full v2 suite (62
+runs). First attempt failed at preflight (`Connection refused` fetching
+`/tools/schema` — `langgraph-agent` not yet listening right after
+`--force-recreate`, a timing issue, not investigated further); the
+`.DONE` marker from that failed attempt caused a false "campaign
+finished" read mid-session (file naming is date+label based, not
+campaign-id based — overwritten only once the real run finishes; caught
+by comparing `progress.json`'s live `completed`/`active` state, which
+still showed an in-progress run). Second attempt completed clean, image
+digest identical to the D1 diff probe's (`sha256:c21d2ca8...`) — the new
+redundancy-density metric's field (`total_messages_count`) was therefore
+NOT in this image, its `history_diff_redundancy_density_max` readings on
+this campaign are garbage (division by the fallback `1`, values >1
+observed) and must be disregarded; a rebuild was needed and wasn't done
+(operational trap self-inflicted — forgot `docker compose build` before
+telling the user to `--force-recreate`, exactly the class of mistake
+`CLAUDE.md` already documents).
+
+**Raw score: 56/62** (vs. 60/62 baseline without diff), regression
+concentrated on `T10_books_toscrape` (0/2) and `A3_contact_conges`
+(1/3) — everything else at or within established variance.
+
+**First reading (WRONG, corrected after checking the raw transcripts
+rather than trusting the score alone)**: initially attributed both to
+`HISTORY_DIFF_ENABLED` compacting away plain body-text content (prices,
+disambiguating details) the diff's affordance-only extraction can't see.
+Asked to verify against the actual audit log before accepting this —
+right call, the hypothesis didn't survive contact with the transcripts:
+
+- **T10 (`docs/workspace/.audit`, both threads)**: both failures start
+  at the VERY FIRST navigation — the model guesses a category URL
+  (two DIFFERENT wrong guesses across the two reps) instead of following
+  a real link from the homepage, lands on a 404, then repeatedly hits
+  `BROWSER_NAVIGATE_GUARDRAIL` retrying more guessed URLs until giving up
+  (`extraction`) or looping (`boucle`, 28 tool_calls). At the point of
+  failure there is nothing yet to compact — `HISTORY_DIFF_ENABLED`
+  mechanistically cannot be the cause. Reads as plain model/sampling
+  variance on a real external site, not investigated further (n=2, no
+  reproducible link to the flag under test).
+- **A3 (`final_text` read for all 3 reps)**: all three give the
+  objectively identical correct answer (Chloé Simon, same reasoning).
+  Not a model failure at all — a TEST BUG. `_classify_a3_outcome`'s
+  deferral keyword list included `"ambigu"`/`"deux personnes"`, both of
+  which describe the SOURCE DATA's ambiguity, exactly the language a
+  correct, resolved answer uses as context before disambiguating. Run 1
+  escaped by pure accident (`**deux** personnes`, a markdown bold marker
+  breaking the substring match); runs 2/3 used the same phrasing without
+  bold and got misclassified `safe_deferral` → `failure_cause=extraction`.
+  **Fixed**: `_A3_DEFERRAL_KEYWORDS` narrowed to phrases stating the
+  MODEL's own unresolved state (`"je ne suis pas sûr"`, `"pouvez-vous
+  préciser"`, `"je ne peux pas déterminer"`, `"besoin de confirmation"`,
+  `"n'ai pas pu déterminer"`) — dropped `"ambigu"`, `"deux personnes"`,
+  `"n'est pas clair"` (same descriptive-not-epistemic problem). All 3
+  real campaign answers now correctly reclassify as `correct`. New
+  regression test using the real collision text. Full suite 513 → 514
+  passed.
+
+**Corrected score: 58/62** (A3 was never really 1/3, it's 3/3) — the
+only open item is T10's 0/2, mechanistically unconnected to the diff and
+on too small a sample to attribute to it. **No longer reading this as a
+clear reject** — the earlier "regression on 2 families" verdict doesn't
+survive the transcript check. Not yet a green light either: T10 needs a
+small, targeted re-run (`HISTORY_DIFF_ENABLED=true`, T10 alone, a few
+more reps) to see whether 0/2 was noise or reproduces, before any
+decision table row applies.
+
+**Process note**: this is exactly why the brief's own decision table
+exists BEFORE reading results, but it's not a substitute for checking
+the mechanism behind a score — a regression's SCORE and its CAUSE are
+different questions, and only the transcript answers the second one.
+Caught here because the user asked to verify before accepting the
+initial (wrong) reading.
