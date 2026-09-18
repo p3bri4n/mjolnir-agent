@@ -1,5 +1,18 @@
 # Qwen3.8 `reasoning_effort` tuning — brief
 
+> **Status: CLOSED, ADOPTED (2026-09-18).** `REASONING_EFFORT=medium` is
+> now the default (`docker-compose.yml`, `campaign_preflight.py`'s
+> `EXPECTED_AGENT_FLAGS`, `docs/architecture/inference-backend.md`) —
+> decisive measurement met the decision table's adopt row, and the D1
+> confirmation follow-up closed the one open wrinkle clean (zero
+> confirmed fabrication across two n=5 campaigns). The two context-
+> overflow mitigation probes explored alongside this brief
+> (`HISTORY_DIFF_ENABLED`, `max_seq_len`/`cache_size`) are tracked
+> separately: `max_seq_len`/`cache_size` (40960/81920) is ALSO now
+> adopted as the default (`services/tabbyapi/config.yml`);
+> `HISTORY_DIFF_ENABLED` stays off pending a full v2 regression campaign
+> — not yet decided.
+
 > **Context**: the `ADAPTIVE_THINKING=true` follow-up campaign
 > (`docs/engineering-log.md`, "Qwen3.8-27B evaluation follow-up —
 > ADAPTIVE_THINKING=true campaign") bought a real -21% cumulative time but
