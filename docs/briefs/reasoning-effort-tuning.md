@@ -237,6 +237,20 @@ CAMPAIGN_EXPECTED_FLAGS_OVERRIDE='{"REASONING_EFFORT": "medium", "HISTORY_DIFF_E
 🧑 **Checkpoint**: report the context_overflow rate and coverage counters
 above before drawing any conclusion.
 
+**Result (2026-09-18)**: clean positive — n=5, **0 `context_overflow`**
+(vs. 2/7 baseline), coverage non-flattering on every run
+(`history_diff_applied_count` 3-13). Mechanistically confirmed: the
+longest run's `cached_tokens` stayed nearly flat (6656→11776 over 14
+requests) against the baseline's comparable run climbing to 32515 before
+erroring. Contrasts with Effort 4's "mixed" A1/A2 smoke — read as a
+lack-of-opportunity finding on those short tasks, not a mechanism
+weakness; D1's exhaustive shape gives it real material. Full detail:
+`docs/engineering-log.md`, "D1 context-overflow mitigation probe —
+HISTORY_DIFF_ENABLED". **Not yet a default-flip decision**: n=5 on one
+task is thin — a full v2 regression campaign (all families,
+`HISTORY_DIFF_ENABLED=true` as the single variable) is the natural next
+step, not run yet.
+
 ## D1 context-ceiling mitigation probe — max_seq_len/cache_size (VRAM check required before any number is committed)
 
 **Why**: `services/tabbyapi/config.yml`'s `max_seq_len: 32768` is the

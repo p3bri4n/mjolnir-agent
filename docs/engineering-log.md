@@ -7500,3 +7500,89 @@ Full suite 505 → 508 passed, 0 regressions.
 `app/main.py`) — needs `docker compose build langgraph-agent &&
 docker compose up -d --force-recreate langgraph-agent` before any real
 conversation would write these entries.
+
+## 2026-09-18 — D1 context-overflow mitigation probe: HISTORY_DIFF_ENABLED, clean positive result
+
+Context: `docs/briefs/reasoning-effort-tuning.md`, "D1 context-ceiling
+mitigation probe — HISTORY_DIFF_ENABLED" — judge frozen before running
+(context_overflow rate vs. the 2/7 baseline, coverage counters
+non-flattering).
+
+**Campaign** (`campaign-20260918T090443Z-reasoning-effort-medium-history-
+diff-d1-probe.json`, `REASONING_EFFORT=medium` + `HISTORY_DIFF_ENABLED=
+true`, `D1_cible_inexistante`, n=5): 1 success, 1
+`hallucination_prix_incident`, 3 `absence_non_conclue`, **0
+`hallucination_confirmee`, 0 `context_overflow`** (vs. 2/7 on the
+baseline). Coverage non-flattering on every run:
+`history_diff_applied_count` 3-13, `history_diff_messages_replaced`
+6-91.
+
+**Mechanistically confirmed, not just correlated**: the longest run (17
+tool_calls, comparable in length to the two runs that overflowed on the
+baseline) shows `cached_tokens` climbing from 6656 to only 11776 over 14
+TabbyAPI requests — essentially flat — against the baseline's comparable
+run climbing from 6656 to 32515 over 15 requests before erroring out.
+Direct evidence the mechanism curbs exactly the runaway growth that
+caused the ceiling hit, not a side effect.
+
+**Contrasts with Effort 4's own "mixed, not decisive" A1/A2 smoke**
+(docs/engineering-log.md, "HISTORY-DIFF LIVE SMOKE"): that reading is now
+understood as a lack-of-opportunity finding, not a mechanism weakness —
+A1/A2's point-1 fix had already trimmed those tasks to 8-9 turns each,
+leaving little redundant `browser_*` history to compress. D1's
+exhaustive-verification shape gives the mechanism real material, and the
+effect shows up cleanly once it does.
+
+**Not yet decided**: n=5 on one task, one repetition per point — thin
+statistical weight, same caveat as the `REASONING_EFFORT` D1 confirmation
+campaign before it. A full v2 regression campaign (`HISTORY_DIFF_ENABLED=
+true` across every family, single variable) is the natural next step
+before considering a default flip, to confirm the D1 win doesn't come
+with a regression elsewhere — not run yet, no brief section written for
+it yet.
+
+## 2026-09-18 — `_summarize_subtask` semantic-leak fix: episode compaction gets a factual state anchor
+
+Context: prompted directly by re-reading the A4 negative-result diagnosis
+(`docs/engineering-log.md`, "A4 / COMPACTION — EXERCICE MULTI-TOURS")
+with fresh eyes — the model's own transcript quote (*"la sous-tâche
+compactée indique que j'ai atteint la page d'accueil, mais je suis en
+fait sur .../employees"*) names the exact defect: `_summarize_subtask`'s
+narrative (description + attempted tool_call args + a generic
+`verify_action` verdict) never captures the subtask's real terminal page
+state, so a stale summary can silently diverge from where the page
+actually ended up. `EPISODE_COMPACTION_ENABLED` stays `false` — this
+fixes a currently-inert mechanism's known root cause, ahead of any
+decision to reconsider it, not a live behavior change today.
+
+**Fix**: new `_subtask_state_anchor(turns)` (`app/graph.py`) — finds the
+LAST `browser_*` `ToolMessage` in the subtask's turn range via the
+already-existing `_browser_result_indices`/`_browser_result_text`/
+`_is_structural_browser_result` (the exact extraction
+`_apply_history_diff` already uses, no new parser), and formats its
+URL + up to 5 affordances as a factual line. `_summarize_subtask` appends
+it as a segment separate from the narrative, never replacing it; empty
+string (no anchor appended) when no structural `browser_*` result exists
+in range — degrades to the old narrative-only summary, never raises. No
+new LLM call, no new env var.
+
+**Tests**: 5 new cases in `test_episode_compaction.py` — anchor present
+with a real structural result, absent on the existing dummy-content
+fixture (non-regression), absent with no `browser_*` call at all, absent
+on a non-structural result (guardrail/error feedback), and correctly
+picks the LAST of several `browser_*` results rather than the first.
+Full suite 508 → 513 passed, 0 regressions.
+
+**Not yet measured**: whether this actually fixes A4's negative result
+needs a live re-run of `probe_compaction_multi_turn.py` with
+`EPISODE_COMPACTION_ENABLED=true` — not done here, and doesn't change
+today's decision (compaction stays off regardless). Flagged for
+whoever reopens that question, alongside two follow-up ideas raised in
+discussion but deliberately not built here: (1) checking whether the
+model still spends reconciliation turns out of reflex once a reliable
+anchor exists, possibly needing a prompt-level "trust the anchor unless
+an action fails unexpectedly" nudge; (2) a redundancy-density metric
+for `HISTORY_DIFF_ENABLED` (past `browser_*` calls / total messages at
+trigger time) to distinguish "no opportunity" from "broken mechanism"
+without waiting for a full campaign — a measurement-quality nicety, not
+a correctness fix.
