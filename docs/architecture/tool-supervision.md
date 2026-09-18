@@ -143,6 +143,24 @@ selective about. Fills a gap that concretely blocked an archive diagnosis
 allowed reconstructing the call sequence and their results, never what
 the model itself had reasoned or answered at each step.
 
+**Structural failure notices** (see docs/engineering-log.md, "structural
+failure causes logged at execution time"): `app/main.py` also logs
+`audit_log.log_failure_notice(thread_id, cause)` (`kind:
+"failure_notice"`, `cause`) the moment it decides one of the four
+notices a real conversation can hit — a tool-iteration limit
+(`"boucle"`), an unexploitable empty answer (`"extraction"`), a TabbyAPI
+context-window overflow (`"context_overflow"`, see docs/resolved-bugs.md
+#59), or any other error caught by the generic safety net (`"infra"`).
+Distinct from the benchmark harness's own post-hoc `failure_cause`
+classification (`tests_integration/test_web_tasks.py`), which infers the
+same four causes from campaign text-matching after the fact — this is
+the runtime source of truth, the only way to know their real-usage
+trigger rate outside a benchmark run. The task-specific causes the
+harness also produces (`hallucination_*`, `blocage_externe`,
+`boucle_fabrication`/`boucle_budget`) need ground truth (a known
+fabricated price, a known real sitemap) that only exists in frozen
+benchmark fixtures, so they never appear here.
+
 **Isolation between tasks** (Phase 1d-revised, see docs/engineering-log.md
 "isolation between tasks"): `playwright-mcp` is a PERSISTENT MCP session
 SHARED by all of mcp-client (not scoped per thread nor per task) — a tab
