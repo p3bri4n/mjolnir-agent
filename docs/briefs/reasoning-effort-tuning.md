@@ -186,3 +186,53 @@ project's own cfg6-infra precedent) — 1 success, 1
 artifact hypothesis, adoption case stands as Phase 2 left it. Full
 detail: `docs/engineering-log.md`, "reasoning_effort tuning, Phase 2
 follow-up". Adoption decision: still pending, user's call.
+
+## D1 context-overflow mitigation probe — HISTORY_DIFF_ENABLED (judge frozen before running)
+
+**Why**: counting the D1 confirmation campaign's 2 excluded infra runs
+back in (as real occurrences, not noise), `context_overflow` hit 2/7
+attempts — a real, structural failure mode driven by D1's exhaustive-
+verification shape (many `browser_extract`/`browser_navigate` calls
+accumulating raw output, no compaction/diff by default).
+
+**Single variable, chosen deliberately over the alternative**:
+`HISTORY_DIFF_ENABLED=true` only — `EPISODE_COMPACTION_ENABLED` was
+considered and ruled out by code inspection before running anything
+(`app/graph.py:1908-1922`, `_apply_episode_compaction`): it only compacts
+subtasks with `status in ("fait", "echoue")`, and `plan` stays `[]`
+whenever `PLANNER_ENABLED=false` (the current default per Effort 2.4's
+decisive measurement) — enabling compaction alone would be a guaranteed
+no-op, and re-enabling the planner to make it non-inert would reopen a
+question this project already closed decisively (cfg1 beats cfg8).
+`HISTORY_DIFF_ENABLED`'s own `_apply_history_diff` has no such
+dependency — it operates on raw message history only. `REASONING_EFFORT`
+stays `medium` (the config the overflow was observed under, held
+constant); the only change vs. the D1 confirmation campaign above is
+`HISTORY_DIFF_ENABLED=false → true`.
+
+**Judge, declared before running**:
+- `context_overflow` occurrence rate vs. the 2/7 baseline above — the
+  primary bar.
+- `history_diff_applied_count`/`history_diff_messages_replaced` non-zero
+  on at least the runs that go long enough to have mattered before
+  (coverage judge — a flattering zero here would mean the mechanism
+  never actually engaged, telling us nothing about whether it helps).
+- Success/`absence_non_conclue`/`hallucination_prix_incident` rates
+  recorded but secondary — n on one task is still thin, and this probe's
+  question is specifically about context growth, not D1's overall score.
+
+**Command**:
+
+```bash
+docker exec langgraph-agent env | grep -E '^(REASONING_EFFORT|HISTORY_DIFF_ENABLED)='
+# if not already REASONING_EFFORT=medium / HISTORY_DIFF_ENABLED=true:
+REASONING_EFFORT=medium HISTORY_DIFF_ENABLED=true \
+  docker compose up -d --force-recreate langgraph-agent
+
+CAMPAIGN_EXPECTED_FLAGS_OVERRIDE='{"REASONING_EFFORT": "medium", "HISTORY_DIFF_ENABLED": "true"}' \
+  scripts/run-campaign.sh --suite v2 --tasks D1_cible_inexistante --reps 5 \
+  --label "reasoning-effort-medium-history-diff-d1-probe"
+```
+
+🧑 **Checkpoint**: report the context_overflow rate and coverage counters
+above before drawing any conclusion.
