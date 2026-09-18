@@ -995,9 +995,39 @@ here), retried per the project's own cfg6-infra precedent. Aggregated
 n=5 valid: 1 success, 1 `hallucination_prix_incident`, 3
 `absence_non_conclue`, **0 `hallucination_confirmee`** — the frozen judge
 confirms the artifact reading, D1's dip under `REASONING_EFFORT=medium`
-is detector noise and non-conclusions, not real fabrication. **Decision
-on
-adopting `REASONING_EFFORT=medium` as the new default: still pending, not
-yet made** — this was the last open blocker, now resolved in the
-mechanism's favor. Full detail: `docs/engineering-log.md`,
-"reasoning_effort tuning, Phase 0", "Phase 2", and "Phase 2 follow-up".
+is detector noise and non-conclusions, not real fabrication.
+
+**Two independent context-overflow mitigations measured, both positive,
+neither adopted yet**: (1) `HISTORY_DIFF_ENABLED=true` on D1 (n=5): 0/5
+`context_overflow` (vs. 2/7 unmitigated), mechanistically confirmed —
+the longest run's `cached_tokens` stayed nearly flat (6656→11776 over 14
+requests) against a comparable unmitigated run climbing to 32515 before
+erroring; contrasts with Effort 4's earlier "mixed" A1/A2 reading, now
+understood as a lack-of-opportunity finding on those short tasks, not a
+mechanism weakness. (2) `max_seq_len`/`cache_size` raised 32768/65536 →
+40960/81920 (+25%, ratio preserved) on `services/tabbyapi/config.yml`:
+5/5 success, 0/5 `context_overflow`, but the longest run only peaked at
+25,235 tokens (under even the OLD ceiling) — weaker mechanistic proof
+than (1), the 5/5 score more likely reflects D1's known run-to-run
+variance. A real operational trap surfaced applying (2):
+`services/tabbyapi/config.local.yml` (gitignored, machine-specific) was
+the file actually mounted, not the tracked `config.yml` — invisible to
+every git-based check; new `CLAUDE.md` operational-trap entry added.
+Along the way, a related fix: `EPISODE_COMPACTION_ENABLED`'s
+`_summarize_subtask` semantic leak (narrative-only summary never
+captured a subtask's real terminal page state, the exact defect A4's
+negative result traced) — fixed with a factual state anchor reusing
+`HISTORY_DIFF_ENABLED`'s own extraction; `EPISODE_COMPACTION_ENABLED`
+stays `false` regardless, this fixes a currently-inert mechanism's known
+root cause, not a live behavior change.
+
+**Decision on adopting `REASONING_EFFORT=medium`, `HISTORY_DIFF_ENABLED`,
+and/or the new `max_seq_len`/`cache_size` sizing as new defaults: still
+pending, not yet made** — the D1 confirmation was the last open blocker
+for `REASONING_EFFORT=medium` itself, now resolved in the mechanism's
+favor; the two mitigations are independent, positive, and untested in
+combination. Full detail: `docs/engineering-log.md`, "reasoning_effort
+tuning, Phase 0", "Phase 2", "Phase 2 follow-up", "D1 context-overflow
+mitigation probe — HISTORY_DIFF_ENABLED", "D1 context-overflow
+mitigation probe — max_seq_len/cache_size", and "`_summarize_subtask`
+semantic-leak fix".
