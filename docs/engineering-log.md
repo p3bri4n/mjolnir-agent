@@ -7802,3 +7802,75 @@ the mechanism behind a score — a regression's SCORE and its CAUSE are
 different questions, and only the transcript answers the second one.
 Caught here because the user asked to verify before accepting the
 initial (wrong) reading.
+
+## 2026-09-18 — T10 confirmation re-run + confirmed root cause: HISTORY_DIFF_ENABLED erases non-snapshot browser_* results
+
+**T10 confirmation** (`campaign-20260918T150731Z-history-diff-enabled-
+t10-confirmation.json`, `HISTORY_DIFF_ENABLED=true`, T10 alone, n=5): 3/5
+success, 2/5 `boucle`. Combined with the closing campaign's own 0/2:
+**3/7 across both campaigns** — enough to treat as a real, elevated
+failure rate rather than the closing campaign's n=2 noise, not just a
+coincidence.
+
+**Root cause found and CONFIRMED, not just hypothesized** — asked to
+verify formally rather than trust the transcript reading alone. Method:
+reconstructed the real message sequence of a failing thread
+(`5c97c43e3c918905`) directly from `workspace/.audit/2026-09-18.jsonl`'s
+raw tool_call/result entries (real `AIMessage`/`ToolMessage` objects,
+real content, no synthetic example), ran the ACTUAL
+`_apply_history_diff` function from `app/graph.py` against it, and
+printed exactly what the model would have received for every replaced
+message.
+
+**Confirmed**: a `browser_evaluate` result holding genuinely successful
+extracted data (`{"total": 14, "books": [{"price": "£42.96", ...}]}` —
+the model had already found the answer) was replaced by `"[Observation
+compactée] pas de page renvoyée à ce tour (action bloquée ou erreur) —
+aucun changement de page à signaler."` — indistinguishable from an
+actual guardrail rejection. Cause: `_is_structural_browser_result` only
+recognizes page-snapshot-shaped text (`Page URL:` line, affordance
+lines) — `browser_evaluate`/`browser_run_code_unsafe`/`browser_extract`/
+`browser_inspect`/`browser_take_screenshot` return arbitrary JSON/text/
+image payloads that never match, so ANY compacted result from these
+tools reads as "blocked/error" regardless of whether it succeeded. The
+thread's subsequent 8 near-identical failing `browser_evaluate` fetches
+(all hitting 404 on a wrong URL) are consistent with the model believing
+it had never actually retrieved the data it already had.
+
+**First navigation guess is universal, not the differentiator**: all 7
+T10 threads across both campaigns (successes and failures alike) open
+with the same fabricated-category-URL guess (varying slightly:
+`category_29-science_25`, `category_29.html`, `category_33.html`) and
+recover via `browser_run_code_unsafe`/`browser_evaluate` — this is the
+model's standard T10 opening move, unrelated to any flag. What
+distinguishes outcome is whether the RECOVERED data survives long enough
+to reach a conclusion — exactly what `HISTORY_DIFF_ENABLED`'s bug
+prevented.
+
+**Fix**: `_SNAPSHOT_SHAPED_BROWSER_TOOLS = {"browser_navigate",
+"browser_click", "browser_snapshot"}` (`app/graph.py`) — only these
+produce text `_diff_browser_observation` can meaningfully compare.
+`_apply_history_diff` now filters `_browser_result_indices`' output
+through this set before compacting; any other browser_* tool's result is
+excluded from compaction entirely (always kept verbatim), regardless of
+position. `_browser_result_indices` itself is untouched (still used
+broadly by the coverage counter's `browser_messages_count` — opportunity
+size stays a different, deliberately broader measurement than
+compaction eligibility). Re-ran the exact same reconstructed thread
+through the fixed function: all 13 `browser_evaluate` results now
+preserved byte-for-byte, including the one holding the real answer.
+
+**Tests**: 2 new cases in `test_history_diff.py` — a run of only
+`browser_evaluate` results stays a complete no-op (would otherwise
+trigger compaction), and a mixed navigate/evaluate/navigate/navigate
+sequence (the real T10 shape) confirms the evaluate stays byte-for-byte
+intact while navigate results are still compacted as before. All
+existing diff tests pass unchanged (they exercise `browser_snapshot`,
+still eligible). Full suite 514 → 516 passed, 0 regressions.
+
+**Not yet re-measured live**: this fix hasn't been validated by another
+T10 (or full v2) live run — the confirmation above used the ALREADY-
+COLLECTED audit data from the failing pre-fix runs, replayed through the
+post-fix function offline, not a fresh live campaign. A live re-run
+after `docker compose build langgraph-agent` is the natural next step
+before closing `HISTORY_DIFF_ENABLED`'s adoption question.
