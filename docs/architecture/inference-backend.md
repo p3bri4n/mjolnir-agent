@@ -73,6 +73,17 @@ of `config.yml` with your own `gpu_split_auto: false` / `gpu_split: [...]`
 order to be stable across restarts. `docker compose up -d --force-recreate
 tabbyapi` after any change (config is read at container start).
 
+**Drift risk, hit for real (2026-09-18)**: because it's a full copy, not
+an overlay of just `gpu_split`, `config.local.yml` silently stops
+tracking every OTHER value in `config.yml` too the moment it's created —
+a later shared change (e.g. `max_seq_len`/`cache_size`, see
+`docs/engineering-log.md`, "D1 context-overflow mitigation probe —
+max_seq_len/cache_size") lands in the tracked file but never reaches a
+machine with this override until someone manually re-applies it. No
+git-based check catches this (branch/diff/pull all look clean since the
+file is gitignored). If you have a `config.local.yml`, diff it against
+`config.yml` after pulling any change to the latter.
+
 **Why bother pinning it at all**: reproducible measurement. Whole-layer
 splitting means memory-per-card only settles once the loader has run, so
 comparing latency across campaigns needs the split held constant, not just
