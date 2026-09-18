@@ -175,3 +175,14 @@ CAMPAIGN_EXPECTED_FLAGS_OVERRIDE='{"REASONING_EFFORT": "medium"}' \
 
 🧑 **Checkpoint**: report the failure_cause distribution and the frozen
 reading above — before touching the adoption decision.
+
+**Result (2026-09-18)**: n=5 valid (2 of the first 5 runs hit a genuine
+context-window overflow, `openai.BadRequestError`/
+`context_length_exceeded` at 33040 > `max_seq_len: 32768`, confirmed via
+container logs — not a `REASONING_EFFORT` effect, retried per this
+project's own cfg6-infra precedent) — 1 success, 1
+`hallucination_prix_incident`, 3 `absence_non_conclue`, **0
+`hallucination_confirmee`**. Frozen reading applies: confirms the
+artifact hypothesis, adoption case stands as Phase 2 left it. Full
+detail: `docs/engineering-log.md`, "reasoning_effort tuning, Phase 2
+follow-up". Adoption decision: still pending, user's call.

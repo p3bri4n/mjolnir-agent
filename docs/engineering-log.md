@@ -7335,4 +7335,74 @@ a future campaign records.
 
 **Verdict**: brief fully delivered, diagnostics-only change, no campaign
 run (none required by the brief's own judge). Brief moved to
-`docs/briefs/archive/` with a status header.
+`docs/briefs/archives/` with a status header.
+
+## 2026-09-18 — reasoning_effort tuning, Phase 2 follow-up: D1 confirmation campaign (n=5), context-overflow root cause found
+
+Context: `docs/briefs/reasoning-effort-tuning.md`, "Phase 2 follow-up — D1
+confirmation campaign" — judge frozen before running (failure_cause
+distribution via the three-way split above, zero
+`hallucination_confirmee` needed to confirm the artifact reading from
+Phase 2's own n=3).
+
+**Run 1** (`campaign-20260918T080708Z-reasoning-effort-medium-d1-confirmation.json`,
+`REASONING_EFFORT=medium`, `D1_cible_inexistante`, n=5): 1 success, 1
+`hallucination_prix_incident`, 1 `absence_non_conclue`, **2
+`failure_cause=infra`** — only 3/5 valid.
+
+**Infra root cause investigated rather than treated as noise**: both
+`infra` runs (`d21b05ebf3e95f38`, `03de1bccc9e29805`) are by far the
+longest of the five (206s/198.7s, 23/19 tool_calls, vs. 54-87s/10-13 for
+the other three) and their `tabbyapi_raw_samples` show `cached_tokens`+
+`new_tokens` climbing monotonically to 29240/32515 tokens over their last
+logged request — approaching `services/tabbyapi/config.yml`'s
+`max_seq_len: 32768`. Confirmed with certainty via the user's own
+`docker compose logs langgraph-agent` output: both hit
+`openai.BadRequestError: Error code: 400 - {'error': {'message': 'Prompt
+length 33040 exceeds the available context size of 32768 tokens', ...
+'code': 'context_length_exceeded'}}` — a real context-window overflow,
+not an infrastructure fault. `app/main.py`'s `/approve` handler
+(`_INTERNAL_ERROR_NOTICE`, line ~720-730) catches this with a bare
+`except Exception`, discarding the exception type — the harness then
+buckets it as the generic `failure_cause="infra"`
+(`test_web_tasks.py:505`, matched on the client-visible notice text, not
+the real error). D1's exhaustive-verification shape (many
+`browser_extract`/`browser_navigate` calls checking the catalog's 30 real
+references) accumulates raw tool output in context linearly —
+`HISTORY_DIFF_ENABLED=false` and `EPISODE_COMPACTION_ENABLED=false` in
+this campaign's own `env_flags`, so nothing compacts it — and the two
+runs that pushed verification furthest hit the wall.
+
+**Diagnostic gap flagged, not fixed here** (out of this campaign's
+scope): `failure_cause="infra"` currently conflates two different things
+that need different responses — a transient infrastructure fault (retry
+is the right move, as done here) and a structural context-window
+overflow on a specific task shape (retrying doesn't fix the underlying
+cause, only avoids it if the retry happens to take a shorter path). A
+future gap-check candidate: preserve the real exception class/message in
+`_INTERNAL_ERROR_NOTICE`'s server-side path so `failure_cause` (or a new
+field) can distinguish `context_length_exceeded` from an actual
+connection/process failure without a manual log dive.
+
+**Retry** (`campaign-20260918T082049Z-reasoning-effort-medium-d1-confirmation-retry.json`,
+same config, n=2, targeting the two invalidated slots): 2/2
+`absence_non_conclue`, 0 infra — clean this time (both short, 34.7s/54.5s,
+6-7 tool_calls, nowhere near the context ceiling).
+
+**Aggregated result, n=5 valid** (3 from the original run + 2 from the
+retry, per this project's own cfg6-infra-incident precedent — invalid
+slots retried, not counted): 1 success, 1 `hallucination_prix_incident`,
+3 `absence_non_conclue`, **0 `hallucination_confirmee`**.
+
+**Frozen reading applies**: zero `hallucination_confirmee` — confirms the
+artifact reading from `d1-failure-cause-granularity.md`, the D1 dip under
+`REASONING_EFFORT=medium` is detector noise and non-conclusions, not
+confirmed fabrication. Nothing in this n=5 sample contradicts Phase 2's
+adoption case. Raw pass/fail (1/5) is recorded but was explicitly not the
+primary bar per the brief's own judge — thin statistical weight on one
+task, as declared going in.
+
+🧑 **Checkpoint reached**: the one open wrinkle blocking
+`REASONING_EFFORT=medium` adoption is now read clean. Adoption decision
+itself is still the user's call, per the brief's own checkpoint — not
+made here.

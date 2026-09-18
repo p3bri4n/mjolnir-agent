@@ -986,7 +986,18 @@ single `"hallucination"` failure_cause label into three —
 benchmark version). Diagnostics-only, no campaign required: unit tests
 green (`langgraph-agent` full suite 501 passed), manual re-classification
 of the two named threads matched the brief's own prediction exactly. See
-`docs/engineering-log.md`, "d1-failure-cause-granularity". **Decision on
+`docs/engineering-log.md`, "d1-failure-cause-granularity". **D1 confirmation follow-up (n=5) now closed clean**: 2 of the first 5
+runs hit a genuine TabbyAPI context-window overflow
+(`context_length_exceeded` at 33040 > `max_seq_len: 32768`, confirmed via
+container logs — masked as `failure_cause="infra"` by a bare `except
+Exception` in `app/main.py`, a diagnostic gap flagged but not fixed
+here), retried per the project's own cfg6-infra precedent. Aggregated
+n=5 valid: 1 success, 1 `hallucination_prix_incident`, 3
+`absence_non_conclue`, **0 `hallucination_confirmee`** — the frozen judge
+confirms the artifact reading, D1's dip under `REASONING_EFFORT=medium`
+is detector noise and non-conclusions, not real fabrication. **Decision
+on
 adopting `REASONING_EFFORT=medium` as the new default: still pending, not
-yet made.** Full detail: `docs/engineering-log.md`, "reasoning_effort
-tuning, Phase 0" and "Phase 2".
+yet made** — this was the last open blocker, now resolved in the
+mechanism's favor. Full detail: `docs/engineering-log.md`,
+"reasoning_effort tuning, Phase 0", "Phase 2", and "Phase 2 follow-up".

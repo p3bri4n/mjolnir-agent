@@ -1,0 +1,106 @@
+{
+  "active": [],
+  "campaign_id": "20260918T080708Z-reasoning-effort-medium-d1-confirmation",
+  "completed": [
+    {
+      "approvals": 2,
+      "cup": null,
+      "duration_s": 53.9,
+      "fabricated_urls_count": 1,
+      "failure_cause": "hallucination_prix_incident",
+      "repetition": 1,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "D1_cible_inexistante",
+      "thread_id": "1272c8047f4860a8",
+      "tool_calls": 11
+    },
+    {
+      "approvals": 3,
+      "cup": null,
+      "duration_s": 67.2,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "D1_cible_inexistante",
+      "thread_id": "e23c258576ece45c",
+      "tool_calls": 13
+    },
+    {
+      "approvals": 7,
+      "cup": null,
+      "duration_s": 206.0,
+      "fabricated_urls_count": 1,
+      "failure_cause": "infra",
+      "repetition": 3,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "D1_cible_inexistante",
+      "thread_id": "d21b05ebf3e95f38",
+      "tool_calls": 23
+    },
+    {
+      "approvals": 4,
+      "cup": null,
+      "duration_s": 198.7,
+      "fabricated_urls_count": 1,
+      "failure_cause": "infra",
+      "repetition": 4,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "D1_cible_inexistante",
+      "thread_id": "03de1bccc9e29805",
+      "tool_calls": 19
+    },
+    {
+      "approvals": 2,
+      "cup": null,
+      "duration_s": 87.3,
+      "fabricated_urls_count": 2,
+      "failure_cause": "absence_non_conclue",
+      "repetition": 5,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "D1_cible_inexistante",
+      "thread_id": "a327b3ac85a0bb03",
+      "tool_calls": 10
+    }
+  ],
+  "config_digest": "4ee705cbfc0c985d",
+  "current": null,
+  "label": "reasoning-effort-medium-d1-confirmation",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "D1_cible_inexistante"
+    },
+    {
+      "repetition": 2,
+      "task_id": "D1_cible_inexistante"
+    },
+    {
+      "repetition": 3,
+      "task_id": "D1_cible_inexistante"
+    },
+    {
+      "repetition": 4,
+      "task_id": "D1_cible_inexistante"
+    },
+    {
+      "repetition": 5,
+      "task_id": "D1_cible_inexistante"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-09-18T08:17:24.012347+00:00",
+      "index": 0,
+      "started_at": "2026-09-18T08:07:08.899272+00:00"
+    }
+  ],
+  "started_at": "2026-09-18T08:07:08.899272+00:00",
+  "total_runs": 5
+}
