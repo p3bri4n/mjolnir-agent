@@ -130,3 +130,48 @@ default, `ADAPTIVE_THINKING=false`). No need to rerun that baseline.
 - `docs/architecture/inference-backend.md` updated: `REASONING_EFFORT`
   alongside the existing `ADAPTIVE_THINKING` description, noting the two
   are independent mechanisms.
+
+## Phase 2 follow-up — D1 confirmation campaign (judge frozen before running)
+
+**Why**: Phase 2's own D1 result (1/3) is the one open wrinkle blocking
+adoption. `docs/briefs/archives/d1-failure-cause-granularity.md` (closed)
+built a finer-grained classifier and, applied to Phase 2's two D1
+failures, read them as `hallucination_prix_incident` (detector false
+positive) and `absence_non_conclue` (no conclusion reached) — neither a
+confirmed fabrication — but that reading is inference on n=3, not a
+dedicated measurement. This follow-up gets a real read with the granular
+labels attached from the start, not reconstructed after the fact.
+
+**Single variable**: none changed — same `REASONING_EFFORT=medium`,
+`ADAPTIVE_THINKING=false` as Phase 2. Only `n` increases (3 → 5) and the
+task set narrows to `D1_cible_inexistante` alone (T10/A1's recovery is
+already settled by Phase 2, not re-tested here).
+
+**Judge, declared before running**:
+- `failure_cause` distribution across the 5 runs (via
+  `_classify_failure_cause_v2`, already emits the three-way split for
+  every future campaign — no reconstruction needed this time).
+- Frozen reading: **zero `hallucination_confirmee`** among any failures
+  → confirms the artifact reading, adoption case stands as Phase 2 left
+  it. **One or more `hallucination_confirmee`** → the dip includes a real
+  fabrication under `medium`, not just detector/deliberation noise —
+  reopens the adoption question, weighed against Phase 2's score/time
+  gains rather than auto-rejected.
+- Raw pass/fail count is recorded but is NOT the primary bar here (n=5 on
+  one task still has thin statistical weight on its own) — the
+  failure_cause distribution is.
+
+**Command** (single campaign, existing harness — no new code):
+
+```bash
+# only if the container isn't already running with REASONING_EFFORT=medium —
+# check first: docker exec langgraph-agent env | grep REASONING_EFFORT
+REASONING_EFFORT=medium docker compose up -d --force-recreate langgraph-agent
+
+CAMPAIGN_EXPECTED_FLAGS_OVERRIDE='{"REASONING_EFFORT": "medium"}' \
+  scripts/run-campaign.sh --suite v2 --tasks D1_cible_inexistante --reps 5 \
+  --label "reasoning-effort-medium-d1-confirmation"
+```
+
+🧑 **Checkpoint**: report the failure_cause distribution and the frozen
+reading above — before touching the adoption decision.
