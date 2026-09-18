@@ -7438,9 +7438,18 @@ the same generic `"infra"` pattern at its own two call sites — a
 diagnostic probe script, not the frozen benchmark, left untouched (out
 of what was asked).
 
-**Not live-verified yet**: application code change
-(`app/main.py`) — needs `docker compose build langgraph-agent &&
-docker compose up -d --force-recreate langgraph-agent` before any live
-campaign would actually exercise the new code path (CLAUDE.md's
-build-before-recreate operational trap). No campaign run against this
-fix in this session.
+**Live-verified (2026-09-18)**, `scripts/smoke-context-overflow-notice.sh`
+— deterministic rather than waiting on a task to hit the ceiling by
+chance: sends one oversized user message directly to `langgraph-agent`'s
+own `/v1/chat/completions`, forcing `context_length_exceeded` on the very
+first LLM call. First attempt used 200k repeated `'A'` characters and
+came back with a NORMAL model answer instead of the error — a real
+gotcha, not a script bug: BPE merges long runs of an identical character
+far more aggressively than ordinary text, so that payload tokenized
+UNDER 32768 despite its raw character length. Fixed by switching to
+`base64.b64encode(os.urandom(100000))` (no repeats for the tokenizer to
+merge away) — confirmed 105072 tokens, well over the ceiling. Second
+attempt: HTTP 200 with the exact new `_CONTEXT_OVERFLOW_NOTICE` text (not
+the generic one), and the container logs still show the real
+`openai.BadRequestError`/`context_length_exceeded` underneath — the fix
+is live and mechanistically confirmed, not just unit-tested.

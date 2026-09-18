@@ -610,3 +610,14 @@ regressions.
 has the same generic `failure_cause="infra"` pattern at its own two call
 sites — a diagnostic probe script, not the frozen benchmark, left
 as-is (not exercised by this fix, not asked).
+
+**Live-verified (2026-09-18)**: `scripts/smoke-context-overflow-notice.sh`
+against the rebuilt image — forced `context_length_exceeded`
+deterministically (a random-bytes payload; an initial attempt with 200k
+repeated `'A'` characters tokenized UNDER the ceiling instead of over it,
+BPE merges long identical-character runs far more aggressively than
+ordinary text — a real gotcha for anyone reusing this technique). HTTP
+200 with the new `_CONTEXT_OVERFLOW_NOTICE` text, real exception still
+visible underneath in the container logs. Full detail:
+`docs/engineering-log.md`, "context-overflow notice distinguished from
+generic infra failure".
