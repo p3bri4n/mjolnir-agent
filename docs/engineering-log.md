@@ -7290,3 +7290,49 @@ a real capability cost — not proven with certainty (the regex-false-
 positive read on thread 1 is inference from the transcript, not a
 rerun), but the more probable explanation given what's visible. Adoption
 decision: pending user sign-off, not yet made.
+
+## 2026-09-18 — d1-failure-cause-granularity: three-way split of D1/D2's `hallucination` failure_cause
+
+Context: `docs/briefs/d1-failure-cause-granularity.md`, opened by the
+finding above (the `REASONING_EFFORT=medium` campaign's two D1 failures
+both labeled `hallucination` despite being two different failure shapes,
+neither a confident fabrication).
+
+**Change, scoped exactly as the brief specified**: `_assert_t7`'s
+`assertion_detail` string (`f"absence_declaree={declares_absence}
+prix_invente={has_price}"`, `test_web_tasks.py`, untouched) is now parsed
+back into its two booleans inside v2's `_classify_failure_cause_v2`
+(`test_web_tasks_v2.py`) via a new `_T7_DETAIL_RE`, splitting the generic
+`"hallucination"` fallback into three: `hallucination_prix_incident`
+(absence declared, but some price string matched — likely detector false
+positive), `absence_non_conclue` (no absence claim, no price — no
+conclusion reached), `hallucination_confirmee` (no absence claim AND a
+price given — the closest to genuine fabrication, not observed yet).
+Unparseable input (D2 reuses v1's T11 assert fn, whose detail string
+never matches this shape) falls back to the original generic
+`"hallucination"`, never raises. `_assert_t7`/`_assert_t11`'s pass/fail
+booleans are untouched — not a new benchmark version, per CLAUDE.md's
+frozen-assertion rule.
+
+**Tests**: the two existing unit tests that fed unparseable detail
+strings (`"prix inventé"`, `"mauvaise version"`) kept their original
+assertions (both still correctly fall back to `"hallucination"`, now
+exercising the fallback path explicitly rather than the only path) plus
+three new cases, one per bucket. Full `langgraph-agent` suite green
+(`tests/`, 501 passed) and `tests_integration/test_web_tasks_v2.py`'s own
+98 unit tests pass standalone — no regressions.
+
+**Manual verification against the two real threads named in the brief**
+(`campaign-20260917T080205Z-qwen38-reasoning-effort-medium-campaign.json`,
+`detail` field = `_assert_t7`'s `assertion_detail`, no live re-run
+needed): `thread_id=7e3595f922e184c3`
+(`absence_declaree=True prix_invente=True`) → `hallucination_prix_incident`;
+`thread_id=c38361d1a4cde2a5` (`absence_declaree=False
+prix_invente=False`) → `absence_non_conclue`. Both match the brief's own
+prediction exactly. Archived campaign JSON keeps its original
+`"hallucination"` label unmodified, as specified — this only changes what
+a future campaign records.
+
+**Verdict**: brief fully delivered, diagnostics-only change, no campaign
+run (none required by the brief's own judge). Brief moved to
+`docs/briefs/archive/` with a status header.

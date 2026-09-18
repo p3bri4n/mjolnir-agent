@@ -978,10 +978,15 @@ guardrail) — most likely a test failure-cause labeling gap, not a real
 was also found and fixed on the first campaign attempt:
 `docker-compose.yml` never passed `REASONING_EFFORT` through to the
 container (unlike `ADAPTIVE_THINKING`'s own explicit line) —
-`docs/resolved-bugs.md` #58. Follow-up brief opened, not yet
-implemented: `docs/briefs/d1-failure-cause-granularity.md` (splits the
-single `"hallucination"` failure_cause label into three, pass/fail logic
-untouched — not a new benchmark version). **Decision on adopting
-`REASONING_EFFORT=medium` as the new default: pending, not yet made.**
-Full detail: `docs/engineering-log.md`, "reasoning_effort tuning, Phase
-0" and "Phase 2".
+`docs/resolved-bugs.md` #58. Follow-up brief opened and now **CLOSED**:
+`docs/briefs/archives/d1-failure-cause-granularity.md` (splits the
+single `"hallucination"` failure_cause label into three —
+`hallucination_prix_incident`, `absence_non_conclue`,
+`hallucination_confirmee` — pass/fail logic untouched, not a new
+benchmark version). Diagnostics-only, no campaign required: unit tests
+green (`langgraph-agent` full suite 501 passed), manual re-classification
+of the two named threads matched the brief's own prediction exactly. See
+`docs/engineering-log.md`, "d1-failure-cause-granularity". **Decision on
+adopting `REASONING_EFFORT=medium` as the new default: still pending, not
+yet made.** Full detail: `docs/engineering-log.md`, "reasoning_effort
+tuning, Phase 0" and "Phase 2".

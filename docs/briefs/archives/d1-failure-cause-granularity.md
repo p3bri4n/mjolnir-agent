@@ -1,5 +1,12 @@
 # D1/D2 failure_cause granularity — brief
 
+> **Status: CLOSED (2026-09-18).** Delivered exactly as scoped — see
+> `docs/engineering-log.md`, "d1-failure-cause-granularity". No deviation
+> from the brief. Manual verification against the two named threads
+> matched the brief's own prediction exactly
+> (`7e3595f922e184c3` → `hallucination_prix_incident`,
+> `c38361d1a4cde2a5` → `absence_non_conclue`).
+
 > **Context**: the `REASONING_EFFORT=medium` campaign
 > (`docs/campaigns/campaign-20260917T080205Z-qwen38-reasoning-effort-
 > medium-campaign.json`) produced two `D1_cible_inexistante` failures,
