@@ -168,6 +168,22 @@ CAMPAIGN_EXPECTED_FLAGS_OVERRIDE='{"HISTORY_DIFF_ENABLED": "true"}' \
 🧑 **Checkpoint**: report per-family CuP/tokens/coverage against the
 frozen judges above before touching the adoption decision.
 
+**Result (2026-09-18)**: raw score 56/62 (vs. 60/62 baseline), read
+first as a clear reject (`T10_books_toscrape` 0/2, `A3_contact_conges`
+1/3). **Corrected after checking the actual transcripts, not just the
+score**: A3 was a test bug, not a real regression — its deferral-
+keyword classifier misfired on 2 of 3 objectively correct, identical
+answers (fixed, see `docs/engineering-log.md`, "HISTORY_DIFF_ENABLED
+closing campaign", and the fix itself in `_A3_DEFERRAL_KEYWORDS`).
+Corrected score: **58/62**. T10's 0/2 is real but its failure starts at
+the very first navigation (a guessed URL, 404, guardrail loop) — before
+there is anything for `HISTORY_DIFF_ENABLED` to have compacted yet;
+mechanistically unconnected to the flag under test, most likely plain
+model variance on a real external site. **Not yet a decision either
+way**: a small, targeted re-run (`HISTORY_DIFF_ENABLED=true`, T10 alone,
+a few more reps) is needed to see whether 0/2 reproduces or was noise,
+before any row of the decision table above applies.
+
 ## Effort 3 — Coarse-grained actions
 
 **Problem**: the action space is fine-grained, so a single intent costs ten
