@@ -175,14 +175,34 @@ score**: A3 was a test bug, not a real regression — its deferral-
 keyword classifier misfired on 2 of 3 objectively correct, identical
 answers (fixed, see `docs/engineering-log.md`, "HISTORY_DIFF_ENABLED
 closing campaign", and the fix itself in `_A3_DEFERRAL_KEYWORDS`).
-Corrected score: **58/62**. T10's 0/2 is real but its failure starts at
-the very first navigation (a guessed URL, 404, guardrail loop) — before
-there is anything for `HISTORY_DIFF_ENABLED` to have compacted yet;
-mechanistically unconnected to the flag under test, most likely plain
-model variance on a real external site. **Not yet a decision either
-way**: a small, targeted re-run (`HISTORY_DIFF_ENABLED=true`, T10 alone,
-a few more reps) is needed to see whether 0/2 reproduces or was noise,
-before any row of the decision table above applies.
+Corrected score: **58/62**. T10's 0/2 is real. First interim read (WRONG,
+corrected below): the fabricated first-navigation guess looked like the
+cause and looked flag-independent — true, but incomplete, since it turns
+out to be T10's universal opening move on EVERY run (success or
+failure), not what actually decides the outcome.
+
+**Confirmation re-run** (`campaign-20260918T150731Z-history-diff-
+enabled-t10-confirmation.json`, T10 alone, n=5): 3/5 success, 2/5
+`boucle` — 3/7 across both campaigns, high enough to be a real effect,
+not n=2 noise. **Root cause found and formally confirmed** (reconstructed
+a failing thread's real messages from the audit log, ran the actual
+`_apply_history_diff` against them, see `docs/engineering-log.md`, "T10
+confirmation re-run + confirmed root cause"): `browser_evaluate` results
+— which is how the model recovers from its fabricated opening guess —
+return JSON payloads, never page-snapshot-shaped text, so
+`_is_structural_browser_result` always read them as "blocked/error" once
+compacted, discarding genuinely successful extracted data (a real book
+list with prices) the model needed to recall. **Fixed**:
+`_SNAPSHOT_SHAPED_BROWSER_TOOLS` restricts compaction eligibility to
+`browser_navigate`/`browser_click`/`browser_snapshot` only — any other
+browser_* result is now always kept verbatim. Full suite 514 → 516
+passed.
+
+**Still open**: this fix is confirmed against the ALREADY-COLLECTED
+failing runs replayed offline, not yet validated by a fresh live
+campaign. A live re-run (`docker compose build langgraph-agent` first —
+this is an application-code change, `--force-recreate` alone won't pick
+it up) is needed before any row of the decision table above applies.
 
 ## Effort 3 — Coarse-grained actions
 
