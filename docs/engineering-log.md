@@ -7453,3 +7453,50 @@ attempt: HTTP 200 with the exact new `_CONTEXT_OVERFLOW_NOTICE` text (not
 the generic one), and the container logs still show the real
 `openai.BadRequestError`/`context_length_exceeded` underneath — the fix
 is live and mechanistically confirmed, not just unit-tested.
+
+## 2026-09-18 — structural failure causes logged at execution time, not just inferred during campaigns
+
+Prompted by a direct question: could the harness's `boucle`/`extraction`/
+`context_overflow`/`infra` failure_cause values (unlike the benchmark-
+specific `hallucination_*`/`blocage_externe`, which need task ground
+truth that only exists in frozen fixtures) be known at real EXECUTION
+time instead of only inferred after the fact from a campaign's
+text-matching on the notice a user received? Yes — the application
+itself already produces a distinct notice for each of the four
+(`_format_iteration_limit_notice`, `_format_empty_answer_notice`,
+`_error_notice_for`'s two branches), the harness was just reading that
+text back from outside. Nothing stops logging the cause structurally at
+the moment the notice is decided.
+
+**Change**: `audit_log.log_failure_notice(thread_id, cause)`, mirroring
+the existing `log_message`'s style (`kind: "failure_notice"`, generic
+`GET /audit` needs no change). Called at all 7 places `app/main.py`
+decides one of the four notices: `_current_answer` (boucle/extraction,
+covers `/approve` and the non-streaming success path), `_stream_response`
+(boucle/extraction inline + its own `except` block), `/approve`'s
+`except`, and non-streaming `/v1/chat/completions`'s `except`. The
+context_overflow/infra distinction reuses `_error_notice_for`'s own
+check (`docs/resolved-bugs.md` #59) via a new sibling `_error_cause_for`,
+both built on a shared `_is_context_overflow` predicate rather than
+duplicating the `isinstance`/`code` check a third time.
+
+**Real-world scope, stated explicitly**: only these four causes ever
+apply outside the benchmark — `hallucination_*`/`blocage_externe`/
+`boucle_fabrication`/`boucle_budget` need a task-specific oracle (a known
+fabricated price, a known real sitemap) that doesn't exist for an
+arbitrary real conversation, so this instrumentation can never produce
+those labels, by design.
+
+**Tests**: `test_log_failure_notice_roundtrip` (new, `test_audit_log.py`)
+plus an assertion added to each of the 6 existing endpoint tests that
+already exercise one of these 4 code paths (iteration limit, empty
+answer ×2 streaming/non-streaming, LLM connection error, the two
+context_length_exceeded cases) — confirms the audit entry fires at the
+real call site, not just that the notice text is right. Two new unit
+tests for `_error_cause_for` symmetric to `_error_notice_for`'s own.
+Full suite 505 → 508 passed, 0 regressions.
+
+**Not live-verified yet**: application code change (`app/audit_log.py`,
+`app/main.py`) — needs `docker compose build langgraph-agent &&
+docker compose up -d --force-recreate langgraph-agent` before any real
+conversation would write these entries.
