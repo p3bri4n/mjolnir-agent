@@ -2042,33 +2042,67 @@ def _browser_result_indices(messages: list) -> list:
     ]
 
 
+# Only these browser_* tools produce page-SNAPSHOT-shaped text (a "Page
+# URL:" line and/or affordance lines) that _diff_browser_observation can
+# meaningfully compare. browser_evaluate/browser_run_code_unsafe/
+# browser_extract/browser_inspect/browser_take_screenshot return an
+# arbitrary JSON/text/image PAYLOAD instead — _is_structural_browser_result
+# always reads those as "non-structural" (no URL/affordance line to find),
+# so compacting them fell into the SAME bucket as a genuine guardrail
+# rejection: "pas de page renvoyée à ce tour (action bloquée ou erreur)".
+# Confirmed live (2026-09-18, docs/engineering-log.md, "HISTORY_
+# DIFF_ENABLED closing campaign" / T10 root cause): a browser_evaluate
+# result holding the actual extracted book list was erased this way,
+# reading to the model as "nothing happened" — it then re-fetched the
+# same data via repeated failing calls, unable to recall it had already
+# succeeded. These tools' results are data the model must be able to
+# recall verbatim, not page state to diff — excluded from compaction
+# entirely rather than taught a second diff shape no page-comparison
+# logic actually fits.
+_SNAPSHOT_SHAPED_BROWSER_TOOLS = {"browser_navigate", "browser_click", "browser_snapshot"}
+
+
 def _apply_history_diff(messages: list) -> list:
     """
-    Replaces every PAST browser_* tool result (all but the most recent)
-    in the outbound copy with a short structural diff against its
-    nearest STRUCTURAL predecessor (_diff_browser_observation) — same
-    transient-filter principle as _apply_image_retention/
-    _apply_episode_compaction (new list, checkpointer never touched,
-    SAME LENGTH: only ToolMessage.content is replaced, never
-    inserted/removed, so subtask_message_start indices computed on the
-    raw history stay valid regardless of filter order). A non-structural
-    past result (guardrail feedback, mcp-client error) is never used as a
-    diff baseline and gets a fixed neutral note instead of a fabricated
-    comparison; the first structural result gets a fixed "first
-    observation" note rather than a diff against nothing (which would
-    just relist everything as "appeared"). No-op if disabled or fewer
-    than 2 browser_* results exist (nothing "past" to compact yet).
+    Replaces every PAST snapshot-shaped browser_* tool result (all but
+    the most recent, see _SNAPSHOT_SHAPED_BROWSER_TOOLS) in the outbound
+    copy with a short structural diff against its nearest STRUCTURAL
+    predecessor (_diff_browser_observation) — same transient-filter
+    principle as _apply_image_retention/_apply_episode_compaction (new
+    list, checkpointer never touched, SAME LENGTH: only
+    ToolMessage.content is replaced, never inserted/removed, so
+    subtask_message_start indices computed on the raw history stay valid
+    regardless of filter order). A non-structural past result (guardrail
+    feedback, mcp-client error) is never used as a diff baseline and gets
+    a fixed neutral note instead of a fabricated comparison; the first
+    structural result gets a fixed "first observation" note rather than a
+    diff against nothing (which would just relist everything as
+    "appeared"). No-op if disabled or fewer than 2 eligible results exist
+    (nothing "past" to compact yet).
     """
     if not HISTORY_DIFF_ENABLED:
         return messages
     browser_indices = _browser_result_indices(messages)
     if len(browser_indices) <= 1:
         return messages
+    id_to_name = {
+        tc.get("id"): tc.get("name")
+        for m in messages
+        if getattr(m, "type", None) == "ai"
+        for tc in (getattr(m, "tool_calls", None) or [])
+    }
+    eligible_indices = [
+        idx
+        for idx in browser_indices
+        if id_to_name.get(getattr(messages[idx], "tool_call_id", None)) in _SNAPSHOT_SHAPED_BROWSER_TOOLS
+    ]
+    if len(eligible_indices) <= 1:
+        return messages
 
     filtered = list(messages)
     last_structural_result = None
-    for pos, idx in enumerate(browser_indices):
-        is_latest = pos == len(browser_indices) - 1
+    for pos, idx in enumerate(eligible_indices):
+        is_latest = pos == len(eligible_indices) - 1
         try:
             result = json.loads(messages[idx].content)
         except (json.JSONDecodeError, TypeError):
