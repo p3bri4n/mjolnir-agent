@@ -1021,13 +1021,20 @@ negative result traced) — fixed with a factual state anchor reusing
 stays `false` regardless, this fixes a currently-inert mechanism's known
 root cause, not a live behavior change.
 
-**Decision on adopting `REASONING_EFFORT=medium`, `HISTORY_DIFF_ENABLED`,
-and/or the new `max_seq_len`/`cache_size` sizing as new defaults: still
-pending, not yet made** — the D1 confirmation was the last open blocker
-for `REASONING_EFFORT=medium` itself, now resolved in the mechanism's
-favor; the two mitigations are independent, positive, and untested in
-combination. Full detail: `docs/engineering-log.md`, "reasoning_effort
-tuning, Phase 0", "Phase 2", "Phase 2 follow-up", "D1 context-overflow
-mitigation probe — HISTORY_DIFF_ENABLED", "D1 context-overflow
-mitigation probe — max_seq_len/cache_size", and "`_summarize_subtask`
-semantic-leak fix".
+**Decision made (2026-09-18): `REASONING_EFFORT=medium` and the new
+`max_seq_len`/`cache_size` (40960/81920) sizing are both ADOPTED as
+defaults.** `docker-compose.yml`, `campaign_preflight.py`'s
+`EXPECTED_AGENT_FLAGS`, and `docs/architecture/inference-backend.md`
+updated to match; `services/tabbyapi/config.yml` was already live-applied
+(previous entry). `docs/briefs/archives/reasoning-effort-tuning.md`
+closed with a status header. `HISTORY_DIFF_ENABLED` stays `false`,
+deliberately not adopted yet — its D1 evidence is the strongest of the
+three mitigations mechanistically, but n=5 on one task doesn't meet the
+full-suite evidence bar `REASONING_EFFORT` itself was held to; a v2
+regression campaign is the queued next step, not run. Full detail:
+`docs/engineering-log.md`, "reasoning_effort tuning, Phase 0", "Phase 2",
+"Phase 2 follow-up", "D1 context-overflow mitigation probe —
+HISTORY_DIFF_ENABLED", "D1 context-overflow mitigation probe —
+max_seq_len/cache_size", "`_summarize_subtask` semantic-leak fix", and
+"`REASONING_EFFORT=medium` and `max_seq_len`/`cache_size` adopted as
+defaults".

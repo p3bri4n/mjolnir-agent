@@ -7649,3 +7649,39 @@ no observed downside, but n=5 didn't stress it. Both are independent and
 compatible (never tested combined in this session). Neither change has
 been adopted as a new baseline default — that decision, along with
 `REASONING_EFFORT=medium`'s own adoption, is still the user's call.
+
+## 2026-09-18 — `REASONING_EFFORT=medium` and `max_seq_len`/`cache_size` adopted as defaults
+
+User decision, following a recommendation given with arguments for each
+of the three pending items from this session:
+
+- **`REASONING_EFFORT=medium`: adopted.** Meets
+  `docs/briefs/archives/reasoning-effort-tuning.md`'s own frozen decision
+  table's adopt row (score up, time down, no new `boucle`), and the D1
+  confirmation follow-up closed the one open wrinkle across two n=5
+  campaigns (zero confirmed fabrication). `docker-compose.yml`'s
+  shell-level default flipped (`app/graph.py`'s own Python fallback
+  stays `""`, unchanged — same pattern as `PLANNER_ENABLED`'s own code
+  default surviving EFFORT 2.4's flip). `campaign_preflight.py`'s
+  `EXPECTED_AGENT_FLAGS` updated to match, so future campaigns compare
+  against the new baseline instead of flagging a false drift.
+  `docs/architecture/inference-backend.md` corrected. Brief closed and
+  archived with a status header.
+- **`max_seq_len`/`cache_size` 40960/81920: adopted.** Already applied
+  live and measured clean (previous entry); recommended independently of
+  the `REASONING_EFFORT` decision since it's a pure-upside change (only
+  removes a hard failure ceiling, no behavioral downside observed) —
+  `docs/architecture/inference-backend.md` updated with the new values
+  and rationale.
+- **`HISTORY_DIFF_ENABLED`: NOT adopted, deliberately.** Recommended
+  holding for a full v2 regression campaign (all families, single
+  variable) before flipping the default — the D1 evidence is
+  mechanistically the strongest of the three context-overflow
+  mitigations tried this session, but n=5 on one task doesn't yet meet
+  the evidence bar `REASONING_EFFORT` was held to (a full-suite decisive
+  measurement) before its own adoption. Flag stays `false`; the
+  regression campaign is queued, not run.
+
+Full suite re-verified after the flag flips: 513 passed, 0 regressions
+(no test asserted the old `REASONING_EFFORT` default explicitly, unlike
+EFFORT 2.4's flip which needed 2 test updates).
