@@ -621,3 +621,54 @@ ordinary text — a real gotcha for anyone reusing this technique). HTTP
 visible underneath in the container logs. Full detail:
 `docs/engineering-log.md`, "context-overflow notice distinguished from
 generic infra failure".
+
+### 60. `app/graph.py` (`_apply_history_diff`) — non-snapshot `browser_*` tool results (`browser_evaluate`, `browser_extract`, …) always read as "blocked/error" once compacted, discarding real extracted data — CLOSED
+
+**Symptom, confirmed cause**: `HISTORY_DIFF_ENABLED=true`'s closing
+campaign (`campaign-20260918T122754Z-history-diff-enabled-v2-
+regression.json`) came back with `T10_books_toscrape` 0/2 (vs. 2/2
+baseline). A confirmation re-run (T10 alone, n=5) reproduced it 3/5 —
+enough to treat as real, not n=2 noise. Reconstructed a failing thread's
+real messages from `workspace/.audit/2026-09-18.jsonl` and ran the
+actual `_apply_history_diff` against them: a `browser_evaluate` result
+holding genuinely successful extracted data (`{"total": 14, "books":
+[{"price": "£42.96", ...}]}` — the model had already found the answer)
+was replaced by the generic "[Observation compactée] pas de page
+renvoyée à ce tour (action bloquée ou erreur)" text — indistinguishable
+from an actual guardrail rejection. Cause: `_is_structural_browser_
+result` only recognizes page-snapshot-shaped text (`Page URL:` line,
+affordance lines); `browser_evaluate`/`browser_run_code_unsafe`/
+`browser_extract`/`browser_inspect`/`browser_take_screenshot` return
+arbitrary JSON/text/image payloads that never match, so any compacted
+result from these tools read as "blocked/error" regardless of whether
+it succeeded. T10's universal fabricated first-navigation guess (present
+on every thread, success or failure alike) recovers via exactly these
+tools — the bug prevented the recovered data from surviving.
+
+**Fix**: `_SNAPSHOT_SHAPED_BROWSER_TOOLS = {"browser_navigate",
+"browser_click", "browser_snapshot"}` (`app/graph.py`) — only these
+produce text `_diff_browser_observation` can meaningfully compare.
+`_apply_history_diff` now filters `_browser_result_indices`'s output
+through this set before compacting; any other `browser_*` tool's result
+is excluded from compaction entirely (always kept verbatim), regardless
+of position. `_browser_result_indices` itself is untouched (still used
+by the coverage counter's `browser_messages_count` — opportunity size
+stays a deliberately broader measurement than compaction eligibility).
+
+**Tests**: 2 new cases in `test_history_diff.py` — a run of only
+`browser_evaluate` results stays a complete no-op, and a mixed
+navigate/evaluate/navigate/navigate sequence (the real T10 shape)
+confirms `evaluate` stays byte-for-byte intact while `navigate` results
+are still compacted as before. Full suite 514 → 516 passed, 0
+regressions.
+
+**Live-verified (2026-09-18)**: fresh `docker compose build langgraph-
+agent` (commit `9c76a3f`, image digest confirmed different from the
+pre-fix campaign's), T10-only re-run then the full closing campaign
+(`campaign-20260918T164754Z-history-diff-enabled-v2-regression-
+postfix.json`): `T10_books_toscrape` 2/2, no regression on any other
+family. `HISTORY_DIFF_ENABLED=true` subsequently adopted as the default.
+Full detail: `docs/engineering-log.md`, "T10 confirmation re-run +
+confirmed root cause: HISTORY_DIFF_ENABLED erases non-snapshot
+browser_* results", "HISTORY_DIFF_ENABLED live re-run: fix confirmed,
+adoption criteria met".
