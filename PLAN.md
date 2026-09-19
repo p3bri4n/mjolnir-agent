@@ -228,10 +228,12 @@ E2 2/3 (a vision-reading limit, not a routing defect), E3 3/3.
 
 ### Effort 4 — Scaffolding improvements
 
-Brief: `docs/briefs/scaffolding-optimisation.md`. Diff-based observation
-history: built, live-measured, result mixed/within noise on short tasks
-— flag stays off, a longer task is the natural next candidate if
-revisited. Coarse-grained actions: `browser_click`/`browser_navigate`
+**Closed.** Brief: `docs/briefs/scaffolding-optimisation.md`. Diff-based observation
+history: built, closing campaign run, one real bug found and fixed
+(non-snapshot `browser_*` results were erased instead of compacted —
+`docs/resolved-bugs.md` #60), live re-run confirmed the fix with no
+regression on any family — **`HISTORY_DIFF_ENABLED=true` ADOPTED as the
+default** (2026-09-18). Coarse-grained actions: `browser_click`/`browser_navigate`
 now return the resulting page state in their own response (closed,
 live-verified, turns and tokens both down on the two tasks measured);
 bulk `browser_extract` adoption closed as a non-problem (already
