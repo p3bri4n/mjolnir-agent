@@ -134,22 +134,15 @@ AUTO_APPROVED_TOOLS = set(filter(None, os.environ.get("AUTO_APPROVED_TOOLS", "")
 
 
 
-# Local meta-tool (latency fix 1/2-bis, app/graph.py:
-# _REPORT_AND_ACT_TOOL): never served by mcp-client, hence deliberately
-# NOT added to _DEFAULT_TIER_READ/TIER_READ_TOOLS — these sets also feed
-# EXPECTED_TOOLS (tests_integration/campaign_preflight.py), compared
-# term-by-term against mcp-client's REAL schema; adding it there would
-# fail the campaign preamble ("expected" tool that will never appear in
-# that schema). Classified directly here instead, as pure read (no side
-# effect, never TIER_SENSITIVE) — without which has_tool_calls()
-# (app/graph.py) would wrongly submit EVERY verified turn to human
-# approval (tool_tier()'s TIER_SENSITIVE default for any unknown name).
-REPORT_AND_ACT_TOOL_NAME = "report_and_act"
-
-# Same reasoning as REPORT_AND_ACT_TOOL_NAME above: synthetic, graph-only
-# tool (merged-planning mode, PLANNING_MODE="merged", see app/graph.py),
-# never part of mcp-client's schema. Pure plan-state bookkeeping, nothing
-# to exfiltrate or undo.
+# Local meta-tool: synthetic, graph-only tool (merged-planning mode,
+# PLANNING_MODE="merged", see app/graph.py), never served by mcp-client,
+# hence deliberately NOT added to _DEFAULT_TIER_READ/TIER_READ_TOOLS —
+# these sets also feed EXPECTED_TOOLS (tests_integration/
+# campaign_preflight.py), compared term-by-term against mcp-client's REAL
+# schema; adding it there would fail the campaign preamble ("expected"
+# tool that will never appear in that schema). Classified directly here
+# instead, as pure read (no side effect, never TIER_SENSITIVE). Pure
+# plan-state bookkeeping, nothing to exfiltrate or undo.
 MANAGE_PLAN_TOOL_NAME = "manage_plan"
 
 
@@ -157,7 +150,7 @@ def tool_tier(tool_name: str) -> str:
     """Static tier of a tool, ignoring session grants (Phase 3) or
     argument rules (Phase 4) — see effective_tier() for the full
     resolution. Default = TIER_SENSITIVE."""
-    if tool_name in (REPORT_AND_ACT_TOOL_NAME, MANAGE_PLAN_TOOL_NAME):
+    if tool_name == MANAGE_PLAN_TOOL_NAME:
         return TIER_READ
     if tool_name in TIER_READ_TOOLS:
         return TIER_READ

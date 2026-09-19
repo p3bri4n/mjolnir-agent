@@ -444,46 +444,6 @@ async def test_call_llm_system_message_includes_bulk_check_directive(mock_side_s
 
 
 @pytest.mark.asyncio
-async def test_tool_schema_augmented_with_constat_when_verification_enabled(mock_side_services, monkeypatch):
-    """Latency fix 1/2-ter (see docs/history.md): when VERIFICATION_ENABLED
-    is active, every real MCP tool gets constat_precedent as a required
-    parameter (_inject_constat_param), and report_and_act is added as the
-    sole fallback tool (turn with no real action)."""
-    import app.graph as g
-
-    monkeypatch.setattr(g, "VERIFICATION_ENABLED", True)
-
-    tool_schema = [
-        {
-            "type": "function",
-            "function": {
-                "name": "run_command",
-                "description": "Exécute une commande shell.",
-                "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]},
-            },
-        }
-    ]
-    mock_side_services.get("http://fake-mcp-client/tools/schema").mock(
-        return_value=httpx.Response(200, json={"tools": tool_schema})
-    )
-    llm_route = mock_side_services.post("http://fake-vllm/v1/chat/completions").mock(
-        return_value=_sse_response(text_response(["OK"]))
-    )
-    g.agent_graph = g.build_graph()
-
-    state = {"messages": [{"role": "user", "content": "Salut"}], "tool_iterations": 0, "approved": None}
-    await g.agent_graph.ainvoke(state, CONFIG)
-
-    sent_body = json.loads(llm_route.calls.last.request.content)
-    sent_tools = sent_body["tools"]
-    assert len(sent_tools) == 2
-    run_command = next(t for t in sent_tools if t["function"]["name"] == "run_command")
-    assert "constat_precedent" in run_command["function"]["parameters"]["properties"]
-    assert "constat_precedent" in run_command["function"]["parameters"]["required"]
-    assert "command" in run_command["function"]["parameters"]["required"]
-    assert any(t["function"]["name"] == "report_and_act" for t in sent_tools)
-
-
 @pytest.mark.asyncio
 async def test_tool_image_result_becomes_multimodal_user_message(mock_side_services):
     """

@@ -130,9 +130,9 @@ _PLAN_STATUS_LABELS = {"a_faire": "à faire", "en_cours": "en cours", "fait": "f
 def _format_plan_summary(plan: Optional[list]) -> str:
     """
     Plan summary (Iteration 1, Phase 1 "cognitive core" — see
-    docs/briefs/phase-1-coeur-cognitif.md and app/graph.py:plan_task) for
-    the approval message. Empty/None `plan` -> empty string
-    (PLANNER_ENABLED disabled by default, see app/graph.py): changes
+    docs/briefs/archives/coeur-cognitif.md) for the approval message.
+    Empty/None `plan` -> empty string (only ever populated by
+    PLANNING_MODE="merged"'s manage_plan tool, see app/graph.py): changes
     NOTHING to the existing text then, so as not to break any test that
     checks this message today.
     """
@@ -362,14 +362,11 @@ async def _resolve_run(request: ChatCompletionRequest):
         "fabricated_navigation_attempts": 0,
         "plan": [],
         "subtask_message_start": [],
-        "replan_count": 0,
         "plan_validation_reasons": [],
         "plan_validation_cycles": 0,
         "plan_approved": None,
         "plan_grant_session": False,
         "plan_grant": False,
-        "pending_verification": False,
-        "constats_inexploitables": 0,
     }
     return config, run_input
 

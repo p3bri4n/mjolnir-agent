@@ -90,13 +90,13 @@ def test_collect_metadata_merges_mcp_client_env_flags(monkeypatch):
             container = args[2]
             if container == cp.MCP_CLIENT_CONTAINER:
                 return _Result("CAMPAIGN_VISUAL_CAPTURE=true\nPATH=/usr/bin\n")
-            return _Result("PLANNER_ENABLED=true\n")
+            return _Result("PLAN_VALIDATION_ENABLED=true\n")
         return _Result("")
 
     monkeypatch.setattr(cp.subprocess, "run", fake_run)
     metadata = cp.collect_metadata("Campagne test")
 
-    assert metadata["env_flags"]["PLANNER_ENABLED"] == "true"
+    assert metadata["env_flags"]["PLAN_VALIDATION_ENABLED"] == "true"
     assert metadata["env_flags"]["CAMPAIGN_VISUAL_CAPTURE"] == "true"
 
 
