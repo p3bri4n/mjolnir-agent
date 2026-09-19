@@ -316,7 +316,7 @@ Un test utilisait un monkeypatch global de `httpx.AsyncClient` pour simuler les 
 
 **Status: open, blocker for future campaigns.** Any campaign launched while `fixture-hr-app` is down will keep hitting this same raw `CalledProcessError` instead of preflight's intended reachability message, for as long as this ordering gap exists — not specific to effort 2.3's rerun. Candidate fix not yet designed: either move `_reset_hr_submissions`'s reachability assumption behind a `try`/`except` that degrades to a clear message, or run a minimal subset of preflight (at least `check_fixtures_reachable`) as its own earlier-scoped autouse fixture so it executes before `_reset_hr_submissions`. Left undesigned pending a decision on which approach fits the existing preflight/fixture architecture.
 
-### 51. `services/langgraph-agent` — OPEN, not yet diagnosed: a plain first-subtask `browser_navigate` marked failed, budget exhausted before any real work starts
+### 51. `services/langgraph-agent` — a plain first-subtask `browser_navigate` marked failed, budget exhausted before any real work starts — CLOSED (root-caused, then resolved by #61's removal)
 
 **Symptom, NOT a confirmed cause**: found reading back the `effort2.3-dtdd-fix-rerun` campaign (2026-08-10, v2 suite, A1 1/3, A2 2/3, commit `eef0696`, fresh `mcp-client` image confirmed — see docs/history.md, "EFFORT 2.3", "Rerun completed"). All 3 failing runs (`A1_reconciliation_croisee` reps 2/3 — threads `a3234af54c68fb23`/`63dac997dbeddc1a`; `A2_schema_references` rep 1 — thread `1ddbe574e71c9b55`) stall on their very first planned subtask: a plain `browser_navigate` to the catalog or docs homepage, marked `[échoué] — critère non atteint` by the per-subtask verifier. `replan_events=2` (the full `REPLAN_BUDGET`) is spent on each, and none of the 3 ever reaches a single `browser_extract` call — the task ends before the mechanism the dt/dd fix touches is ever exercised. `tool_calls_observed` is 10-12 on each, well under `MAX_TOOL_ITERATIONS=20`, so the budget lost is entirely `SUBTASK_ATTEMPT_BUDGET`×`REPLAN_BUDGET` churn on a navigation that should be one of the cheapest, most reliable actions available.
 
@@ -672,3 +672,72 @@ Full detail: `docs/engineering-log.md`, "T10 confirmation re-run +
 confirmed root cause: HISTORY_DIFF_ENABLED erases non-snapshot
 browser_* results", "HISTORY_DIFF_ENABLED live re-run: fix confirmed,
 adoption criteria met".
+
+### 61. `app/graph.py` (`plan_task`/`verify_action`/plan judge) — the cognitive-core planner/verifier actively discarded correct progress via attempt/replan-budget churn, not just cost more for the same result — REMOVED
+
+**Symptom, confirmed cause**: the decisive cfg1-vs-cfg8 factorial ablation
+(`docs/engineering-log.md`, "EFFORT 2 — DECISIVE MEASUREMENT: CFG1-ALL-OFF
+vs CFG8-ALL-ON..."; `PLAN.md`, Effort 2) found cfg1 (all four cognitive-
+core flags off) STRICTLY beating cfg8 (all on, the then-default) on the
+success judge (15/15 vs 13/15) at 43% less cumulative time (+76% for
+cfg8, same real work) — consistent across every scored task family, not
+concentrated in one. A separate archives-only trajectory diagnostic on
+A1 (`docs/engineering-log.md`, "A1 — TRAJECTORY DIAGNOSTIC BEFORE THE
+REMOVAL PR") and bug #51 above (root-caused, "OPEN, not yet diagnosed"
+header now stale — see below) both traced the SAME mechanism: A1's first
+subtask naturally spans a large phase (cross-referencing ~30 catalog
+pages) that doesn't decompose into `SUBTASK_ATTEMPT_BUDGET`×
+`REPLAN_BUDGET`-sized chunks. `verify_action` marks it `non_atteint`
+repeatedly even as the model successfully completes the real work
+underneath (confirmed via raw audit content: a bulk `browser_extract`
+correctly finds "4 produits de la catégorie 'Mobilier'" at the EXACT
+moment the attempt/replan budget exhausts, triggering `report_failure`
+with that progress discarded) — the mechanism was not merely a costly
+no-op, it actively threw away correct answers on the task shape it was
+meant to help most.
+
+**Fix**: `PLANNER_ENABLED`/`VERIFICATION_ENABLED`/`PLAN_JUDGE_ENABLED`
+had already been flipped to `false` by default after the ablation
+(`PLAN.md`, Effort 2) — this entry covers the REMOVAL PR requested
+afterward: `plan_task`, `verify_action`, `replan_task`, `report_failure`
+(their `StateGraph` nodes and edges), `PLAN_JUDGE_SYSTEM_PROMPT`,
+`_judge_plan`, `_validate_judge_json`, `PlanJudgeValidationError`,
+`SUBTASK_ATTEMPT_BUDGET`, `REPLAN_BUDGET` deleted from `app/graph.py`.
+`PLAN_VALIDATION_ENABLED` (default `true`), `validate_plan`/`revise_plan`/
+`require_plan_approval`/`reject_plan`, `PLANNER_SYSTEM_PROMPT`,
+`PLANNER_THINKING_ENABLED` and `PLANNER_MAX_TOKENS` all KEPT — the
+safety-value exception decided at ablation time was never in question,
+and `revise_plan` still uses the planner LLM to repair a plan that fails
+heuristic validation (`app/plan_validation.py`), independent of the
+removed mechanism.
+
+**Tests**: `test_plan_judge.py`, `test_plan_task.py`,
+`test_repeated_strategy_guard.py`, `test_replan_and_failure.py`,
+`test_verification_integration.py`, `test_verify_action.py` deleted (all
+exercised only-just-removed code); `test_validate_plan_node.py` trimmed
+to drop its `PLAN_JUDGE_ENABLED` branch; `test_validate_plan_json.py`
+added to keep `_validate_plan_json` (still used by `revise_plan`)
+covered on its own after `test_plan_task.py`'s removal; `test_graph.py`/
+`conftest.py` updated for the smaller node set. `test_plan_approval.py`'s
+two full-graph integration tests (`test_plan_approval_does_not_
+substitute_for_tool_approval`, `test_approve_endpoint_resumes_plan_
+approval_pause` — the latter a regression test for the real `/approve`
+bookkeeping bug, bug #44) now seed `state["plan"]` directly instead of
+via a mocked `plan_task` LLM response — same coverage, no dependency on
+the removed node. `campaign_preflight.py`/`campaign_persistence.py`'s
+own tests had 4 more failures from hardcoding `PLANNER_ENABLED`/
+`VERIFICATION_ENABLED` as example flag names for otherwise-generic
+mechanism tests (stale-override detection, override merging) — swapped
+to `PLAN_VALIDATION_ENABLED`/`PLANNER_THINKING_ENABLED`, still-live
+flags. Full suite 516 → 450 passed, 0 regressions (66 fewer tests, no
+fewer than removed).
+
+**Bug #51 status**: its heading (above) updated to CLOSED — its own body
+already reached "root-caused, not yet acted on" before this session, and
+its finding is now resolved BY this removal: the mechanism it diagnosed
+no longer exists to exhibit the defect. Body left as originally written
+(historical record of the diagnostic).
+
+Full detail: `docs/engineering-log.md`, "EFFORT 2 — DECISIVE
+MEASUREMENT...", "A1 — TRAJECTORY DIAGNOSTIC BEFORE THE REMOVAL PR";
+`PLAN.md`, Effort 2.
