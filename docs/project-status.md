@@ -729,8 +729,10 @@ BROWSER_SNAPSHOT".
 
 ## Effort 4 — Scaffolding improvements (`docs/briefs/scaffolding-optimisation.md`)
 
-**Effort 2 (diff-based observation history) built, unit-tested, NOT
-measured live.** `HISTORY_DIFF_ENABLED` (default `false`): past
+**Effort 2 (diff-based observation history): built, closing campaign
+run, ADOPTED (2026-09-18).** `HISTORY_DIFF_ENABLED` (default `true`
+since 2026-09-18 — see closing paragraph below; the narrative that
+follows is the effort's history, left as written): past
 `browser_*` tool results (all but the latest) are replaced, outbound to
 the LLM only, by a short structural diff against their nearest
 structural predecessor — URL change, affordances appeared/disappeared,
@@ -754,11 +756,40 @@ cost, A1 essentially flat (+1 turn, tokens +0.3%); duration up modestly
 on both. 2/2 success, no regression. n=1/task, no statistical weight —
 reads as the brief's own "differences within noise" case, plausibly
 because point 1 already left little redundant history on these short
-(8-9 turn) tasks for this mechanism to compress. **Decision: flag stays
-off, no further action this session.** A longer task (A4) is the natural
-next candidate if revisited, not decided here. Full detail:
+(8-9 turn) tasks for this mechanism to compress. **Decision at the time:
+flag stays off, pending the full-suite closing campaign.** Full detail:
 docs/engineering-log.md, "HISTORY-DIFF LIVE SMOKE — STALE IMAGE, THEN PREFLIGHT
 CORRECTLY REFUSED".
+
+**Closing campaign run, one real bug found and fixed, then ADOPTED
+(2026-09-18).** First full-suite closing campaign: raw 56/62 (vs. 60/62
+baseline), `T10_books_toscrape` 0/2 — traced past a test-classifier
+false alarm (A3) to a genuine bug: `_apply_history_diff` compacted
+`browser_evaluate`/`browser_extract`/etc. results (JSON/text payloads)
+as if they were failed page snapshots, discarding real extracted data.
+Fixed (`_SNAPSHOT_SHAPED_BROWSER_TOOLS` now gates compaction to
+`browser_navigate`/`browser_click`/`browser_snapshot` only; any other
+`browser_*` result is always kept verbatim). Live re-run on the fixed
+build (fresh image digest, commit `9c76a3f` verified) confirmed the fix:
+`T10` 2/2, no regression on any family's CuP/security/accuracy judges —
+the one new-looking `browser_evaluate` policy violation on
+`B1_conge_hard` traced to a pre-existing, flag-independent model
+behavior (same violation predates this flag in three older campaigns).
+Token/context gain leg: cumulative tokens read naively as +6.5% (not a
+gain), but that's a live-run trajectory-length confound, not the
+mechanism — read per-call on tasks with comparable trajectory length,
+A2 (-10%) and A4 (-24%) show a real, broader-than-D1 gain; A1/D1/T10 are
+inconclusive (flat per-call, swamped by turn-count variance), not
+negative. **Decision: adopt `HISTORY_DIFF_ENABLED=true` as the new
+default** (`docker-compose.yml`, `campaign_preflight.py`'s
+`EXPECTED_AGENT_FLAGS` both updated) — no regression found, and the
+mechanism's core design goal (context-overflow mitigation, see the D1
+probe below) is the most solidly confirmed result of the three; the
+token leg's narrow-not-broad gain is a judgment call, not a blocker.
+Full detail: docs/engineering-log.md, "T10 confirmation re-run +
+confirmed root cause", "HISTORY_DIFF_ENABLED live re-run: fix confirmed,
+adoption criteria met", "HISTORY_DIFF_ENABLED live re-run: token/context
+gain leg checked, confounded by trajectory-length variance".
 
 **Effort 3, point 3.1 (frequency analysis) done, checkpoint decided.**
 `scripts/analyze-tool-call-ngrams.sh` (archives-only, no docker/GPU) run
@@ -1027,11 +1058,15 @@ defaults.** `docker-compose.yml`, `campaign_preflight.py`'s
 `EXPECTED_AGENT_FLAGS`, and `docs/architecture/inference-backend.md`
 updated to match; `services/tabbyapi/config.yml` was already live-applied
 (previous entry). `docs/briefs/archives/reasoning-effort-tuning.md`
-closed with a status header. `HISTORY_DIFF_ENABLED` stays `false`,
-deliberately not adopted yet — its D1 evidence is the strongest of the
+closed with a status header. `HISTORY_DIFF_ENABLED` deliberately not
+adopted at this point yet — its D1 evidence is the strongest of the
 three mitigations mechanistically, but n=5 on one task doesn't meet the
 full-suite evidence bar `REASONING_EFFORT` itself was held to; a v2
-regression campaign is the queued next step, not run. Full detail:
+regression campaign is the queued next step. **Update (2026-09-18):**
+that campaign ran, found and fixed a real bug (T10), and
+`HISTORY_DIFF_ENABLED=true` is now ADOPTED as the default — see
+"Effort 4 — Scaffolding improvements" above for the full closing-
+campaign result. Full detail:
 `docs/engineering-log.md`, "reasoning_effort tuning, Phase 0", "Phase 2",
 "Phase 2 follow-up", "D1 context-overflow mitigation probe —
 HISTORY_DIFF_ENABLED", "D1 context-overflow mitigation probe —
