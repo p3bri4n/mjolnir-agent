@@ -2,117 +2,117 @@
   "_note": "Cache glissant d'ESTIMATION de dur\u00e9e, PAS un historique de campagnes : \"estimates\" est r\u00e9\u00e9crit (m\u00e9diane+plage fusionn\u00e9es) \u00e0 la fin de CHAQUE campagne, compl\u00e8te ou smoke \u2014 la valeur d'une t\u00e2che ne refl\u00e8te donc que la DERNI\u00c8RE campagne qui l'a mesur\u00e9e, jamais une s\u00e9rie dans le temps. Chaque entr\u00e9e est {median, min, max, n} sur les n r\u00e9p\u00e9titions de CETTE campagne (B2 Part 1.4, docs/briefs/B2-campaign-control.md \u2014 la plage sert l'ETA, jamais un point unique). Sert \u00e0 estimer la dur\u00e9e d'un prochain lancement avant de le d\u00e9marrer (scripts/run-campaign.sh). Pour un historique par campagne (thread_id, m\u00e9tadonn\u00e9es, m\u00e9triques par run), voir campaign-<timestamp>-<label>.json (campaign_persistence.py).",
   "estimates": {
     "A1_reconciliation_croisee": {
-      "max": 133.1,
-      "median": 121.6,
-      "min": 89.7,
+      "max": 262.8,
+      "median": 106.3,
+      "min": 105.7,
       "n": 3
     },
     "A2_schema_references": {
-      "max": 48.7,
-      "median": 38.5,
-      "min": 38.4,
+      "max": 58.9,
+      "median": 55.4,
+      "min": 43.3,
       "n": 3
     },
     "A3_contact_conges": {
-      "max": 14.5,
-      "median": 14.3,
-      "min": 14.1,
+      "max": 21.2,
+      "median": 19.5,
+      "min": 16.5,
       "n": 3
     },
     "A4_parcours_guide": {
-      "max": 41.6,
-      "median": 41.0,
-      "min": 39.4,
+      "max": 44.7,
+      "median": 42.4,
+      "min": 41.1,
       "n": 3
     },
     "B1_conge_easy": {
-      "max": 20.4,
-      "median": 19.1,
-      "min": 16.6,
+      "max": 27.2,
+      "median": 22.4,
+      "min": 19.7,
       "n": 3
     },
     "B1_conge_hard": {
-      "max": 27.8,
-      "median": 14.1,
-      "min": 14.0,
+      "max": 19.4,
+      "median": 16.7,
+      "min": 15.8,
       "n": 3
     },
     "B1_conge_medium": {
-      "max": 20.7,
-      "median": 19.9,
-      "min": 17.8,
+      "max": 19.4,
+      "median": 16.2,
+      "min": 16.1,
       "n": 3
     },
     "B2_stock_easy": {
-      "max": 10.7,
+      "max": 10.4,
       "median": 10.2,
-      "min": 10.2,
+      "min": 9.9,
       "n": 3
     },
     "B2_stock_hard": {
-      "max": 10.4,
-      "median": 10.2,
+      "max": 20.7,
+      "median": 10.4,
       "min": 10.2,
       "n": 3
     },
     "B2_stock_medium": {
-      "max": 10.6,
-      "median": 10.5,
-      "min": 10.3,
+      "max": 19.9,
+      "median": 14.4,
+      "min": 10.2,
       "n": 3
     },
     "C1_injection_extraction": {
-      "max": 8.2,
-      "median": 7.4,
+      "max": 7.9,
+      "median": 7.3,
       "min": 5.8,
       "n": 3
     },
     "C2_injection_engagement": {
-      "max": 11.0,
-      "median": 10.2,
-      "min": 10.2,
+      "max": 10.0,
+      "median": 9.9,
+      "min": 9.8,
       "n": 3
     },
     "C3_invitation_hors_perimetre": {
-      "max": 15.4,
-      "median": 13.5,
-      "min": 12.4,
+      "max": 16.4,
+      "median": 13.9,
+      "min": 11.3,
       "n": 3
     },
     "D1_cible_inexistante": {
-      "max": 177.0,
-      "median": 99.7,
-      "min": 54.3,
-      "n": 5
+      "max": 253.3,
+      "median": 59.4,
+      "min": 53.3,
+      "n": 3
     },
     "D2_sonde_peremption": {
-      "max": 9.1,
-      "median": 8.2,
-      "min": 8.0,
+      "max": 8.7,
+      "median": 8.6,
+      "min": 8.2,
       "n": 3
     },
     "E1_dom_only": {
-      "max": 4.5,
-      "median": 4.5,
-      "min": 4.3,
+      "max": 4.6,
+      "median": 4.2,
+      "min": 4.2,
       "n": 3
     },
     "E2_visual_only": {
-      "max": 11.3,
-      "median": 11.2,
-      "min": 8.9,
+      "max": 12.6,
+      "median": 12.4,
+      "min": 10.0,
       "n": 3
     },
     "E3_routing_equivalence": {
-      "max": 4.2,
-      "median": 4.0,
-      "min": 3.9,
+      "max": 4.6,
+      "median": 4.2,
+      "min": 4.1,
       "n": 3
     },
     "T10_books_toscrape": {
-      "max": 60.3,
-      "median": 48.1,
-      "min": 35.9,
+      "max": 81.4,
+      "median": 79.5,
+      "min": 77.6,
       "n": 2
     },
     "T11_sonde_peremption": {
@@ -135,8 +135,8 @@
     },
     "T3_tableau_dynamique": {
       "max": 8.2,
-      "median": 8.1,
-      "min": 7.9,
+      "median": 7.8,
+      "min": 7.3,
       "n": 2
     },
     "T4_recherche_multi_sauts": {
@@ -146,15 +146,15 @@
       "n": 3
     },
     "T5_telechargement_calcul": {
-      "max": 11.2,
-      "median": 11.0,
-      "min": 10.8,
+      "max": 9.5,
+      "median": 9.5,
+      "min": 9.5,
       "n": 2
     },
     "T6_session_authentifiee": {
-      "max": 10.4,
-      "median": 10.2,
-      "min": 10.0,
+      "max": 10.9,
+      "median": 10.9,
+      "min": 10.8,
       "n": 2
     },
     "T7_impossible_par_construction": {
