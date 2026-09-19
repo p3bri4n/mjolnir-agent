@@ -345,3 +345,17 @@ has a planned role (critique/compaction): **three candidate uses for a
 single architecture decision** (critique, compaction, planner/cache
 isolation), to be worked out with the checkpoint's numbers rather than
 treated in isolation here.
+
+**VRAM constraint, noted 2026-09-19, not yet worked into a decision**: the
+dual-GPU split (RTX 5060 Ti + RTX 4070 Ti SUPER, 16GB each) has little
+headroom left for a second model. The postfix campaign's own GPU
+snapshot (`campaign-20260918T164754Z-history-diff-enabled-v2-regression-
+postfix.json`, `metadata.gpu_devices`) shows 11.8GB/12.4GB already used —
+roughly 4GB/3.6GB free, and **fragmented across two separate cards**, not
+one pool a second model could draw from freely. The `max_seq_len`/
+`cache_size` raise (65536→81920, adopted 2026-09-18 to fix D1's
+`context_length_exceeded`) already consumed part of the exact margin a
+second model would need — any Mjolnir folder model would either have to
+be small/aggressively quantized enough to fit the remaining few GB on one
+card, or trade back some of that just-recovered context headroom. Factor
+this into whichever of the three candidate uses gets picked up first.
