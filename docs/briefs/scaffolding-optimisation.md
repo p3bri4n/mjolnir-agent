@@ -198,11 +198,52 @@ list with prices) the model needed to recall. **Fixed**:
 browser_* result is now always kept verbatim. Full suite 514 → 516
 passed.
 
-**Still open**: this fix is confirmed against the ALREADY-COLLECTED
-failing runs replayed offline, not yet validated by a fresh live
-campaign. A live re-run (`docker compose build langgraph-agent` first —
-this is an application-code change, `--force-recreate` alone won't pick
-it up) is needed before any row of the decision table above applies.
+**Live re-run (2026-09-18)** (`campaign-20260918T164754Z-history-diff-
+enabled-v2-regression-postfix.json`, fresh build verified — commit
+`9c76a3f`, image digest `8ddbcc0…`, different from the pre-fix
+campaign's `c083ff9`/`c21d2ca…`): `T10_books_toscrape` 2/2, confirming
+the fix holds live, not just in the offline replay. Full comparison
+against the true baseline (`campaign-20260917T080205Z-qwen38-reasoning-
+effort-medium-campaign.json`, 60/62, no flag) and full details in
+`docs/engineering-log.md`, "HISTORY_DIFF_ENABLED live re-run: fix
+confirmed, adoption criteria met". One finding investigated and cleared:
+a `no_never_grantable_tool: browser_evaluate` violation on
+`B1_conge_hard`/hard (repetition 2) traced via the audit log to a
+pre-submit self-check the model performed BEFORE the diff mechanism had
+replaced any message in that thread (`messages_replaced: 0` at the time
+of the call), with the same violation already present in three
+pre-`HISTORY_DIFF_ENABLED` campaigns — pre-existing, flag-independent,
+not a new failure mode.
+
+**Token/context gain leg checked (2026-09-18)**: cumulative
+`prompt_tokens_total` +6.5% (2,954,548 → 3,146,820) read naively looks
+like a regression, but is confounded by trajectory-length variance
+inherent to a live, nondeterministic run (A1 +58% tool calls, D1 +2.6%,
+T10 +14.3% between the two campaigns) — read per-call instead of
+per-task-total, the three heaviest-firing tasks (A1/D1/T10) are flat,
+not negative. On the two tasks where trajectory length stayed
+comparable between runs, a real gain shows: A4 tokens-per-call -24%,
+A2 -10% — broader than the D1 probe's own already-known win, but not
+universal. Full breakdown in `docs/engineering-log.md`, "HISTORY_
+DIFF_ENABLED live re-run: token/context gain leg checked, confounded by
+trajectory-length variance".
+
+**Decision (2026-09-18, corrected)**: no CuP/security/accuracy
+regression on any family (T10 fix holds live, A3 fix holds live, the
+one new-looking policy violation traced to a pre-existing, flag-
+independent behavior) — but the token leg does not show a clean, broad
+gain, only a narrower one on A2/A4 plus D1's already-known context-
+overflow mitigation. Neither decision-table row 1 nor row 3 applies
+cleanly; this reads as **row 2** — "No regression, but gains only where
+D1-like exhaustive verification already showed them (no broader
+benefit)" (A2/A4 extend that slightly, not decisively). Adopt-or-not is
+therefore a judgment call on maintenance cost vs. a narrow,
+partially-confirmed win, **not settled by this campaign** — no
+unconditional default flip in `docker-compose.yml` on the strength of
+this measurement alone. A controlled, fixed-trajectory probe
+(D1-probe-style) on A1/A2/A4/T10 individually would separate the
+mechanism's real per-call effect from live-run trajectory noise if a
+cleaner verdict is wanted.
 
 ## Effort 3 — Coarse-grained actions
 
