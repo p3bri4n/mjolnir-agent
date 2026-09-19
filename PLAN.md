@@ -210,9 +210,17 @@ call — de facto inert without a planner, see `docs/project-status.md`).
 A fifth "merged planning" condition was tried and dropped: it engaged on
 one task family but never revised a plan mid-task, so it had nothing to
 demonstrate. Full v2 campaign confirms no family regressed, family A
-materially improved. Removal PR: defaults-to-`false` done; deleting the
-now flag-gated-dead code (`plan_task`/`verify_action`/the judge, their
-directives and tests) is **not done**.
+materially improved. **Removal PR done (2026-09-19)**: `plan_task`/
+`verify_action`/`replan_task`/`report_failure` (their `StateGraph` nodes
+and edges), the plan judge (`_judge_plan`/`PLAN_JUDGE_SYSTEM_PROMPT`),
+`SUBTASK_ATTEMPT_BUDGET`/`REPLAN_BUDGET`, and their dedicated tests
+deleted from `app/graph.py` — not just disabled. `PLAN_VALIDATION_ENABLED`
+(default `true`), `validate_plan`/`revise_plan`/`require_plan_approval`/
+`reject_plan`, and `PLANNER_SYSTEM_PROMPT`/`PLANNER_THINKING_ENABLED`/
+`PLANNER_MAX_TOKENS` all kept — the safety-value exception decided above
+was never in question, `revise_plan` still uses the planner LLM to
+repair a plan that fails heuristic validation. Full suite 516 → 450
+passed, 0 regressions. See `docs/resolved-bugs.md` #61.
 
 ### Effort 3 — GhostDesk removal
 
