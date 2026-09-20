@@ -319,12 +319,16 @@ detail: `docs/engineering-log.md`, "reasoning_effort tuning" entries.
 
 ### Effort 8 — Visual-only navigation mode
 
-A `VISUAL_NAVIGATION_ONLY` mode (capture + OCR only, no DOM/accessibility
+Brief: `docs/briefs/visual-navigation-only.md`, written. A
+`VISUAL_NAVIGATION_ONLY` mode (capture + OCR only, no DOM/accessibility
 tree, coordinate-based interaction) — kept separate from effort 3
 deliberately: effort 3 redistributes a capability, this would create a
-whole operating mode with its own action space. Prerequisites: effort 3
-(done) and effort 1 (campaigns cheap enough to afford a second
-reference — not yet). **Not started.**
+whole operating mode with its own action space. Prerequisite: effort 3
+(done). Effort 1 (cheap parallel campaigns) is explicitly NOT a hard
+prerequisite — user decision (2026-09-20): the brief's Phase 4 full-suite
+measurement runs sequentially at the current `N_WORKERS=1` default,
+slower but not blocked in principle. **Not started** (brief written,
+no code yet).
 
 ### Backlog (not sequenced into an effort above)
 
