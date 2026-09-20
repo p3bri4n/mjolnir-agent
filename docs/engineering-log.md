@@ -8449,3 +8449,46 @@ catalog-listing).
 No code written yet for points 3-7 — still gated on the standing
 checkpoint. This finding set is what a go/no-go decision on building
 them would be based on.
+
+## 2026-09-20 — Effort 8: points 3-7 built (layout reconstruction, browser_click_ref, type_text, select/Tab guidance, extended stabilization)
+
+User decision: build points 3-7 rather than scale back to Phase 4 as-is.
+Design frozen in `docs/briefs/visual-navigation-only.md`'s Amendment
+section before any code (row clustering by vertical interval overlap;
+columns simplified to left-to-right order within each row rather than
+the consultation's own global edge-clustering suggestion; forms/empty-
+field gap handled via Tab-navigation guidance, not coordinate-guessing).
+
+**Built**:
+- `_reconstruct_layout` (`app/graph.py`) replaces `_format_ocr_detections`
+  — rows by vertical interval overlap against each row's anchor box,
+  columns by x-order within row, `r{row}c{col}` refs. New
+  `AgentState.visual_ref_map` field, replaced whole (never merged) on
+  every OCR conversion.
+- `browser_click_ref`: local synthetic tool (same slot as `manage_plan`),
+  resolved in `_execute_tool_calls` against `visual_ref_map` before
+  dispatch. Audit log/approval tier keep the high-level ref-based call
+  (matches `browser_extract`'s own precedent) — fixes the "click at
+  (412,338) isn't reviewable" problem the consultation named. An
+  unresolvable ref returns an error without reaching mcp-client.
+- `type_text` (`services/mcp-client/app/main.py`): new synthetic tool,
+  fixed JS template dispatched to `browser_evaluate`, types into
+  `document.activeElement` via simulated `input`/`keydown`/`keyup`
+  events. Needs no per-thread state, unlike `browser_click_ref` — lives
+  in mcp-client, hidden from the model outside this mode via
+  `_VISION_ONLY_TOOLS`.
+- Whole filesystem MCP server family added to `_VISUAL_ONLY_BLOCKED_TOOLS`
+  (both `app/graph.py` and `campaign_preflight.py`) — `docs/resolved-
+  bugs.md` #64's fix.
+- `VISUAL_MODE_DIRECTIVE`: new conditional system-prompt directive
+  (empty outside this mode) — native `<select>` via keyboard after a
+  focusing click, Tab-navigation for unseen/empty fields. Flagged as its
+  own measured-behavior change, to be read on the next smoke, not
+  assumed from the text.
+- `browser_mouse_click_xy` added to mcp-client's `_STABILIZE_AFTER_TOOLS`
+  (point 7) — the resolved dispatch behind `browser_click_ref` gets the
+  same "return resulting state" treatment as `browser_click`.
+
+Full suite: `langgraph-agent` 467 → 477 passed, `mcp-client` 65 → 69
+passed, 0 regressions. **Not yet live-smoked** — Phase 3's re-run with
+all of this active is the next step, on the user's machine.

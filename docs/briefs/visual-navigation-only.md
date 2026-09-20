@@ -500,7 +500,13 @@ task); a synthetic ref for guessed/invisible form fields (the OmniParser-
 style detection this brief already defers); `browser_move_ref`/drag
 variants (click is the dominant need observed so far).
 
-🧑 Checkpoint before Phase 3's re-run with all of this active.
+🧑 Checkpoint passed (2026-09-20) — **built**: `_reconstruct_layout`,
+`browser_click_ref`, `type_text`, `VISUAL_MODE_DIRECTIVE`, extended
+`_STABILIZE_AFTER_TOOLS`. `langgraph-agent` suite 467 → 477 passed,
+`mcp-client` 65 → 69 passed, 0 regressions. Full detail:
+`docs/engineering-log.md`, "Effort 8: points 3-7 built". **Not yet
+live-smoked** — Phase 3's re-run with all of this active is the next
+step, on the user's machine.
 
 ## Phase 4 — Full v2 measurement (single variable: `VISUAL_NAVIGATION_ONLY`)
 
