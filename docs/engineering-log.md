@@ -8189,4 +8189,18 @@ names.
 **Fixed**: the whole filesystem MCP server family (read AND write tools)
 added to `_VISUAL_ONLY_BLOCKED_TOOLS` in both `app/graph.py` and
 `campaign_preflight.py` — full detail: `docs/resolved-bugs.md` #64.
-**Not yet re-smoked.**
+
+**Fourth smoke, re-smoked and confirmed clean**: passed
+(`visual_navigation_only_ocr_calls: 7`, up from 1 on the leaking run —
+the model now has nothing but OCR to work with), and its own reasoning
+text states outright that `read_file` is not among its available
+functions, directly confirming the gate rather than inferring it from
+absence alone. 12 tool calls, 89.6s (vs. 1-4 calls, <20s previously) —
+visibly struggling with noisy OCR coordinates and an uncooperative
+native `<select>` before landing on the correct answer, matching the
+brief's own anticipated "authentic capability-limit struggle" shape.
+**Phase 3 (live smoke) of `docs/briefs/visual-navigation-only.md` is now
+closed** — three real leaks found and fixed along the way (#62 cross-
+container flag desync, #63 a crash on a malformed OCR response, #64 the
+filesystem-server leak), none known to remain. Phase 4 (full v2
+measurement) is the next, larger step, not attempted in this session.

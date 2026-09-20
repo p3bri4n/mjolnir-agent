@@ -881,6 +881,16 @@ gated rather than trying to carve out a narrower, path-based exception.
 2 new assertions in the existing schema-filter test. Full suite stays at
 467 passed (assertions added to an existing test, not a new one).
 
-**Not yet re-smoked**: this fix has not been live-verified — the next
-smoke should show the model unable to call `read_file` at all (tool
-absent from its schema), not merely choosing not to.
+**Re-smoked (2026-09-20), confirmed clean**: fourth smoke attempt passed
+(`detail: "nom exact trouvé"`), `visual_navigation_only_ocr_calls: 7`
+(vs. 1 on the previous, `read_file`-leaking smoke — the model now has to
+rely on OCR for everything). The model's own reasoning text states
+outright: *"the system prompt mentions 'l'outil filesystem read_file'
+but it's not in my available functions... I only have browser tools. No
+filesystem read_file."* — direct confirmation the tool is genuinely
+absent from its schema, not merely unused. 12 tool calls, 89.6s (vs. 1-4
+calls, <20s on the leaking runs) — the model visibly struggled with
+noisy OCR coordinates and a stubborn native `<select>` before landing on
+the correct answer, exactly the kind of authentic capability-limit
+struggle the brief's own Phase 4 decision table anticipated. Phase 3 of
+`docs/briefs/visual-navigation-only.md` (live smoke) is now closed.

@@ -173,7 +173,36 @@ logged on every relevant call regardless of outcome), and the agent
 completes at least one full turn without crashing on the new action
 space.
 
-🧑 Checkpoint: smoke result reviewed before the full-suite run below.
+🧑 Checkpoint passed (2026-09-20) — **closed**: T3, n=1, four attempts on
+the user's machine. Three real "no cheating" leaks found and fixed along
+the way — none pre-anticipated at design time, each caught by actually
+reading the raw audit log rather than trusting the campaign's aggregate
+score alone:
+- `docs/resolved-bugs.md` #62: `VISUAL_NAVIGATION_ONLY` never reached
+  `mcp-client` (`docker-compose.yml` only declared it for
+  `langgraph-agent`) — the schema filter worked, the stabilization-leak
+  fix silently didn't. Smoke #1 passed with `ocr_calls: 0`, a genuine
+  flattering zero the coverage counter caught.
+- `docs/resolved-bugs.md` #63: a malformed `ocr-service` response (a
+  stale, pre-Phase-0 image) crashed the whole turn instead of degrading
+  — `_format_ocr_detections` was called outside its own `try/except`.
+  Smoke #2 failed outright on a real internal-error notice.
+- `docs/resolved-bugs.md` #64: the filesystem MCP server (`read_file`)
+  could read the real DOM accessibility-tree snapshot `playwright-mcp`
+  writes to the shared downloads volume on every `browser_navigate` —
+  never gated, since the block list only ever named `browser_*` tools.
+  Smoke #3 passed clean on the aggregate, but a full raw-audit-entry
+  read (prompted by how precise the answer was) caught the model
+  successfully reading that snapshot verbatim mid-task.
+
+**Smoke #4, clean**: `visual_navigation_only_ocr_calls: 7` (vs. 1 on the
+leaking #3), and the model's own reasoning text states outright that
+`read_file` is not among its available functions — direct confirmation
+of the gate, not an inference from absence. 12 tool calls, 89.6s (vs.
+1-4 calls, <20s previously): the model visibly struggled with noisy OCR
+coordinates and an uncooperative native `<select>` before finding the
+correct answer — the "authentic capability-limit struggle" this phase's
+own judge was written to accept, not a red flag. No known leak remains.
 
 ## Phase 4 — Full v2 measurement (single variable: `VISUAL_NAVIGATION_ONLY`)
 
