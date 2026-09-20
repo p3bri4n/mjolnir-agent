@@ -923,3 +923,25 @@ anticipated for the real reconstruction problem, just hit first in a
 diagnostic script. Not yet re-run with the fix — the corrected-by-hand
 reading already answered point 1's question; a clean re-run would only
 confirm the same numbers via the tool now, not add new information.
+
+### 66. `scripts/probe-visual-mode-perception-harness.sh` — three fixture root URLs (`catalog`/`docs`/`perception`) served nginx's default page, not the real fixture content — CLOSED
+
+**Symptom, confirmed cause**: point 2 of the visual-mode optimization
+amendment, run across 6 pages — 3 of them
+(`catalog-listing`/`docs-listing`/`perception-root`) captured nginx's
+default page rather than any real fixture content, silently: the script
+guessed `http://fixture-catalog/`/`http://fixture-docs/`/
+`http://fixture-perception/` (bare root) instead of the real entry
+paths, which live under a subpath — same convention as
+`fixture-visual-probe`'s own `/visual-probe/` (see
+`probe-visual-snapshot-signal.sh`'s comment), just not checked against
+an existing reference before writing new URLs.
+
+**Fix**: URLs corrected to `/catalog`, `/docs`, `/perception` — read
+from `tests_integration/test_web_tasks.py`'s own `CATALOG_URL`/
+`DOCS_URL`/`PERCEPTION_URL` constants rather than guessed a second
+time. Not yet re-run against the fixed URLs — only 3 of the 6 pages
+were usable in the first pass (`hr-employees-table`, `hr-leave-form`,
+`admin-root`), which already surfaced real findings (see
+`docs/engineering-log.md`, "Effort 8: point 2 (offline perception
+harness) run").

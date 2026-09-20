@@ -56,10 +56,16 @@ done
 declare -A PAGES=(
   [hr-employees-table]="http://fixture-hr-app:5000/employees"
   [hr-leave-form]="http://fixture-hr-app:5000/leave-form"
-  [catalog-listing]="http://fixture-catalog/"
-  [docs-listing]="http://fixture-docs/"
+  # Root paths ("/") 404/serve nginx's default page on these three — the
+  # real content lives under a subpath, same convention as
+  # fixture-visual-probe's own /visual-probe/ (see
+  # probe-visual-snapshot-signal.sh's comment). Verified against
+  # tests_integration/test_web_tasks.py's own CATALOG_URL/DOCS_URL/
+  # PERCEPTION_URL rather than guessed a second time.
+  [catalog-listing]="http://fixture-catalog/catalog"
+  [docs-listing]="http://fixture-docs/docs"
   [admin-root]="http://fixture-admin:5000/"
-  [perception-root]="http://fixture-perception/"
+  [perception-root]="http://fixture-perception/perception"
 )
 
 capture_one() {

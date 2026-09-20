@@ -8305,3 +8305,54 @@ Script's own bug fixed (`docs/resolved-bugs.md` #65) — same repeated-
 value ambiguity the reconstruction amendment's point 3 already
 anticipated for the real problem, hit first in the diagnostic tool.
 **Point 1 closed.**
+
+## 2026-09-20 — Effort 8: point 2 (offline perception harness) run, form pages are a real gap in the reconstruction plan
+
+`scripts/probe-visual-mode-perception-harness.sh` run across 6 pages,
+user's machine; results read via a fork (analysis only, no code). 3 of 6
+(`catalog-listing`/`docs-listing`/`perception-root`) turned out to be a
+script bug — wrong root URLs, captured nginx's default page, not real
+content (`docs/resolved-bugs.md` #66, fixed, not yet re-run). Usable
+findings come from the other 3: `hr-employees-table`, `hr-leave-form`,
+`admin-root`.
+
+**`hr-employees-table`**: nothing new past point 1's own findings —
+vertical-interval-overlap row clustering and left-edge column clustering
+both read as workable on this page's real box data.
+
+**`hr-leave-form` and `admin-root` (both forms) surface a real gap the
+consultation's plan never covered**:
+- **Empty input fields have no OCR text at all** — the DOM shows a real
+  `textbox`/`spinbutton` at a real box (e.g. `box=138,106,177,21` for
+  "Nom de l'employé"), but nothing in the OCR output falls inside that
+  region: an empty field is, by definition, blank pixels. The
+  row/column reconstruction plan only ever clusters TEXT+box pairs — it
+  has nothing to cluster for a field with no visible content, so a
+  synthetic ref for it can't be derived the same way.
+- **PaddleOCR merges visually adjacent short strings into ONE
+  detection**, coarser than the DOM's own per-element boundaries: an
+  entire 6-link nav bar came back as a single OCR string spanning all
+  six labels; a `<select>`'s current-value text got fused with its own
+  label ("Motif : Choisir..." as one detection, not two). Column/row
+  clustering can't split a value the OCR stage already merged — the
+  granularity ceiling is set by OCR, not by the reconstruction logic on
+  top of it.
+- **Text-fidelity artifacts, seen on both pages, not a one-off**: accents
+  dropped ("Mettre à jour" → "Mettre a jour"), an em dash flattened to a
+  hyphen, and a stray `]` appended after some button labels
+  ("Envoyer]", "Mettre a jour]") — worth knowing about for anything that
+  string-matches OCR output exactly, though not diagnosed further here.
+
+**Reading**: the reconstruction plan (points 3-4 of the amendment) is
+sufficient AS DESIGNED for tabular pages, but incomplete for forms —
+two of the three usable pages in this sample were forms, so this isn't
+an edge case to shrug off. Before building points 3-4, the design needs
+an explicit rule for label-to-field association by geometric proximity
+(nearest empty region below/right of a label) and an acknowledgment
+that OCR-level text fusion is a hard floor the reconstruction layer
+cannot see past. Full detail and per-page evidence: fork analysis
+transcript (not persisted as a file — summarized here in full).
+
+**Not yet re-run**: the 3 fixed URLs (`docs/resolved-bugs.md` #66) still
+need a second pass before the harness's page sample is actually
+complete.

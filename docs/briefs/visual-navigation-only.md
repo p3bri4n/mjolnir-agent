@@ -308,6 +308,40 @@ data shows exactly why the consultation warned against matching by
 value or naive y-distance — even a small fixture page has non-unique
 column values throughout. Point 1 closed.
 
+**Point 2 result (2026-09-20)**: run across 6 pages
+(`scripts/probe-visual-mode-perception-harness.sh`). 3 of 6
+(`catalog-listing`/`docs-listing`/`perception-root`) hit a script bug —
+wrong root URLs, captured nginx's default page instead of real content
+(`docs/resolved-bugs.md` #66, fixed, not yet re-run). Usable findings
+from the other 3 (`hr-employees-table`, `hr-leave-form`, `admin-root`):
+
+- `hr-employees-table` confirms point 1's own reading — nothing new.
+- **Both form pages (`hr-leave-form`, `admin-root`) surface a real gap
+  points 3-4 as designed don't cover**: an empty input field has no OCR
+  text at all (blank pixels have nothing to detect), so there is no
+  text+box pair to cluster into a synthetic ref for it — the plan only
+  ever reconstructs from TEXT. Fields need a rule of their own: associate
+  an empty field to its label by geometric proximity (nearest field
+  below/right of the label's box), not by shared OCR content.
+- **PaddleOCR merges visually adjacent short strings into one
+  detection**, coarser than the DOM's own element boundaries: a 6-link
+  nav bar came back as a single OCR string spanning all six labels; a
+  `<select>`'s value got fused with its label. Row/column clustering
+  cannot split a value OCR already merged — this is a floor set by the
+  OCR stage, not something the reconstruction layer on top can fix.
+- **Text-fidelity artifacts on both form pages, not a one-off**: dropped
+  accents, a flattened em dash, a stray `]` after some button labels.
+
+**Reading**: points 3-4 are workable for tabular pages as designed, but
+incomplete for forms — 2 of the 3 usable pages in this sample were
+forms, not an edge case. Before building, add: (a) label→field
+association by proximity when the field itself has no OCR text, (b) an
+explicit acknowledgment that OCR-level text fusion is a hard ceiling the
+reconstruction logic cannot see past, regardless of clustering quality.
+**Point 2 substantively done, but its page sample isn't complete yet**
+— the 3 fixed URLs still need a re-run before treating the finding set
+as final.
+
 ## Phase 4 — Full v2 measurement (single variable: `VISUAL_NAVIGATION_ONLY`)
 
 Runs sequentially at the current `N_WORKERS=1` default — no dependency

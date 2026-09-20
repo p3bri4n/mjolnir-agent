@@ -1,0 +1,47 @@
+### Page
+- Page URL: http://fixture-hr-app:5000/leave-form
+- Page Title: Demande de congé
+### Snapshot
+```yaml
+- generic [active] [ref=e1] [box=8,8,1264,227]:
+  - navigation [ref=e2] [box=8,8,1264,18]:
+    - link "Employés" [ref=e3] [cursor=pointer] [box=8,8,64,17]:
+      - /url: /employees
+    - text: "|"
+    - link "Demande de congé" [ref=e4] [cursor=pointer] [box=83,8,123,17]:
+      - /url: /leave-form
+    - text: "|"
+    - link "Suivi des congés" [ref=e5] [cursor=pointer] [box=217,8,108,17]:
+      - /url: /leave-requests
+    - text: "|"
+    - link "Contacts" [ref=e6] [cursor=pointer] [box=336,8,56,17]:
+      - /url: /contacts
+    - text: "|"
+    - link "Demande spéciale" [ref=e7] [cursor=pointer] [box=403,8,117,17]:
+      - /url: /special-request
+    - text: "|"
+    - link "Export CSV" [ref=e8] [cursor=pointer] [box=531,8,79,17]:
+      - /url: /export/employees.csv
+  - heading "Demande de congé" [level=1] [ref=e9] [box=8,47,1264,37]
+  - generic [ref=e10] [box=8,106,1264,129]:
+    - generic [ref=e11] [box=8,107,307,17]:
+      - text: "Nom de l'employé :"
+      - textbox "Nom de l'employé :" [ref=e12] [box=138,106,177,21]
+    - generic [ref=e13] [box=8,129,210,17]:
+      - text: "Date de début :"
+      - textbox "Date de début :" [ref=e14] [box=109,127,108,24]
+    - generic [ref=e15] [box=8,153,192,17]:
+      - text: "Date de fin :"
+      - textbox "Date de fin :" [ref=e16] [box=92,151,108,24]
+    - generic [ref=e17] [box=8,175,168,17]:
+      - text: "Motif :"
+      - combobox "Motif :" [ref=e18] [box=57,175,119,19]:
+        - option "Choisir..." [selected] [box=0,0,0,0]
+        - option "Congés annuels" [box=0,0,0,0]
+        - option "Maladie" [box=0,0,0,0]
+        - option "Autre" [box=0,0,0,0]
+    - generic [ref=e19] [box=8,196,77,17]:
+      - text: "Urgent :"
+      - checkbox "Urgent :" [ref=e20] [box=69,197,13,13]
+    - button "Envoyer" [ref=e21] [box=8,214,65,21]
+```
