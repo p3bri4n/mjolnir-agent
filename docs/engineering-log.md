@@ -8010,3 +8010,66 @@ the strength of this measurement alone; a controlled, fixed-trajectory
 probe (D1-probe-style) on A1/A2/A4/T10 individually would be needed to
 separate the mechanism's real per-call effect from live-run trajectory
 noise, if a cleaner token verdict is wanted before deciding.
+
+## 2026-09-20 — Effort 8 (visual-navigation-only.md): Phase 1 design + Phase 2 build
+
+Brief written and committed before any code
+(`docs/briefs/visual-navigation-only.md`), per the brief-before-the-code
+rule. Effort 1 (cheap parallel campaigns) dropped as a hard prerequisite
+at explicit user request: the brief's Phase 4 full-suite measurement
+runs sequentially at the current `N_WORKERS=1` default instead, slower
+but not blocked in principle — `PLAN.md`'s effort 8 entry updated to
+record this.
+
+**Phase 1 (design), verified against the real `@playwright/mcp` catalog**
+(npm `0.0.82`, the package behind `mcp/playwright:latest` — fetched via
+`npm pack`, not assumed from memory): the coordinate action space already
+exists upstream (`browser_mouse_click_xy`/`_move_xy`/`_drag_xy`/`_down`/
+`_up`/`_wheel`) but is gated behind `--caps=vision`, absent from
+`docker-compose.yml` before this session. `browser_type` requires a DOM
+`target` and has no coordinate equivalent — typing under this mode goes
+through `browser_press_key` one character at a time, a structural cost
+recorded for Phase 4's judges, not a bug. Full tool classification (keep
+vs. hard-gate) decided against the real schema. A real leak found in
+existing plumbing: `_STABILIZE_AFTER_TOOLS` (`services/mcp-client/app/
+main.py:776`) auto-appends a DOM `browser_snapshot` after every
+`browser_navigate` call (Effort 4 point 1's "return resulting page
+state") — `browser_navigate` stays legitimate and used under this mode,
+so the leak had to be fixed, not just gated at the tool-schema level.
+
+**Phase 2 (build) delivered, unit-tested, not yet live-smoked**:
+- `docker-compose.yml`: `--caps=vision` on `playwright-mcp`;
+  `VISUAL_NAVIGATION_ONLY` (default `false`) + `OCR_SERVICE_URL` added to
+  `langgraph-agent`; `VISUAL_NAVIGATION_ONLY` added to `mcp-client`;
+  `ocr-service` added to `langgraph-agent`'s `depends_on` — its first
+  real caller since Effort 3's GhostDesk removal left it with zero.
+- `services/mcp-client/app/main.py`: the stabilization follow-up call is
+  `browser_take_screenshot` instead of `browser_snapshot` when the mode
+  is active — closes the leak above.
+- `services/langgraph-agent/app/graph.py`: `_visual_navigation_filter`
+  hides the DOM/introspection tools from the schema before `bind_tools`
+  when the mode is active, and hides the six vision-only coordinate
+  tools when it's not (default mode's schema weight unchanged — effort
+  1.1/1.2's -44.9% is not given back for free). `_ocr_replace_image_blocks`
+  converts every image block from mcp-client into its `ocr-service`
+  reading (text + bounding box) under the mode, wired into
+  `_call_mcp_tool`; logs a `visual_navigation_only` coverage entry only
+  on a real conversion (day-one trigger-rate counter, per CLAUDE.md's
+  measurement rules), degrades to a plain-text notice with no coverage
+  entry if `ocr-service` is unreachable — a stalled OCR call must not
+  stall the conversation.
+- `tests_integration/campaign_preflight.py`: `check_tools_schema` now
+  takes a `visual_navigation_only` flag (derived from the container's
+  real env in `run_preflight`, reusing the same `fetch_agent_env()` dict
+  already read for `check_agent_flags`) — without it, this mode's
+  deliberate, by-design schema difference would be misread as the exact
+  stale-cache desync this check exists to catch.
+- `test_web_tasks.py`/`test_web_tasks_v2.py`: `visual_navigation_only_
+  ocr_calls` counter threaded through `TaskResult`/`run_task`/the
+  campaign row dict, same discipline as `history_diff`'s own coverage
+  counters.
+
+Full suite: `langgraph-agent` 450 → 463 passed, `mcp-client` 64 → 65
+passed, 0 regressions. **Not yet live-smoked** (Phase 3 of the brief) —
+requires the actual Docker/GPU stack, outside this environment's reach;
+handed off to the user.

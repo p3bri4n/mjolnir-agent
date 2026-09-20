@@ -134,7 +134,17 @@ Judge: existing suites stay green with the flag off (default, unchanged
 behavior) — this phase's only judge, same bar every prior flag
 introduction in this project was held to.
 
-🧑 Checkpoint.
+🧑 Checkpoint passed (2026-09-20) — **delivered**: `--caps=vision` +
+`VISUAL_NAVIGATION_ONLY`/`OCR_SERVICE_URL` wiring (`docker-compose.yml`),
+mcp-client's stabilization leak fixed, langgraph-agent's schema filter +
+`_ocr_replace_image_blocks` OCR routing, `campaign_preflight.py`'s
+`check_tools_schema` made aware of the mode's by-design schema
+difference, coverage counter threaded through the harness. `langgraph-
+agent` suite 450 → 463 passed, `mcp-client` 64 → 65 passed, 0
+regressions. Full detail: `docs/engineering-log.md`, "Effort 8
+(visual-navigation-only.md): Phase 1 design + Phase 2 build". **Not
+live-smoked** — requires the real Docker/GPU stack, outside this
+environment's reach; Phase 3 below is for the user to run.
 
 ## Phase 3 — Live smoke (single task, n=1-3, before any full measurement)
 
