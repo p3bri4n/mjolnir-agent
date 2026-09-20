@@ -120,6 +120,17 @@ def test_campaign_env_flags_includes_reasoning_effort():
     assert "REASONING_EFFORT" in cp.CAMPAIGN_ENV_FLAGS
 
 
+def test_campaign_env_flags_includes_visual_navigation_only():
+    """Same class of gap as test_campaign_env_flags_includes_planning_mode
+    above, hit live: the visual-navigation-only-smoke campaign
+    (docs/briefs/visual-navigation-only.md, effort 8) ran with
+    VISUAL_NAVIGATION_ONLY=true (confirmed by the preflight check, which
+    reads EXPECTED_AGENT_FLAGS) but its own archived env_flags never
+    showed it — CAMPAIGN_ENV_FLAGS had not been updated. Regression
+    guard."""
+    assert "VISUAL_NAVIGATION_ONLY" in cp.CAMPAIGN_ENV_FLAGS
+
+
 def test_collect_env_flags_empty_dict_when_container_unreachable(monkeypatch):
     class _Result:
         returncode = 1
