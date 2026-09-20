@@ -134,10 +134,10 @@
       "n": 3
     },
     "T3_tableau_dynamique": {
-      "max": 8.2,
-      "median": 7.8,
-      "min": 7.3,
-      "n": 2
+      "max": 14.0,
+      "median": 14.0,
+      "min": 14.0,
+      "n": 1
     },
     "T4_recherche_multi_sauts": {
       "max": 53.2,
