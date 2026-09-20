@@ -198,6 +198,10 @@ _VISION_ONLY_TOOLS = {
     "browser_mouse_down",
     "browser_mouse_up",
     "browser_mouse_wheel",
+    # type_text (point 5): registered unconditionally in mcp-client (like
+    # browser_extract/browser_inspect), hidden from the model outside
+    # this mode by this same filter.
+    "type_text",
 }
 
 # URL-fabrication guardrail (Phase 1, see PLAN.md/docs/history.md — target
@@ -690,6 +694,39 @@ PEREMPTION_DIRECTIVE = (
     "cherches (« dernière version stable », « version actuelle »)."
 )
 
+# VISUAL_NAVIGATION_ONLY, point 6 (docs/briefs/visual-navigation-only.md):
+# guidance for the two structural gaps found live in this session's own
+# data — a native <select>'s popup options routinely have NO position at
+# all in the DOM (box=0,0,0,0, confirmed on fixture-hr-app/employees: a
+# screenshot cannot show what was never rendered in the page's own
+# compositing surface) and an empty form field has no OCR text to click
+# on. Static (VISUAL_NAVIGATION_ONLY never changes per-turn), computed
+# once at import time like the other directives above — empty string
+# outside this mode, byte-for-byte unchanged elsewhere. This is itself a
+# measured-behavior change (CLAUDE.md): whether the model actually
+# follows it needs its own read on the next live smoke, not assumed from
+# having written it.
+VISUAL_MODE_DIRECTIVE = (
+    (
+        "\nMode visuel seul actif : ta perception se limite à une lecture "
+        "OCR de la capture d'écran, regroupée en références stables "
+        "([r0c0], [r1c2]...) — clique avec browser_click_ref(ref), jamais "
+        "de coordonnées brutes. Pour taper du texte, utilise type_text "
+        "après avoir cliqué sur le champ (jamais browser_press_key "
+        "caractère par caractère). Pour un menu déroulant natif "
+        "(<select>) : clique pour lui donner le focus, puis navigue avec "
+        "browser_press_key (ArrowDown/ArrowUp ou la première lettre de "
+        "l'option), valide avec Enter — le POPUP de ses options n'apparaît "
+        "souvent PAS du tout sur une capture d'écran, ne cherche pas à "
+        "cliquer une option directement. Si un champ attendu près d'une "
+        "étiquette n'apparaît dans aucune référence OCR (champ vide, "
+        "invisible), essaie Tab depuis un élément voisin déjà focus "
+        "plutôt que de deviner sa position."
+    )
+    if VISUAL_NAVIGATION_ONLY
+    else ""
+)
+
 # Agent timezone (PLAN.md Phase 1, point 7a): from the host env (TZ, see
 # docker-compose.yml), default Europe/Paris (this deployment's timezone,
 # verified via `timedatectl` on the host — Docker containers do NOT
@@ -874,6 +911,37 @@ _MANAGE_PLAN_TOOL = {
     },
 }
 
+# VISUAL_NAVIGATION_ONLY, points 3-4 (docs/briefs/visual-navigation-
+# only.md): local synthetic tool, same architectural slot as
+# _MANAGE_PLAN_TOOL above — never reaches mcp-client's registry, resolved
+# directly in _execute_tool_calls against AgentState.visual_ref_map. Lets
+# the model click a stable ref from the last OCR reading instead of
+# reasoning over raw coordinates itself — also the fix for an approval-
+# tier readability problem: a human approver sees "browser_click_ref
+# (r7c3)", not "browser_mouse_click_xy(412, 338)".
+_VISUAL_CLICK_REF_TOOL_NAME = "browser_click_ref"
+_VISUAL_CLICK_REF_TOOL = {
+    "type": "function",
+    "function": {
+        "name": _VISUAL_CLICK_REF_TOOL_NAME,
+        "description": (
+            "Clique à l'endroit désigné par `ref` (ex. \"r2c1\"), une référence "
+            "tirée de la DERNIÈRE lecture OCR (\"[r2c1] \\\"texte\\\"\") — jamais de "
+            "coordonnées brutes. Une ref d'une capture PÉRIMÉE (page changée depuis) "
+            "échoue explicitement plutôt que de cliquer au mauvais endroit : reprends "
+            "une capture récente si besoin."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "ref": {"type": "string", "description": "Référence exacte, ex. \"r2c1\"."},
+            },
+            "required": ["ref"],
+            "additionalProperties": False,
+        },
+    },
+}
+
 
 # Planner JSON parsing (used by revise_plan, see _validate_plan_json
 # below): recognizes a possible ```json ... ``` / ``` ... ``` wrapper
@@ -977,7 +1045,7 @@ async def _fetch_verification_snapshot(objective: str) -> str:
     """
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            result, _ = await _call_mcp_tool(client, "browser_snapshot", {})
+            result, _, _ = await _call_mcp_tool(client, "browser_snapshot", {})
         truncated = _truncate_browser_result(result, BROWSER_TOOL_OUTPUT_MAX_CHARS, objective)
         blocks = truncated.get("content", [])
         texts = [b["text"] for b in blocks if isinstance(b, dict) and b.get("type") == "text"]
@@ -1073,6 +1141,13 @@ class AgentState(TypedDict):
     # where you actually are", not the whole navigation history which
     # would be less actionable.
     current_page_links: list
+    # VISUAL_NAVIGATION_ONLY, points 3-4 (docs/briefs/visual-navigation-
+    # only.md): ref -> (center_x, center_y) from the LATEST OCR
+    # reconstruction (_reconstruct_layout), resolved by browser_click_ref
+    # (_execute_tool_calls). Replaced WHOLE on every OCR conversion, never
+    # accumulated — a ref from a stale screenshot must fail loudly rather
+    # than resolve to a now-wrong position on a changed page.
+    visual_ref_map: dict
     # Counter of navigation attempts to an unobserved URL, blocked BEFORE
     # execution (see _check_navigate_url) — Phase 1 metric, not just a
     # silent brake.
@@ -1231,8 +1306,12 @@ async def _get_tools_schema() -> list:
 
 async def _get_bound_llm() -> ChatOpenAI:
     schema = await _get_tools_schema()
-    # Synthetic, non-MCP tool, see PLANNING_MODE above.
+    # Synthetic, non-MCP tools — see PLANNING_MODE above and
+    # VISUAL_NAVIGATION_ONLY (docs/briefs/visual-navigation-only.md,
+    # points 3-4) for _VISUAL_CLICK_REF_TOOL.
     extra_tools = [_MANAGE_PLAN_TOOL] if PLANNING_MODE == "merged" else []
+    if VISUAL_NAVIGATION_ONLY:
+        extra_tools = extra_tools + [_VISUAL_CLICK_REF_TOOL]
     if not schema:
         return llm.bind_tools(extra_tools) if extra_tools else llm
     # extra_tools FIRST (correction 2/2, fifth-condition diagnostic, see
@@ -1996,6 +2075,7 @@ async def call_llm(state: AgentState, config: dict) -> dict:
                 # superseded by the persistent-section redesign, not
                 # stacked with it.
                 f"{DOWNLOAD_DIRECTIVE}{BULK_CHECK_DIRECTIVE}{PEREMPTION_DIRECTIVE}"
+                f"{VISUAL_MODE_DIRECTIVE}"
                 f"{_date_directive()}{_merged_plan_directive(state)}"
             )
         )
@@ -2245,36 +2325,73 @@ def _split_image_blocks(result: dict) -> tuple[dict, list[dict]]:
     return {**result, "content": rest or "(voir image ci-dessous)"}, images
 
 
-def _format_ocr_detections(detections: list) -> str:
-    """Model-facing text (French, like every other tool-facing string in
-    this module — CLAUDE.md rule 11): one line per detection, its
-    bounding box then its text, so the model can target
-    browser_mouse_click_xy/_move_xy at the right pixel without ever
-    having seen the image itself."""
+def _reconstruct_layout(detections: list) -> tuple[str, dict]:
+    """VISUAL_NAVIGATION_ONLY, points 3-4 (docs/briefs/visual-navigation-
+    only.md): clusters OCR detections into rows by vertical INTERVAL
+    OVERLAP against each row's own first (anchor) box — not y-center
+    distance, confirmed live as necessary on fixture-hr-app's own
+    department column (different glyph heights give different box
+    centers on the same visual row). Columns are the left-to-right order
+    WITHIN each row, simplified from a global left/right-edge clustering:
+    every real table checked in this session's harness data has a
+    consistent column count per row, so position-within-row already
+    gives the right column index without that extra complexity.
+
+    Returns (model-facing text, ref -> (center_x, center_y)) — the
+    model reasons over stable `r{row}c{col}` refs, never raw coordinates;
+    browser_click_ref (_execute_tool_calls) resolves a ref back to a
+    clickable point.
+    """
     if not detections:
-        return "(aucun texte détecté par OCR sur cette capture)"
-    lines = [
-        f'[{d["x"]},{d["y"]},{d["width"]},{d["height"]}] "{d["text"]}" (confiance {d["confidence"]:.2f})'
-        for d in detections
-    ]
-    return 'Texte détecté (OCR) — [x,y,largeur,hauteur] "texte" (confiance) :\n' + "\n".join(lines)
+        return "(aucun texte détecté par OCR sur cette capture)", {}
+
+    rows: list[list[dict]] = []
+    for d in sorted(detections, key=lambda d: d["y"]):
+        for row in rows:
+            anchor = row[0]
+            overlap = min(d["y"] + d["height"], anchor["y"] + anchor["height"]) - max(d["y"], anchor["y"])
+            shorter = min(d["height"], anchor["height"])
+            if shorter > 0 and overlap > shorter * 0.5:
+                row.append(d)
+                break
+        else:
+            rows.append([d])
+
+    lines = []
+    ref_map: dict = {}
+    for row_idx, row in enumerate(rows):
+        for col_idx, d in enumerate(sorted(row, key=lambda d: d["x"])):
+            ref = f"r{row_idx}c{col_idx}"
+            ref_map[ref] = (d["x"] + d["width"] / 2, d["y"] + d["height"] / 2)
+            lines.append(f'[{ref}] "{d["text"]}"')
+    header = (
+        'Texte détecté (OCR), regroupé en lignes/colonnes — [ref] "texte" ; '
+        "clique avec browser_click_ref(ref) :\n"
+    )
+    return header + "\n".join(lines), ref_map
 
 
 async def _ocr_replace_image_blocks(
     client: httpx.AsyncClient, content: list, thread_id: Optional[str], tool_name: str
-) -> list:
+) -> tuple[list, dict]:
     """VISUAL_NAVIGATION_ONLY (docs/briefs/visual-navigation-only.md):
     replaces every image block (a real screenshot — an explicit
     browser_take_screenshot call, or mcp-client's own stabilization
-    follow-up after browser_navigate, see services/mcp-client/app/
-    main.py) with its OCR reading, text + bounding box, nothing else the
-    model can see. Never raises: ocr-service unreachable degrades to a
-    plain-text notice in place of the image, same fail-open posture as
-    _get_tools_schema above — a stalled OCR call must not stall the whole
-    conversation.
+    follow-up after browser_navigate/browser_mouse_click_xy, see
+    services/mcp-client/app/main.py) with its OCR reading, reconstructed
+    into rows/columns with stable refs (_reconstruct_layout), nothing
+    else the model can see. Never raises: ocr-service unreachable
+    degrades to a plain-text notice in place of the image, same
+    fail-open posture as _get_tools_schema above — a stalled OCR call
+    must not stall the whole conversation.
+
+    Returns (content with images replaced, ref -> coordinates from the
+    LAST image converted this call — _execute_tool_calls persists it
+    into AgentState.visual_ref_map, replacing any prior map whole).
     """
     out = []
     ocr_calls = 0
+    ref_map: dict = {}
     for block in content:
         if not (isinstance(block, dict) and block.get("type") == "image"):
             out.append(block)
@@ -2286,11 +2403,11 @@ async def _ocr_replace_image_blocks(
             )
             resp.raise_for_status()
             detections = resp.json()
-            text = _format_ocr_detections(detections)
+            text, ref_map = _reconstruct_layout(detections)
         # KeyError/TypeError (resolved-bugs.md #63): ocr-service is a
         # separate deployable, its response shape is a real system
         # boundary, not an internal invariant — a stale image (missing
-        # the x/y/width/height fields _format_ocr_detections expects) or
+        # the x/y/width/height fields _reconstruct_layout expects) or
         # any other malformed body must degrade this ONE image, never
         # crash the whole turn.
         except (httpx.HTTPError, ValueError, KeyError, TypeError):
@@ -2308,7 +2425,7 @@ async def _ocr_replace_image_blocks(
         # confirms the mode was genuinely active for the run it's judged
         # on, not a flattering zero.
         audit_log.log_message(thread_id or "", "visual_navigation_only", {"tool": tool_name, "ocr_calls": ocr_calls})
-    return out
+    return out, ref_map
 
 
 async def _call_mcp_tool(
@@ -2317,7 +2434,7 @@ async def _call_mcp_tool(
     args: dict,
     thread_id: Optional[str] = None,
     worker_id: Optional[str] = None,
-) -> tuple[dict, list]:
+) -> tuple[dict, list, dict]:
     """
     Single HTTP call to mcp-client:/call, factored out between
     _execute_tool_calls (tool_calls decided by the LLM) and
@@ -2338,6 +2455,13 @@ async def _call_mcp_tool(
     common case — interactive Open WebUI, a non-parallel campaign) falls
     back to mcp-client's own "default" bucket, identical to pre-effort-1.3
     behavior.
+
+    Third return value (VISUAL_NAVIGATION_ONLY points 3-4, docs/briefs/
+    visual-navigation-only.md): ref -> coordinates from this call's own
+    OCR reconstruction, if any — empty outside this mode or when the
+    result carried no image. Callers persist it into
+    AgentState.visual_ref_map so a later browser_click_ref can resolve
+    it; unused (and harmless to discard) by callers that don't.
     """
     try:
         resp = await client.post(
@@ -2347,13 +2471,16 @@ async def _call_mcp_tool(
         resp.raise_for_status()
         result = resp.json()
     except httpx.HTTPError as exc:
-        return {"error": str(exc)}, []
+        return {"error": str(exc)}, [], {}
     if VISUAL_NAVIGATION_ONLY:
         content = result.get("content")
+        ref_map: dict = {}
         if isinstance(content, list):
-            result = {**result, "content": await _ocr_replace_image_blocks(client, content, thread_id, tool_name)}
-        return result, []
-    return _split_image_blocks(result)
+            content, ref_map = await _ocr_replace_image_blocks(client, content, thread_id, tool_name)
+            result = {**result, "content": content}
+        return result, [], ref_map
+    result, images = _split_image_blocks(result)
+    return result, images, {}
 
 
 async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
@@ -2409,6 +2536,11 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
     current_page_url = state.get("current_page_url")
     current_page_links = state.get("current_page_links") or []
     fabricated_attempts = 0
+    # VISUAL_NAVIGATION_ONLY, points 3-4 (docs/briefs/visual-navigation-
+    # only.md): browser_click_ref resolves against this, updated whole
+    # (never merged) whenever a call's own OCR conversion produces a
+    # fresh one — see the _call_mcp_tool dispatch below.
+    visual_ref_map = dict(state.get("visual_ref_map") or {})
     # Task objective (see _prioritize_affordances): the 1st human message,
     # for lack of explicit subtasks (full Phase 1 not done yet — this
     # finer breakdown will come with the planner node).
@@ -2503,8 +2635,33 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
 
             tier = approval_policy.effective_tier(tool_call["name"], tool_call.get("args"), grants)
 
+            # VISUAL_NAVIGATION_ONLY, point 4 (docs/briefs/visual-
+            # navigation-only.md): browser_click_ref never reaches
+            # mcp-client under its own name — resolved here to the real
+            # coordinate tool. Audit/approval identity stays
+            # browser_click_ref+ref (matches browser_extract's own
+            # precedent of auditing the high-level call, not its internal
+            # translation) — only dispatch_name/dispatch_args below
+            # substitute the resolved call.
+            dispatch_name, dispatch_args = tool_call["name"], tool_call.get("args") or {}
+            ref_error = None
+            if tool_call["name"] == "browser_click_ref":
+                ref = dispatch_args.get("ref", "")
+                coords = visual_ref_map.get(ref)
+                if coords is None:
+                    ref_error = (
+                        f"ref inconnue ou expirée : {ref!r} — reprends une capture "
+                        "récente (browser_navigate/browser_take_screenshot) avant de "
+                        "cliquer par ref, les refs ne survivent pas à un changement de page."
+                    )
+                else:
+                    dispatch_name, dispatch_args = "browser_mouse_click_xy", {"x": coords[0], "y": coords[1]}
+
             blocked = False
-            if (
+            if ref_error:
+                result = {"content": [{"type": "text", "text": ref_error}]}
+                images = []
+            elif (
                 BROWSER_NAVIGATE_GUARDRAIL
                 and has_prior_navigation
                 and tool_call["name"] == "browser_navigate"
@@ -2521,9 +2678,11 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
                 result = {"content": [{"type": "text", "text": feedback}]}
                 images = []
             else:
-                result, images = await _call_mcp_tool(
-                    client, tool_call["name"], tool_call["args"], thread_id, worker_id
+                result, images, new_ref_map = await _call_mcp_tool(
+                    client, dispatch_name, dispatch_args, thread_id, worker_id
                 )
+                if new_ref_map:
+                    visual_ref_map = new_ref_map
                 if tool_call["name"].startswith("browser_"):
                     result = _truncate_browser_result(result, BROWSER_TOOL_OUTPUT_MAX_CHARS, objective)
                     for block in result.get("content", []) if isinstance(result.get("content"), list) else []:
@@ -2589,6 +2748,12 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
         # already was (nothing else in "nodes" mode ever sets it).
         result_dict["plan"] = plan
         result_dict["subtask_message_start"] = subtask_message_start
+    if visual_ref_map != (state.get("visual_ref_map") or {}):
+        # VISUAL_NAVIGATION_ONLY only (see the _call_mcp_tool dispatch
+        # above) — every other mode never produces a fresh ref_map, so
+        # this key stays absent and state["visual_ref_map"] is untouched,
+        # same discipline as "plan" above.
+        result_dict["visual_ref_map"] = visual_ref_map
     return result_dict
 
 
@@ -2743,7 +2908,7 @@ async def run_slash_command_direct(state: AgentState, config: dict) -> dict:
     worker_id = config.get("configurable", {}).get("worker_id")
 
     async with httpx.AsyncClient(timeout=60) as client:
-        result, images = await _call_mcp_tool(client, tool_name, args, thread_id, worker_id)
+        result, images, ref_map = await _call_mcp_tool(client, tool_name, args, thread_id, worker_id)
 
     audit_log.log_tool_call(thread_id, tool_name, args, tier, result)
 
@@ -2781,11 +2946,14 @@ async def run_slash_command_direct(state: AgentState, config: dict) -> dict:
     # second time.
     new_messages.append({"role": "assistant", "content": _format_tool_result_as_text(result)})
 
-    return {
+    result_state = {
         "messages": new_messages,
         "tool_iterations": state["tool_iterations"] + 1,
         "slash_command_image_shown": bool(images),
     }
+    if ref_map:
+        result_state["visual_ref_map"] = ref_map
+    return result_state
 
 
 async def _route_entry(state: AgentState) -> str:

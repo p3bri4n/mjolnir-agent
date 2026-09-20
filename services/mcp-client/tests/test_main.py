@@ -797,6 +797,24 @@ def test_browser_click_triggers_stabilization_wait(monkeypatch):
     assert calls[-1] == ("browser_snapshot", {})
 
 
+def test_browser_mouse_click_xy_triggers_stabilization_wait(monkeypatch):
+    """VISUAL_NAVIGATION_ONLY point 7 (docs/briefs/visual-navigation-
+    only.md): the resolved dispatch behind browser_click_ref
+    (app/graph.py) gets the same "return resulting state" treatment as
+    browser_click."""
+    import app.main as main_mod
+
+    main_mod._tool_registry.clear()
+    _register_fake_browser_tool(main_mod, "browser_mouse_click_xy", ["x", "y"])
+    calls = _patch_run_on_server_recording(main_mod, monkeypatch)
+
+    resp = _client().post("/call", json={"tool": "browser_mouse_click_xy", "arguments": {"x": 10, "y": 20}})
+
+    assert resp.status_code == 200
+    assert calls[-2] == ("browser_wait_for", {"time": main_mod.BROWSER_STABILIZE_WAIT_SECONDS})
+    assert calls[-1] == ("browser_snapshot", {})
+
+
 def test_browser_snapshot_does_not_trigger_stabilization_wait(monkeypatch):
     """Seuls navigate/click déclenchent le délai — un simple snapshot ne
     change pas la page, rien à stabiliser derrière lui."""
@@ -1116,6 +1134,43 @@ def test_browser_inspect_with_target_dispatches_single_element_template(browser_
     assert resp.status_code == 200
     text = resp.json()["content"][0]["text"]
     assert text == main_mod._BROWSER_INSPECT_JS_SINGLE
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# type_text (VISUAL_NAVIGATION_ONLY point 5, docs/briefs/
+# visual-navigation-only.md): types into document.activeElement via a
+# fixed JS template, no target/ref — the coordinate equivalent of
+# browser_type that @playwright/mcp itself never exposes.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def test_build_type_text_function_embeds_text_as_escaped_json_string():
+    """Fonction pure : même convention d'échappement que
+    _build_extract_function — jamais de concaténation brute."""
+    import app.main as main_mod
+
+    js = main_mod._build_type_text_function('") ; alert(1); ("')
+    assert json.dumps('") ; alert(1); ("') in js
+    assert js.count("const text =") == 1
+    assert "document.activeElement" in js
+
+
+def test_type_text_is_registered_when_browser_server_present(browser_evaluate_echo_server):
+    resp = _client().get("/tools/schema")
+    names = {t["function"]["name"] for t in resp.json()["tools"]}
+    assert "type_text" in names
+
+
+def test_type_text_dispatches_to_browser_evaluate_with_fixed_template(browser_evaluate_echo_server):
+    """Le serveur de test renvoie tel quel le JS reçu — vérifie le
+    dispatch SANS dépendre d'un vrai navigateur ni d'un vrai champ focus."""
+    import app.main as main_mod
+
+    resp = _client().post("/call", json={"tool": "type_text", "arguments": {"text": "Léa"}})
+    assert resp.status_code == 200
+    text = resp.json()["content"][0]["text"]
+    assert text == main_mod._build_type_text_function("Léa")
+    assert json.dumps("Léa") in text
 
 
 # ─────────────────────────────────────────────────────────────────────────

@@ -105,6 +105,7 @@ _VISION_ONLY_TOOLS = {
     "browser_mouse_down",
     "browser_mouse_up",
     "browser_mouse_wheel",
+    "type_text",
 }
 
 # Self-hosted fixtures (docker-compose.yml, profile "test-fixtures") targeted
