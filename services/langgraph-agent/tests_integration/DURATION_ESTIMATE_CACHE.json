@@ -134,9 +134,9 @@
       "n": 3
     },
     "T3_tableau_dynamique": {
-      "max": 14.0,
-      "median": 14.0,
-      "min": 14.0,
+      "max": 3.3,
+      "median": 3.3,
+      "min": 3.3,
       "n": 1
     },
     "T4_recherche_multi_sauts": {

@@ -1,0 +1,118 @@
+{
+  "metadata": {
+    "campaign_prefill_stats": {
+      "cache_zero_requests": 0,
+      "prefill_seconds": 0.4,
+      "prompt_tokens_total": 4312,
+      "tabbyapi_requests": 1
+    },
+    "commit": "7718b8cf9dc9e6db3645958cd2178e8869891943",
+    "ended_at": "2026-09-20T10:48:10.925494+00:00",
+    "env_flags": {
+      "ADAPTIVE_THINKING": "false",
+      "AFFORDANCE_THRESHOLD": "60",
+      "APPROVAL_RULES_PATH": "",
+      "AUDIT_LOG_MAX_BYTES": "20971520",
+      "AUTO_APPROVAL_STREAK_LIMIT": "6",
+      "AUTO_APPROVED_TOOLS": "",
+      "BROWSER_NAVIGATE_GUARDRAIL": "true",
+      "BROWSER_TOOL_OUTPUT_MAX_CHARS": "8000",
+      "CAMPAIGN_VISUAL_CAPTURE": "true",
+      "EPISODE_COMPACTION_ENABLED": "false",
+      "EPISODE_COMPACTION_TURN_THRESHOLD": "40",
+      "FABRICATION_LIMIT": "5",
+      "HISTORY_DIFF_ENABLED": "true",
+      "IMAGE_FORMAT_PASSTHROUGH": "",
+      "IMAGE_TOKEN_ESTIMATE": "1500",
+      "LLM_MAX_TOKENS": "2048",
+      "MAX_EMPTY_ANSWER_RETRIES": "1",
+      "MAX_IMAGES_IN_CONTEXT": "1",
+      "MAX_TOOL_ITERATIONS": "20",
+      "NEVER_GRANTABLE_TOOLS_EXTRA": "",
+      "PLANNER_MAX_TOKENS": "8192",
+      "PLANNER_THINKING_ENABLED": "false",
+      "PLANNING_MODE": "nodes",
+      "PLAN_VALIDATION_ENABLED": "true",
+      "REASONING_EFFORT": "medium",
+      "TZ": "Europe/Paris",
+      "VISUAL_NAVIGATION_ONLY": "true"
+    },
+    "gpu_devices": [
+      {
+        "bus_id": "00000000:04:00.0",
+        "index": 0,
+        "memory_used_mib": 11859.0,
+        "name": "NVIDIA GeForce RTX 5060 Ti"
+      },
+      {
+        "bus_id": "00000000:08:00.0",
+        "index": 1,
+        "memory_used_mib": 11697.0,
+        "name": "NVIDIA GeForce RTX 4070 Ti SUPER"
+      }
+    ],
+    "image_ids": {
+      "langgraph-agent": "sha256:d458d50a0719805cddc218a83b544427c5c75b65e215031dd613552f24a26fbd",
+      "mcp-client": "sha256:df6634fff30ea1a60bf1c8d48468a0efa37fc83effc6b5e318629860ee163760",
+      "playwright-mcp": "sha256:8771dc4666e7c11440bfc6a0c6b00480e9a15b8891b45f29a52d7d995f8d1492",
+      "tabbyapi": "sha256:2f3741089a48c92dca9e50af976d33403c5b93dd56a5b8d3f7e6806538f8c72b"
+    },
+    "label": "visual-navigation-only-smoke-2",
+    "started_at": "2026-09-20T10:48:07.171862+00:00",
+    "tabbyapi_model_id": "qwen3.8-27b-exl3-4.50bpw"
+  },
+  "runs": [
+    {
+      "approvals": 1,
+      "cache_zero_requests": 0,
+      "cup": null,
+      "detail": "attendu 'Léa Fontaine'",
+      "duration_seconds": 3.3,
+      "episode_compaction_applied_count": 0,
+      "episode_compaction_messages_max": 1,
+      "fabricated_urls": [],
+      "failure_cause": "infra",
+      "final_text": "⚠️ Erreur interne pendant la génération, réessayez.",
+      "history_diff_applied_count": 0,
+      "history_diff_browser_messages_max": 0,
+      "history_diff_messages_replaced": 0,
+      "history_diff_redundancy_density_max": 0.0,
+      "merged_plan_attempted": 0,
+      "merged_plan_calls": 0,
+      "merged_plan_completions": 0,
+      "merged_plan_heuristic_rejections": 0,
+      "merged_plan_initial_subtask_count": null,
+      "merged_plan_replans": 0,
+      "plan_initial_subtask_count": null,
+      "plan_trivial": null,
+      "prefill_seconds": 0.4,
+      "prompt_tokens_total": 4312,
+      "repetition": 1,
+      "replan_events": 0,
+      "segment": 0,
+      "success": false,
+      "tabbyapi_raw_samples": [
+        {
+          "cached_tokens": 4096,
+          "draft_accepted": 43,
+          "draft_total": 48,
+          "generation_seconds": 0.62,
+          "new_tokens": 216,
+          "process_speed_tps": 540.0,
+          "queue_seconds": null,
+          "tokens_generated": 55
+        }
+      ],
+      "tabbyapi_requests": 1,
+      "task_id": "T3_tableau_dynamique",
+      "thread_id": "e0d8154d7aec4720",
+      "tool_calls_observed": 1,
+      "validation_heuristic_rejections": 0,
+      "validation_judge_invocations": 0,
+      "validation_judge_vetoes": 0,
+      "verification_exploitable": 0,
+      "verification_opportunities": 0,
+      "visual_navigation_only_ocr_calls": 0
+    }
+  ]
+}
