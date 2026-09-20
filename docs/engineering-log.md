@@ -8356,3 +8356,21 @@ transcript (not persisted as a file — summarized here in full).
 **Not yet re-run**: the 3 fixed URLs (`docs/resolved-bugs.md` #66) still
 need a second pass before the harness's page sample is actually
 complete.
+
+## 2026-09-20 — Effort 8: point 5's implementation path clarified (user finding)
+
+User pointed out Playwright's own `page.keyboard.type(string)`/
+`.down()`/`.up()` primitives directly. Checked against `@playwright/mcp`'s
+own README (already fetched for Phase 1): confirmed neither is wrapped
+as a standalone tool — every tool in the catalog is built around a
+`ref`/`target` or a single key (`browser_press_key`), and
+target-less bulk typing fits neither shape, so this is a real gap to
+build, not a missed config flag. Implementation path recorded in
+`docs/briefs/visual-navigation-only.md`'s point 5: same pattern as
+`browser_extract`/`browser_inspect` (fixed JS template, dispatched
+internally to `browser_evaluate`, never model-supplied code) — the
+model only ever sees `type_text(text)`, so this doesn't reopen the leak
+`docs/resolved-bugs.md` #64 just closed. Caveat named for later
+verification: simulated DOM events lack the fidelity of Playwright's
+real OS-level keystrokes on some JS-framework-controlled inputs. No
+code written — point 5 remains unscheduled per the standing checkpoint.

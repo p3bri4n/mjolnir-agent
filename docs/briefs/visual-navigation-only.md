@@ -253,6 +253,22 @@ gets built.
    character-at-a-time cost is an artifact of which tools are enabled,
    not a property of visual-only perception. Basic keyboard nav
    (Tab/arrows/Enter/modifiers) alongside it, same reasoning.
+   **Implementation path clarified (user finding, 2026-09-20)**:
+   Playwright's own `page.keyboard.type(string)`/`.down()`/`.up()` are
+   real primitives, but `@playwright/mcp` never wraps them as a
+   standalone, target-less tool — every tool in its catalog is built
+   around a `ref`/`target` or a single key, `keyboard.type()` fits
+   neither shape, so this isn't configurable, it has to be built. Same
+   pattern as `browser_extract`/`browser_inspect`: a synthetic
+   `mcp-client` tool, fixed JS template (never model-supplied code),
+   dispatched internally to `browser_evaluate` — writes into
+   `document.activeElement` via simulated `input`/`keydown` events. The
+   model only ever sees `type_text(text)`, never `browser_evaluate`
+   itself, so this doesn't reopen the leak just closed. **Caveat to
+   verify empirically before trusting it**: simulated DOM events don't
+   have the same fidelity as Playwright's real OS-level `keyboard.type`
+   — some JS-framework-controlled inputs may not respond to synthetic
+   events the same way real keystrokes would.
 6. Native `<select>` handling via keyboard after a focusing click
    (arrow keys or first-letter typing, then Enter), verified against the
    collapsed widget's own visible label — WITH an explicit fallback: if
