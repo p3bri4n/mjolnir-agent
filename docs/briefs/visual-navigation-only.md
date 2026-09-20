@@ -40,50 +40,91 @@ this mode — visual-only interaction needs something to click.
 
 🧑 Checkpoint: response shape reviewed before anything calls it.
 
-## Phase 1 — Design the mode and its action space
+## Phase 1 — Design the mode and its action space (CLOSED, decisions below)
+
+Verified against the real `@playwright/mcp` catalog (npm `0.0.82`, the
+package behind `mcp/playwright:latest` — cross-check against the actual
+running container's version at Phase 2 build time, this was read from
+the published package, not `docker exec`) rather than assumed from
+memory. Full inventory: `npm view @playwright/mcp` /
+`npm pack @playwright/mcp` and its bundled `README.md`.
 
 1. **New env var** `VISUAL_NAVIGATION_ONLY` (default `false`, unchanged
    behavior — same convention as `HISTORY_DIFF_ENABLED`/
-   `REASONING_EFFORT`).
-2. **No cheating — the mode's defining constraint, stated explicitly**:
-   nothing the model receives or can call may expose information a
-   sighted human looking only at the rendered screenshot would not have.
-   Perception is `browser_take_screenshot` routed through `ocr-service`
-   (text + bounding box), nothing else. When active, this mode must make
-   genuinely UNAVAILABLE (not just discourage via a description) every
-   tool that reads the DOM/accessibility tree or executes/inspects page
-   internals: `browser_snapshot`, `browser_extract`, `browser_evaluate`,
-   `browser_inspect` at minimum — enumerate the FULL current tool catalog
-   against this criterion at design time, don't assume this list is
-   exhaustive (`playwright-mcp`'s schema may expose others; verify against
-   the installed catalog, CLAUDE.md rule 8, don't work from memory of
-   what the catalog contained last time it was audited).
-3. **Action space**: interaction tools need a coordinate-based
-   counterpart (click/type at `x,y` rather than by `ref=`) — the one
-   capability a human-at-a-screenshot legitimately has that pure OCR
-   output doesn't provide for free. Verify what `playwright-mcp`'s
-   installed schema already exposes for coordinate-based mouse actions
-   before assuming a new tool is needed. Existing selector-based tools
-   (`browser_click`, `browser_navigate`'s ref-targeted variants, etc.)
-   must be unavailable in this mode, same hard-gate treatment as point 2
-   — offering both action spaces at once would test "visual with a DOM
-   safety net", not "visual-only".
-4. **Guardrails carried over, not rebuilt**: URL-fabrication guardrail,
+   `REASONING_EFFORT`). Set on BOTH `langgraph-agent` (schema filtering,
+   point 3) and `mcp-client` (point 4's stabilization fix) — a whole
+   operating mode, not a per-thread/per-request toggle, so a static env
+   var on both containers is the right shape; no new field threaded
+   through `CallRequest`/`ChatCompletionRequest` the way `worker_id` was.
+2. **No cheating — the mode's defining constraint**: nothing the model
+   receives or can call may expose information a sighted human looking
+   only at the rendered screenshot would not have. Perception is
+   `browser_take_screenshot` routed through `ocr-service` (text +
+   bounding box), nothing else.
+3. **Tool-availability mechanism**: filter the tool schema BEFORE
+   `bind_tools()` in `langgraph-agent` when `VISUAL_NAVIGATION_ONLY` is
+   active — the model never sees a hard-gated tool in its schema at all,
+   not merely a description telling it not to call one (the softer form
+   already failed once for `manage_plan`'s adoption, see
+   `docs/engineering-log.md`, "EFFORT 2" closure — reuse that lesson,
+   don't re-learn it).
+4. **Full tool classification, decided**:
+   - **Kept**: `browser_navigate`, `browser_navigate_back`,
+     `browser_press_key`, `browser_wait_for`, `browser_handle_dialog`,
+     `browser_resize`, `browser_close`, `browser_tabs`,
+     `browser_take_screenshot`, `browser_file_upload` (native file
+     picker, no DOM ref — border case, revisit if a task ever exercises
+     it and it turns out to leak something), plus the six coordinate
+     tools below.
+   - **Coordinate action space, currently UNAVAILABLE — requires a
+     config change**: `browser_mouse_click_xy`/`_move_xy`/`_drag_xy`/
+     `_down`/`_up`/`_wheel` live under `playwright-mcp`'s `vision`
+     capability, opt-in via `--caps=vision` — absent from
+     `docker-compose.yml` today (`playwright-mcp`'s `command:` block has
+     no `--caps` at all). **Phase 2 must add `--caps=vision` to that
+     command list** before any of these tools exist to gate or to use.
+   - **Hard-gated when the mode is active**: `browser_snapshot`,
+     `browser_find` (searches the accessibility snapshot),
+     `browser_click`/`browser_hover`/`browser_drag`/`browser_drop`/
+     `browser_select_option`/`browser_type`/`browser_fill_form` (all
+     require a DOM `target` ref/selector), `browser_evaluate`,
+     `browser_run_code_unsafe` (already never-grantable, gated here too
+     for the same underlying reason), `browser_extract`/`browser_inspect`
+     (this project's own synthetic tools — `browser_inspect` dispatches
+     to `browser_evaluate` internally, `services/mcp-client/app/
+     main.py:802`), `browser_console_messages`, `browser_network_request`/
+     `browser_network_requests` (devtools-only visibility, not available
+     to a plain sighted human).
+5. **Known gap, accepted, not solved by a new tool**: no coordinate
+   equivalent of `browser_type` exists upstream — `browser_type` itself
+   requires a DOM `target`. Typing in this mode goes through
+   `browser_press_key`, one character at a time (it targets whatever the
+   real browser currently has focus on, no ref needed — legitimately
+   human-equivalent, just far more tool calls than one `browser_type`
+   call). This is a structural cost of the mode itself, not a bug to fix
+   — Phase 4's judges must read text-entry-heavy tasks with this in
+   mind, not treat the extra calls as a regression.
+6. **A real leak found in existing plumbing, must be fixed in Phase 2**:
+   `_STABILIZE_AFTER_TOOLS = {"browser_navigate", "browser_click"}`
+   (`services/mcp-client/app/main.py:776`) auto-appends a real
+   `browser_snapshot` after every `browser_navigate` call (Effort 4
+   point 1's "return resulting page state"). `browser_navigate` stays
+   legitimate and used in this mode, so this auto-append would leak DOM
+   content regardless of every other gate above. When
+   `VISUAL_NAVIGATION_ONLY` is active, this must attach an auto
+   `browser_take_screenshot`+`ocr-service` call instead of the DOM
+   snapshot.
+7. **Guardrails carried over, not rebuilt**: URL-fabrication guardrail,
    approval tiers, `NEVER_GRANTABLE_TOOLS`/`NEVER_GRANTABLE_TOOLS_EXTRA`
    — this mode changes perception and action granularity, not the
    security model. Confirm each still applies (tier is assigned by
    action nature, not by which tool triggered it).
-5. **Truncation**: `AFFORDANCE_THRESHOLD` and its neighbours were tuned
+8. **Truncation**: `AFFORDANCE_THRESHOLD` and its neighbours were tuned
    for DOM snapshot text; an OCR detection list is a different shape
    (short strings + four numbers each) — check whether existing
    truncation logic even applies here, don't assume it transfers.
 
-🧑 Checkpoint: design reviewed before any code — especially the
-tool-availability mechanism. An env-gated hard removal from the tool
-schema, not a description-only "don't use these" instruction: the
-softer form already failed once for `manage_plan`'s adoption (see
-`docs/engineering-log.md`, "EFFORT 2" closure) — reuse that lesson here
-rather than re-learning it.
+🧑 Checkpoint passed (2026-09-20) — design reviewed, Phase 2 may start.
 
 ## Phase 2 — Build, unit-tested
 
