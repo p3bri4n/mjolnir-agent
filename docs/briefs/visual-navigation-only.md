@@ -550,6 +550,20 @@ gaps this phase's own checkpoint named (`browser_click_ref` unexercised,
 Next: Phase 4 (full v2 measurement) — the only step left before this
 effort's headline number.
 
+**Naming clarification (user question, 2026-09-20)**: `browser_click_ref`'s
+`ref` parameter (`r{row}c{col}`, e.g. `r2c1`) is easy to mistake for
+`browser_snapshot`'s own `ref=eN` DOM/accessibility-tree references — it
+is NOT that. `r2c1` is an index purely into `_reconstruct_layout`'s own
+OCR-derived grid (row 2, column 1 of what the OCR detections clustered
+into); `_reconstruct_layout` only ever reads `detections` from
+`ocr-service`, which itself runs PaddleOCR on the screenshot's raw pixel
+array (`services/ocr-service/app/ocr_engine.py`) — no DOM/accessibility
+call anywhere in that chain. The two "ref" systems are structurally
+independent, sharing only the word. Naming considered too confusable as-is;
+a rename (e.g. `browser_click_cell`) was proposed but not decided —
+left as `browser_click_ref` for now, revisit if the ambiguity causes a
+real problem.
+
 ## Phase 4 — Full v2 measurement (single variable: `VISUAL_NAVIGATION_ONLY`)
 
 Runs sequentially at the current `N_WORKERS=1` default — no dependency
