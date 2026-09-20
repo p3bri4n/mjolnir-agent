@@ -327,8 +327,13 @@ whole operating mode with its own action space. Prerequisite: effort 3
 (done). Effort 1 (cheap parallel campaigns) is explicitly NOT a hard
 prerequisite — user decision (2026-09-20): the brief's Phase 4 full-suite
 measurement runs sequentially at the current `N_WORKERS=1` default,
-slower but not blocked in principle. **Not started** (brief written,
-no code yet).
+slower but not blocked in principle. **In progress**: Phases 0-3
+delivered (`--caps=vision`, schema filter, OCR routing, live smoke) —
+three real "no cheating" leaks found and fixed along the way
+(`docs/resolved-bugs.md` #62/#63/#64, each caught by reading the raw
+audit log, none pre-anticipated at design time). Phase 4 (full v2
+measurement, the headline number this effort exists to produce) not
+started.
 
 ### Backlog (not sequenced into an effort above)
 
