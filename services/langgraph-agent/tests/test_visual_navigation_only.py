@@ -122,6 +122,27 @@ async def test_ocr_replace_image_blocks_degrades_on_ocr_failure_no_coverage_logg
 
 
 @pytest.mark.asyncio
+async def test_ocr_replace_image_blocks_degrades_on_malformed_response_no_coverage_logged():
+    """docs/resolved-bugs.md #63, caught live: ocr-service is a separate
+    deployable — a stale image (missing x/y/width/height, the pre-Phase-0
+    response shape) or any other malformed body must degrade this one
+    image, never crash the whole turn."""
+    import app.audit_log as audit_log
+    import app.graph as g
+
+    content = [{"type": "image", "data": "ZmFrZQ==", "mimeType": "image/png"}]
+    with respx.mock(assert_all_called=True) as mock:
+        mock.post("http://fake-ocr-service/ocr").mock(
+            return_value=httpx.Response(200, json=[{"text": "OK", "confidence": 0.9}])  # missing x/y/width/height
+        )
+        async with httpx.AsyncClient() as client:
+            out = await g._ocr_replace_image_blocks(client, content, "thread-malformed", "browser_take_screenshot")
+
+    assert out == [{"type": "text", "text": "(OCR indisponible pour cette capture)"}]
+    assert audit_log.read_entries("thread-malformed") == []
+
+
+@pytest.mark.asyncio
 async def test_call_mcp_tool_routes_image_through_ocr_under_visual_navigation_only(monkeypatch):
     import app.graph as g
 

@@ -801,3 +801,42 @@ smoke (with both containers actually agreeing on the flag) is what
 confirms `_ocr_replace_image_blocks` genuinely engages. Full detail:
 `docs/engineering-log.md`, "Effort 8 (visual-navigation-only.md): Phase 1
 design + Phase 2 build" and its follow-up entry.
+
+### 63. `app/graph.py` (`_ocr_replace_image_blocks`) — `_format_ocr_detections` called outside the try/except crashed the whole turn on a malformed `ocr-service` response — CLOSED
+
+**Symptom, confirmed cause**: second live smoke of `VISUAL_NAVIGATION_ONLY`
+(re-run after #62's fix, same T3 task): `failure_cause=infra`, final
+answer replaced by the generic internal-error notice
+("⚠️ Erreur interne pendant la génération, réessayez") after a single
+`browser_navigate` call. Real traceback (`docker logs langgraph-agent`,
+provided by the user): `KeyError: 'x'` inside `_format_ocr_detections`,
+called from `_ocr_replace_image_blocks`. Root cause, two layers:
+1. **Immediate**: `ocr-service` was still running the PRE-Phase-0 image
+   — `docker compose build` had only been run for `mcp-client`/
+   `langgraph-agent` (the two services #62's fix touched), never for
+   `ocr-service` itself, so `POST /ocr` still returned the old
+   `{"text", "confidence"}` shape (no bounding box) from before this
+   effort's own Phase 0 (`docs/engineering-log.md`, same session). A
+   stale-image operational trap, same class CLAUDE.md's own list already
+   names — just on a service the smoke command didn't think to rebuild.
+2. **Structural**: `_format_ocr_detections(detections)` was called
+   OUTSIDE the `try/except` that wraps the HTTP call to `ocr-service` —
+   any malformed response body (missing keys, wrong types) propagated as
+   an uncaught exception all the way up through `_execute_tool_calls`/
+   `call_tools`, crashing the turn. `ocr-service` is a separate
+   deployable with its own release cycle — a real system boundary, not
+   an internal invariant this code is entitled to assume.
+
+**Fix**: `_format_ocr_detections`'s call moved inside the same
+`try/except`, which now also catches `KeyError`/`TypeError` alongside
+the existing `httpx.HTTPError`/`ValueError` — a malformed response
+degrades that one image to the same "(OCR indisponible pour cette
+capture)" text notice, never crashes the conversation. 1 new unit test
+(a response missing `x`/`y`/`width`/`height`, the exact pre-Phase-0
+shape that triggered this live). Full suite 466 → 467 passed.
+
+**Not yet re-smoked**: root cause #1 (stale `ocr-service` image) still
+needs a `docker compose build ocr-service` before the next attempt, on
+top of this code fix — otherwise the same malformed response would just
+degrade silently instead of crashing, masking that the image is still
+stale rather than confirming OCR conversion actually works.

@@ -2265,11 +2265,18 @@ async def _ocr_replace_image_blocks(
             )
             resp.raise_for_status()
             detections = resp.json()
-        except (httpx.HTTPError, ValueError):
+            text = _format_ocr_detections(detections)
+        # KeyError/TypeError (resolved-bugs.md #63): ocr-service is a
+        # separate deployable, its response shape is a real system
+        # boundary, not an internal invariant — a stale image (missing
+        # the x/y/width/height fields _format_ocr_detections expects) or
+        # any other malformed body must degrade this ONE image, never
+        # crash the whole turn.
+        except (httpx.HTTPError, ValueError, KeyError, TypeError):
             out.append({"type": "text", "text": "(OCR indisponible pour cette capture)"})
             continue
         ocr_calls += 1
-        out.append({"type": "text", "text": _format_ocr_detections(detections)})
+        out.append({"type": "text", "text": text})
     if ocr_calls:
         # Trigger-rate counter (CLAUDE.md measurement rules). Unlike
         # history_diff/episode_compaction's "log every call regardless of

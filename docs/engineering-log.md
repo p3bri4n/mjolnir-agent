@@ -8121,3 +8121,34 @@ regression guard on `CAMPAIGN_ENV_FLAGS`. Full `langgraph-agent` suite
 **Not yet re-smoked**: the fix closes the leak and the detection gap, but
 the mechanism's real engagement (`visual_navigation_only_ocr_calls > 0`
 on a re-run of the same task) has not been confirmed live yet.
+
+## 2026-09-20 — Effort 8: second live smoke, real internal error, second root cause found and fixed
+
+**Second smoke attempt** (`visual-navigation-only-smoke-2`, T3 only,
+n=1, after #62's fix rebuilt/recreated `mcp-client`/`langgraph-agent`):
+`env_flags.VISUAL_NAVIGATION_ONLY: true` now correctly recorded on both
+sides (confirms #62's cross-container fix holds), but the task failed
+outright — `failure_cause=infra`, final text replaced by the generic
+internal-error notice, after a single `browser_navigate` call.
+
+**Root cause, confirmed via the real traceback** (`docker logs
+langgraph-agent`, provided by the user): `KeyError: 'x'` in
+`_format_ocr_detections`, called from `_ocr_replace_image_blocks`. Two
+layers: (1) `ocr-service` itself was never rebuilt this session — only
+`mcp-client`/`langgraph-agent` were, per #62's own fix instructions — so
+it was still running the PRE-Phase-0 image, whose `POST /ocr` returns
+`{"text", "confidence"}` only, no bounding box; (2)
+`_format_ocr_detections`'s call sat OUTSIDE the function's own
+`try/except`, so ANY malformed response from `ocr-service` — a separate
+deployable, a real system boundary — crashed the whole turn instead of
+degrading just that one image.
+
+**Fixed**: the formatting call moved inside the `try/except`, which now
+also catches `KeyError`/`TypeError`. 1 new unit test. Full suite 466 →
+467 passed. Full detail: `docs/resolved-bugs.md` #63.
+
+**Not yet re-smoked**: `ocr-service` itself still needs `docker compose
+build ocr-service` before the next attempt — without it, the same
+malformed response would now degrade silently instead of crashing,
+which would LOOK like a clean pass while still never actually exercising
+the OCR conversion this effort exists to measure.
