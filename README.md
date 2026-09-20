@@ -49,7 +49,7 @@ core did nothing: [docs/lessons-learned.md](docs/lessons-learned.md).
 ## Requirements
 
 - **NVIDIA GPU(s), ~22 GB combined VRAM** for the shipped config (Qwen3.8-27B,
-  EXL3 4.50bpw, vision on, `cache_size: 65536`) — weights alone are ~18 GB
+  EXL3 4.50bpw, vision on, `cache_size: 81920`) — weights alone are ~18 GB
   (autosplit measurement, `docs/engineering-log.md`, "Qwen3.8-27B evaluation,
   Phase 2 partial"). `gpu_split_auto: true` (the shipped default) spreads
   this across however many GPUs are present; **weights alone already exceed
@@ -279,6 +279,13 @@ they are narrative and dated rather than current-state:
   `--force-recreate`**: application code (`entrypoint.sh` included) is
   baked into the image at build time. `docker compose build <service>`
   first, always, then `up -d --force-recreate <service>`.
+- **A `services/tabbyapi/config.yml` change doesn't take effect, even
+  after a clean `git pull` and `--force-recreate`**: check for a
+  `services/tabbyapi/config.local.yml` (gitignored, see
+  [docs/architecture/inference-backend.md](docs/architecture/inference-backend.md),
+  "GPU split") — if one exists, it's a full copy that `docker-compose.override.yml`
+  mounts INSTEAD of `config.yml`, and it silently stops tracking every
+  future change to the shared file. Diff the two and re-apply by hand.
 - **A campaign run fails immediately or hangs on the first task**: the
   fixture containers (`fixture-catalog`/`fixture-docs`/`fixture-hr-app`)
   are a separate opt-in profile, not started by `docker compose up -d`

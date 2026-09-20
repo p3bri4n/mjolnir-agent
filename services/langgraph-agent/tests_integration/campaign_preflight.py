@@ -74,11 +74,10 @@ FIXTURE_URLS = {
     "fixture-perception": "http://fixture-perception/",
 }
 
-# Effective flags control (docs/briefs/flags-du-coeur-cognitif.md, point
-# 2): expected values INSIDE THE RUNNING CONTAINER — the 4 cognitive-core
-# flags (default "true" now, see app/graph.py and docker-compose.yml) +
-# the other variables that drive measured behavior (attempt/replan
-# budgets, curbed thinking, tier overrides, truncation thresholds). List
+# Effective flags control (docs/briefs/archives/flags-du-coeur-cognitif.md,
+# point 2): expected values INSIDE THE RUNNING CONTAINER — the surviving
+# plan-validation flags plus the other variables that drive measured
+# behavior (curbed thinking, tier overrides, truncation thresholds). List
 # and values taken as-is from app/graph.py/app/approval_policy.py (never
 # guessed) — see CAMPAIGN_ENV_FLAGS (campaign_persistence.py) for the
 # same list of NAMES, reused here to avoid duplicating it. A value absent
@@ -88,25 +87,27 @@ FIXTURE_URLS = {
 EXPECTED_AGENT_FLAGS = {
     "MAX_TOOL_ITERATIONS": "20",
     "LLM_MAX_TOKENS": "2048",
-    # EFFORT 2.4 (docs/history.md "EFFORT 2 — DECISIVE MEASUREMENT"):
-    # defaults flipped back to "false" for PLANNER_ENABLED/
-    # VERIFICATION_ENABLED/PLAN_JUDGE_ENABLED — cfg1 (all off) never lost
-    # to cfg8 (all on, the previous default) at 43% less cumulative time.
+    # EFFORT 2.4 (docs/history.md "EFFORT 2 — DECISIVE MEASUREMENT"): the
+    # planner/verification/plan-judge nodes were REMOVED, not just
+    # disabled — cfg1 (all off) never lost to cfg8 (all on, the previous
+    # default) at 43% less cumulative time (docs/resolved-bugs.md #61).
     # PLAN_VALIDATION_ENABLED kept "true" (safety-value exception).
-    "PLANNER_ENABLED": "false",
     "PLANNER_MAX_TOKENS": "8192",
     "PLANNER_THINKING_ENABLED": "false",
-    "VERIFICATION_ENABLED": "false",
-    "SUBTASK_ATTEMPT_BUDGET": "3",
-    "REPLAN_BUDGET": "2",
     "PLAN_VALIDATION_ENABLED": "true",
-    "PLAN_JUDGE_ENABLED": "false",
     "PLANNING_MODE": "nodes",
     # Stale since 662bcba (2026-08-19) fixed docker-compose.yml's own
     # default from "true" to "false" to match app/graph.py's actual
     # Python-level default — this dict was never updated to match, see
     # docs/resolved-bugs.md #53.
     "ADAPTIVE_THINKING": "false",
+    # docs/briefs/archives/reasoning-effort-tuning.md — independent
+    # mechanism from ADAPTIVE_THINKING above. DEFAULT FLIPPED TO "medium"
+    # (2026-09-18, decisive measurement: 60/62 vs "xhigh"'s 57/62, -7.9%
+    # cumulative time) — docker-compose.yml's own default updated to
+    # match; app/graph.py's Python-level fallback stays "" (empty),
+    # unchanged, same pattern as PLANNER_ENABLED's own code-level default.
+    "REASONING_EFFORT": "medium",
     "MAX_IMAGES_IN_CONTEXT": "1",
     "IMAGE_FORMAT_PASSTHROUGH": "",
     "IMAGE_TOKEN_ESTIMATE": "1500",
@@ -121,7 +122,7 @@ EXPECTED_AGENT_FLAGS = {
     "AUDIT_LOG_MAX_BYTES": str(20 * 1024 * 1024),
     "EPISODE_COMPACTION_ENABLED": "false",
     "EPISODE_COMPACTION_TURN_THRESHOLD": "40",
-    "HISTORY_DIFF_ENABLED": "false",
+    "HISTORY_DIFF_ENABLED": "true",
 }
 
 

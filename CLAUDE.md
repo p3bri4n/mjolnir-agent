@@ -122,12 +122,15 @@ Any change to the following alters results and requires its own
 single-variable validation campaign:
 - system prompts and directives sent to the model (`GROUNDING_DIRECTIVE`,
   `DOWNLOAD_DIRECTIVE`, `BULK_CHECK_DIRECTIVE`, `PEREMPTION_DIRECTIVE`,
-  `PLANNER_SYSTEM_PROMPT`, `PLAN_JUDGE_SYSTEM_PROMPT`);
-- cognitive-core flags (`PLANNER_ENABLED`, `VERIFICATION_ENABLED`,
-  `PLAN_VALIDATION_ENABLED`, `PLAN_JUDGE_ENABLED`, `PLANNER_THINKING_ENABLED`),
-  budgets (`MAX_TOOL_ITERATIONS`, `SUBTASK_ATTEMPT_BUDGET`,
-  `REPLAN_BUDGET`), truncation thresholds (`AFFORDANCE_THRESHOLD`),
-  approval tiers;
+  `PLANNER_SYSTEM_PROMPT` — still used by `revise_plan`, see
+  `docs/resolved-bugs.md` #61);
+- the surviving plan-validation safety value (`PLAN_VALIDATION_ENABLED`,
+  `PLANNER_THINKING_ENABLED`, `PLANNER_MAX_TOKENS`), budgets
+  (`MAX_TOOL_ITERATIONS`), truncation thresholds (`AFFORDANCE_THRESHOLD`),
+  approval tiers. `PLANNER_ENABLED`/`VERIFICATION_ENABLED`/
+  `PLAN_JUDGE_ENABLED`/`PLAN_JUDGE_SYSTEM_PROMPT`/`SUBTASK_ATTEMPT_BUDGET`/
+  `REPLAN_BUDGET` were REMOVED, not just disabled — see
+  `docs/resolved-bugs.md` #61;
 - benchmark task prompts, assertions and fixtures — **frozen**: any change
   creates a new benchmark version, and cross-version comparisons are
   forbidden.
@@ -157,6 +160,17 @@ single-variable validation campaign:
   probe / `docker exec <service> env` check.
 - Effective configuration is read from `/proc/1/cmdline` or
   `docker exec … env`, never from the file.
+- A tracked config file can have a gitignored, machine-local override
+  sitting next to it (e.g. `services/tabbyapi/config.local.yml` next to
+  the tracked `config.yml`) that `docker-compose.yml` actually mounts —
+  invisible to every git-based check (branch, diff, pull all show a
+  clean, synced, correct tracked file while the effective config stays
+  untouched). A third drift source distinct from the env-var and
+  stale-image traps above — same fix: read the effective config from the
+  actual mounted file inside the container (`docker exec <service> cat
+  <path>`), never inferred from repo/git state. Hit on `tabbyapi`
+  (`config.local.yml`, `docs/engineering-log.md`, "D1 context-overflow
+  mitigation probe — max_seq_len/cache_size").
 - No campaign starts without a green preflight (tool schema, image
   freshness, effective flags, resets and purges). A campaign started on
   an unverified stack is void.

@@ -1,6 +1,6 @@
 """
 Non-régression : une erreur pendant `agent_graph.ainvoke` (ex. dépassement de
-contexte LLM) doit produire la même notice propre sur les TROIS chemins qui
+contexte LLM) doit produire une notice propre sur les TROIS chemins qui
 invoquent le graphe (streaming, non-streaming, /approve), jamais un 500 brut.
 
 Découvert en conditions réelles (tests_integration/test_web_tasks.py, tâches
@@ -9,9 +9,16 @@ T8/T11 sur des pages web réelles volumineuses) : le chemin streaming
 mais ni `/v1/chat/completions` non-streaming ni `/approve` ne l'avaient —
 `openai.BadRequestError: Prompt length ... exceeds the available context
 size` y remontait en 500 brut au lieu d'une réponse HTTP 200 avec une notice.
+
+Un dépassement de contexte réel (`code="context_length_exceeded"`) reçoit
+depuis sa propre notice distincte (`_error_notice_for`,
+docs/engineering-log.md "reasoning_effort tuning, Phase 2 follow-up") — un
+`REASONING_EFFORT=medium` D1 confirmation run avait vu ce cas retomber dans
+le bucket générique `failure_cause=infra`, masquant sa vraie cause.
 """
 
 import httpx
+import openai
 import pytest
 import respx
 
@@ -48,7 +55,7 @@ def mock_side_services():
 
 
 @pytest.mark.asyncio
-async def test_non_streaming_endpoint_reports_internal_error_notice(mock_side_services):
+async def test_non_streaming_endpoint_reports_context_overflow_notice(mock_side_services):
     import app.graph as g
     import app.main as main_mod
 
@@ -63,11 +70,21 @@ async def test_non_streaming_endpoint_reports_internal_error_notice(mock_side_se
         )
 
     assert resp.status_code == 200
-    assert resp.json()["choices"][0]["message"]["content"] == main_mod._INTERNAL_ERROR_NOTICE
+    # The mocked failure IS a context_length_exceeded 400 (see
+    # mock_side_services above) — must get the specific notice, not the
+    # generic one, so a future campaign's failure_cause reads
+    # "context_overflow" rather than "infra".
+    assert resp.json()["choices"][0]["message"]["content"] == main_mod._CONTEXT_OVERFLOW_NOTICE
+
+    import app.audit_log as audit_log
+
+    notices = [e for e in audit_log.read_entries() if e.get("kind") == "failure_notice"]
+    assert len(notices) == 1
+    assert notices[0]["cause"] == "context_overflow"
 
 
 @pytest.mark.asyncio
-async def test_approve_reports_internal_error_notice(mock_side_services):
+async def test_approve_reports_context_overflow_notice(mock_side_services):
     """
     /approve reprend un thread déjà en pause d'approbation : il faut d'abord
     l'y amener (1er appel non-streaming qui pause sur un tool_call sensible),
@@ -136,4 +153,94 @@ async def test_approve_reports_internal_error_notice(mock_side_services):
         )
 
     assert resp.status_code == 200
-    assert resp.json()["content"] == main_mod._INTERNAL_ERROR_NOTICE
+    assert resp.json()["content"] == main_mod._CONTEXT_OVERFLOW_NOTICE
+
+    import app.audit_log as audit_log
+
+    notices = [e for e in audit_log.read_entries() if e.get("kind") == "failure_notice"]
+    assert len(notices) == 1
+    assert notices[0]["cause"] == "context_overflow"
+
+
+@pytest.mark.asyncio
+async def test_non_streaming_endpoint_reports_generic_notice_for_unrelated_error(mock_side_services):
+    """Same 400 status, but NOT context_length_exceeded — must stay on the
+    generic notice. Confirms _error_notice_for actually discriminates
+    rather than treating every BadRequestError as a context overflow."""
+    import app.graph as g
+    import app.main as main_mod
+
+    g.agent_graph = g.build_graph()
+    main_mod.agent_graph = g.agent_graph
+
+    mock_side_services.post("http://fake-vllm/v1/chat/completions").mock(
+        return_value=httpx.Response(
+            400,
+            json={"error": {"message": "invalid schema", "type": "invalid_request_error", "code": "invalid_schema"}},
+        )
+    )
+
+    transport = httpx.ASGITransport(app=main_mod.app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/v1/chat/completions",
+            json={"model": "agent-llm", "messages": [{"role": "user", "content": "Salut"}], "stream": False},
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["choices"][0]["message"]["content"] == main_mod._INTERNAL_ERROR_NOTICE
+
+    import app.audit_log as audit_log
+
+    notices = [e for e in audit_log.read_entries() if e.get("kind") == "failure_notice"]
+    assert len(notices) == 1
+    assert notices[0]["cause"] == "infra"
+
+
+def test_error_notice_for_context_length_exceeded():
+    import app.main as main_mod
+
+    request = httpx.Request("POST", "http://fake-vllm/v1/chat/completions")
+    response = httpx.Response(400, request=request, json={})
+    exc = openai.BadRequestError(
+        "Prompt length 69510 exceeds the available context size of 32768 tokens",
+        response=response,
+        body={"code": "context_length_exceeded"},
+    )
+    assert main_mod._error_notice_for(exc) == main_mod._CONTEXT_OVERFLOW_NOTICE
+
+
+def test_error_notice_for_other_bad_request_error():
+    import app.main as main_mod
+
+    request = httpx.Request("POST", "http://fake-vllm/v1/chat/completions")
+    response = httpx.Response(400, request=request, json={})
+    exc = openai.BadRequestError(
+        "invalid schema", response=response, body={"code": "invalid_schema"}
+    )
+    assert main_mod._error_notice_for(exc) == main_mod._INTERNAL_ERROR_NOTICE
+
+
+def test_error_notice_for_non_openai_exception():
+    import app.main as main_mod
+
+    assert main_mod._error_notice_for(RuntimeError("connection reset")) == main_mod._INTERNAL_ERROR_NOTICE
+
+
+def test_error_cause_for_context_length_exceeded():
+    import app.main as main_mod
+
+    request = httpx.Request("POST", "http://fake-vllm/v1/chat/completions")
+    response = httpx.Response(400, request=request, json={})
+    exc = openai.BadRequestError(
+        "Prompt length 69510 exceeds the available context size of 32768 tokens",
+        response=response,
+        body={"code": "context_length_exceeded"},
+    )
+    assert main_mod._error_cause_for(exc) == "context_overflow"
+
+
+def test_error_cause_for_non_openai_exception():
+    import app.main as main_mod
+
+    assert main_mod._error_cause_for(RuntimeError("connection reset")) == "infra"

@@ -62,24 +62,21 @@ def _reset_audit_log_dir():
 
 
 @pytest.fixture(autouse=True)
-def _default_cognitive_core_flags_to_false(monkeypatch):
+def _default_plan_validation_to_false(monkeypatch):
     """
-    Défauts de PRODUCTION inversés à "true" (docs/briefs/
-    flags-du-coeur-cognitif.md — le cœur cognitif est mesuré et adopté,
-    voir app/graph.py). La quasi-totalité de la suite existante (boucle
-    d'outils de base, approbation, streaming...) mocke une séquence FIXE de
-    réponses sur /v1/chat/completions et n'a jamais visé ces mécanismes :
-    plutôt que d'ajouter `monkeypatch.setattr(g, "X_ENABLED", False)` dans
-    chacun de ces ~65 tests, cette fixture ramène le comportement de TEST au
-    défaut pré-cœur-cognitif — un test qui veut spécifiquement exercer un de
-    ces mécanismes continue de forcer explicitement sa propre valeur (déjà
-    le cas pour test_plan_task.py etc.), et cette valeur l'emporte : même
-    fixture `monkeypatch`, appliquée après celle-ci dans le corps du test.
+    PLAN_VALIDATION_ENABLED defaults to "true" in production (safety-value
+    exception kept after the rest of the cognitive core was removed, see
+    docs/resolved-bugs.md #61). The quasi-totality of the existing suite
+    (base tool loop, approval, streaming...) mocks a FIXED sequence of
+    /v1/chat/completions responses and never targeted this pipeline: rather
+    than adding `monkeypatch.setattr(g, "PLAN_VALIDATION_ENABLED", False)`
+    to every one of those tests, this fixture brings the TEST default back
+    to disabled — a test that specifically wants to exercise validate_plan
+    still forces its own value explicitly (see test_validate_plan_node.py),
+    and that value wins: same `monkeypatch` fixture, applied after this one
+    within the test body.
     """
     import app.graph as g
 
-    monkeypatch.setattr(g, "PLANNER_ENABLED", False)
-    monkeypatch.setattr(g, "VERIFICATION_ENABLED", False)
     monkeypatch.setattr(g, "PLAN_VALIDATION_ENABLED", False)
-    monkeypatch.setattr(g, "PLAN_JUDGE_ENABLED", False)
     yield

@@ -23,8 +23,13 @@ Phase 3 CLOSED".
 Config `services/tabbyapi/config.yml` (mounted read-only): key fields
 `model_dir`/`model_name` (HuggingFace-style directory of the EXL3 quant
 under `./models`, **not** a `.gguf` — see below), `backend: exllamav3`,
-`cache_mode`/`cache_size`/`max_seq_len` (to be tuned against the combined
-VRAM available across the two GPUs), `draft_model.draft_mode: mtp`,
+`cache_mode`/`cache_size`/`max_seq_len` (tuned against the combined VRAM
+available across the two GPUs — `max_seq_len: 40960`/`cache_size: 81920`
+since 2026-09-18, raised from 32768/65536 after a real
+`context_length_exceeded` on an exhaustive-verification task; `cache_size`
+deliberately kept at 2x `max_seq_len`, see the config file's own comment
+and `docs/engineering-log.md`, "D1 context-overflow mitigation probe —
+max_seq_len/cache_size"), `draft_model.draft_mode: mtp`,
 `tool_format`, and three deliberate deviations from TabbyAPI's defaults:
 `disable_auth: true` (internal `agent-net` network only, same trust model
 as `llama-server`/Ollama), `vision: true` (disabled by default even when
@@ -67,6 +72,17 @@ of `config.yml` with your own `gpu_split_auto: false` / `gpu_split: [...]`
 (`docker-compose.yml`, service `tabbyapi`) must stay set for the index
 order to be stable across restarts. `docker compose up -d --force-recreate
 tabbyapi` after any change (config is read at container start).
+
+**Drift risk, hit for real (2026-09-18)**: because it's a full copy, not
+an overlay of just `gpu_split`, `config.local.yml` silently stops
+tracking every OTHER value in `config.yml` too the moment it's created —
+a later shared change (e.g. `max_seq_len`/`cache_size`, see
+`docs/engineering-log.md`, "D1 context-overflow mitigation probe —
+max_seq_len/cache_size") lands in the tracked file but never reaches a
+machine with this override until someone manually re-applies it. No
+git-based check catches this (branch/diff/pull all look clean since the
+file is gitignored). If you have a `config.local.yml`, diff it against
+`config.yml` after pulling any change to the latter.
 
 **Why bother pinning it at all**: reproducible measurement. Whole-layer
 splitting means memory-per-card only settles once the loader has run, so
@@ -133,4 +149,24 @@ first turn (no previous tool_calls to evaluate) or as soon as a sensitive
 tool was involved in that previous turn: full reasoning keeps its full
 value there. Migrated off an earlier `/no_think` text-prefix mechanism,
 confirmed to have no effect on this backend — see
-`docs/briefs/qwen3.8-27b-evaluation.md`, Phase 1.
+`docs/briefs/archives/qwen3.8-27b-evaluation.md`, Phase 1. **Not adopted
+as a default on Qwen3.8**: a full-campaign measurement showed a real
+-21% cumulative time gain, but also a real, mechanistically-confirmed
+score regression on long-horizon multi-turn tasks (full suppression
+removes the model's ability to notice a dead end and self-correct — see
+`docs/engineering-log.md`, "ADAPTIVE_THINKING=true campaign").
+
+**Reasoning effort** (`REASONING_EFFORT`, env var, **default `medium`**
+since 2026-09-18): an independent mechanism from `ADAPTIVE_THINKING`
+above — caps HOW DEEP reasoning goes (`extra_body={"reasoning_effort":
+"xhigh" | "medium" | "low"}`, same bare-top-level-key wire convention as
+`enable_thinking`, confirmed empirically rather than assumed from the
+model's own Python example — see `docs/engineering-log.md`,
+"reasoning_effort tuning, Phase 0") rather than suppressing it entirely.
+Applied unconditionally on every `call_llm` invocation when set — no
+turn-based gate. Built as a candidate fix for the reliability regression
+above: keeps some deliberation on every turn instead of an all-or-
+nothing cut, and adopted after a decisive measurement (60/62 vs.
+`xhigh`'s own 57/62, -7.9% cumulative time, zero new `boucle` failures)
+— see `docs/briefs/archives/reasoning-effort-tuning.md` for the full
+history including the D1 confirmation that closed the one open wrinkle.

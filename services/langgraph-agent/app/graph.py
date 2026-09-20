@@ -4,10 +4,12 @@ LangGraph orchestration graph.
 Flow:
   1. retrieve_context   -> queries the Context Manager (RAG / memory)
   2. select_skill        -> queries the Skill Manager to inject a relevant skill prompt
-  3. plan_task            -> if PLANNER_ENABLED (Iteration 1, Phase 1 "cognitive
-     core", see docs/briefs/phase-1-coeur-cognitif.md), decomposes the
-     objective into JSON subtasks once per task; no-op otherwise or if
-     already planned (see AgentState.plan)
+  3. validate_plan        -> validates `state["plan"]` if PLAN_VALIDATION_ENABLED
+     and one exists (kept as a safety-value pipeline — see
+     revise_plan/require_plan_approval/reject_plan below — even though
+     the only current writer, PLANNING_MODE="merged"'s manage_plan tool,
+     does its own inline check and never reaches it in practice; no-op
+     otherwise, same flow as before this pipeline existed)
   4. call_llm             -> calls the inference backend (TabbyAPI by
      default, OpenAI-compatible API) with function calling
   6. has_tool_calls       -> routes to require_approval, or directly to
@@ -19,15 +21,9 @@ Flow:
   8. call_tools | auto_call_tools | reject_tools -> runs the tool via the
      MCP Client (same shared logic, see _execute_tool_calls), or
      synthesizes a refusal if the human refused. Both log to the audit
-     log (Phase 2, see app/audit_log.py) any tier other than TIER_READ.
-  9. verify_action        -> if VERIFICATION_ENABLED (Iteration 2, Phase 1
-     "cognitive core"), compares the turn's result to the active
-     subtask's success_criterion; no-op otherwise (loops straight back to
-     call_llm, as before this iteration) — see route_after_verification.
-  10. replan_task | report_failure -> if a subtask is marked
-     "echoue": replans (REPLAN_BUDGET budget) or reports an honest
-     failure to the user (END) once that budget is exhausted.
-  11. END                  -> final answer
+     log (Phase 2, see app/audit_log.py) any tier other than TIER_READ,
+     then loop back to call_llm.
+  9. END                  -> final answer
 
 Human supervision: by default, every tool call is subject to approval
 (see require_approval/reject_tools below), except for tools classified as
@@ -185,21 +181,6 @@ def _fabrication_feedback(fabricated_url: str, attempt_number: int, page_links: 
     return (
         "URL non observée sur cette page. Utilise un lien réellement présent dans le snapshot "
         "(l'inventaire complet des liens y figure déjà) — ne devine pas un chemin."
-    )
-
-
-def _repeated_strategy_feedback(tool_name: str) -> str:
-    """
-    Garde-fou "stratégie différente" (Itération 2, voir _execute_tool_calls) :
-    la tentative précédente sur cette sous-tâche a déjà échoué la
-    vérification post-action avec EXACTEMENT le même outil et les mêmes
-    arguments — répéter l'identique ne peut pas donner un résultat
-    différent.
-    """
-    return (
-        f"Nouvelle tentative refusée : `{tool_name}` avec exactement les mêmes arguments qu'à la "
-        "tentative précédente, déjà jugée insuffisante pour cette sous-tâche. Change de stratégie "
-        "(autre outil, autres arguments, autre approche) plutôt que de répéter la même action."
     )
 
 
@@ -465,77 +446,50 @@ EPISODE_COMPACTION_TURN_THRESHOLD = int(os.environ.get("EPISODE_COMPACTION_TURN_
 # validation campaign (CLAUDE.md, Measured behavior).
 HISTORY_DIFF_ENABLED = os.environ.get("HISTORY_DIFF_ENABLED", "false").lower() == "true"
 
-# Planner node (Iteration 1, Phase 1 "cognitive core" — see
-# docs/briefs/phase-1-coeur-cognitif.md). DEFAULT FLIPPED BACK TO false
-# (EFFORT 2.4, docs/history.md "EFFORT 2 — DECISIVE MEASUREMENT"): the
-# "true" default (docs/briefs/flags-du-coeur-cognitif.md) held while the
-# mechanism was measured and adopted (final campaign 29/33, consistent
-# with pre-cognitive-core Campaign A at 30/33), but the later decisive
-# cfg1-vs-cfg8 ablation (36 runs, discriminating 5-task subset) found
-# cfg1 (all 4 flags off) never losing to cfg8 (all on) at 43% less
-# cumulative time for essentially identical real work — and the A1
-# trajectory diagnostic plus `docs/resolved-bugs.md` #51 both found the
-# mechanism actively discarding genuine progress via attempt/replan-
-# budget churn on multi-page tasks, not merely costing more for the same
-# result. Tests that depend on cognitive-core behavior now explicitly
-# force "true" (already the pattern used by the pre-adoption tests this
-# same comment used to describe, just mirrored).
-PLANNER_ENABLED = os.environ.get("PLANNER_ENABLED", "false").lower() == "true"
-
-# Post-action verification + failure budget (Iteration 2, Phase 1
-# "cognitive core" — see docs/briefs/phase-1-coeur-cognitif.md). ONLY HAS
-# AN EFFECT IF PLANNER_ENABLED IS ALSO ON: verification compares a
-# tool-call turn's result to the ACTIVE subtask's success_criterion (see
-# verify_action below) — nothing to verify without a plan. DEFAULT
-# FLIPPED BACK TO false, same EFFORT 2.4 justification as PLANNER_ENABLED
-# above.
-VERIFICATION_ENABLED = os.environ.get("VERIFICATION_ENABLED", "false").lower() == "true"
-# Attempts per subtask before marking it "echoue" (see verify_action).
-SUBTASK_ATTEMPT_BUDGET = int(os.environ.get("SUBTASK_ATTEMPT_BUDGET", "3"))
-# Replans tolerated for a single task before honestly giving up (see
-# replan_task/report_failure) rather than looping forever or claiming a
-# false success.
-REPLAN_BUDGET = int(os.environ.get("REPLAN_BUDGET", "2"))
-
+# Planner node, post-action verification, and the LLM plan judge
+# (Iteration 1/2/3, Phase 1 "cognitive core") were removed (not just
+# disabled) after the decisive cfg1-vs-cfg8 ablation (36 runs,
+# discriminating 5-task subset) found cfg1 (all 4 flags off) never
+# losing to cfg8 (all on) at 43% less cumulative time for essentially
+# identical real work — and the A1 trajectory diagnostic plus
+# `docs/resolved-bugs.md` #51 both found the mechanism actively
+# discarding genuine progress via attempt/replan-budget churn on
+# multi-page tasks, not merely costing more for the same result
+# (PLAN.md, Effort 2; docs/resolved-bugs.md #61's removal PR). Their
+# code (plan_task, verify_action, replan_task, report_failure, the
+# report_and_act/constat_precedent mechanism, the LLM plan judge) is
+# gone; see git history for the design (docs/briefs/archives/
+# coeur-cognitif.md, docs/briefs/archives/flags-du-coeur-cognitif.md) if
+# ever revisited.
+#
 # Plan validation pipeline (Iteration 3, Phase 1 "cognitive core" — see
-# docs/briefs/phase-1-coeur-cognitif.md and app/plan_validation.py). ONLY
-# HAS AN EFFECT IF PLANNER_ENABLED IS ALSO ON. KEPT true, UNLIKE
-# PLANNER_ENABLED/VERIFICATION_ENABLED/PLAN_JUDGE_ENABLED above (EFFORT
-# 2.4 safety-value exception: a programmatic heuristic gate, not a
-# score-driven mechanism — untouched by the CuP reading that justified
-# flipping the other three back to false).
+# docs/briefs/archives/coeur-cognitif.md and app/plan_validation.py) KEPT
+# as a safety-value exception (a programmatic heuristic gate, not a
+# score-driven mechanism — untouched by the CuP reading above): validates
+# `state["plan"]` whenever one exists (currently only ever populated by
+# PLANNING_MODE="merged"'s own manage_plan tool, which does its own
+# inline heuristic check and never reaches this pipeline in practice —
+# see revise_plan/require_plan_approval/reject_plan below, kept as the
+# same safety net for a plan set any other way).
 PLAN_VALIDATION_ENABLED = os.environ.get("PLAN_VALIDATION_ENABLED", "true").lower() == "true"
-# LLM judge of the plan (heuristics already passed, costly — one LLM call
-# per validation). WITHDRAWAL CLAUSE (Iteration 3 brief) measured under
-# real conditions (see docs/history.md, Iteration 3): it did really veto a
-# plan the heuristics let through, for semantic reasons beyond their
-# reach (proof of real usefulness, not a "theater" validator), at the
-# cost of noticeable latency. DEFAULT FLIPPED BACK TO false (EFFORT 2.4):
-# only has an effect if PLANNER_ENABLED is also true, which is now false
-# by default — same justification as PLANNER_ENABLED/VERIFICATION_ENABLED
-# above.
-PLAN_JUDGE_ENABLED = os.environ.get("PLAN_JUDGE_ENABLED", "false").lower() == "true"
 # "Justified rejection → back to the planner, max 2 cycles then human
-# escalation" (brief): number of rejections (heuristics OR judge)
-# tolerated before a human decides (require_plan_approval, with the
-# rejection reasons displayed) rather than letting the planner loop
-# indefinitely.
+# escalation" (brief): number of rejections tolerated before a human
+# decides (require_plan_approval, with the rejection reasons displayed)
+# rather than looping indefinitely.
 PLAN_VALIDATION_CYCLES_MAX = 2
 
 # Effort 2 point 3 (docs/briefs/update-plan.md, "2.1 addendum") — 5th
 # cognitive-core condition: planning as an action in the main turn
-# (manage_plan tool below) instead of the 4 flags' dedicated nodes,
+# (manage_plan tool below) instead of the removed 4-flag dedicated nodes,
 # targeting the auxiliary-call latency the 4-flag ablation attributed to
-# plan_task/revise_plan/replan_task/the plan judge. Value-selected mode
-# (like IMAGE_FORMAT_PASSTHROUGH above), not a plain on/off gate: this is
-# the first 2-way string mode in this file rather than a boolean. Default
-# "nodes" = current behavior, byte-for-byte unchanged. The only validated
-# combination for "merged" is with the 4 flags above all "false" (asserted
-# at the campaign level via campaign_preflight.py's
-# CAMPAIGN_EXPECTED_FLAGS_OVERRIDE, never silently forced here) — this
-# keeps plan_task/validate_plan/revise_plan/replan_task/verify_action
-# structurally no-op (they already gate on those 4 flags), so all
-# planning responsibility moves into manage_plan alone.
+# them. Value-selected mode (like IMAGE_FORMAT_PASSTHROUGH above), not a
+# plain on/off gate: this is the first 2-way string mode in this file
+# rather than a boolean. Default "nodes" = current behavior, byte-for-byte
+# unchanged. In "merged" mode, validate_plan/revise_plan/require_plan_
+# approval still run on whatever manage_plan sets, but in practice never
+# see anything to reject (manage_plan's own set_plan does its own inline
+# heuristic check first, see _execute_tool_calls) — all planning
+# responsibility moves into manage_plan alone.
 PLANNING_MODE = os.environ.get("PLANNING_MODE", "nodes")
 
 # Qwen models reason by default on every turn (extended thinking) —
@@ -554,6 +508,32 @@ PLANNING_MODE = os.environ.get("PLANNING_MODE", "nodes")
 # against the actual downloaded Qwen3.8 files before writing this
 # (docs/briefs/qwen3.8-27b-evaluation.md, Phase 1).
 ADAPTIVE_THINKING = os.environ.get("ADAPTIVE_THINKING", "false").lower() == "true"
+
+# Independent mechanism from ADAPTIVE_THINKING above — caps HOW DEEP
+# reasoning goes on every call (extra_body={"reasoning_effort": ...}, a
+# real per-request TabbyAPI parameter, bare top-level key — same wire
+# convention as enable_thinking, confirmed empirically against production
+# TabbyAPI/Qwen3.8 rather than assumed from the model card's own Python
+# example, which shows it as a separate SDK kwarg and could have implied
+# a different wire shape; docs/engineering-log.md, "reasoning_effort
+# tuning, Phase 0"), unconditionally — no turn-based gate like
+# ADAPTIVE_THINKING's approval-tier condition. Built after
+# ADAPTIVE_THINKING=true's own campaign showed full suppression breaks
+# long-horizon tasks that need to notice a dead end and self-correct
+# (docs/engineering-log.md, "ADAPTIVE_THINKING=true campaign": a frozen
+# 18-call navigate loop on T10, an unfinished wide search on A1) — this
+# keeps SOME reasoning on every turn instead of an all-or-nothing cut.
+# Empty by default (no override, the model's own "xhigh" default
+# applies, byte-for-byte unchanged behavior). Any other value is a
+# startup-time config error: an invalid reasoning_effort makes EVERY
+# call fail (TabbyAPI's chat template raises on it, confirmed in the
+# same Phase 0 probe), so failing loudly at import time beats a silent
+# per-request 400 discovered mid-campaign.
+REASONING_EFFORT = os.environ.get("REASONING_EFFORT", "")
+if REASONING_EFFORT and REASONING_EFFORT not in ("xhigh", "medium", "low"):
+    raise ValueError(
+        f"REASONING_EFFORT={REASONING_EFFORT!r} is not one of 'xhigh', 'medium', 'low' (or empty for no override)"
+    )
 
 # DOCUMENTED file-consumption path (Phase 1d-revised, see docs/history.md,
 # T5): a download triggered in the browser lands in a volume now shared
@@ -664,10 +644,9 @@ def _date_directive() -> str:
     docs/history.md, "chasing cache=0"): a value that only changes once a
     day, not on every turn or every second. Placed last in the static
     system block (after DOWNLOAD_DIRECTIVE/BULK_CHECK_DIRECTIVE/
-    PEREMPTION_DIRECTIVE, before _verification_directive's per-turn
-    verification instruction, which is even more volatile) — maximizes
-    the length of the prefix that's actually stable from one turn to the
-    next within the same day.
+    PEREMPTION_DIRECTIVE, before _merged_plan_directive's per-turn
+    content, which is more volatile) — maximizes the length of the prefix
+    that's actually stable from one turn to the next within the same day.
     """
     now = datetime.now(zoneinfo.ZoneInfo(_AGENT_TIMEZONE))
     return f"\nDate actuelle : {_WEEKDAYS_FR[now.weekday()]} {now.day} {_MONTHS_FR[now.month - 1]} {now.year} ({_AGENT_TIMEZONE})."
@@ -782,100 +761,16 @@ def has_visible_answer(content: str) -> bool:
     return bool(_THINK_BLOCK_RE.sub("", content or "").strip())
 
 
-# Post-action verification merged into the tool turn itself rather than
-# a separate LLM call (history of the 3 successive versions — text
-# marker, dedicated tool call, current merge — in docs/history.md,
-# "latency fix"). constat_precedent becomes a REQUIRED parameter of the
-# schema of EVERY real tool (_inject_constat_param, _get_bound_llm): a
-# single call carries both the action and its observation of the
-# previous action. report_and_act remains the fallback for the sole case
-# with no real action (plain-text reply, nothing to hang
-# constat_precedent on).
-#
-# Two verified server constraints motivate this choice: JSON-schema
-# constrained generation (response_format) runs with
-# eos_after_completed=True (backends/exllamav3/grammar.py of the
-# installed image) — it stops generation as soon as the JSON closes,
-# ruling out any extra tool_calls/text in the SAME turn, confirmed by a
-# real call (`tool_calls: null`). And this backend otherwise applies no
-# grammar constraint on the tool_calls themselves (no filter for
-# `tools`/`tool_choice`, including `tool_choice="required"`, read in
-# endpoints/OAI/utils/chat_completion.py) — "required" in the JSON schema
-# is therefore not grammatically enforced; reliability comes from
-# merging into a single call, not from a grammar guarantee. Hence the
-# permanent coverage judge (see verify_action): to be measured, not
-# assumed.
-_CONSTAT_PARAM_NAME = "constat_precedent"
-_CONSTAT_VERDICTS = ("atteint", "non_atteint", "sans_objet")
-# Trimmed down (the "post-1/2-ter arbitration" fix, see docs/history.md):
-# a bare enum, no description — measured at +6,931 tokens/turn (+65%)
-# with the description repeated across the 64 real tools vs. +2,569
-# tokens (+24%) without it (TabbyAPI's real tokenizer, /v1/token/encode).
-# The semantics only need explaining ONCE: it lives in
-# _verification_directive (injected into the system prompt on every
-# turn, a single copy), not in the schema of EVERY tool. Protected by the
-# coverage judge (verify_action/constats_inexploitables): if this
-# trimming drops real coverage below 95%, the description comes back.
-_CONSTAT_PARAM_SCHEMA = {
-    "type": "string",
-    "enum": list(_CONSTAT_VERDICTS),
-}
-
-
-def _inject_constat_param(tool: dict) -> dict:
-    """
-    Augments a real MCP tool's OpenAI function-calling schema with the
-    required constat_precedent parameter (see above) — a copy, never
-    mutates the original schema (shared via _tools_schema_cache). Removed
-    from the arguments BEFORE any real dispatch (see
-    _execute_tool_calls): the MCP servers themselves don't know about it.
-    """
-    fn = tool.get("function", {})
-    params = dict(fn.get("parameters") or {"type": "object", "properties": {}})
-    properties = dict(params.get("properties") or {})
-    properties[_CONSTAT_PARAM_NAME] = _CONSTAT_PARAM_SCHEMA
-    required = list(params.get("required") or [])
-    if _CONSTAT_PARAM_NAME not in required:
-        required.append(_CONSTAT_PARAM_NAME)
-    return {**tool, "function": {**fn, "parameters": {**params, "properties": properties, "required": required}}}
-
-
-# Name shared with approval_policy.REPORT_AND_ACT_TOOL_NAME (source of
-# truth for tiering, see tool_tier()) — duplicated here as a local
-# constant rather than re-imported on every use, purely for the
-# readability of the many references below; MUST stay identical.
-_REPORT_AND_ACT_TOOL_NAME = approval_policy.REPORT_AND_ACT_TOOL_NAME
-_REPORT_AND_ACT_TOOL = {
-    "type": "function",
-    "function": {
-        "name": _REPORT_AND_ACT_TOOL_NAME,
-        "description": (
-            "Outil de repli, à appeler UNIQUEMENT quand tu réponds en texte "
-            "pur ce tour-ci, sans appeler aucun autre outil (ex. réponse "
-            "finale) : constate si l'action PRÉCÉDENTE a atteint son "
-            "critère. Si tu appelles un AUTRE outil ce tour-ci, mets plutôt "
-            "constat_precedent directement dans SES arguments — n'appelle "
-            "jamais les deux à la fois."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {_CONSTAT_PARAM_NAME: _CONSTAT_PARAM_SCHEMA},
-            "required": [_CONSTAT_PARAM_NAME],
-        },
-    },
-}
-
-
 # Merged-planning mode (PLANNING_MODE="merged", effort 2 point 3, see
-# docs/briefs/update-plan.md "2.1 addendum"): same non-MCP, graph-only
-# precedent as _REPORT_AND_ACT_TOOL above — dispatched locally in
-# _execute_tool_calls, never sent to mcp-client. Only exposed by
-# _get_bound_llm when PLANNING_MODE == "merged". Two actions, deliberately
-# no third "fail"/"replan" action: a stuck subtask is handled by calling
-# set_plan again (replacing the remaining subtasks) rather than by ever
-# persisting an "echoue" status — that status is what would route to the
-# costly replan_task node in the 4-flag architecture (route_after_tool_
-# execution), exactly the auxiliary call this mode exists to remove.
+# docs/briefs/update-plan.md "2.1 addendum"): a non-MCP, graph-only
+# synthetic tool — dispatched locally in _execute_tool_calls, never sent
+# to mcp-client. Only exposed by _get_bound_llm when PLANNING_MODE ==
+# "merged". Two actions, deliberately no third "fail"/"replan" action: a
+# stuck subtask is handled by calling set_plan again (replacing the
+# remaining subtasks) rather than by ever persisting an "echoue" status —
+# that status was what used to route to the now-removed replan_task node
+# in the 4-flag architecture (docs/resolved-bugs.md #61), exactly the
+# auxiliary call this mode was built to avoid.
 _MANAGE_PLAN_TOOL_NAME = approval_policy.MANAGE_PLAN_TOOL_NAME
 _MANAGE_PLAN_TOOL = {
     "type": "function",
@@ -914,36 +809,11 @@ _MANAGE_PLAN_TOOL = {
 }
 
 
-def _parse_constat(tool_calls: Optional[list]) -> tuple[Optional[str], bool]:
-    """
-    Looks for constat_precedent among the turn's tool_calls — either on
-    report_and_act (priority, "plain text, no action" case), or on the
-    first real tool_call carrying it (normal, merged case). Returns
-    (verdict, exploitable):
-    - (None, False) if absent from all tool_calls, or found but outside
-      the enum (malformed);
-    - (verdict, True) otherwise, verdict ∈ _CONSTAT_VERDICTS.
-    "exploitable=False" drives the constats_inexploitables counter and
-    the coverage judge (verify_action) — distinct from a "sans_objet"
-    legitimately declared by the model (exploitable=True in that case).
-    """
-    report_call = next((tc for tc in tool_calls or [] if tc.get("name") == _REPORT_AND_ACT_TOOL_NAME), None)
-    if report_call is not None:
-        verdict = (report_call.get("args") or {}).get(_CONSTAT_PARAM_NAME)
-        return (verdict, True) if verdict in _CONSTAT_VERDICTS else (None, False)
-    for tc in tool_calls or []:
-        args = tc.get("args") or {}
-        if _CONSTAT_PARAM_NAME in args:
-            verdict = args.get(_CONSTAT_PARAM_NAME)
-            return (verdict, True) if verdict in _CONSTAT_VERDICTS else (None, False)
-    return None, False
-
-
-# Planner node (Iteration 1, see plan_task below): recognizes a possible
-# ```json ... ``` / ``` ... ``` wrapper around the reply — the model may
-# wrap the JSON despite the raw-output instruction, as already observed
-# for other output formats in this file (see _extract_fallback_tool_call
-# above).
+# Planner JSON parsing (used by revise_plan, see _validate_plan_json
+# below): recognizes a possible ```json ... ``` / ``` ... ``` wrapper
+# around the reply — the model may wrap the JSON despite the raw-output
+# instruction, as already observed for other output formats in this file
+# (see _extract_fallback_tool_call above).
 _CODE_FENCE_RE = re.compile(r"^```[a-zA-Z]*\n?(.*?)\n?```$", re.DOTALL)
 
 
@@ -1025,91 +895,6 @@ PLANNER_SYSTEM_PROMPT = (
 )
 
 
-class PlanJudgeValidationError(ValueError):
-    """Raised by _validate_judge_json: the plan judge's verdict is unusable."""
-
-
-def _validate_judge_json(raw: str) -> dict:
-    """
-    Schema validated PROGRAMMATICALLY (Iteration 3, same pipeline as
-    _validate_plan_json): requires {"faisable": bool},
-    "risques"/"etapes_manquantes" optional (falls back to an empty list
-    if absent/malformed — accessories for visibility, not for the
-    decision).
-    """
-    text = _strip_code_fence(_THINK_BLOCK_RE.sub("", raw or ""))
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise PlanJudgeValidationError(f"invalid JSON: {exc}") from exc
-    if not isinstance(data, dict) or not isinstance(data.get("faisable"), bool):
-        raise PlanJudgeValidationError("'faisable' key (bool) missing or invalid")
-    risques = data.get("risques")
-    etapes = data.get("etapes_manquantes")
-    return {
-        "faisable": data["faisable"],
-        "risques": [r for r in risques if isinstance(r, str)] if isinstance(risques, list) else [],
-        "etapes_manquantes": [e for e in etapes if isinstance(e, str)] if isinstance(etapes, list) else [],
-    }
-
-
-PLAN_JUDGE_SYSTEM_PROMPT = (
-    "Tu es le juge d'un agent qui accomplit des tâches web. On te donne un "
-    "objectif, un plan (liste de sous-tâches avec critère de succès et "
-    "outils prévus), et SI DISPONIBLE l'état ACTUEL de la page déjà visitée "
-    "pour cette tâche (etat_actuel_de_la_page). Évalue s'il est réellement "
-    "faisable et complet pour atteindre l'objectif. Si un état de page est "
-    "fourni, base ton jugement sur ce qui existe RÉELLEMENT dessus (ex. ne "
-    "reproche jamais l'absence d'une barre de recherche ou d'une "
-    "fonctionnalité qui n'apparaît pas dans l'état fourni). Vérifie aussi "
-    "que le plan cible bien l'élément EXACT demandé par l'objectif (ex. une "
-    "référence précise) et ne l'a pas substitué par un élément différent "
-    "simplement parce qu'il apparaît sur la page — rejette un plan qui "
-    "ferait cette confusion. Réponds "
-    'UNIQUEMENT par un JSON de la forme {"faisable": true|false, "risques": '
-    '["..."], "etapes_manquantes": ["..."]}, rien d\'autre : pas de texte '
-    "avant/après, pas de balise <think>, pas de bloc de code."
-)
-
-
-async def _judge_plan(plan: list, objective: str, page_snapshot: Optional[str] = None) -> list:
-    """
-    LLM judge verdict (Iteration 3, page_snapshot added in Iteration 4 —
-    grounding fix, see docs/history.md): list of rejection reasons (empty
-    = feasible). Degrades to FAIL-OPEN on LLM error/invalid JSON (no
-    reason returned, no veto by default) — consistent with the brief's
-    "never an infinite loop": an unavailable judge must never
-    indefinitely block a task that's otherwise valid per the heuristics.
-    """
-    payload = json.dumps(
-        {
-            "objectif": objective,
-            "plan": [
-                {
-                    "description": st.get("description", ""),
-                    "critere_succes": st.get("success_criterion", ""),
-                    "outils": st.get("tools", []),
-                }
-                for st in plan
-            ],
-            "etat_actuel_de_la_page": page_snapshot,
-        },
-        ensure_ascii=False,
-    )
-    try:
-        response = await planner_llm.ainvoke([SystemMessage(content=PLAN_JUDGE_SYSTEM_PROMPT), HumanMessage(content=payload)])
-        verdict = _validate_judge_json(response.content)
-    except Exception:
-        logger.warning("Juge de plan indisponible, aucun veto appliqué par défaut.", exc_info=True)
-        return []
-    if verdict["faisable"]:
-        return []
-    reasons = [f"juge : {r}" for r in verdict["risques"]] or ["juge : plan jugé non faisable"]
-    if verdict["etapes_manquantes"]:
-        reasons.append("juge : étapes manquantes — " + "; ".join(verdict["etapes_manquantes"]))
-    return reasons
-
-
 async def _fetch_verification_snapshot(objective: str) -> str:
     """
     Capture a FRESH browser_snapshot at verification time — grounding fix
@@ -1138,17 +923,12 @@ async def _fetch_verification_snapshot(objective: str) -> str:
 
 async def _grounding_snapshot(state: dict, objective: str) -> Optional[str]:
     """
-    Snapshot of the current page to ground a (re)planning/validation step
-    in what ACTUALLY exists (Iteration 4, continuation of the
-    verify_action fix — see docs/history.md). `None` if no navigation has
-    happened yet for this task (state["current_page_url"], Phase 1): the
-    VERY FIRST plan (plan_task) therefore stays structurally ungrounded —
-    no page exists yet to capture at that point, and forcing an
-    exploratory navigation before planning would raise its own tier/
-    approval questions (browser_navigate is TIER_SENSITIVE), out of scope
-    here. REPLANNING (revise_plan/replan_task), on the other hand, is
-    always triggered AFTER a navigation has happened — that's where this
-    fix applies.
+    Snapshot of the current page to ground a plan revision in what
+    ACTUALLY exists (Iteration 4 grounding fix, see docs/history.md).
+    `None` if no navigation has happened yet for this task
+    (state["current_page_url"], Phase 1) — revise_plan, its sole caller,
+    is only ever triggered after validate_plan has rejected a plan that
+    already references a page, so this stays populated in practice.
     """
     if not state.get("current_page_url"):
         return None
@@ -1232,44 +1012,34 @@ class AgentState(TypedDict):
     # silent brake.
     fabricated_navigation_attempts: int
     # Explicit task plan (Iteration 1, Phase 1 "cognitive core" — see
-    # docs/briefs/phase-1-coeur-cognitif.md and plan_task below): list of
-    # {description, success_criterion, status, attempts, result}.
-    # status ∈ {"a_faire", "en_cours", "fait", "echoue"} (free string, no
-    # dedicated enum — consistent with failure_cause in the test harness).
-    # Computed ONCE by plan_task at the very start of a task (empty list ->
-    # the planner runs; non-empty -> passthrough, never rebuilt within the
-    # same task). Reset to [] on every NEW top-level user message (see
-    # run_input, app/main.py), like observed_urls. No validation/tier/
-    # post-action verification wired to it yet (Iterations 2/3 to come):
-    # structure and visibility only in Iteration 1; post-action
-    # verification/failure budget wired to it since Iteration 2 (see
-    # verify_action, replan_task, report_failure below). No-op while
-    # PLANNER_ENABLED is disabled (default): stays [] then.
+    # docs/briefs/archives/coeur-cognitif.md): list of {description,
+    # success_criterion, status, attempts, result}. status ∈ {"a_faire",
+    # "en_cours", "fait", "echoue"} (free string, no dedicated enum —
+    # consistent with failure_cause in the test harness). Currently only
+    # ever populated by PLANNING_MODE="merged"'s manage_plan tool (see
+    # _execute_tool_calls) — the planner node that used to populate it in
+    # "nodes" mode was removed (docs/resolved-bugs.md #61), validate_plan/
+    # revise_plan/require_plan_approval below stay wired as a safety net
+    # for however else a plan might get set. Reset to [] on every NEW
+    # top-level user message (see run_input, app/main.py), like
+    # observed_urls.
     plan: list
     # Episode compaction (Phase 2, PLAN.md): subtask_message_start[i] is
     # len(messages) at the moment plan[i] became "en_cours" — lets
     # _apply_episode_compaction find each completed subtask's raw message
-    # range without scanning message content. Set by plan_task/revise_plan
-    # (fresh list, index 0) and verify_action (appended on advance);
-    # replan_task keeps entries before the replanned index, resets the
-    # replanned one. Reset to [] on every new top-level user message (see
-    # run_input, app/main.py), same lifecycle as plan.
+    # range without scanning message content. Set by revise_plan (fresh
+    # list, index 0) or manage_plan's set_plan action (see
+    # _execute_tool_calls). Reset to [] on every new top-level user
+    # message (see run_input, app/main.py), same lifecycle as plan.
     subtask_message_start: list
-    # Number of replans already performed for THIS task (Iteration 2, see
-    # replan_task/route_after_verification) — cumulative budget, like
-    # tool_iterations, capped by REPLAN_BUDGET. Reset to 0 on every new
-    # top-level user message (see run_input, app/main.py).
-    replan_count: int
     # Plan validation pipeline (Iteration 3, see validate_plan/
     # revise_plan/require_plan_approval below). plan_validation_reasons:
-    # reasons for the LAST rejection (heuristics and/or judge), [] if the
-    # current plan is valid (or not yet evaluated). plan_validation_cycles:
-    # number of rejections suffered for THIS task (not per proposed plan —
-    # a budget shared between initial planning and replans, see
-    # PLAN_VALIDATION_CYCLES_MAX), beyond which human escalation kicks in
-    # rather than looping indefinitely on the planner. Both reset to
-    # zero/empty on every new top-level user message (see run_input,
-    # app/main.py).
+    # reasons for the LAST rejection, [] if the current plan is valid (or
+    # not yet evaluated). plan_validation_cycles: number of rejections
+    # suffered for THIS task, capped by PLAN_VALIDATION_CYCLES_MAX, beyond
+    # which human escalation kicks in rather than looping indefinitely.
+    # Both reset to zero/empty on every new top-level user message (see
+    # run_input, app/main.py).
     plan_validation_reasons: list
     plan_validation_cycles: int
     # Plan approval (Iteration 3): mirrors approved/grant_session
@@ -1283,21 +1053,6 @@ class AgentState(TypedDict):
     plan_approved: Optional[bool]
     plan_grant_session: bool
     plan_grant: bool
-    # True as soon as an action has just been executed
-    # (_execute_tool_calls), consumed by verify_action on the next turn —
-    # more robust than searching the history for the last tool_call:
-    # without this explicit marker, a replan turn (which executes NO tool)
-    # could be mistaken for an action still awaiting verification if the
-    # previous turn had no tool_calls.
-    pending_verification: bool
-    # Cumulative counter (reset to 0 on every new top-level user message,
-    # run_input/app/main.py), incremented when pending_verification was
-    # true but no usable observation could be extracted from the turn.
-    # DELIBERATELY separate degradation path: this case is MEASURED (a
-    # dedicated metric) rather than BILLED as a subtask failure (see
-    # verify_action and docs/history.md, "latency fix", for the score broken
-    # by the old mechanism that counted it as a failure).
-    constats_inexploitables: int
 
 
 # Token cap per TURN (a single LLM call), not for the whole conversation:
@@ -1318,9 +1073,9 @@ llm = ChatOpenAI(
 )
 
 # Bug discovered under real conditions while verifying the Iteration 3
-# live campaign (see docs/history.md): auxiliary LLM calls (plan_task/
-# revise_plan/verify_action/_judge_plan) used `llm` above, capped at
-# LLM_MAX_TOKENS (2048, sized for the main conversational turn).
+# live campaign (see docs/history.md): the auxiliary planner LLM calls
+# used `llm` above, capped at LLM_MAX_TOKENS (2048, sized for the main
+# conversational turn).
 # TabbyAPI reasons in a reasoning_content field SEPARATE from
 # content before answering (confirmed via a direct non-streaming call to
 # TabbyAPI, originally on Qwen3.6 and re-confirmed on Qwen3.8 during the
@@ -1336,8 +1091,8 @@ llm = ChatOpenAI(
 # separate from the main loop's budget (whose small value remains an
 # intentional safety net against repetition drift, see LLM_MAX_TOKENS).
 PLANNER_MAX_TOKENS = int(os.environ.get("PLANNER_MAX_TOKENS", "8192"))
-# Thinking curbed on auxiliary calls (plan_task/revise_plan/
-# replan_task/_judge_plan, all via planner_llm) — TabbyAPI exposes a real
+# Thinking curbed on auxiliary calls (revise_plan, via planner_llm) —
+# TabbyAPI exposes a real
 # PER-REQUEST server-side parameter (`GET /openapi.json`,
 # ChatCompletionRequest schema: `enable_thinking: bool`), verified LIVE
 # before writing this fix (real call with a JSON planning prompt, see
@@ -1392,27 +1147,17 @@ async def _get_tools_schema() -> list:
 
 async def _get_bound_llm() -> ChatOpenAI:
     schema = await _get_tools_schema()
-    # Synthetic, non-MCP tool (independent of VERIFICATION_ENABLED — merged
-    # mode manages its own plan state instead of the constat_precedent/
-    # report_and_act self-report pattern below), see PLANNING_MODE above.
+    # Synthetic, non-MCP tool, see PLANNING_MODE above.
     extra_tools = [_MANAGE_PLAN_TOOL] if PLANNING_MODE == "merged" else []
     if not schema:
         return llm.bind_tools(extra_tools) if extra_tools else llm
-    if not VERIFICATION_ENABLED:
-        # extra_tools FIRST (correction 2/2, fifth-condition diagnostic,
-        # see docs/history.md "EFFORT 2" point 3): manage_plan previously
-        # sat last, after the full ~63-64 MCP/browser catalog — the one
-        # variable left untried after cause 3's fix (persistent plan
-        # section) still measured merged_plan_calls=0. No-op outside
-        # merged mode (extra_tools == [], list identity unchanged).
-        return llm.bind_tools(extra_tools + schema)
-    # constat_precedent injected as a required parameter of EVERY real MCP
-    # tool, plus report_and_act as the sole fallback (pure-text turn, no
-    # action) — see above. Gated on VERIFICATION_ENABLED: without it, this
-    # field has no reader (_verification_directive doesn't instruct it)
-    # and would only add noise to the schema sent to the model.
-    wrapped = [_inject_constat_param(t) for t in schema]
-    return llm.bind_tools(wrapped + [_REPORT_AND_ACT_TOOL] + extra_tools)
+    # extra_tools FIRST (correction 2/2, fifth-condition diagnostic, see
+    # docs/history.md "EFFORT 2" point 3): manage_plan previously sat
+    # last, after the full ~63-64 MCP/browser catalog — the one variable
+    # left untried after cause 3's fix (persistent plan section) still
+    # measured merged_plan_calls=0. No-op outside merged mode
+    # (extra_tools == [], list identity unchanged).
+    return llm.bind_tools(extra_tools + schema)
 
 
 async def retrieve_context(state: AgentState) -> dict:
@@ -1465,7 +1210,7 @@ async def _available_tools_hint() -> str:
     (existing referenced tools, app/plan_validation.py), no plan would
     ever pass validation. Added to the USER message (not the system
     prompt, which is frozen) to stay up to date if the tool schema changes
-    between tasks. Used by plan_task/revise_plan/replan_task.
+    between tasks. Used by revise_plan.
     """
     schema = await _get_tools_schema()
     names = sorted({t.get("function", {}).get("name") for t in schema} - {None})
@@ -1475,60 +1220,6 @@ async def _available_tools_hint() -> str:
         "\n\nOutils réellement disponibles (utilise UNIQUEMENT ces noms exacts "
         'dans "outils", liste vide si aucun ne s\'applique) : ' + ", ".join(names)
     )
-
-
-async def plan_task(state: AgentState, config: dict) -> dict:
-    """
-    Planner node (Iteration 1, Phase 1 "cognitive core"). No-op
-    (`{"messages": []}`) if PLANNER_ENABLED is disabled (default), if a
-    plan already exists for this task (computed once, never rebuilt
-    within the same task — see AgentState.plan), or if there's no human
-    message to plan from.
-
-    LLM call kept separate from call_llm: raw `llm` (never `bound_llm`),
-    the planner must never emit tool_calls, only JSON.
-
-    ALWAYS degrades to a single-subtask plan rather than blocking the task
-    over a side planning issue (HTTP transport, invalid response) —
-    deliberately broad catch (PlanValidationError or any OpenAI client/
-    httpx error), same spirit as the httpx.HTTPError degradation in
-    retrieve_context/select_skill above, widened here since the failure
-    can also come from JSON validation, not just transport.
-
-    Logs a role="planning" audit entry (coverage counter, symmetric to
-    verify_action's role="verification" — see docs/history.md, EFFORT 2
-    "judge validity check": archives had no way to tell whether the
-    planner ever produced a non-trivial plan, only whether it was
-    enabled) with the initial subtask count and a `trivial` flag
-    (1-subtask plan = the planner had no effect on task structure).
-    """
-    if not PLANNER_ENABLED or state.get("plan"):
-        return {"messages": []}
-    first_human = next((m for m in state["messages"] if getattr(m, "type", None) == "human"), None)
-    objective = first_human.content if first_human and isinstance(first_human.content, str) else ""
-    if not objective:
-        return {"messages": []}
-
-    try:
-        tools_hint = await _available_tools_hint()
-        response = await planner_llm.ainvoke(
-            [SystemMessage(content=PLANNER_SYSTEM_PROMPT), HumanMessage(content=objective + tools_hint)]
-        )
-        subtasks = _validate_plan_json(response.content)
-    except Exception:
-        logger.warning("Planning failed, falling back to a single-subtask plan.", exc_info=True)
-        subtasks = [{"description": objective, "success_criterion": "objectif de la tâche atteint", "tools": []}]
-
-    plan = [{**st, "status": "a_faire", "attempts": 0, "result": None} for st in subtasks]
-    if plan:
-        plan[0]["status"] = "en_cours"
-    logger.info("Initial plan (%d subtask(s)): %s", len(plan), plan)
-    thread_id = config.get("configurable", {}).get("thread_id", "")
-    audit_log.log_message(
-        thread_id, "planning",
-        {"subtask_count": len(plan), "trivial": len(plan) <= 1, "subtasks": _render_plan(plan)},
-    )
-    return {"plan": plan, "subtask_message_start": [len(state["messages"])] if plan else []}
 
 
 def _plan_tier(plan: list) -> str:
@@ -1549,21 +1240,21 @@ def _plan_tier(plan: list) -> str:
 
 async def validate_plan(state: AgentState, config: dict) -> dict:
     """
-    Plan validation pipeline (Iteration 3, Phase 1 "cognitive core").
-    No-op (`{"messages": []}`) if PLAN_VALIDATION_ENABLED is disabled
-    (default) or if `state["plan"]` is empty — same behavior as before
-    this iteration. Otherwise: programmatic heuristics
-    (app/plan_validation.py, free) then, ONLY if they pass AND
-    PLAN_JUDGE_ENABLED, LLM judge (costly — withdrawal clause, see
-    docs/history.md). Rejection (heuristics OR judge) -> plan_validation_cycles
-    incremented, reasons returned for route_after_validation.
+    Plan validation pipeline (Iteration 3, Phase 1 "cognitive core") —
+    kept as a safety-value exception after the rest of the cognitive core
+    was removed (see the flag block above). No-op (`{"messages": []}`) if
+    PLAN_VALIDATION_ENABLED is disabled (default true) or if
+    `state["plan"]` is empty. Otherwise: programmatic heuristics only
+    (app/plan_validation.py, free — the LLM judge branch was removed
+    along with the rest of the cognitive core, see docs/resolved-bugs.md
+    #60). Rejection -> plan_validation_cycles incremented, reasons
+    returned for route_after_validation.
 
     Logs a role="plan_validation" audit entry (coverage counter,
     docs/history.md EFFORT 2 "judge validity check"): heuristic rejection
-    and judge invocation/veto are distinct signals, kept separate rather
-    than collapsed into the single `reasons` list used for routing —
-    "the judge never fired" and "the judge fired and approved" were
-    previously indistinguishable from archives alone.
+    kept as its own signal rather than folded into a boolean, so a future
+    reader of the audit log doesn't have to guess whether this ever
+    fires.
     """
     if not PLAN_VALIDATION_ENABLED:
         return {"messages": []}
@@ -1579,25 +1270,12 @@ async def validate_plan(state: AgentState, config: dict) -> dict:
         plan, known_tools=known_tools, task_scope_urls=task_scope
     )
 
-    judge_invoked = False
-    judge_reasons = []
-    if not heuristic_reasons and PLAN_JUDGE_ENABLED:
-        judge_invoked = True
-        first_human = next((m for m in state["messages"] if getattr(m, "type", None) == "human"), None)
-        objective = first_human.content if first_human and isinstance(first_human.content, str) else ""
-        page_snapshot = await _grounding_snapshot(state, objective)
-        judge_reasons = await _judge_plan(plan, objective, page_snapshot)
-
-    reasons = heuristic_reasons or judge_reasons
+    reasons = heuristic_reasons
     thread_id = config.get("configurable", {}).get("thread_id", "")
     audit_log.log_message(
         thread_id,
         "plan_validation",
-        {
-            "heuristic_rejected": bool(heuristic_reasons),
-            "judge_invoked": judge_invoked,
-            "judge_vetoed": bool(judge_reasons),
-        },
+        {"heuristic_rejected": bool(heuristic_reasons)},
     )
 
     if reasons:
@@ -1641,12 +1319,11 @@ def route_after_validation(state: AgentState) -> str:
 async def revise_plan(state: AgentState) -> dict:
     """
     Plan revision following a rejection by the validation pipeline
-    (Iteration 3). Distinct from replan_task (Iteration 2, triggered by a
-    subtask EXECUTION FAILURE): here, nothing has been executed yet — the
-    plan itself is judged structurally/semantically insufficient BEFORE
-    the first turn. Regenerates the WHOLE plan (no "done" subtask to
-    preserve) with the rejection reasons as context. Same fallback as
-    plan_task on generation failure (single-subtask plan).
+    (Iteration 3): nothing has been executed yet — the plan itself is
+    judged structurally/semantically insufficient before the first turn.
+    Regenerates the WHOLE plan (no "done" subtask to preserve) with the
+    rejection reasons as context. Degrades to a single-subtask plan on
+    generation failure (HTTP transport, invalid JSON), never blocks.
     """
     reasons = state.get("plan_validation_reasons") or []
     first_human = next((m for m in state["messages"] if getattr(m, "type", None) == "human"), None)
@@ -1848,11 +1525,39 @@ def _apply_image_retention(messages: list) -> list:
     return filtered
 
 
+def _subtask_state_anchor(turns: list) -> str:
+    """Factual state anchor from the LAST browser_* ToolMessage in `turns`
+    (URL + visible affordances) — reuses _apply_history_diff's own
+    extraction rather than a new parser. Added because _summarize_subtask
+    used to be narrative-only (intent + attempted actions + a generic
+    verdict) and never captured where a subtask actually LEFT the page;
+    the A4 negative result traced a stale summary to exactly this gap
+    (docs/engineering-log.md, "A4 / COMPACTION ... RÉSULTAT NÉGATIF NET").
+    Empty string if no structural browser_* result is found in range —
+    same degrade-gracefully-to-nothing rule as the rest of this module."""
+    browser_indices = _browser_result_indices(turns)
+    if not browser_indices:
+        return ""
+    try:
+        result = json.loads(turns[browser_indices[-1]].content)
+    except (json.JSONDecodeError, TypeError):
+        return ""
+    text = _browser_result_text(result)
+    if not _is_structural_browser_result(text):
+        return ""
+    url = _extract_page_url(text)
+    affordances = _extract_affordances_structured(text)
+    sample = ", ".join(f'{a["kind"]} "{a["label"]}"' for a in affordances[:5]) or "(aucun)"
+    more = f" (+{len(affordances) - 5} autres)" if len(affordances) > 5 else ""
+    return f"état constaté en fin de sous-tâche : URL={url or 'inconnue'} ; éléments visibles : {sample}{more}."
+
+
 def _summarize_subtask(subtask: dict, turns: list) -> str:
     """Structured summary replacing a completed subtask's raw turns (see
     _apply_episode_compaction): description, key actions distilled from
     the AI messages' tool_calls in that range (name + first argument
-    value, truncated), and the result verify_action recorded."""
+    value, truncated), the subtask's recorded result, and a factual
+    state anchor (_subtask_state_anchor) — appended only when found."""
     actions = []
     for m in turns:
         for call in getattr(m, "tool_calls", None) or []:
@@ -1860,10 +1565,20 @@ def _summarize_subtask(subtask: dict, turns: list) -> str:
             hint = str(next(iter(args.values()), ""))[:40]
             actions.append(f"{call.get('name', '?')}({hint})" if hint else call.get("name", "?"))
     result = subtask.get("result") or "(résultat non consigné)"
-    return (
+    summary = (
         f"[Sous-tâche compactée] {subtask.get('description', '')} — "
         f"actions : {', '.join(actions) or '(aucune)'} — résultat : {result}"
     )
+    anchor = _subtask_state_anchor(turns)
+    return f"{summary} — {anchor}" if anchor else summary
+
+
+def _active_subtask_index(plan: list) -> Optional[int]:
+    """Index of the plan's "en_cours" subtask, or None (none/empty plan) —
+    plan invariant: at most one "en_cours" subtask at a time. Used by
+    _apply_episode_compaction to find where the active (not-yet-complete)
+    subtask's turns begin, so they're never compacted away."""
+    return next((i for i, st in enumerate(plan) if st.get("status") == "en_cours"), None)
 
 
 def _apply_episode_compaction(messages: list, plan: list, subtask_message_start: list) -> list:
@@ -1927,8 +1642,8 @@ def _browser_result_text(result: dict) -> str:
 def _is_structural_browser_result(text: str) -> bool:
     """True if `text` looks like a real page snapshot (a URL line or at
     least one affordance) rather than synthetic feedback — a guardrail
-    rejection (_fabrication_feedback/_repeated_strategy_feedback) or an
-    mcp-client error carries no page state to diff against."""
+    rejection (_fabrication_feedback) or an mcp-client error carries no
+    page state to diff against."""
     return bool(_extract_page_url(text)) or bool(_extract_affordances_structured(text))
 
 
@@ -1986,33 +1701,67 @@ def _browser_result_indices(messages: list) -> list:
     ]
 
 
+# Only these browser_* tools produce page-SNAPSHOT-shaped text (a "Page
+# URL:" line and/or affordance lines) that _diff_browser_observation can
+# meaningfully compare. browser_evaluate/browser_run_code_unsafe/
+# browser_extract/browser_inspect/browser_take_screenshot return an
+# arbitrary JSON/text/image PAYLOAD instead — _is_structural_browser_result
+# always reads those as "non-structural" (no URL/affordance line to find),
+# so compacting them fell into the SAME bucket as a genuine guardrail
+# rejection: "pas de page renvoyée à ce tour (action bloquée ou erreur)".
+# Confirmed live (2026-09-18, docs/engineering-log.md, "HISTORY_
+# DIFF_ENABLED closing campaign" / T10 root cause): a browser_evaluate
+# result holding the actual extracted book list was erased this way,
+# reading to the model as "nothing happened" — it then re-fetched the
+# same data via repeated failing calls, unable to recall it had already
+# succeeded. These tools' results are data the model must be able to
+# recall verbatim, not page state to diff — excluded from compaction
+# entirely rather than taught a second diff shape no page-comparison
+# logic actually fits.
+_SNAPSHOT_SHAPED_BROWSER_TOOLS = {"browser_navigate", "browser_click", "browser_snapshot"}
+
+
 def _apply_history_diff(messages: list) -> list:
     """
-    Replaces every PAST browser_* tool result (all but the most recent)
-    in the outbound copy with a short structural diff against its
-    nearest STRUCTURAL predecessor (_diff_browser_observation) — same
-    transient-filter principle as _apply_image_retention/
-    _apply_episode_compaction (new list, checkpointer never touched,
-    SAME LENGTH: only ToolMessage.content is replaced, never
-    inserted/removed, so subtask_message_start indices computed on the
-    raw history stay valid regardless of filter order). A non-structural
-    past result (guardrail feedback, mcp-client error) is never used as a
-    diff baseline and gets a fixed neutral note instead of a fabricated
-    comparison; the first structural result gets a fixed "first
-    observation" note rather than a diff against nothing (which would
-    just relist everything as "appeared"). No-op if disabled or fewer
-    than 2 browser_* results exist (nothing "past" to compact yet).
+    Replaces every PAST snapshot-shaped browser_* tool result (all but
+    the most recent, see _SNAPSHOT_SHAPED_BROWSER_TOOLS) in the outbound
+    copy with a short structural diff against its nearest STRUCTURAL
+    predecessor (_diff_browser_observation) — same transient-filter
+    principle as _apply_image_retention/_apply_episode_compaction (new
+    list, checkpointer never touched, SAME LENGTH: only
+    ToolMessage.content is replaced, never inserted/removed, so
+    subtask_message_start indices computed on the raw history stay valid
+    regardless of filter order). A non-structural past result (guardrail
+    feedback, mcp-client error) is never used as a diff baseline and gets
+    a fixed neutral note instead of a fabricated comparison; the first
+    structural result gets a fixed "first observation" note rather than a
+    diff against nothing (which would just relist everything as
+    "appeared"). No-op if disabled or fewer than 2 eligible results exist
+    (nothing "past" to compact yet).
     """
     if not HISTORY_DIFF_ENABLED:
         return messages
     browser_indices = _browser_result_indices(messages)
     if len(browser_indices) <= 1:
         return messages
+    id_to_name = {
+        tc.get("id"): tc.get("name")
+        for m in messages
+        if getattr(m, "type", None) == "ai"
+        for tc in (getattr(m, "tool_calls", None) or [])
+    }
+    eligible_indices = [
+        idx
+        for idx in browser_indices
+        if id_to_name.get(getattr(messages[idx], "tool_call_id", None)) in _SNAPSHOT_SHAPED_BROWSER_TOOLS
+    ]
+    if len(eligible_indices) <= 1:
+        return messages
 
     filtered = list(messages)
     last_structural_result = None
-    for pos, idx in enumerate(browser_indices):
-        is_latest = pos == len(browser_indices) - 1
+    for pos, idx in enumerate(eligible_indices):
+        is_latest = pos == len(eligible_indices) - 1
         try:
             result = json.loads(messages[idx].content)
         except (json.JSONDecodeError, TypeError):
@@ -2066,44 +1815,6 @@ def _should_suppress_thinking(messages: list, session_grants) -> bool:
     return all(
         approval_policy.is_auto_approved(tc["name"], tc.get("args"), session_grants)
         for tc in previous_tool_calls
-    )
-
-
-def _verification_directive(state: AgentState) -> str:
-    """
-    Injects the observation on the previous action into the current
-    turn's reasoning rather than a separate LLM call (history in
-    docs/history.md, "latency fix") — near-zero marginal cost. The base
-    reminder (constat_precedent required on EVERY tool_call,
-    _inject_constat_param in _get_bound_llm) is ALWAYS injected as soon as
-    VERIFICATION_ENABLED is active, from the task's very first tool call
-    onward (nothing to observe yet -> "sans_objet"). The SPECIFIC hint
-    (active subtask's criterion) stays conditioned on
-    `pending_verification` + subtask "en_cours" (MUST stay in sync with
-    verify_action): nothing new to observe otherwise (e.g. a replan turn,
-    which executes no tool).
-    """
-    if not VERIFICATION_ENABLED:
-        return ""
-    base = (
-        "\nchaque appel d'outil doit inclure constat_precedent (atteint / "
-        "non_atteint / sans_objet) sur l'action PRÉCÉDENTE — sans_objet "
-        "s'il n'y a rien à constater (ex. toute première action de la "
-        "tâche). Si tu réponds en texte pur ce tour-ci sans appeler "
-        "d'autre outil, appelle report_and_act à la place, jamais les deux."
-    )
-    if not state.get("pending_verification"):
-        return base
-    plan = state.get("plan") or []
-    active_index = _active_subtask_index(plan)
-    if active_index is None:
-        return base
-    critere = plan[active_index]["success_criterion"]
-    return base + (
-        f' Ce tour-ci : l\'action précédente a-t-elle atteint son critère "{critere}" '
-        "? Juge sur le résultat d'outil ci-dessus (pas sur le critère seul "
-        "— s'il suppose une approche qui n'existe pas réellement sur cette "
-        "page, juge la progression réelle)."
     )
 
 
@@ -2196,14 +1907,12 @@ async def call_llm(state: AgentState, config: dict) -> dict:
                 # prompt, byte-for-byte): it now renders the full plan
                 # state (changes every turn a subtask completes), so it
                 # sits after the static directives and the date to keep
-                # that prefix cacheable, same reasoning as
-                # _verification_directive's position (mutually exclusive
-                # with this mode, always "" here — see its docstring).
-                # An earlier version put it FIRST for primacy (see
-                # docs/history.md, EFFORT 2 point 3): superseded by the
-                # persistent-section redesign, not stacked with it.
+                # that prefix cacheable. An earlier version put it FIRST
+                # for primacy (see docs/history.md, EFFORT 2 point 3):
+                # superseded by the persistent-section redesign, not
+                # stacked with it.
                 f"{DOWNLOAD_DIRECTIVE}{BULK_CHECK_DIRECTIVE}{PEREMPTION_DIRECTIVE}"
-                f"{_date_directive()}{_verification_directive(state)}{_merged_plan_directive(state)}"
+                f"{_date_directive()}{_merged_plan_directive(state)}"
             )
         )
     ] + compacted_messages
@@ -2218,11 +1927,21 @@ async def call_llm(state: AgentState, config: dict) -> dict:
     # messages_replaced is computed on messages_for_llm (the actual
     # effect of this call, downstream of episode compaction if both are
     # ever enabled together).
+    # total_messages_count alongside browser_messages_count lets a reader
+    # compute a REDUNDANCY DENSITY (browser_messages_count /
+    # total_messages_count) instead of just an absolute opportunity size —
+    # distinguishes "few browser_* results because the task is short" from
+    # "few browser_* results despite a long conversation dominated by
+    # something else", the exact ambiguity that made A1/A2's "mixed, not
+    # decisive" reading (docs/engineering-log.md, "HISTORY-DIFF LIVE
+    # SMOKE") hard to separate from a broken mechanism without a live
+    # re-run.
     audit_log.log_message(
         config.get("configurable", {}).get("thread_id", ""),
         "history_diff",
         {
             "browser_messages_count": len(_browser_result_indices(state["messages"])),
+            "total_messages_count": len(state["messages"]),
             "messages_replaced": sum(1 for a, b in zip(messages_for_llm, history_diffed) if a is not b),
         },
     )
@@ -2237,8 +1956,19 @@ async def call_llm(state: AgentState, config: dict) -> dict:
         "adaptive_thinking",
         {"suppressed": suppress_thinking},
     )
+    # Single extra_body dict for both mechanisms rather than two separate
+    # .bind() calls: chaining .bind(extra_body={...}) twice would let the
+    # second call's extra_body silently replace the first's (LangChain
+    # merges top-level bind() kwargs, not their nested dict values) —
+    # would have silently dropped enable_thinking:False whenever both
+    # ADAPTIVE_THINKING and REASONING_EFFORT fire on the same turn.
+    extra_body = {}
     if suppress_thinking:
-        bound_llm = bound_llm.bind(extra_body={"enable_thinking": False})
+        extra_body["enable_thinking"] = False
+    if REASONING_EFFORT:
+        extra_body["reasoning_effort"] = REASONING_EFFORT
+    if extra_body:
+        bound_llm = bound_llm.bind(extra_body=extra_body)
     # Carried over as-is from the previous call within this turn (see
     # AgentState.think_opened/think_closed) rather than reset to False, so
     # as to produce only one continuous <think> tag even if call_llm loops
@@ -2530,15 +2260,7 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
     first_human = next((m for m in state["messages"] if getattr(m, "type", None) == "human"), None)
     objective = first_human.content if first_human and isinstance(first_human.content, str) else ""
 
-    # "Different strategy" guardrail (Iteration 2, see
-    # _repeated_strategy_feedback): applies ONLY if a verification failure
-    # has already been observed on the active subtask (attempts > 0) — a
-    # very first attempt has nothing to repeat. Comparison by strict
-    # name+args equality (no generic ε tolerance on arbitrary argument
-    # schemas — an accepted simplification).
     plan = state.get("plan") or []
-    active_index = _active_subtask_index(plan)
-    active_attempts = plan[active_index].get("attempts", 0) if active_index is not None else 0
     # Merged-planning mode only (PLANNING_MODE="merged", see manage_plan
     # dispatch below): tracks whether this turn's tool_calls actually
     # mutated the plan, so the returned dict only includes "plan"/
@@ -2546,43 +2268,16 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
     # every other mode's return shape stays byte-for-byte unchanged.
     plan_changed = False
     subtask_message_start = state.get("subtask_message_start") or []
-    # state["messages"][-1] IS `last`, the CURRENT turn whose tool_calls
-    # are being executed — excluded from the search (messages[:-1]) so
-    # that "previous_tool_calls" truly refers to the PREVIOUS turn, not
-    # this one (otherwise any tool_call would compare against itself).
-    previous_tool_calls = (
-        (_previous_turn_tool_calls(state["messages"][:-1]) or []) if VERIFICATION_ENABLED else []
-    )
 
     async with httpx.AsyncClient(timeout=60) as client:
         for tool_call in last.tool_calls:
-            if tool_call["name"] == _REPORT_AND_ACT_TOOL_NAME:
-                # Fallback meta-tool (latency fix 1/2-ter, see
-                # _parse_constat): already consumed by verify_action (runs
-                # BEFORE this node, on the same AIMessage) to mutate the
-                # plan — never dispatched to mcp-client (it's not a real
-                # MCP tool), never audited (TIER_READ, see
-                # approval_policy._DEFAULT_TIER_READ). An acknowledgment
-                # ToolMessage is still mandatory: every tool_call from the
-                # previous AIMessage must have its response, otherwise the
-                # next LLM call would break the OpenAI format.
-                new_messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tool_call["id"],
-                        "content": json.dumps({"ok": True}, ensure_ascii=False),
-                    }
-                )
-                continue
-
             if tool_call["name"] == _MANAGE_PLAN_TOOL_NAME:
                 # Merged-planning mode's entire planning/replanning/
-                # verification responsibility (PLANNING_MODE="merged",
+                # completion responsibility (PLANNING_MODE="merged",
                 # docs/briefs/update-plan.md "2.1 addendum") — never
-                # dispatched to mcp-client, mutates `plan` synchronously,
-                # same "no dedicated LLM call" property as report_and_act
-                # above. TIER_READ (approval_policy.tool_tier), so this
-                # never reaches require_approval.
+                # dispatched to mcp-client, mutates `plan` synchronously.
+                # TIER_READ (approval_policy.tool_tier), so this never
+                # reaches require_approval.
                 args = tool_call.get("args") or {}
                 action = args.get("action")
                 response: dict
@@ -2651,21 +2346,6 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
                 )
                 continue
 
-            # constat_precedent travels in the real tool's own arguments
-            # (augmented schema, see _inject_constat_param) — stripped
-            # HERE, before any use of tool_call["args"] below (mcp-client
-            # dispatch, anti-fabrication guardrail, anti-repetition
-            # comparison, audit). Without this stripping, the
-            # anti-repetition guardrail's strict name+args comparison
-            # (below) would NEVER again match two otherwise identical
-            # attempts (a different constat each time) — silently
-            # disabling that guardrail.
-            if _CONSTAT_PARAM_NAME in (tool_call.get("args") or {}):
-                tool_call = {
-                    **tool_call,
-                    "args": {k: v for k, v in tool_call["args"].items() if k != _CONSTAT_PARAM_NAME},
-                }
-
             tier = approval_policy.effective_tier(tool_call["name"], tool_call.get("args"), grants)
 
             blocked = False
@@ -2684,17 +2364,6 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
                     tool_call["args"]["url"], attempt_number, page_links_for_feedback
                 )
                 result = {"content": [{"type": "text", "text": feedback}]}
-                images = []
-            elif (
-                VERIFICATION_ENABLED
-                and active_attempts > 0
-                and any(
-                    tc.get("name") == tool_call["name"] and tc.get("args") == tool_call.get("args")
-                    for tc in previous_tool_calls
-                )
-            ):
-                blocked = True
-                result = {"content": [{"type": "text", "text": _repeated_strategy_feedback(tool_call["name"])}]}
                 images = []
             else:
                 result, images = await _call_mcp_tool(
@@ -2757,15 +2426,12 @@ async def _execute_tool_calls(state: AgentState, config: dict) -> dict:
         "current_page_url": current_page_url,
         "current_page_links": current_page_links,
         "fabricated_navigation_attempts": state.get("fabricated_navigation_attempts", 0) + fabricated_attempts,
-        # An action was just executed, verify_action has something to
-        # observe on the next turn (see AgentState.pending_verification).
-        "pending_verification": True,
     }
     if plan_changed:
         # Merged-planning mode only (see manage_plan dispatch above) —
         # every other mode never sets plan_changed, so this key is absent
-        # from the returned dict and state["plan"] stays whatever
-        # verify_action (or nothing, if PLANNER_ENABLED is off) decided.
+        # from the returned dict and state["plan"] stays whatever it
+        # already was (nothing else in "nodes" mode ever sets it).
         result_dict["plan"] = plan
         result_dict["subtask_message_start"] = subtask_message_start
     return result_dict
@@ -2797,266 +2463,6 @@ async def reject_tools(state: AgentState) -> dict:
         "tool_iterations": state["tool_iterations"] + 1,
         "approved": None,
     }
-
-
-_PLAN_STATUS_LABELS_GRAPH = {"a_faire": "à faire", "en_cours": "en cours", "fait": "fait", "echoue": "échoué"}
-
-
-def _active_subtask_index(plan: list) -> Optional[int]:
-    """Index of the plan's "en_cours" subtask, or None (none/empty plan) —
-    plan invariant (Iteration 1/2): at most one "en_cours" subtask at a time."""
-    return next((i for i, st in enumerate(plan) if st.get("status") == "en_cours"), None)
-
-
-async def verify_action(state: AgentState, config: dict) -> dict:
-    """
-    Analysis of the post-action verification observation (history of
-    successive revisions in docs/history.md, "latency fix" — see also
-    _verification_directive above). NO LONGER MAKES AN LLM CALL: the
-    verdict is parsed from the tool_calls call_llm just produced (THAT
-    SAME call also observed the previous action's result AND decided the
-    next step — see _verification_directive). This node only reads that
-    tool call (report_and_act) and updates the plan accordingly.
-
-    No-op (`{"messages": []}`) if VERIFICATION_ENABLED is disabled
-    (default), if there's no "en_cours" subtask, or if
-    `pending_verification` (AgentState) is false — same conditions as
-    _verification_directive, to keep in sync: if the instruction wasn't
-    injected, there's nothing to parse here either. Always consumes the
-    flag (`pending_verification: False` on return): once observed, an
-    action must not be re-observed on the next turn if no NEW action has
-    been executed in between (e.g. a replan turn, which executes no tool).
-
-    Criterion verified = success_criterion of the plan's ACTIVE subtask.
-    DELIBERATELY REVERSED degradation (see docs/history.md, "latency fix",
-    for the score broken — 18/33 — by the previous version which treated
-    a missing observation as a failure): missing/malformed observation ->
-    "sans_objet" (NEITHER success NOR failure, attempt budget unchanged),
-    counted in constats_inexploitables rather than billed to the
-    subtask. A "sans_objet" legitimately declared BY THE MODEL has the
-    same effect on the plan (no mutation) but does NOT increment this
-    counter — only ambiguity (missing/malformed observation) is measured.
-
-    Every evaluation here (usable or not) logs an audit entry with
-    `role="verification"` and its usability verdict — a permanent
-    COVERAGE judge (usable observations / opportunities), companion to
-    constats_inexploitables which only measured half the contract
-    (ambiguity, not the plain absence of an attempt). Without this
-    systematic counting, a campaign can show constats_inexploitables ≈ 0
-    while the real coverage rate is catastrophic (~9% measured on the
-    campaign that motivated this judge): verify_action only counts as
-    "unusable" attempts recognized as such, never an observation that
-    wasn't even attempted.
-    """
-    if not VERIFICATION_ENABLED:
-        return {"messages": []}
-    if not state.get("pending_verification"):
-        return {"messages": []}
-    plan = state.get("plan") or []
-    active_index = _active_subtask_index(plan)
-    if active_index is None:
-        return {"messages": [], "pending_verification": False}
-
-    last = state["messages"][-1]
-    verdict, exploitable = _parse_constat(getattr(last, "tool_calls", None))
-    thread_id = config.get("configurable", {}).get("thread_id", "")
-    audit_log.log_message(
-        thread_id, "verification",
-        {
-            "exploitable": exploitable,
-            "verdict": verdict,
-            "subtask_index": active_index,
-            "success_criterion": plan[active_index]["success_criterion"],
-        },
-    )
-
-    if not exploitable:
-        logger.warning(
-            "Subtask %d: constat_precedent missing or malformed, unusable observation "
-            "(sans_objet, attempt budget unchanged)",
-            active_index,
-        )
-        return {
-            "pending_verification": False,
-            "constats_inexploitables": state.get("constats_inexploitables", 0) + 1,
-        }
-
-    if verdict == "sans_objet":
-        logger.info("Subtask %d: sans_objet observation (nothing to update)", active_index)
-        return {"pending_verification": False}
-
-    new_plan = [dict(st) for st in plan]
-    if verdict == "atteint":
-        new_plan[active_index]["status"] = "fait"
-        new_plan[active_index]["result"] = "critère atteint (constat intégré au tour)"
-        result = {"plan": new_plan, "pending_verification": False}
-        if active_index + 1 < len(new_plan):
-            new_plan[active_index + 1]["status"] = "en_cours"
-            boundaries = list(state.get("subtask_message_start") or [])
-            if len(boundaries) == active_index + 1:
-                boundaries.append(len(state["messages"]))
-                result["subtask_message_start"] = boundaries
-        logger.info("Subtask %d reached", active_index)
-        return result
-
-    # verdict == "non_atteint"
-    attempts = new_plan[active_index]["attempts"] + 1
-    new_plan[active_index]["attempts"] = attempts
-    if attempts < SUBTASK_ATTEMPT_BUDGET:
-        logger.info(
-            "Subtask %d not reached (attempt %d/%d)",
-            active_index, attempts, SUBTASK_ATTEMPT_BUDGET,
-        )
-        return {"plan": new_plan, "pending_verification": False}
-
-    new_plan[active_index]["status"] = "echoue"
-    new_plan[active_index]["result"] = "critère non atteint (constat intégré au tour)"
-    logger.warning("Subtask %d failed after %d attempts", active_index, attempts)
-    return {"plan": new_plan, "pending_verification": False}
-
-
-async def replan_task(state: AgentState, config: dict) -> dict:
-    """
-    Replanning (Iteration 2): reached when verify_action has marked a
-    subtask "echoue". Reuses PLANNER_SYSTEM_PROMPT/_validate_plan_json
-    (same schema as plan_task) with a context prompt (objective, subtasks
-    already "fait", failure reason). "fait" subtasks preserved as-is; the
-    failed subtask and everything after it are replaced by the new
-    breakdown. Replanning failure (LLM/invalid JSON): falls back WITHOUT
-    raising — just resets the failed subtask to "en_cours"/attempts=0 (a
-    new chance on the SAME plan rather than crashing). replan_count
-    incremented in all cases (budget consumed even if the replanning
-    itself fails).
-
-    Logs a role="replanning" audit entry (coverage counter, docs/history.md
-    EFFORT 2 "judge validity check") for every REAL replan (failed_index
-    found) — the defensive early return below (no failed subtask, should
-    not normally happen) consumes budget but changes nothing, so it stays
-    unlogged, same "no-op = no audit entry" convention as plan_task/
-    validate_plan.
-    """
-    plan = state.get("plan") or []
-    failed_index = next((i for i, st in enumerate(plan) if st.get("status") == "echoue"), None)
-    replan_count = state.get("replan_count", 0) + 1
-    if failed_index is None:
-        return {"replan_count": replan_count}
-    thread_id = config.get("configurable", {}).get("thread_id", "")
-
-    first_human = next((m for m in state["messages"] if getattr(m, "type", None) == "human"), None)
-    objective = first_human.content if first_human and isinstance(first_human.content, str) else ""
-    done = "; ".join(st["description"] for st in plan[:failed_index] if st.get("status") == "fait")
-    failure_reason = plan[failed_index].get("result") or "critère non atteint après plusieurs tentatives"
-    page_snapshot = await _grounding_snapshot(state, objective)
-    snapshot_hint = (
-        f"\nÉtat actuel de la page (ce qui est RÉELLEMENT visible maintenant, base-toi dessus) :\n{page_snapshot}\n"
-        "ATTENTION : cet état ne montre que ce qui existe RÉELLEMENT — ne "
-        "confonds jamais un élément visible ici (ex. un autre produit, une "
-        "autre référence) avec ce que l'objectif demande explicitement. Si "
-        "l'élément exact demandé par l'objectif n'apparaît nulle part après "
-        "une recherche raisonnable, le plan doit conclure à son absence, "
-        "jamais lui substituer un élément différent trouvé sur la page.\n"
-        if page_snapshot
-        else ""
-    )
-    context = (
-        f"Objectif original : {objective}\n"
-        f"Déjà accompli : {done or 'rien'}\n"
-        f"Sous-tâche en échec : {plan[failed_index]['description']} — raison : {failure_reason}\n"
-        f"{snapshot_hint}"
-        "Replanifie le RESTE de la tâche à partir de maintenant, en tenant compte de cet échec et de ce qui existe réellement."
-    )
-    try:
-        tools_hint = await _available_tools_hint()
-        response = await planner_llm.ainvoke(
-            [SystemMessage(content=PLANNER_SYSTEM_PROMPT), HumanMessage(content=context + tools_hint)]
-        )
-        new_subtasks = _validate_plan_json(response.content)
-    except Exception:
-        logger.warning("Replanning failed, retrying on the same subtask.", exc_info=True)
-        new_plan = [dict(st) for st in plan]
-        new_plan[failed_index]["status"] = "en_cours"
-        new_plan[failed_index]["attempts"] = 0
-        boundaries = (state.get("subtask_message_start") or [])[:failed_index]
-        boundaries.append(len(state["messages"]))
-        audit_log.log_message(
-            thread_id, "replanning",
-            {
-                "replan_index": replan_count,
-                "failed_subtask_index": failed_index,
-                "failed_subtask": {
-                    "description": plan[failed_index]["description"],
-                    "success_criterion": plan[failed_index]["success_criterion"],
-                },
-                "new_subtask_count": None,
-            },
-        )
-        return {"plan": new_plan, "replan_count": replan_count, "subtask_message_start": boundaries}
-
-    rebuilt = [dict(st) for st in plan[:failed_index]]
-    for i, st in enumerate(new_subtasks):
-        rebuilt.append({**st, "status": "en_cours" if i == 0 else "a_faire", "attempts": 0, "result": None})
-    boundaries = (state.get("subtask_message_start") or [])[:failed_index]
-    boundaries.append(len(state["messages"]))
-    logger.info(
-        "Replan #%d after subtask %d failure: %d new subtask(s)",
-        replan_count, failed_index, len(new_subtasks),
-    )
-    audit_log.log_message(
-        thread_id, "replanning",
-        {
-            "replan_index": replan_count,
-            "failed_subtask_index": failed_index,
-            "failed_subtask": {
-                "description": plan[failed_index]["description"],
-                "success_criterion": plan[failed_index]["success_criterion"],
-            },
-            "new_subtask_count": len(new_subtasks),
-            "new_subtasks": [
-                {"description": st["description"], "success_criterion": st["success_criterion"]}
-                for st in new_subtasks
-            ],
-        },
-    )
-    return {"plan": rebuilt, "replan_count": replan_count, "subtask_message_start": boundaries}
-
-
-async def report_failure(state: AgentState) -> dict:
-    """
-    Terminal (Iteration 2): reached when a subtask is "echoue" AND the
-    replanning budget (REPLAN_BUDGET) is exhausted. HONEST report of the
-    state reached — never a false success, never an infinite loop.
-    """
-    plan = state.get("plan") or []
-    lines = ["Je n'ai pas pu terminer la tâche avec le budget de tentatives/replanifications disponible."]
-    lines.append("État atteint :")
-    for st in plan:
-        label = _PLAN_STATUS_LABELS_GRAPH.get(st.get("status"), st.get("status", "?"))
-        detail = f" — {st['result']}" if st.get("result") else ""
-        lines.append(f"- [{label}] {st.get('description', '')}{detail}")
-    return {"messages": [{"role": "assistant", "content": "\n".join(lines)}]}
-
-
-def route_after_verification(state: AgentState) -> str:
-    """
-    Routing after verify_action (Iteration 2, wiring revised in Iteration
-    4 — latency fix 1/2, then 1/2-bis, see docs/history.md). verify_action
-    now runs AFTER call_llm (no longer BEFORE, see build_graph): this
-    routing delegates directly to has_tool_calls (same 4 outcomes:
-    auto_call_tools/call_tools/retry_empty_answer/end), state["messages"][-1]
-    staying the same AIMessage throughout (verify_action never touches
-    "messages").
-
-    Fix 1/2-bis: the "subtask echoue -> replan/give_up" dispatch was MOVED
-    to route_after_tool_execution (after the tool_calls execute, no
-    longer here beforehand). Reason: the observation now lives in a
-    mandatory tool call (report_and_act), which ALWAYS needs an
-    acknowledgment ToolMessage to stay valid in the OpenAI format —
-    jumping straight to replan_task/report_failure without executing this
-    tool_calls (as before, when the observation lived in free text with
-    no tool_calls to ever resolve) would leave an unresolved tool_call in
-    the history, breaking the next LLM call that replays that history.
-    """
-    return has_tool_calls(state)
 
 
 def _coerce_slash_arg_value(raw: str):
@@ -3246,67 +2652,10 @@ async def _route_entry(state: AgentState) -> str:
     return "slash_command" if tool_name in known_names else "normal"
 
 
-def route_after_tool_execution(state: AgentState) -> str:
-    """
-    Routing after call_tools/auto_call_tools (latency fix 1/2-bis, see
-    route_after_verification for why this moved here):
-
-    1. Subtask "echoue" (verify_action just marked it, attempt budget
-       exhausted, see above) -> replan_task/report_failure — the turn's
-       tool_calls (at minimum report_and_act) was just executed right
-       before, hence already resolved by a ToolMessage, whichever path is
-       chosen next.
-    2. Shortcut otherwise: if the turn's ONLY tool_calls was
-       report_and_act (no real action decided) AND that same turn already
-       carried a visible answer (frequent case: last subtask reached,
-       final answer given in the same turn as its observation), looping
-       back to call_llm would cost a whole LLM call just to have the
-       model repeat an answer already produced — exactly the cost this
-       effort aims to eliminate. Routes to finalize_after_report rather
-       than straight to END (see that node: without it, the thread's last
-       message would be report_and_act's acknowledgment ToolMessage, not
-       the visible answer — breaking _current_answer/app/main.py, which
-       assumes everywhere that messages[-1] is the answer's AIMessage).
-    3. Normal case (a real action was also executed, or no visible
-       answer): unchanged behavior, back to call_llm.
-    """
-    plan = state.get("plan") or []
-    if any(st.get("status") == "echoue" for st in plan):
-        if state.get("replan_count", 0) < REPLAN_BUDGET:
-            return "replan"
-        return "give_up"
-
-    last_ai = next((m for m in reversed(state["messages"]) if getattr(m, "type", None) == "ai"), None)
-    if last_ai is None:
-        return "call_llm"
-    tool_calls = getattr(last_ai, "tool_calls", None) or []
-    only_report = bool(tool_calls) and all(tc["name"] == _REPORT_AND_ACT_TOOL_NAME for tc in tool_calls)
-    if only_report and has_visible_answer(last_ai.content):
-        return "finalize"
-    return "call_llm"
-
-
-async def finalize_after_report_and_act(state: AgentState) -> dict:
-    """
-    See route_after_tool_execution ("finalize"): re-emits the text of the
-    answer already produced (and already streamed to the client by
-    call_llm) as a NEW clean AIMessage, WITHOUT tool_calls — so that
-    messages[-1] stays the visible answer's AIMessage, not the
-    acknowledgment ToolMessage from report_and_act that was just
-    executed. Same precedent as run_slash_command_direct (see its
-    docstring): no LLM call, a plain standard-shaped message to stay
-    compatible with app/main.py.
-    """
-    last_ai = next((m for m in reversed(state["messages"]) if getattr(m, "type", None) == "ai"), None)
-    content = last_ai.content if last_ai is not None else ""
-    return {"messages": [{"role": "assistant", "content": content}]}
-
-
 def build_graph(checkpointer=None):
     graph = StateGraph(AgentState)
     graph.add_node("retrieve_context", retrieve_context)
     graph.add_node("select_skill", select_skill)
-    graph.add_node("plan_task", plan_task)
     graph.add_node("validate_plan", validate_plan)
     graph.add_node("revise_plan", revise_plan)
     graph.add_node("require_plan_approval", require_plan_approval)
@@ -3315,10 +2664,6 @@ def build_graph(checkpointer=None):
     graph.add_node("require_approval", require_approval)
     graph.add_node("call_tools", call_tools)
     graph.add_node("auto_call_tools", auto_call_tools)
-    graph.add_node("verify_action", verify_action)
-    graph.add_node("finalize_after_report_and_act", finalize_after_report_and_act)
-    graph.add_node("replan_task", replan_task)
-    graph.add_node("report_failure", report_failure)
     graph.add_node("reject_tools", reject_tools)
     graph.add_node("retry_empty_answer", retry_empty_answer)
     graph.add_node("prepare_slash_command", prepare_slash_command)
@@ -3334,8 +2679,11 @@ def build_graph(checkpointer=None):
     )
     graph.add_edge("run_slash_command_direct", END)
     graph.add_edge("retrieve_context", "select_skill")
-    graph.add_edge("select_skill", "plan_task")
-    graph.add_edge("plan_task", "validate_plan")
+    # Straight to validate_plan (the planner node that used to sit here
+    # was removed, docs/resolved-bugs.md #61) — validate_plan itself
+    # no-ops on an empty/absent plan, same flow as before that pipeline
+    # existed.
+    graph.add_edge("select_skill", "validate_plan")
     graph.add_conditional_edges(
         "validate_plan",
         route_after_validation,
@@ -3348,16 +2696,13 @@ def build_graph(checkpointer=None):
         {"call_llm": "call_llm", "reject_plan": "reject_plan"},
     )
     graph.add_edge("reject_plan", END)
-    # verify_action runs AFTER call_llm (analysis of the observation that
-    # same call just produced, see docs/history.md "latency fix") —
-    # route_after_verification delegates to has_tool_calls
-    # (call_tools/auto_call_tools/retry_empty_answer/end). The
-    # replan/give_up dispatch on a "echoue" subtask lives in
-    # route_after_tool_execution, not here.
-    graph.add_edge("call_llm", "verify_action")
+    # has_tool_calls used directly (the verify_action passthrough node
+    # that used to sit between call_llm and this routing was removed,
+    # docs/resolved-bugs.md #61 — it always delegated to has_tool_calls
+    # anyway).
     graph.add_conditional_edges(
-        "verify_action",
-        route_after_verification,
+        "call_llm",
+        has_tool_calls,
         {
             "call_tools": "require_approval",
             "auto_call_tools": "auto_call_tools",
@@ -3368,31 +2713,13 @@ def build_graph(checkpointer=None):
     graph.add_conditional_edges(
         "require_approval", route_after_approval, {"call_tools": "call_tools", "reject_tools": "reject_tools"}
     )
-    graph.add_conditional_edges(
-        "call_tools",
-        route_after_tool_execution,
-        {"call_llm": "call_llm", "finalize": "finalize_after_report_and_act", "replan": "replan_task", "give_up": "report_failure"},
-    )
-    graph.add_conditional_edges(
-        "auto_call_tools",
-        route_after_tool_execution,
-        {"call_llm": "call_llm", "finalize": "finalize_after_report_and_act", "replan": "replan_task", "give_up": "report_failure"},
-    )
-    graph.add_edge("replan_task", "validate_plan")
-    graph.add_edge("report_failure", END)
-    graph.add_edge("finalize_after_report_and_act", END)
-    # reject_tools also resolves ALL of the turn's tool_calls (including
-    # report_and_act, see reject_tools) — same post-execution routing as
-    # call_tools/auto_call_tools, so as never to skip over an
-    # echoue/give_up potentially set by verify_action just before
-    # (latency fix 1/2-bis: this case wasn't exercised by the tests
-    # before report_and_act made a tool_calls near-systematic on verified
-    # turns).
-    graph.add_conditional_edges(
-        "reject_tools",
-        route_after_tool_execution,
-        {"call_llm": "call_llm", "finalize": "finalize_after_report_and_act", "replan": "replan_task", "give_up": "report_failure"},
-    )
+    # call_tools/auto_call_tools/reject_tools all loop straight back to
+    # call_llm (the replan/give_up/finalize routing that used to live
+    # here was removed along with verify_action, its sole source of an
+    # "echoue" subtask or a report_and_act-only turn — docs/resolved-bugs.md #61).
+    graph.add_edge("call_tools", "call_llm")
+    graph.add_edge("auto_call_tools", "call_llm")
+    graph.add_edge("reject_tools", "call_llm")
     graph.add_edge("retry_empty_answer", "call_llm")
 
     return graph.compile(checkpointer=checkpointer or MemorySaver())

@@ -316,7 +316,7 @@ Un test utilisait un monkeypatch global de `httpx.AsyncClient` pour simuler les 
 
 **Status: open, blocker for future campaigns.** Any campaign launched while `fixture-hr-app` is down will keep hitting this same raw `CalledProcessError` instead of preflight's intended reachability message, for as long as this ordering gap exists — not specific to effort 2.3's rerun. Candidate fix not yet designed: either move `_reset_hr_submissions`'s reachability assumption behind a `try`/`except` that degrades to a clear message, or run a minimal subset of preflight (at least `check_fixtures_reachable`) as its own earlier-scoped autouse fixture so it executes before `_reset_hr_submissions`. Left undesigned pending a decision on which approach fits the existing preflight/fixture architecture.
 
-### 51. `services/langgraph-agent` — OPEN, not yet diagnosed: a plain first-subtask `browser_navigate` marked failed, budget exhausted before any real work starts
+### 51. `services/langgraph-agent` — a plain first-subtask `browser_navigate` marked failed, budget exhausted before any real work starts — CLOSED (root-caused, then resolved by #61's removal)
 
 **Symptom, NOT a confirmed cause**: found reading back the `effort2.3-dtdd-fix-rerun` campaign (2026-08-10, v2 suite, A1 1/3, A2 2/3, commit `eef0696`, fresh `mcp-client` image confirmed — see docs/history.md, "EFFORT 2.3", "Rerun completed"). All 3 failing runs (`A1_reconciliation_croisee` reps 2/3 — threads `a3234af54c68fb23`/`63dac997dbeddc1a`; `A2_schema_references` rep 1 — thread `1ddbe574e71c9b55`) stall on their very first planned subtask: a plain `browser_navigate` to the catalog or docs homepage, marked `[échoué] — critère non atteint` by the per-subtask verifier. `replan_events=2` (the full `REPLAN_BUDGET`) is spent on each, and none of the 3 ever reaches a single `browser_extract` call — the task ends before the mechanism the dt/dd fix touches is ever exercised. `tool_calls_observed` is 10-12 on each, well under `MAX_TOOL_ITERATIONS=20`, so the budget lost is entirely `SUBTASK_ATTEMPT_BUDGET`×`REPLAN_BUDGET` churn on a navigation that should be one of the cheapest, most reliable actions available.
 
@@ -471,3 +471,273 @@ for Qwen3.6 (root cause not confirmed, no isolated A/B run), but
 practically moot for production now that it is switched to Qwen3.8
 (`docs/engineering-log.md`, "Phase 3 CLOSED" decision) — left open
 rather than closed since Qwen3.6 remains a documented fallback target.
+
+### 56. `scripts/read-adaptive-thinking-audit.py` — `<think>` check was a structural blind spot on Qwen3.8, always false regardless of suppression — CLOSED
+
+**Symptom, confirmed cause**: preparing the `ADAPTIVE_THINKING=true`
+follow-up campaign (`docs/engineering-log.md`, "Qwen3.8-27B evaluation
+follow-up") required re-verifying Phase 1's mechanistic proof on Qwen3.8
+specifically — the original proof ran on Qwen3.6, before the production
+switch. The audit script's `has_think = "<think>" in content` check,
+correct for Qwen3.6 (our own reinjection code, `_convert_delta_with_
+reasoning`, adds both `<think>` and `</think>` around a populated
+`reasoning_content`), is a structural blind spot on Qwen3.8: its
+`chat_template.jinja` bakes the opening `<think>` into the generation
+PROMPT (verified directly, lines 163-168), never into what the model
+generates — `<think>` can never appear in a Qwen3.8 completion, whether
+or not suppression worked, making the check permanently uninformative on
+this model rather than loudly wrong.
+
+**Fix**: check `</think>` instead — the tag Qwen3.8 can actually generate
+(the model closes its own reasoning turn; the closed-empty-block case,
+`enable_thinking:false`, structurally cannot produce one). Backward-
+compatible with Qwen3.6 (both tags were already present there). A live
+smoke then surfaced a second nuance: a suppressed turn can show a bare
+`</think>` as the literal first characters of its content — the model
+re-closing an already-closed empty block out of habit, near-zero token
+cost, not a real failure. Verdict logic refined to classify by the
+length of any text before `</think>` (≤5 chars = stray marker,
+informational; more = a real suppression failure) rather than bare tag
+presence, which would have kept producing a false `FAIL` on this exact
+pattern.
+
+### 57. `scripts/smoke-adaptive-thinking.sh` (`wait_for_tabbyapi`) — log-tail scan false-timed-out on an already-healthy, non-recreated tabbyapi — CLOSED
+
+**Symptom, confirmed cause**: re-running the smoke a second time (Step 0
+added, `tabbyapi` untouched — only `langgraph-agent` gets recreated by
+this script) hit a 180s timeout claiming tabbyapi never confirmed a
+model load, while the container had in fact been running and serving
+correctly the whole time. Root cause: `wait_for_tabbyapi` grepped
+`docker compose logs tabbyapi | tail -80` for a `"Model loaded in"`/
+`"Serving OAI API on"` string — the original load-confirmation line from
+whenever tabbyapi last actually (re)started had, by this point, scrolled
+out of the last-80-lines window under later request traffic (this
+session's own earlier smoke and probe runs). The function's own design
+assumed tabbyapi was always freshly (re)started immediately before the
+wait; true the first time this pattern was used (Phase 1's original
+smoke), false as soon as a script stopped touching tabbyapi itself.
+
+**Fix**: replaced the log-tail scan with a real completion call via
+`docker exec langgraph-agent` (`POST /v1/chat/completions`,
+`max_tokens: 1`, `enable_thinking: false` for speed) polled every 5s up
+to 180s — the exact same technique and rationale already used by
+`services/langgraph-agent/tests_integration/campaign_preflight.py`'s
+`_fetch_llm_ready`/`wait_for_llm_ready` ("the only check that would have
+caught the real-conditions case found: server not yet listening despite
+a model already loaded"), which this ad hoc script duplicate had drifted
+from. Applied to both `scripts/smoke-adaptive-thinking.sh` and
+`scripts/campaign-adaptive-thinking-qwen38.sh`.
+
+### 58. `docker-compose.yml` — `REASONING_EFFORT` never declared in `langgraph-agent`'s `environment:`, so the shell-level override never reached the container — CLOSED
+
+**Symptom, confirmed cause**: first live run of
+`scripts/campaign-reasoning-effort-medium-qwen38.sh`
+(`REASONING_EFFORT=medium docker compose up -d --force-recreate
+langgraph-agent`) — the script's own effective-env check (`docker exec
+langgraph-agent env | grep '^REASONING_EFFORT='`) came back `ABSENT`,
+aborting before running anything, exactly as designed. Root cause: Phase
+1 of `docs/briefs/reasoning-effort-tuning.md` added `REASONING_EFFORT`
+to `app/graph.py` (`os.environ.get("REASONING_EFFORT", "")`) but never
+added a passthrough line to `docker-compose.yml`'s `langgraph-agent`
+service — unlike `ADAPTIVE_THINKING`, which has its own explicit
+`- ADAPTIVE_THINKING=${ADAPTIVE_THINKING:-false}` line. Docker Compose
+does not forward the calling shell's environment into a container
+automatically; only variables explicitly listed under `environment:`
+(with `${VAR:-default}` interpolation) are passed through — a shell-
+level `REASONING_EFFORT=medium` ahead of `docker compose up` had no
+effect at all without that line.
+
+**Fix**: `- REASONING_EFFORT=${REASONING_EFFORT:-}` added to
+`docker-compose.yml`, `langgraph-agent` service, mirroring
+`ADAPTIVE_THINKING`'s own line.
+
+**Not a silent gap**: the campaign script's own effective-env
+verification step (same discipline documented for `ADAPTIVE_THINKING`'s
+own script) caught this immediately and refused to run the campaign on
+an unverified config — CLAUDE.md's "verify effective configuration,
+never assume" rule doing exactly its job. No campaign ran on a
+mis-wired flag; the Phase 2 campaign was simply re-launched after this
+fix.
+
+### 59. `app/main.py` — a genuine TabbyAPI context-window overflow was indistinguishable from a real infra fault, both surfacing as `failure_cause="infra"` — CLOSED
+
+**Symptom, confirmed cause**: the `REASONING_EFFORT=medium` D1
+confirmation campaign (n=5,
+`campaign-20260918T080708Z-reasoning-effort-medium-d1-confirmation.json`)
+came back with 2/5 runs at `failure_cause="infra"`. Investigated instead
+of retried blind: both runs were, by far, the longest of the five
+(206s/198.7s vs. 54-87s, 23/19 tool_calls vs. 10-13) and their
+`tabbyapi_raw_samples` showed `cached_tokens`+`new_tokens` climbing
+monotonically to 29240/32515 tokens by the last logged request —
+approaching `services/tabbyapi/config.yml`'s `max_seq_len: 32768`.
+Confirmed with certainty via `docker compose logs langgraph-agent`:
+`openai.BadRequestError: Error code: 400 - {'error': {'message': 'Prompt
+length 33040 exceeds the available context size of 32768 tokens', ...
+'code': 'context_length_exceeded'}}`. `app/main.py`'s three
+`agent_graph.ainvoke`/`.astream` call sites (`_stream_response`,
+`/approve`, non-streaming `/v1/chat/completions`) each caught this with a
+bare `except Exception`, discarding the exception type before it reached
+`_INTERNAL_ERROR_NOTICE` — the harness then matched the generic notice
+text and bucketed it as `failure_cause="infra"`
+(`tests_integration/test_web_tasks.py`), identical to an actual
+container-down/connection fault. D1's exhaustive-verification shape
+(many `browser_extract`/`browser_navigate` calls checking the catalog's
+30 real references, no compaction/diff enabled by default) accumulates
+raw tool output in context linearly, and the two runs that pushed
+verification furthest hit the wall.
+
+**Fix**: `_error_notice_for(exc)` (`app/main.py`) checks
+`isinstance(exc, openai.BadRequestError) and exc.code ==
+"context_length_exceeded"` and returns a distinct
+`_CONTEXT_OVERFLOW_NOTICE` instead of the generic
+`_INTERNAL_ERROR_NOTICE`, used at all three call sites. Harness side:
+`tests_integration/test_web_tasks.py` matches the new notice text and
+sets `failure_cause="context_overflow"`, a new bucket distinct from
+`"infra"` — both pass through `_classify_failure_cause`/
+`_classify_failure_cause_v2` unchanged (same generic pass-through as
+`"infra"` already had). No pass/fail assertion touched — diagnostic
+label only, not a new benchmark version.
+
+**Tests**: `tests/test_internal_error_parity.py`'s two existing
+context_length_exceeded integration tests now assert the specific
+notice; added a same-shape-different-code case (confirms the check
+actually discriminates, not just always-context-overflow) and 3 unit
+tests directly on `_error_notice_for` (context overflow, other
+`BadRequestError`, non-OpenAI exception). Full suite 501 → 505 passed, 0
+regressions.
+
+**Not yet retrofitted**: `tests_integration/probe_compaction_multi_turn.py`
+has the same generic `failure_cause="infra"` pattern at its own two call
+sites — a diagnostic probe script, not the frozen benchmark, left
+as-is (not exercised by this fix, not asked).
+
+**Live-verified (2026-09-18)**: `scripts/smoke-context-overflow-notice.sh`
+against the rebuilt image — forced `context_length_exceeded`
+deterministically (a random-bytes payload; an initial attempt with 200k
+repeated `'A'` characters tokenized UNDER the ceiling instead of over it,
+BPE merges long identical-character runs far more aggressively than
+ordinary text — a real gotcha for anyone reusing this technique). HTTP
+200 with the new `_CONTEXT_OVERFLOW_NOTICE` text, real exception still
+visible underneath in the container logs. Full detail:
+`docs/engineering-log.md`, "context-overflow notice distinguished from
+generic infra failure".
+
+### 60. `app/graph.py` (`_apply_history_diff`) — non-snapshot `browser_*` tool results (`browser_evaluate`, `browser_extract`, …) always read as "blocked/error" once compacted, discarding real extracted data — CLOSED
+
+**Symptom, confirmed cause**: `HISTORY_DIFF_ENABLED=true`'s closing
+campaign (`campaign-20260918T122754Z-history-diff-enabled-v2-
+regression.json`) came back with `T10_books_toscrape` 0/2 (vs. 2/2
+baseline). A confirmation re-run (T10 alone, n=5) reproduced it 3/5 —
+enough to treat as real, not n=2 noise. Reconstructed a failing thread's
+real messages from `workspace/.audit/2026-09-18.jsonl` and ran the
+actual `_apply_history_diff` against them: a `browser_evaluate` result
+holding genuinely successful extracted data (`{"total": 14, "books":
+[{"price": "£42.96", ...}]}` — the model had already found the answer)
+was replaced by the generic "[Observation compactée] pas de page
+renvoyée à ce tour (action bloquée ou erreur)" text — indistinguishable
+from an actual guardrail rejection. Cause: `_is_structural_browser_
+result` only recognizes page-snapshot-shaped text (`Page URL:` line,
+affordance lines); `browser_evaluate`/`browser_run_code_unsafe`/
+`browser_extract`/`browser_inspect`/`browser_take_screenshot` return
+arbitrary JSON/text/image payloads that never match, so any compacted
+result from these tools read as "blocked/error" regardless of whether
+it succeeded. T10's universal fabricated first-navigation guess (present
+on every thread, success or failure alike) recovers via exactly these
+tools — the bug prevented the recovered data from surviving.
+
+**Fix**: `_SNAPSHOT_SHAPED_BROWSER_TOOLS = {"browser_navigate",
+"browser_click", "browser_snapshot"}` (`app/graph.py`) — only these
+produce text `_diff_browser_observation` can meaningfully compare.
+`_apply_history_diff` now filters `_browser_result_indices`'s output
+through this set before compacting; any other `browser_*` tool's result
+is excluded from compaction entirely (always kept verbatim), regardless
+of position. `_browser_result_indices` itself is untouched (still used
+by the coverage counter's `browser_messages_count` — opportunity size
+stays a deliberately broader measurement than compaction eligibility).
+
+**Tests**: 2 new cases in `test_history_diff.py` — a run of only
+`browser_evaluate` results stays a complete no-op, and a mixed
+navigate/evaluate/navigate/navigate sequence (the real T10 shape)
+confirms `evaluate` stays byte-for-byte intact while `navigate` results
+are still compacted as before. Full suite 514 → 516 passed, 0
+regressions.
+
+**Live-verified (2026-09-18)**: fresh `docker compose build langgraph-
+agent` (commit `9c76a3f`, image digest confirmed different from the
+pre-fix campaign's), T10-only re-run then the full closing campaign
+(`campaign-20260918T164754Z-history-diff-enabled-v2-regression-
+postfix.json`): `T10_books_toscrape` 2/2, no regression on any other
+family. `HISTORY_DIFF_ENABLED=true` subsequently adopted as the default.
+Full detail: `docs/engineering-log.md`, "T10 confirmation re-run +
+confirmed root cause: HISTORY_DIFF_ENABLED erases non-snapshot
+browser_* results", "HISTORY_DIFF_ENABLED live re-run: fix confirmed,
+adoption criteria met".
+
+### 61. `app/graph.py` (`plan_task`/`verify_action`/plan judge) — the cognitive-core planner/verifier actively discarded correct progress via attempt/replan-budget churn, not just cost more for the same result — REMOVED
+
+**Symptom, confirmed cause**: the decisive cfg1-vs-cfg8 factorial ablation
+(`docs/engineering-log.md`, "EFFORT 2 — DECISIVE MEASUREMENT: CFG1-ALL-OFF
+vs CFG8-ALL-ON..."; `PLAN.md`, Effort 2) found cfg1 (all four cognitive-
+core flags off) STRICTLY beating cfg8 (all on, the then-default) on the
+success judge (15/15 vs 13/15) at 43% less cumulative time (+76% for
+cfg8, same real work) — consistent across every scored task family, not
+concentrated in one. A separate archives-only trajectory diagnostic on
+A1 (`docs/engineering-log.md`, "A1 — TRAJECTORY DIAGNOSTIC BEFORE THE
+REMOVAL PR") and bug #51 above (root-caused, "OPEN, not yet diagnosed"
+header now stale — see below) both traced the SAME mechanism: A1's first
+subtask naturally spans a large phase (cross-referencing ~30 catalog
+pages) that doesn't decompose into `SUBTASK_ATTEMPT_BUDGET`×
+`REPLAN_BUDGET`-sized chunks. `verify_action` marks it `non_atteint`
+repeatedly even as the model successfully completes the real work
+underneath (confirmed via raw audit content: a bulk `browser_extract`
+correctly finds "4 produits de la catégorie 'Mobilier'" at the EXACT
+moment the attempt/replan budget exhausts, triggering `report_failure`
+with that progress discarded) — the mechanism was not merely a costly
+no-op, it actively threw away correct answers on the task shape it was
+meant to help most.
+
+**Fix**: `PLANNER_ENABLED`/`VERIFICATION_ENABLED`/`PLAN_JUDGE_ENABLED`
+had already been flipped to `false` by default after the ablation
+(`PLAN.md`, Effort 2) — this entry covers the REMOVAL PR requested
+afterward: `plan_task`, `verify_action`, `replan_task`, `report_failure`
+(their `StateGraph` nodes and edges), `PLAN_JUDGE_SYSTEM_PROMPT`,
+`_judge_plan`, `_validate_judge_json`, `PlanJudgeValidationError`,
+`SUBTASK_ATTEMPT_BUDGET`, `REPLAN_BUDGET` deleted from `app/graph.py`.
+`PLAN_VALIDATION_ENABLED` (default `true`), `validate_plan`/`revise_plan`/
+`require_plan_approval`/`reject_plan`, `PLANNER_SYSTEM_PROMPT`,
+`PLANNER_THINKING_ENABLED` and `PLANNER_MAX_TOKENS` all KEPT — the
+safety-value exception decided at ablation time was never in question,
+and `revise_plan` still uses the planner LLM to repair a plan that fails
+heuristic validation (`app/plan_validation.py`), independent of the
+removed mechanism.
+
+**Tests**: `test_plan_judge.py`, `test_plan_task.py`,
+`test_repeated_strategy_guard.py`, `test_replan_and_failure.py`,
+`test_verification_integration.py`, `test_verify_action.py` deleted (all
+exercised only-just-removed code); `test_validate_plan_node.py` trimmed
+to drop its `PLAN_JUDGE_ENABLED` branch; `test_validate_plan_json.py`
+added to keep `_validate_plan_json` (still used by `revise_plan`)
+covered on its own after `test_plan_task.py`'s removal; `test_graph.py`/
+`conftest.py` updated for the smaller node set. `test_plan_approval.py`'s
+two full-graph integration tests (`test_plan_approval_does_not_
+substitute_for_tool_approval`, `test_approve_endpoint_resumes_plan_
+approval_pause` — the latter a regression test for the real `/approve`
+bookkeeping bug, bug #44) now seed `state["plan"]` directly instead of
+via a mocked `plan_task` LLM response — same coverage, no dependency on
+the removed node. `campaign_preflight.py`/`campaign_persistence.py`'s
+own tests had 4 more failures from hardcoding `PLANNER_ENABLED`/
+`VERIFICATION_ENABLED` as example flag names for otherwise-generic
+mechanism tests (stale-override detection, override merging) — swapped
+to `PLAN_VALIDATION_ENABLED`/`PLANNER_THINKING_ENABLED`, still-live
+flags. Full suite 516 → 450 passed, 0 regressions (66 fewer tests, no
+fewer than removed).
+
+**Bug #51 status**: its heading (above) updated to CLOSED — its own body
+already reached "root-caused, not yet acted on" before this session, and
+its finding is now resolved BY this removal: the mechanism it diagnosed
+no longer exists to exhibit the defect. Body left as originally written
+(historical record of the diagnostic).
+
+Full detail: `docs/engineering-log.md`, "EFFORT 2 — DECISIVE
+MEASUREMENT...", "A1 — TRAJECTORY DIAGNOSTIC BEFORE THE REMOVAL PR";
+`PLAN.md`, Effort 2.

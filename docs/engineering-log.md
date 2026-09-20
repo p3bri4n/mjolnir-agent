@@ -6981,3 +6981,1032 @@ follow-up, not yet run. Effort's outstanding deliverable per the brief:
 `docs/architecture/inference-backend.md` updated (this session) to
 describe the now-current Qwen3.8 model, runtime triplet, and VRAM
 budget.
+
+## Qwen3.8-27B evaluation follow-up — ADAPTIVE_THINKING mechanism confirmed on Qwen3.8, two smoke-tooling bugs found and fixed
+
+**Context**: preparing the `ADAPTIVE_THINKING=true` follow-up campaign
+flagged at Phase 3's close (uncontrolled thinking cost, +15% cumulative
+time). Before spending a full campaign, re-verified the Phase 1
+suppression mechanism specifically on Qwen3.8 — the original Phase 1
+live smoke ran on Qwen3.6, before the production switch, never
+re-confirmed on the model actually serving today.
+
+**Root-cause investigation, one hypothesis tested and rejected**:
+Phase 3's raw campaign data showed `</think>` present in several
+`final_text` fields with no matching `<think>` ever added by our own
+reinjection code (`app/graph.py`, `_convert_delta_with_reasoning`) —
+suspected TabbyAPI's `start_in_reasoning: auto` (never overridden in our
+config, `reasoning_start_token`/`reasoning_end_token` either) failing to
+detect Qwen3.8's chat_template.jinja convention, which bakes the opening
+`<think>` into the generation PROMPT rather than the completion (verified
+directly against the installed `chat_template.jinja`, lines 163-168).
+**Tested empirically before touching any config** (`scripts/smoke-
+adaptive-thinking.sh`, Step 0, a direct non-streaming call to TabbyAPI
+bypassing langgraph-agent): default call returned `reasoning_content: 115
+chars` (populated), `enable_thinking: false` returned `reasoning_content:
+ABSENT` — `start_in_reasoning: auto` works correctly. Hypothesis
+rejected; no config change needed.
+
+**Live smoke (thread `8a0eba2250abe8fb`, `A2_schema_references`,
+`ADAPTIVE_THINKING=true`)**: 7 of 8 turns cleanly suppressed (zero
+`</think>`), one apparent failure on turn 8 (`suppressed=True`,
+`</think>` present) — raw dump (`read-adaptive-thinking-audit.py
+--dump=8`) showed `</think>` as the literal FIRST characters of the
+turn's content, zero text before it, followed by a correct, substantive
+final answer. Read as a harmless model habit — Qwen3.8 re-closes an
+already-closed empty think block (`enable_thinking:false` prefills the
+prompt with `<think>\n\n</think>\n\n`) as a reflex — not a real
+suppression failure (near-zero token cost). Audit script's heuristic
+fixed to classify by leading-text length before `</think>` (≤5 chars =
+stray marker, informational; more = a real failure) instead of bare tag
+presence, which would have produced a false FAIL. Re-run after the fix:
+clean PASS.
+
+**Two real script bugs found and fixed along the way** (same "live smoke
+catches a real bug" pattern as every earlier phase this effort):
+1. `read-adaptive-thinking-audit.py`'s `has_think` check looked for the
+   OPENING `<think>` tag — a structural blind spot on Qwen3.8 specifically
+   (the opener lives in the prompt, never in the completion; Qwen3.6's own
+   check worked because OUR code added both tags around a populated
+   `reasoning_content`). Fixed to check `</think>`, backward-compatible
+   with Qwen3.6.
+2. `wait_for_tabbyapi` (both smoke scripts) grepped `docker compose logs
+   tabbyapi | tail -80` for a load-confirmation string — fragile whenever
+   tabbyapi was NOT freshly recreated (this session's scripts only touch
+   `langgraph-agent`): the original confirmation line scrolls out of the
+   tail window after enough later traffic, producing a false 180s timeout
+   against an already-healthy tabbyapi (hit live). Fixed to poll a real
+   completion call via `docker exec`, the same technique and rationale
+   already used by `campaign_preflight.py`'s `_fetch_llm_ready` ("the only
+   check that would have caught the real-conditions case found").
+
+**New tooling**: `scripts/campaign-adaptive-thinking-qwen38.sh` (full v2
+campaign, `ADAPTIVE_THINKING=true`, same safety trap as the smoke) and
+`scripts/aggregate-adaptive-thinking-audit.py` (trigger-rate coverage
+counter across every run's thread — CLAUDE.md's own rule that a
+conditional mechanism ships with its trigger-rate counter, applied here
+before the campaign that depends on it rather than bolted on after).
+
+**Official guidance found, verified against the installed model card**
+(`models/qwen3.8-27b-exl3-4.50bpw/README.md`, not just external reports):
+`reasoning_effort` levels are `xhigh` (default, complex tasks), `medium`
+(balance), `low` (speed/cost) — with an explicit official caution
+relevant to this project's own agentic use case: "In multi-turn agentic
+tasks, lower reasoning effort does not always reduce overall task
+completion time... insufficient analysis, more failures, and repeated
+retries, which may increase total latency and token consumption."
+Relevant to a possible future `reasoning_effort` follow-up (distinct
+mechanism from `ADAPTIVE_THINKING`, never threaded in our code today,
+not yet briefed): if pursued, `medium` is the credible first candidate,
+not `low`. `preserve_thinking` also defaults to `true` on this model
+(replays past turns' `reasoning_content` back into context) — unexplored
+whether it contributes to the token-growth pattern observed in Phase 3;
+noted, not investigated.
+
+**Status**: mechanism confirmed, tooling fixed, full
+`ADAPTIVE_THINKING=true` v2 campaign in progress at time of writing —
+verdict (score vs. Phase 3, cumulative time/tokens vs. both prior
+campaigns, trigger rate) to follow in its own entry.
+
+**External corroboration found after the fact** (web search, cross-
+checked against our own empirical finding above rather than trusted
+alone): a bare `</think>` with no opening tag is documented as normal,
+intentional Qwen reasoning-model behavior — the chat template inserts
+`<think>` into the generation prompt itself, so only the closing tag can
+ever appear in the model's own output ([Feature Request: Consistent
+`<think>` Tag Behavior Across Qwen Models · QwenLM/Qwen3 Discussion
+#1657](https://github.com/QwenLM/Qwen3/discussions/1657)). More
+actionable: "`enable_thinking: false` silently ignored" is a **recurring,
+documented bug class across multiple inference backends**, not specific
+to TabbyAPI — each traced to the backend failing to actually inject the
+empty `<think></think>` prefix into the real prompt sent to the model:
+[OpenVINO GenAI #3937](https://github.com/openvinotoolkit/openvino.genai/issues/3937)
+(Qwen3.6-35B-A3B INT4), [LlamaFactory
+#8666](https://github.com/hiyouga/LlamaFactory/issues/8666), [Ray Serve
+#52979](https://github.com/ray-project/ray/issues/52979), [litellm
+#26413](https://github.com/BerriAI/litellm/issues/26413). Our own smoke
+only sampled one thread (8 turns) — given this bug class is documented
+as backend-specific and occasionally intermittent elsewhere, this raises
+the value of `aggregate-adaptive-thinking-audit.py`'s full-campaign
+trigger-rate reading (62 runs) already planned for this follow-up, over
+trusting the single-thread smoke alone.
+
+## Qwen3.8-27B evaluation follow-up — ADAPTIVE_THINKING=true campaign: real latency gain, real reliability regression, mechanistically confirmed
+
+**Context**: the follow-up campaign flagged at Phase 3's close
+(`scripts/campaign-adaptive-thinking-qwen38.sh`,
+`campaign-20260917T062658Z-qwen38-adaptive-thinking-campaign.json`), run
+after the mechanistic smoke above passed clean. Same v2 suite, same
+Qwen3.8 model/image as the Phase 3 campaign
+(`campaign-20260916T173945Z-qwen38-eval-phase3-qwen38.json`), only
+`ADAPTIVE_THINKING` differs (`true` here, `false` there) — single
+variable.
+
+**Trigger-rate coverage** (`aggregate-adaptive-thinking-audit.py`, all 62
+runs): 365 eligible turns, 301 suppressed (82.5%), **0 real suppression
+failures** (the stray-`</think>`-marker false positive from the smoke,
+now correctly excluded by the refined heuristic) — the mechanism itself
+worked exactly as designed at full campaign scale, not a flattering
+zero.
+
+**Cumulative time: real gain.** 24min41 vs. Phase 3's 31min05, **-21%**.
+
+**Score: real regression, not noise.** 53/62 vs. Phase 3's 58/62 — a
+5-point drop, past the brief's own ~2-point noise threshold. Concentrated
+entirely in two long-horizon, multi-turn tasks:
+- `T10_books_toscrape` (family F, frozen regression alarm): 2/2 → **0/2**,
+  both `failure_cause=boucle` (`MAX_TOOL_ITERATIONS` exhausted).
+- `A1_reconciliation_croisee` (family A): 3/3 → **1/3**, 2×`boucle`.
+
+Rest of the suite (B, C, D, E) unchanged or within already-documented
+n=3 variance.
+
+**Root cause, confirmed mechanistically** (`scripts/dump-audit-thread.py`,
+full raw tool-call sequence per turn, not just success/failure):
+- `T10` (`thread_id=8d8d662ace1e2aeb`): turn 1 (thinking on) issues
+  `browser_navigate(category_29.html)`; turn 2 (suppressed) reverses to
+  `browser_navigate(/)`; **turns 3–20 (all suppressed) reissue the exact
+  same `browser_navigate(category_29.html)` call 18 times in a row,
+  byte-identical, no variation, no `browser_extract` ever attempted**.
+  A clean, literal freeze — with reasoning suppressed on every one of
+  those turns, nothing prompts the model to notice it already tried this
+  and self-correct.
+- `A1` (`thread_id=0086816b006a04af`): no literal repeat, a different
+  failure shape — turn 1 (thinking on) starts a reasonable narrowing
+  strategy (catalog → 30-product batch extract → 4 plausible candidates);
+  every subsequent (suppressed) turn wanders through broad, unfocused
+  exploration (two 34-URL batch extracts across `fixture-docs`, the
+  site's own search feature, then a page-by-page sweep) — it DOES reach
+  `schema-references-catalogue.html`, plausibly the actual target, but
+  the budget runs out before ever extracting from it. Diffuse,
+  unprioritized search rather than a frozen loop, but the same
+  underlying gap: no deliberation between turns to prune dead ends or
+  recognize a promising lead.
+
+**Reading**: both failure shapes are direct, mechanistically-observed
+instances of the official Qwen3.8 model-card warning found in the prior
+entry — "lower reasoning effort... can lead to insufficient analysis,
+more failures, and repeated retries" — except this is full suppression
+(`enable_thinking: false`), a more extreme cut than the `reasoning_effort`
+levels that warning was written about. The TabbyAPI aggregate anomalies
+noted when the raw numbers first came in (`prefill_seconds` up, more
+`cache_zero_requests`) are largely explained by this: `boucle` failures
+burn their full 20-iteration budget rather than stopping early, adding
+real request volume on exactly the runs that failed.
+
+**Decision**: NOT adopted as-is — a real latency win purchased with a
+real reliability loss on exactly the long-horizon task family this
+project weighs most heavily. Next candidate, per the user's own read
+matching the official guidance: `reasoning_effort: medium` (keep some
+deliberation on every turn rather than fully suppressing it) — a
+genuinely different mechanism from `ADAPTIVE_THINKING`, not yet threaded
+in the code, requiring its own brief before the first line per this
+project's own discipline.
+
+## `reasoning_effort` tuning, Phase 0 — wire format confirmed on production TabbyAPI
+
+**Context**: `docs/briefs/reasoning-effort-tuning.md`, Phase 0 —
+`reasoning_effort` is never threaded in `call_llm` (`app/graph.py`)
+today; settle empirically how TabbyAPI expects it before writing
+anything (same discipline as `enable_thinking`'s own wire-format
+question, already settled once this effort). Direct, non-streaming calls
+to production TabbyAPI, bypassing langgraph-agent
+(`scripts/probe-qwen38-reasoning-effort.sh`), on a fixed reasoning
+prompt (a two-train meeting-time problem — chosen over a trivial "2+2"
+specifically because degree of reasoning, not just presence/absence,
+is what's being measured here).
+
+**Result**: `reasoning_content` length — 742 chars default (`xhigh`),
+201–220 chars at `reasoning_effort: medium` (bare top-level JSON key,
+same convention already confirmed for `enable_thinking`), 396 chars at
+`low`. An invalid value (`"not-a-real-level"`) returned `HTTP 400` with
+the exact `TemplateError` string from the installed
+`chat_template.jinja`'s own `raise_exception` — confirms the parameter
+genuinely reaches the chat template, not silently dropped upstream.
+
+**Script self-correction, recorded rather than silently fixed**: the
+probe's own variants 2 ("bare extra_body key") and 3 ("top-level kwarg,
+model-card style") were designed to distinguish two wire formats but
+turned out to send an IDENTICAL JSON body — `extra_body={...}` in
+langchain-openai merges its keys into the top-level request payload,
+never under a literal `"extra_body"` wrapper key, so there was only ever
+one wire format to test at the raw-HTTP level despite the model card's
+Python example showing `reasoning_effort` and `enable_thinking` on
+different-looking lines of SDK code. No real ambiguity was actually
+resolved by comparing variants 2/3 — the useful result is that the
+single format tested (bare top-level key) works, matching
+`enable_thinking`'s own convention exactly.
+
+**Noted, not chased**: `low` (396 chars) produced MORE reasoning than
+`medium` (201–220 chars) on this one prompt — counter-intuitive, but a
+single sample on a single task. Consistent in direction with the
+official model-card warning already on file ("low is both slower and
+worse than medium" per external reports cross-checked earlier) — Phase
+2's full 22-task campaign will give a far more reliable read than this
+one data point; not worth its own investigation now.
+
+**Decision**: Phase 0 CLOSED — wire format confirmed (`extra_body`,
+bare top-level key, identical to `enable_thinking`), reasoning-volume
+delta observed and real. 🧑 Checkpoint per the brief, cleared — Phase 1
+(`REASONING_EFFORT` threaded into `call_llm`, unconditional, independent
+of `ADAPTIVE_THINKING`) is next.
+
+## `reasoning_effort` tuning, Phase 2 — medium recovers T10/A1, real time gain, one D1 wrinkle traced to test-labeling, not the mechanism
+
+**Context**: Phase 1 delivered (`REASONING_EFFORT` threaded into
+`call_llm`, single merged `extra_body` dict with `ADAPTIVE_THINKING` to
+avoid a bind-call overwrite bug, full suite 498 passed). First live
+attempt (`scripts/campaign-reasoning-effort-medium-qwen38.sh`) caught a
+real bug before running anything: `docker-compose.yml` never declared a
+`REASONING_EFFORT` passthrough line for `langgraph-agent` (unlike
+`ADAPTIVE_THINKING`'s own explicit line) — a shell-level
+`REASONING_EFFORT=medium` had zero effect on the container. The script's
+own effective-env check caught this and aborted before running anything
+(`docs/resolved-bugs.md` #58) — fixed
+(`- REASONING_EFFORT=${REASONING_EFFORT:-}` added), campaign re-launched
+clean.
+
+**Campaign result**
+(`campaign-20260917T080205Z-qwen38-reasoning-effort-medium-campaign.json`),
+`REASONING_EFFORT=medium`, `ADAPTIVE_THINKING=false`, same v2 suite —
+**60/62**, the best of all three variants measured so far (xhigh 57/62,
+full suppression 53/62). Both tasks that broke under full suppression
+recover completely: `T10_books_toscrape` 2/2, `A1_reconciliation_croisee`
+3/3 (even better than xhigh's own 2/3 there). Zero `failure_cause=boucle`
+anywhere in the campaign. Unexpected bonus: `A3_contact_conges` moves
+from `safe_deferral=3` (xhigh's own ambiguity-avoidance, never counted as
+a success) to `correct=3` — `medium` reads as a genuine, if modest,
+capability improvement on this task too, not just a suppression-failure
+recovery. Cumulative time **-7.9%** vs. xhigh (28min38 vs 31min05) — real
+but smaller than full suppression's -21%, consistent with a less radical
+cut. `cache_zero_requests` back to 0 (healthy, matches xhigh — full
+suppression's 43 was a `boucle`-failure artifact, not a `medium`
+characteristic).
+
+**The one wrinkle**: `D1_cible_inexistante` drops to 1/3 (2
+`hallucination`-labeled failures) — the worst D1 reading in this whole
+effort (previously always 2/3). Investigated with the raw audit trail
+(`scripts/dump-audit-thread.py`, extended along the way — see the tool
+fix below) rather than taken at face value:
+- `thread_id=7e3595f922e184c3` (`prix_invente=True`): the transcript
+  shows the model correctly and repeatedly concluding the target
+  reference doesn't exist, methodically checking all 30 real references
+  against it multiple times ("let me double-check... let me verify...").
+  No sign of a fabricated price for the target in what's visible. The
+  test's price regex (`\d+[.,]\d{2}\s*€`, matched anywhere in the full
+  text) most plausibly caught a REAL product's price mentioned while the
+  model cross-checked the 30 real references — a detector false
+  positive on this run, not confirmed fabrication.
+- `thread_id=c38361d1a4cde2a5` (`absence_declaree=False`): a genuinely
+  different failure — the model hit `BROWSER_NAVIGATE_GUARDRAIL` (tried
+  a fabricated `page-100.html`), then spiraled into unresolved
+  deliberation ("let me think... actually wait... let me reconsider...")
+  and never reached any conclusion at all before the run ended (34
+  entries vs. 69 for the other thread) — not a wrong answer, no answer.
+
+Neither is a confident fabrication in the strict sense the "hallucination"
+label implies. `_assert_t7`'s single boolean
+(`declares_absence and not has_price`) and v2's own
+`_classify_failure_cause_v2` collapse three distinct failure shapes into
+one label — flagged as its own follow-up, not fixed inline:
+`docs/briefs/d1-failure-cause-granularity.md` (pass/fail logic untouched,
+only the failure_cause string gets more specific — deliberately NOT a
+new benchmark version under CLAUDE.md's frozen-assertion rule).
+
+**Tool bug found and fixed while investigating**:
+`scripts/dump-audit-thread.py`'s summary logic checked `"tool_calls" in
+content` — true even when the value is `None` (a normal shape for a
+text-only final message), so the final answer of both D1 threads printed
+blank instead of their actual text on the first attempt. Fixed to
+`content.get("tool_calls")` (truthy check). Truncation also widened
+150 → 4000 chars per entry — a final answer this long genuinely didn't
+fit in the original limit.
+
+**Verdict against the brief's decision table**: row 1 — T10/A1 recover,
+real time gain, zero new `boucle` failures. `REASONING_EFFORT=medium`
+reads as the strongest candidate measured in this whole follow-up,
+D1's dip most likely explained by test-labeling granularity rather than
+a real capability cost — not proven with certainty (the regex-false-
+positive read on thread 1 is inference from the transcript, not a
+rerun), but the more probable explanation given what's visible. Adoption
+decision: pending user sign-off, not yet made.
+
+## 2026-09-18 — d1-failure-cause-granularity: three-way split of D1/D2's `hallucination` failure_cause
+
+Context: `docs/briefs/d1-failure-cause-granularity.md`, opened by the
+finding above (the `REASONING_EFFORT=medium` campaign's two D1 failures
+both labeled `hallucination` despite being two different failure shapes,
+neither a confident fabrication).
+
+**Change, scoped exactly as the brief specified**: `_assert_t7`'s
+`assertion_detail` string (`f"absence_declaree={declares_absence}
+prix_invente={has_price}"`, `test_web_tasks.py`, untouched) is now parsed
+back into its two booleans inside v2's `_classify_failure_cause_v2`
+(`test_web_tasks_v2.py`) via a new `_T7_DETAIL_RE`, splitting the generic
+`"hallucination"` fallback into three: `hallucination_prix_incident`
+(absence declared, but some price string matched — likely detector false
+positive), `absence_non_conclue` (no absence claim, no price — no
+conclusion reached), `hallucination_confirmee` (no absence claim AND a
+price given — the closest to genuine fabrication, not observed yet).
+Unparseable input (D2 reuses v1's T11 assert fn, whose detail string
+never matches this shape) falls back to the original generic
+`"hallucination"`, never raises. `_assert_t7`/`_assert_t11`'s pass/fail
+booleans are untouched — not a new benchmark version, per CLAUDE.md's
+frozen-assertion rule.
+
+**Tests**: the two existing unit tests that fed unparseable detail
+strings (`"prix inventé"`, `"mauvaise version"`) kept their original
+assertions (both still correctly fall back to `"hallucination"`, now
+exercising the fallback path explicitly rather than the only path) plus
+three new cases, one per bucket. Full `langgraph-agent` suite green
+(`tests/`, 501 passed) and `tests_integration/test_web_tasks_v2.py`'s own
+98 unit tests pass standalone — no regressions.
+
+**Manual verification against the two real threads named in the brief**
+(`campaign-20260917T080205Z-qwen38-reasoning-effort-medium-campaign.json`,
+`detail` field = `_assert_t7`'s `assertion_detail`, no live re-run
+needed): `thread_id=7e3595f922e184c3`
+(`absence_declaree=True prix_invente=True`) → `hallucination_prix_incident`;
+`thread_id=c38361d1a4cde2a5` (`absence_declaree=False
+prix_invente=False`) → `absence_non_conclue`. Both match the brief's own
+prediction exactly. Archived campaign JSON keeps its original
+`"hallucination"` label unmodified, as specified — this only changes what
+a future campaign records.
+
+**Verdict**: brief fully delivered, diagnostics-only change, no campaign
+run (none required by the brief's own judge). Brief moved to
+`docs/briefs/archives/` with a status header.
+
+## 2026-09-18 — reasoning_effort tuning, Phase 2 follow-up: D1 confirmation campaign (n=5), context-overflow root cause found
+
+Context: `docs/briefs/reasoning-effort-tuning.md`, "Phase 2 follow-up — D1
+confirmation campaign" — judge frozen before running (failure_cause
+distribution via the three-way split above, zero
+`hallucination_confirmee` needed to confirm the artifact reading from
+Phase 2's own n=3).
+
+**Run 1** (`campaign-20260918T080708Z-reasoning-effort-medium-d1-confirmation.json`,
+`REASONING_EFFORT=medium`, `D1_cible_inexistante`, n=5): 1 success, 1
+`hallucination_prix_incident`, 1 `absence_non_conclue`, **2
+`failure_cause=infra`** — only 3/5 valid.
+
+**Infra root cause investigated rather than treated as noise**: both
+`infra` runs (`d21b05ebf3e95f38`, `03de1bccc9e29805`) are by far the
+longest of the five (206s/198.7s, 23/19 tool_calls, vs. 54-87s/10-13 for
+the other three) and their `tabbyapi_raw_samples` show `cached_tokens`+
+`new_tokens` climbing monotonically to 29240/32515 tokens over their last
+logged request — approaching `services/tabbyapi/config.yml`'s
+`max_seq_len: 32768`. Confirmed with certainty via the user's own
+`docker compose logs langgraph-agent` output: both hit
+`openai.BadRequestError: Error code: 400 - {'error': {'message': 'Prompt
+length 33040 exceeds the available context size of 32768 tokens', ...
+'code': 'context_length_exceeded'}}` — a real context-window overflow,
+not an infrastructure fault. `app/main.py`'s `/approve` handler
+(`_INTERNAL_ERROR_NOTICE`, line ~720-730) catches this with a bare
+`except Exception`, discarding the exception type — the harness then
+buckets it as the generic `failure_cause="infra"`
+(`test_web_tasks.py:505`, matched on the client-visible notice text, not
+the real error). D1's exhaustive-verification shape (many
+`browser_extract`/`browser_navigate` calls checking the catalog's 30 real
+references) accumulates raw tool output in context linearly —
+`HISTORY_DIFF_ENABLED=false` and `EPISODE_COMPACTION_ENABLED=false` in
+this campaign's own `env_flags`, so nothing compacts it — and the two
+runs that pushed verification furthest hit the wall.
+
+**Diagnostic gap flagged, not fixed here** (out of this campaign's
+scope): `failure_cause="infra"` currently conflates two different things
+that need different responses — a transient infrastructure fault (retry
+is the right move, as done here) and a structural context-window
+overflow on a specific task shape (retrying doesn't fix the underlying
+cause, only avoids it if the retry happens to take a shorter path). A
+future gap-check candidate: preserve the real exception class/message in
+`_INTERNAL_ERROR_NOTICE`'s server-side path so `failure_cause` (or a new
+field) can distinguish `context_length_exceeded` from an actual
+connection/process failure without a manual log dive.
+
+**Retry** (`campaign-20260918T082049Z-reasoning-effort-medium-d1-confirmation-retry.json`,
+same config, n=2, targeting the two invalidated slots): 2/2
+`absence_non_conclue`, 0 infra — clean this time (both short, 34.7s/54.5s,
+6-7 tool_calls, nowhere near the context ceiling).
+
+**Aggregated result, n=5 valid** (3 from the original run + 2 from the
+retry, per this project's own cfg6-infra-incident precedent — invalid
+slots retried, not counted): 1 success, 1 `hallucination_prix_incident`,
+3 `absence_non_conclue`, **0 `hallucination_confirmee`**.
+
+**Frozen reading applies**: zero `hallucination_confirmee` — confirms the
+artifact reading from `d1-failure-cause-granularity.md`, the D1 dip under
+`REASONING_EFFORT=medium` is detector noise and non-conclusions, not
+confirmed fabrication. Nothing in this n=5 sample contradicts Phase 2's
+adoption case. Raw pass/fail (1/5) is recorded but was explicitly not the
+primary bar per the brief's own judge — thin statistical weight on one
+task, as declared going in.
+
+🧑 **Checkpoint reached**: the one open wrinkle blocking
+`REASONING_EFFORT=medium` adoption is now read clean. Adoption decision
+itself is still the user's call, per the brief's own checkpoint — not
+made here.
+
+## 2026-09-18 — context-overflow notice distinguished from generic infra failure
+
+Follow-up to the finding directly above: `docs/resolved-bugs.md` #59.
+`app/main.py` gets a new `_error_notice_for(exc)` helper, used at all
+three `agent_graph.ainvoke`/`.astream` call sites (`_stream_response`,
+`/approve`, non-streaming `/v1/chat/completions`) instead of the
+hardcoded `_INTERNAL_ERROR_NOTICE` — returns a distinct
+`_CONTEXT_OVERFLOW_NOTICE` when the caught exception is
+`openai.BadRequestError` with `code="context_length_exceeded"`, the
+generic notice otherwise. `tests_integration/test_web_tasks.py` matches
+the new notice text into a new `failure_cause="context_overflow"`
+bucket, separate from `"infra"` — both pass through
+`_classify_failure_cause`/`_classify_failure_cause_v2` unchanged (generic
+pass-through, same as `"infra"` already had). No pass/fail assertion
+touched, not a new benchmark version.
+
+**Tests**: `tests/test_internal_error_parity.py`'s two existing
+`context_length_exceeded` integration tests updated to assert the new
+specific notice (the mocked failure IS that exact case — a direct
+regression check that the fix actually fires on the real code path, not
+just a hand-constructed exception); added a same-status-different-code
+case to confirm the check discriminates rather than treating every
+`BadRequestError` as a context overflow, plus 3 unit tests directly on
+`_error_notice_for`. Full `langgraph-agent` suite 501 → 505 passed, 0
+regressions.
+
+**Scope note**: `tests_integration/probe_compaction_multi_turn.py` has
+the same generic `"infra"` pattern at its own two call sites — a
+diagnostic probe script, not the frozen benchmark, left untouched (out
+of what was asked).
+
+**Live-verified (2026-09-18)**, `scripts/smoke-context-overflow-notice.sh`
+— deterministic rather than waiting on a task to hit the ceiling by
+chance: sends one oversized user message directly to `langgraph-agent`'s
+own `/v1/chat/completions`, forcing `context_length_exceeded` on the very
+first LLM call. First attempt used 200k repeated `'A'` characters and
+came back with a NORMAL model answer instead of the error — a real
+gotcha, not a script bug: BPE merges long runs of an identical character
+far more aggressively than ordinary text, so that payload tokenized
+UNDER 32768 despite its raw character length. Fixed by switching to
+`base64.b64encode(os.urandom(100000))` (no repeats for the tokenizer to
+merge away) — confirmed 105072 tokens, well over the ceiling. Second
+attempt: HTTP 200 with the exact new `_CONTEXT_OVERFLOW_NOTICE` text (not
+the generic one), and the container logs still show the real
+`openai.BadRequestError`/`context_length_exceeded` underneath — the fix
+is live and mechanistically confirmed, not just unit-tested.
+
+## 2026-09-18 — structural failure causes logged at execution time, not just inferred during campaigns
+
+Prompted by a direct question: could the harness's `boucle`/`extraction`/
+`context_overflow`/`infra` failure_cause values (unlike the benchmark-
+specific `hallucination_*`/`blocage_externe`, which need task ground
+truth that only exists in frozen fixtures) be known at real EXECUTION
+time instead of only inferred after the fact from a campaign's
+text-matching on the notice a user received? Yes — the application
+itself already produces a distinct notice for each of the four
+(`_format_iteration_limit_notice`, `_format_empty_answer_notice`,
+`_error_notice_for`'s two branches), the harness was just reading that
+text back from outside. Nothing stops logging the cause structurally at
+the moment the notice is decided.
+
+**Change**: `audit_log.log_failure_notice(thread_id, cause)`, mirroring
+the existing `log_message`'s style (`kind: "failure_notice"`, generic
+`GET /audit` needs no change). Called at all 7 places `app/main.py`
+decides one of the four notices: `_current_answer` (boucle/extraction,
+covers `/approve` and the non-streaming success path), `_stream_response`
+(boucle/extraction inline + its own `except` block), `/approve`'s
+`except`, and non-streaming `/v1/chat/completions`'s `except`. The
+context_overflow/infra distinction reuses `_error_notice_for`'s own
+check (`docs/resolved-bugs.md` #59) via a new sibling `_error_cause_for`,
+both built on a shared `_is_context_overflow` predicate rather than
+duplicating the `isinstance`/`code` check a third time.
+
+**Real-world scope, stated explicitly**: only these four causes ever
+apply outside the benchmark — `hallucination_*`/`blocage_externe`/
+`boucle_fabrication`/`boucle_budget` need a task-specific oracle (a known
+fabricated price, a known real sitemap) that doesn't exist for an
+arbitrary real conversation, so this instrumentation can never produce
+those labels, by design.
+
+**Tests**: `test_log_failure_notice_roundtrip` (new, `test_audit_log.py`)
+plus an assertion added to each of the 6 existing endpoint tests that
+already exercise one of these 4 code paths (iteration limit, empty
+answer ×2 streaming/non-streaming, LLM connection error, the two
+context_length_exceeded cases) — confirms the audit entry fires at the
+real call site, not just that the notice text is right. Two new unit
+tests for `_error_cause_for` symmetric to `_error_notice_for`'s own.
+Full suite 505 → 508 passed, 0 regressions.
+
+**Not live-verified yet**: application code change (`app/audit_log.py`,
+`app/main.py`) — needs `docker compose build langgraph-agent &&
+docker compose up -d --force-recreate langgraph-agent` before any real
+conversation would write these entries.
+
+## 2026-09-18 — D1 context-overflow mitigation probe: HISTORY_DIFF_ENABLED, clean positive result
+
+Context: `docs/briefs/reasoning-effort-tuning.md`, "D1 context-ceiling
+mitigation probe — HISTORY_DIFF_ENABLED" — judge frozen before running
+(context_overflow rate vs. the 2/7 baseline, coverage counters
+non-flattering).
+
+**Campaign** (`campaign-20260918T090443Z-reasoning-effort-medium-history-
+diff-d1-probe.json`, `REASONING_EFFORT=medium` + `HISTORY_DIFF_ENABLED=
+true`, `D1_cible_inexistante`, n=5): 1 success, 1
+`hallucination_prix_incident`, 3 `absence_non_conclue`, **0
+`hallucination_confirmee`, 0 `context_overflow`** (vs. 2/7 on the
+baseline). Coverage non-flattering on every run:
+`history_diff_applied_count` 3-13, `history_diff_messages_replaced`
+6-91.
+
+**Mechanistically confirmed, not just correlated**: the longest run (17
+tool_calls, comparable in length to the two runs that overflowed on the
+baseline) shows `cached_tokens` climbing from 6656 to only 11776 over 14
+TabbyAPI requests — essentially flat — against the baseline's comparable
+run climbing from 6656 to 32515 over 15 requests before erroring out.
+Direct evidence the mechanism curbs exactly the runaway growth that
+caused the ceiling hit, not a side effect.
+
+**Contrasts with Effort 4's own "mixed, not decisive" A1/A2 smoke**
+(docs/engineering-log.md, "HISTORY-DIFF LIVE SMOKE"): that reading is now
+understood as a lack-of-opportunity finding, not a mechanism weakness —
+A1/A2's point-1 fix had already trimmed those tasks to 8-9 turns each,
+leaving little redundant `browser_*` history to compress. D1's
+exhaustive-verification shape gives the mechanism real material, and the
+effect shows up cleanly once it does.
+
+**Not yet decided**: n=5 on one task, one repetition per point — thin
+statistical weight, same caveat as the `REASONING_EFFORT` D1 confirmation
+campaign before it. A full v2 regression campaign (`HISTORY_DIFF_ENABLED=
+true` across every family, single variable) is the natural next step
+before considering a default flip, to confirm the D1 win doesn't come
+with a regression elsewhere — not run yet, no brief section written for
+it yet.
+
+## 2026-09-18 — `_summarize_subtask` semantic-leak fix: episode compaction gets a factual state anchor
+
+Context: prompted directly by re-reading the A4 negative-result diagnosis
+(`docs/engineering-log.md`, "A4 / COMPACTION — EXERCICE MULTI-TOURS")
+with fresh eyes — the model's own transcript quote (*"la sous-tâche
+compactée indique que j'ai atteint la page d'accueil, mais je suis en
+fait sur .../employees"*) names the exact defect: `_summarize_subtask`'s
+narrative (description + attempted tool_call args + a generic
+`verify_action` verdict) never captures the subtask's real terminal page
+state, so a stale summary can silently diverge from where the page
+actually ended up. `EPISODE_COMPACTION_ENABLED` stays `false` — this
+fixes a currently-inert mechanism's known root cause, ahead of any
+decision to reconsider it, not a live behavior change today.
+
+**Fix**: new `_subtask_state_anchor(turns)` (`app/graph.py`) — finds the
+LAST `browser_*` `ToolMessage` in the subtask's turn range via the
+already-existing `_browser_result_indices`/`_browser_result_text`/
+`_is_structural_browser_result` (the exact extraction
+`_apply_history_diff` already uses, no new parser), and formats its
+URL + up to 5 affordances as a factual line. `_summarize_subtask` appends
+it as a segment separate from the narrative, never replacing it; empty
+string (no anchor appended) when no structural `browser_*` result exists
+in range — degrades to the old narrative-only summary, never raises. No
+new LLM call, no new env var.
+
+**Tests**: 5 new cases in `test_episode_compaction.py` — anchor present
+with a real structural result, absent on the existing dummy-content
+fixture (non-regression), absent with no `browser_*` call at all, absent
+on a non-structural result (guardrail/error feedback), and correctly
+picks the LAST of several `browser_*` results rather than the first.
+Full suite 508 → 513 passed, 0 regressions.
+
+**Not yet measured**: whether this actually fixes A4's negative result
+needs a live re-run of `probe_compaction_multi_turn.py` with
+`EPISODE_COMPACTION_ENABLED=true` — not done here, and doesn't change
+today's decision (compaction stays off regardless). Flagged for
+whoever reopens that question, alongside two follow-up ideas raised in
+discussion but deliberately not built here: (1) checking whether the
+model still spends reconciliation turns out of reflex once a reliable
+anchor exists, possibly needing a prompt-level "trust the anchor unless
+an action fails unexpectedly" nudge; (2) a redundancy-density metric
+for `HISTORY_DIFF_ENABLED` (past `browser_*` calls / total messages at
+trigger time) to distinguish "no opportunity" from "broken mechanism"
+without waiting for a full campaign — a measurement-quality nicety, not
+a correctness fix.
+
+## 2026-09-18 — D1 context-overflow mitigation probe: max_seq_len/cache_size, applied and measured
+
+Context: `docs/briefs/reasoning-effort-tuning.md`, "D1 context-ceiling
+mitigation probe — max_seq_len/cache_size".
+
+**A new operational trap surfaced before any measurement could
+happen**: `services/tabbyapi/config.yml` (tracked, edited and pushed)
+turned out not to be the file the user's machine actually reads —
+`services/tabbyapi/config.local.yml` (gitignored, machine-specific
+override per its own header comment) still held the old `32768`/`65536`
+values. Several rounds of `git checkout dev`/`git pull`/`--force-recreate`
+all correctly showed a clean, synced `dev` branch with the right
+`config.yml` content, yet the container's own boot log kept reporting
+the old numbers — no git-based check could have caught this, since the
+override file is invisible to git entirely. Diagnosed by reading
+`services/tabbyapi/config.local.yml` directly and cross-checking
+`docker-compose.yml`'s bind mounts. Fixed by editing
+`config.local.yml` on the user's machine directly (not something this
+session's git history can carry). **New `CLAUDE.md` operational-trap
+candidate**: a gitignored, machine-local config override sitting
+alongside a tracked template is invisible to every git-based
+verification (branch, diff, pull) — the effective config must be read
+from the ACTUAL running container/file, never inferred from repo state,
+exactly the same principle as the existing env-var/image-staleness traps
+but for a THIRD kind of drift source.
+
+**Phase 1 (reload stability)**: 2 clean reloads (not 3 — deliberate
+deviation, `gpu_split` is explicit here, not autosplit, so the placement
+instability 3 reloads were designed to catch doesn't apply to a
+fixed-size cache allocation). GPU0 identical both times (11009 MiB),
+GPU1 within 63 MiB (11651/11714) — within this project's own established
+tolerance for that card. Free VRAM: ~5.18 GiB (GPU0), ~4.61 GiB (GPU1).
+No OOM at any point.
+
+**Phase 2 (D1 campaign, n=5, `HISTORY_DIFF_ENABLED=false` held
+constant)**: `campaign-20260918T110454Z-reasoning-effort-medium-max-seq-
+len-d1-probe.json` — **5/5 success, 0 `context_overflow`**,
+`cache_zero_requests` stable (1, same order of magnitude as the
+baseline). Frozen judge satisfied on both counts.
+
+**Read with one caveat, stated honestly rather than oversold**: the
+longest run in this sample (14 tool_calls) peaked at 25,235 tokens —
+comfortably under even the OLD 32768 ceiling. This specific n=5 sample
+never produced a trajectory that would have overflowed under the
+previous config, so "0 context_overflow" here is consistent with the fix
+working but isn't a mechanistic proof of it catching a genuine near-miss
+the way the `HISTORY_DIFF_ENABLED` probe's flattened `cached_tokens`
+trace was. The 5/5 success rate itself (D1's best result all session,
+against 1/5 on the two prior REASONING_EFFORT=medium campaigns) most
+likely reflects D1's already-documented high run-to-run variance rather
+than a causal effect of the context-ceiling change — the two mechanisms
+target different failure modes (context capacity vs. detection/
+conclusion logic) and there's no reason the latter would improve from a
+larger ceiling per se.
+
+**Overall standing, both mitigations now measured**: `HISTORY_DIFF_ENABLED`
+has the stronger mechanistic evidence (direct, flattened token-growth
+trace); `max_seq_len`/`cache_size` removes the hard ceiling itself with
+no observed downside, but n=5 didn't stress it. Both are independent and
+compatible (never tested combined in this session). Neither change has
+been adopted as a new baseline default — that decision, along with
+`REASONING_EFFORT=medium`'s own adoption, is still the user's call.
+
+## 2026-09-18 — `REASONING_EFFORT=medium` and `max_seq_len`/`cache_size` adopted as defaults
+
+User decision, following a recommendation given with arguments for each
+of the three pending items from this session:
+
+- **`REASONING_EFFORT=medium`: adopted.** Meets
+  `docs/briefs/archives/reasoning-effort-tuning.md`'s own frozen decision
+  table's adopt row (score up, time down, no new `boucle`), and the D1
+  confirmation follow-up closed the one open wrinkle across two n=5
+  campaigns (zero confirmed fabrication). `docker-compose.yml`'s
+  shell-level default flipped (`app/graph.py`'s own Python fallback
+  stays `""`, unchanged — same pattern as `PLANNER_ENABLED`'s own code
+  default surviving EFFORT 2.4's flip). `campaign_preflight.py`'s
+  `EXPECTED_AGENT_FLAGS` updated to match, so future campaigns compare
+  against the new baseline instead of flagging a false drift.
+  `docs/architecture/inference-backend.md` corrected. Brief closed and
+  archived with a status header.
+- **`max_seq_len`/`cache_size` 40960/81920: adopted.** Already applied
+  live and measured clean (previous entry); recommended independently of
+  the `REASONING_EFFORT` decision since it's a pure-upside change (only
+  removes a hard failure ceiling, no behavioral downside observed) —
+  `docs/architecture/inference-backend.md` updated with the new values
+  and rationale.
+- **`HISTORY_DIFF_ENABLED`: NOT adopted, deliberately.** Recommended
+  holding for a full v2 regression campaign (all families, single
+  variable) before flipping the default — the D1 evidence is
+  mechanistically the strongest of the three context-overflow
+  mitigations tried this session, but n=5 on one task doesn't yet meet
+  the evidence bar `REASONING_EFFORT` was held to (a full-suite decisive
+  measurement) before its own adoption. Flag stays `false`; the
+  regression campaign is queued, not run.
+
+Full suite re-verified after the flag flips: 513 passed, 0 regressions
+(no test asserted the old `REASONING_EFFORT` default explicitly, unlike
+EFFORT 2.4's flip which needed 2 test updates).
+
+## 2026-09-18 — `HISTORY_DIFF_ENABLED` redundancy-density metric added
+
+Follow-up idea parked in the D1 confirmation entry above, now built: a
+future campaign's "no effect" reading on `HISTORY_DIFF_ENABLED` was hard
+to interpret without a live re-run, because the existing coverage
+counter (`history_diff_browser_messages_max`) is an ABSOLUTE opportunity
+size — it can't tell "few `browser_*` results because the task is
+genuinely short" (A1/A2's own reading) apart from "few results despite a
+long conversation dominated by something else" (which would instead
+point at a broken mechanism). A ratio settles this without waiting for a
+transcript dive.
+
+**Change**: `app/graph.py`'s existing `role="history_diff"` audit entry
+(logged on every `call_llm` regardless of the flag, per CLAUDE.md's
+trigger-rate-counter rule) gains a `total_messages_count` field alongside
+the existing `browser_messages_count`. The harness
+(`tests_integration/test_web_tasks.py`, reused by `test_web_tasks_v2.py`)
+computes `history_diff_redundancy_density_max` — the max, across the
+run's `history_diff` entries, of `browser_messages_count /
+total_messages_count` — and persists it in both the `TaskResult` object
+and the campaign JSON row, plus the per-run report line
+(`densité_max=...`). Division guarded against a missing key on older
+archived entries (defaults to 1, never a `ZeroDivisionError`).
+
+**Not unit-tested**: this harness's aggregation logic
+(`history_diff_browser_messages_max` and siblings) has never had
+dedicated unit tests — verified only by live campaigns, consistent with
+how the rest of `tests_integration/test_web_tasks.py`'s per-run
+aggregation is exercised in this project. Full suite re-run to confirm
+no regression from the added field: 513 passed (unchanged count, as
+expected — no new test functions, matching the existing coverage
+pattern for this code).
+
+**Reading guide for the next `HISTORY_DIFF_ENABLED` campaign**: a low
+`history_diff_redundancy_density_max` with no measured effect confirms
+"not enough opportunity" (A1/A2's case); a high density with no effect
+would instead flag the mechanism itself as broken — a distinction the
+D1 result didn't need (density was high AND the effect was clear) but
+future, less clear-cut tasks will.
+
+## 2026-09-18 — HISTORY_DIFF_ENABLED closing campaign: two apparent regressions, one real bug found (A3), one still open (T10)
+
+Context: `docs/briefs/scaffolding-optimisation.md`, "Closing campaign —
+full v2 regression". `HISTORY_DIFF_ENABLED=true` on top of the now-
+default `REASONING_EFFORT=medium`/`max_seq_len=40960`, full v2 suite (62
+runs). First attempt failed at preflight (`Connection refused` fetching
+`/tools/schema` — `langgraph-agent` not yet listening right after
+`--force-recreate`, a timing issue, not investigated further); the
+`.DONE` marker from that failed attempt caused a false "campaign
+finished" read mid-session (file naming is date+label based, not
+campaign-id based — overwritten only once the real run finishes; caught
+by comparing `progress.json`'s live `completed`/`active` state, which
+still showed an in-progress run). Second attempt completed clean, image
+digest identical to the D1 diff probe's (`sha256:c21d2ca8...`) — the new
+redundancy-density metric's field (`total_messages_count`) was therefore
+NOT in this image, its `history_diff_redundancy_density_max` readings on
+this campaign are garbage (division by the fallback `1`, values >1
+observed) and must be disregarded; a rebuild was needed and wasn't done
+(operational trap self-inflicted — forgot `docker compose build` before
+telling the user to `--force-recreate`, exactly the class of mistake
+`CLAUDE.md` already documents).
+
+**Raw score: 56/62** (vs. 60/62 baseline without diff), regression
+concentrated on `T10_books_toscrape` (0/2) and `A3_contact_conges`
+(1/3) — everything else at or within established variance.
+
+**First reading (WRONG, corrected after checking the raw transcripts
+rather than trusting the score alone)**: initially attributed both to
+`HISTORY_DIFF_ENABLED` compacting away plain body-text content (prices,
+disambiguating details) the diff's affordance-only extraction can't see.
+Asked to verify against the actual audit log before accepting this —
+right call, the hypothesis didn't survive contact with the transcripts:
+
+- **T10 (`docs/workspace/.audit`, both threads)**: both failures start
+  at the VERY FIRST navigation — the model guesses a category URL
+  (two DIFFERENT wrong guesses across the two reps) instead of following
+  a real link from the homepage, lands on a 404, then repeatedly hits
+  `BROWSER_NAVIGATE_GUARDRAIL` retrying more guessed URLs until giving up
+  (`extraction`) or looping (`boucle`, 28 tool_calls). At the point of
+  failure there is nothing yet to compact — `HISTORY_DIFF_ENABLED`
+  mechanistically cannot be the cause. Reads as plain model/sampling
+  variance on a real external site, not investigated further (n=2, no
+  reproducible link to the flag under test).
+- **A3 (`final_text` read for all 3 reps)**: all three give the
+  objectively identical correct answer (Chloé Simon, same reasoning).
+  Not a model failure at all — a TEST BUG. `_classify_a3_outcome`'s
+  deferral keyword list included `"ambigu"`/`"deux personnes"`, both of
+  which describe the SOURCE DATA's ambiguity, exactly the language a
+  correct, resolved answer uses as context before disambiguating. Run 1
+  escaped by pure accident (`**deux** personnes`, a markdown bold marker
+  breaking the substring match); runs 2/3 used the same phrasing without
+  bold and got misclassified `safe_deferral` → `failure_cause=extraction`.
+  **Fixed**: `_A3_DEFERRAL_KEYWORDS` narrowed to phrases stating the
+  MODEL's own unresolved state (`"je ne suis pas sûr"`, `"pouvez-vous
+  préciser"`, `"je ne peux pas déterminer"`, `"besoin de confirmation"`,
+  `"n'ai pas pu déterminer"`) — dropped `"ambigu"`, `"deux personnes"`,
+  `"n'est pas clair"` (same descriptive-not-epistemic problem). All 3
+  real campaign answers now correctly reclassify as `correct`. New
+  regression test using the real collision text. Full suite 513 → 514
+  passed.
+
+**Corrected score: 58/62** (A3 was never really 1/3, it's 3/3) — the
+only open item is T10's 0/2, mechanistically unconnected to the diff and
+on too small a sample to attribute to it. **No longer reading this as a
+clear reject** — the earlier "regression on 2 families" verdict doesn't
+survive the transcript check. Not yet a green light either: T10 needs a
+small, targeted re-run (`HISTORY_DIFF_ENABLED=true`, T10 alone, a few
+more reps) to see whether 0/2 was noise or reproduces, before any
+decision table row applies.
+
+**Process note**: this is exactly why the brief's own decision table
+exists BEFORE reading results, but it's not a substitute for checking
+the mechanism behind a score — a regression's SCORE and its CAUSE are
+different questions, and only the transcript answers the second one.
+Caught here because the user asked to verify before accepting the
+initial (wrong) reading.
+
+## 2026-09-18 — T10 confirmation re-run + confirmed root cause: HISTORY_DIFF_ENABLED erases non-snapshot browser_* results
+
+**T10 confirmation** (`campaign-20260918T150731Z-history-diff-enabled-
+t10-confirmation.json`, `HISTORY_DIFF_ENABLED=true`, T10 alone, n=5): 3/5
+success, 2/5 `boucle`. Combined with the closing campaign's own 0/2:
+**3/7 across both campaigns** — enough to treat as a real, elevated
+failure rate rather than the closing campaign's n=2 noise, not just a
+coincidence.
+
+**Root cause found and CONFIRMED, not just hypothesized** — asked to
+verify formally rather than trust the transcript reading alone. Method:
+reconstructed the real message sequence of a failing thread
+(`5c97c43e3c918905`) directly from `workspace/.audit/2026-09-18.jsonl`'s
+raw tool_call/result entries (real `AIMessage`/`ToolMessage` objects,
+real content, no synthetic example), ran the ACTUAL
+`_apply_history_diff` function from `app/graph.py` against it, and
+printed exactly what the model would have received for every replaced
+message.
+
+**Confirmed**: a `browser_evaluate` result holding genuinely successful
+extracted data (`{"total": 14, "books": [{"price": "£42.96", ...}]}` —
+the model had already found the answer) was replaced by `"[Observation
+compactée] pas de page renvoyée à ce tour (action bloquée ou erreur) —
+aucun changement de page à signaler."` — indistinguishable from an
+actual guardrail rejection. Cause: `_is_structural_browser_result` only
+recognizes page-snapshot-shaped text (`Page URL:` line, affordance
+lines) — `browser_evaluate`/`browser_run_code_unsafe`/`browser_extract`/
+`browser_inspect`/`browser_take_screenshot` return arbitrary JSON/text/
+image payloads that never match, so ANY compacted result from these
+tools reads as "blocked/error" regardless of whether it succeeded. The
+thread's subsequent 8 near-identical failing `browser_evaluate` fetches
+(all hitting 404 on a wrong URL) are consistent with the model believing
+it had never actually retrieved the data it already had.
+
+**First navigation guess is universal, not the differentiator**: all 7
+T10 threads across both campaigns (successes and failures alike) open
+with the same fabricated-category-URL guess (varying slightly:
+`category_29-science_25`, `category_29.html`, `category_33.html`) and
+recover via `browser_run_code_unsafe`/`browser_evaluate` — this is the
+model's standard T10 opening move, unrelated to any flag. What
+distinguishes outcome is whether the RECOVERED data survives long enough
+to reach a conclusion — exactly what `HISTORY_DIFF_ENABLED`'s bug
+prevented.
+
+**Fix**: `_SNAPSHOT_SHAPED_BROWSER_TOOLS = {"browser_navigate",
+"browser_click", "browser_snapshot"}` (`app/graph.py`) — only these
+produce text `_diff_browser_observation` can meaningfully compare.
+`_apply_history_diff` now filters `_browser_result_indices`' output
+through this set before compacting; any other browser_* tool's result is
+excluded from compaction entirely (always kept verbatim), regardless of
+position. `_browser_result_indices` itself is untouched (still used
+broadly by the coverage counter's `browser_messages_count` — opportunity
+size stays a different, deliberately broader measurement than
+compaction eligibility). Re-ran the exact same reconstructed thread
+through the fixed function: all 13 `browser_evaluate` results now
+preserved byte-for-byte, including the one holding the real answer.
+
+**Tests**: 2 new cases in `test_history_diff.py` — a run of only
+`browser_evaluate` results stays a complete no-op (would otherwise
+trigger compaction), and a mixed navigate/evaluate/navigate/navigate
+sequence (the real T10 shape) confirms the evaluate stays byte-for-byte
+intact while navigate results are still compacted as before. All
+existing diff tests pass unchanged (they exercise `browser_snapshot`,
+still eligible). Full suite 514 → 516 passed, 0 regressions.
+
+**Not yet re-measured live**: this fix hasn't been validated by another
+T10 (or full v2) live run — the confirmation above used the ALREADY-
+COLLECTED audit data from the failing pre-fix runs, replayed through the
+post-fix function offline, not a fresh live campaign. A live re-run
+after `docker compose build langgraph-agent` is the natural next step
+before closing `HISTORY_DIFF_ENABLED`'s adoption question.
+
+## 2026-09-18 — HISTORY_DIFF_ENABLED live re-run: fix confirmed, adoption criteria met
+
+**Context**: the closing campaign's decision table (`docs/briefs/
+scaffolding-optimisation.md`, Effort 2) requires a fresh live full-v2 run
+on the fixed code, not the offline replay above. Ran `T10_books_toscrape`
+alone first (`campaign-20260918T150731Z-history-diff-enabled-t10-
+confirmation.json`, n=5, pre-fix build — this was the confirmation that
+motivated the root-cause hunt, not a post-fix result), then, after
+`docker compose build langgraph-agent` picked up the `_SNAPSHOT_SHAPED_
+BROWSER_TOOLS` fix, a T10-only post-fix confirmation
+(`campaign-20260918T163816Z-history-diff-t10-postfix-confirmation.json`)
+followed by the full-suite closing re-run
+(`campaign-20260918T164754Z-history-diff-enabled-v2-regression-
+postfix.json`). Verified before trusting the result (per the stale-image
+trap in this file's own operational traps): commit `9c76a3f` (post-fix,
+descendant of `fc51fb3`) and `langgraph-agent` image digest `8ddbcc0…`,
+both different from the pre-fix campaign's `c083ff9`/`c21d2ca…` — a
+genuinely fresh build, not a reused image.
+
+**Measurements**, three-point comparison — true baseline (`campaign-
+20260917T080205Z-qwen38-reasoning-effort-medium-campaign.json`, 60/62,
+no diff flag) vs. pre-fix flag-on (56/62 raw, 58/62 corrected) vs.
+post-fix flag-on (this campaign):
+
+- **Family F**: 8/8, `T10_books_toscrape` 2/2 (was 0/2 pre-fix) — the
+  fix holds under a live run, not just the offline replay.
+- **A3_contact_conges**: 3/3 correct, matching baseline — the deferral-
+  keyword classifier fix (previous entry) also holds live.
+- **D1_cible_inexistante**: 1/3, same raw score as the true baseline's
+  own 1/3 (2 hallucination failures there vs. 1 `absence_non_conclue` +
+  1 `hallucination_prix_incident` here) — different failure signature,
+  same score, consistent with D1's already-documented small-n noise
+  (Phase 2, "D1_cible_inexistante drops to 1/3"), not a new regression.
+- **B1_conge_hard, intent α, repetition 2** (`thread_id=
+  799c1b35cffa8219`): `no_never_grantable_tool: browser_evaluate` in
+  addition to the usual `no_grant_relaxation`. Investigated by
+  reconstructing the thread from `workspace/.audit/2026-09-18.jsonl`:
+  the model calls `browser_evaluate` to self-check filled form field
+  values ("I'll verify the date field value before submitting") BEFORE
+  `browser_click`/submit — at that point in the thread `history_diff`'s
+  own counter reads `messages_replaced: 0`, i.e. the diff mechanism had
+  not yet touched any message. The other two repetitions of the same
+  task perform the identical pre-submit self-check via `browser_snapshot`
+  (allowed) instead — pure per-run stochastic tool choice, not something
+  the diff mechanism could have caused. Confirmed pre-existing and
+  flag-independent: the same `no_never_grantable_tool: browser_evaluate`
+  violation on `B1_conge_hard`/hard appears in three campaigns that
+  predate `HISTORY_DIFF_ENABLED` entirely (`2026-07-30_campaign-v2_b2-
+  mesure-medium-hard.md`, `2026-08-05_campaign-v2_ablation-cfg6-planner-
+  verif-validation-retry.md`, `2026-08-11_campaign-v2_effort1-3-
+  parallele-n3.md`) — not a new failure mode introduced by this change.
+- Families A (A1/A2/A4), B (CuP pattern otherwise unchanged from
+  baseline), C (0/3 security breaches), E (9/9, E2 3/3 vs. 2/3 pre-fix)
+  all match or exceed baseline.
+
+**Verdict**: no regression on any family once the B1-hard violation is
+traced to a pre-existing, flag-independent behavior rather than a new
+failure mode. Matches the brief's decision table row 1 verbatim ("No
+regression on any family... → Adopt `HISTORY_DIFF_ENABLED=true` as the
+new default"), applied as frozen, not reinterpreted.
+
+**Decision**: `HISTORY_DIFF_ENABLED` adoption criteria met on the
+regression/CuP/security axis. Token/context gain per family (the
+decision table's other leg) not yet re-checked against this specific
+post-fix campaign — open before flipping the default in `docker-
+compose.yml`. **Superseded**: see the next entry below — the token leg
+does not support a clean "Adopt" read once checked.
+
+## 2026-09-18 — HISTORY_DIFF_ENABLED live re-run: token/context gain leg checked, confounded by trajectory-length variance
+
+**Context**: closing the one item the previous entry left open — the
+decision table's second leg ("real token/context gain on at least the
+tasks with real redundancy density"), checked against the same post-fix
+campaign (`campaign-20260918T164754Z-history-diff-enabled-v2-regression-
+postfix.json`) vs. the true baseline (`campaign-20260917T080205Z-qwen38-
+reasoning-effort-medium-campaign.json`, no flag).
+
+**Measurements**:
+- **Cumulative `prompt_tokens_total`**: 2,954,548 (baseline) →
+  3,146,820 (postfix), **+6.5%** — the opposite of a gain.
+  `prefill_seconds` 399.7s → 578.2s (+44.7%), `cache_zero_requests` 0 →
+  2. `context_overflow`: 0 occurrences in both campaigns — the one
+  judge that reads clean, though it's not this campaign's design that
+  targets it (the D1 probe's controlled, single-task measurement
+  already established that result; see that entry).
+- **Trigger-rate/coverage** (the mechanism's own counters, read per
+  task, not bolted on after the fact): fires (`history_diff_applied_
+  count > 0`) on 15/22 tasks. No-op on the short, low-redundancy ones
+  (C1, D2, E1, E2, E3, T3, T5 — `redundancy_density_max` stays 0.33-
+  0.43, the A1/A2/smoke reading confirmed again, not a mechanism
+  defect). Heaviest firing: A1 (175 messages replaced across 3 runs,
+  density up to 0.579), D1 (126), T10 (105), A4 (78), A2 (47).
+- **Per-task `prompt_tokens_total` delta is dominated by trajectory-
+  length variance, not compaction**: A1 +58.8% tokens but also +58%
+  tool calls (40→63) — tokens-per-tool-call is flat (10,038→10,121). D1
+  +10.0% tokens, +2.6% tool calls, tokens-per-call up slightly (11,603→
+  12,441). T10 +24.3% tokens, +14.3% tool calls (28→32, expected: this
+  run SUCCEEDS where the true baseline also succeeds, but this specific
+  postfix run's trajectory ran longer), tokens-per-call up slightly
+  (6,708→7,296). None of these three show a per-call efficiency gain —
+  their raw totals are explained by the model simply taking more turns
+  in this particular live run, unrelated to the flag (an inherent
+  live-campaign confound: a nondeterministic model does not reproduce
+  the same trajectory shape run to run).
+- **Where trajectory length stayed comparable, a real gain shows**: A4
+  (33→33 tool calls, tokens-per-call 9,218→7,005, **-24%**) and A2
+  (22→23 tool calls, tokens-per-call 9,325→8,354, **-10%**) — both
+  fire the mechanism (78 and 47 messages replaced respectively) and
+  both show genuine per-turn cost reduction, broader than just the D1
+  probe's own already-known win.
+
+**Verdict**: the campaign-level aggregate token count does NOT
+demonstrate a clean, broad gain — read naively it looks like a
+regression (+6.5% cumulative). But the raw aggregate is confounded by
+run-to-run trajectory-length variance inherent to a live, nondeterministic
+campaign (unlike the D1 probe's own controlled, fixed-shape
+measurement). Read per-call instead of per-task-total, on the two tasks
+where trajectory length was actually comparable between runs (A2, A4),
+there IS a real, broader-than-D1 token gain. On the three heaviest-
+firing tasks (A1, D1, T10) the signal is inconclusive, not negative —
+flat-to-slightly-worse per-call cost, well within noise, masked by a
+much larger swing in trajectory length neither campaign controlled for.
+
+**Decision**: neither decision-table row 1 ("real token/context gain")
+nor row 3 ("family regresses") cleanly applies — this reads as row 2:
+"No regression, but gains only where D1-like exhaustive verification
+already showed them (no broader benefit)", with the caveat that A2/A4
+extend that broader benefit slightly beyond D1 alone. Per the brief's
+own row 2 language, adopt-or-not is a judgment call on maintenance cost
+vs. a narrow, partially-confirmed win — not pre-decided by this
+campaign. **Not** a green light for an unconditional default flip on
+the strength of this measurement alone; a controlled, fixed-trajectory
+probe (D1-probe-style) on A1/A2/A4/T10 individually would be needed to
+separate the mechanism's real per-call effect from live-run trajectory
+noise, if a cleaner token verdict is wanted before deciding.

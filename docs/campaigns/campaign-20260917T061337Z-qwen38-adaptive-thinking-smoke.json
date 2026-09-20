@@ -1,0 +1,189 @@
+{
+  "metadata": {
+    "campaign_prefill_stats": {
+      "cache_zero_requests": 2,
+      "prefill_seconds": 24.98,
+      "prompt_tokens_total": 85095,
+      "tabbyapi_requests": 8
+    },
+    "commit": "791306c2527e1817253ec4aef2dae7e8fc90fffe",
+    "ended_at": "2026-09-17T06:14:22.212371+00:00",
+    "env_flags": {
+      "ADAPTIVE_THINKING": "true",
+      "AFFORDANCE_THRESHOLD": "60",
+      "APPROVAL_RULES_PATH": "",
+      "AUDIT_LOG_MAX_BYTES": "20971520",
+      "AUTO_APPROVAL_STREAK_LIMIT": "6",
+      "AUTO_APPROVED_TOOLS": "",
+      "BROWSER_NAVIGATE_GUARDRAIL": "true",
+      "BROWSER_TOOL_OUTPUT_MAX_CHARS": "8000",
+      "CAMPAIGN_VISUAL_CAPTURE": "true",
+      "EPISODE_COMPACTION_ENABLED": "false",
+      "EPISODE_COMPACTION_TURN_THRESHOLD": "40",
+      "FABRICATION_LIMIT": "5",
+      "HISTORY_DIFF_ENABLED": "false",
+      "IMAGE_FORMAT_PASSTHROUGH": "",
+      "IMAGE_TOKEN_ESTIMATE": "1500",
+      "LLM_MAX_TOKENS": "2048",
+      "MAX_EMPTY_ANSWER_RETRIES": "1",
+      "MAX_IMAGES_IN_CONTEXT": "1",
+      "MAX_TOOL_ITERATIONS": "20",
+      "NEVER_GRANTABLE_TOOLS_EXTRA": "",
+      "PLANNER_ENABLED": "false",
+      "PLANNER_MAX_TOKENS": "8192",
+      "PLANNER_THINKING_ENABLED": "false",
+      "PLANNING_MODE": "nodes",
+      "PLAN_JUDGE_ENABLED": "false",
+      "PLAN_VALIDATION_ENABLED": "true",
+      "REPLAN_BUDGET": "2",
+      "SUBTASK_ATTEMPT_BUDGET": "3",
+      "TZ": "Europe/Paris",
+      "VERIFICATION_ENABLED": "false"
+    },
+    "gpu_devices": [
+      {
+        "bus_id": "00000000:04:00.0",
+        "index": 0,
+        "memory_used_mib": 11365.0,
+        "name": "NVIDIA GeForce RTX 5060 Ti"
+      },
+      {
+        "bus_id": "00000000:08:00.0",
+        "index": 1,
+        "memory_used_mib": 11074.0,
+        "name": "NVIDIA GeForce RTX 4070 Ti SUPER"
+      }
+    ],
+    "image_ids": {
+      "langgraph-agent": "sha256:9f40a917c124c2f660f0b6789e845bc37bd0cceddca047012932b930bbc87d90",
+      "mcp-client": "sha256:df7dfa9fbe3dfb4ca0e3cf63b4b735b9f0f88e34bbefee922d78d02e229feb9d",
+      "playwright-mcp": "sha256:8771dc4666e7c11440bfc6a0c6b00480e9a15b8891b45f29a52d7d995f8d1492",
+      "tabbyapi": "sha256:2f3741089a48c92dca9e50af976d33403c5b93dd56a5b8d3f7e6806538f8c72b"
+    },
+    "label": "qwen38-adaptive-thinking-smoke",
+    "started_at": "2026-09-17T06:13:37.494836+00:00",
+    "tabbyapi_model_id": "qwen3.8-27b-exl3-4.50bpw"
+  },
+  "runs": [
+    {
+      "approvals": 2,
+      "cache_zero_requests": 2,
+      "cup": null,
+      "detail": "3 références non conformes trouvées",
+      "duration_seconds": 44.3,
+      "episode_compaction_applied_count": 0,
+      "episode_compaction_messages_max": 15,
+      "fabricated_urls": [],
+      "failure_cause": "",
+      "final_text": "</think>\n\nJ'ai tout ce qu'il faut. Voici le résultat de l'audit.\n\n## Format attendu (doc : « Schéma des références produit »)\nToutes les références doivent suivre **PX-####** (préfixe « PX- » + exactement 4 chiffres).\n**Exception documentée** : le produit historique **KX-4471** conserve son ancienne référence et n'est **pas** une anomalie.\n\n## Audit des 30 fiches (3 pages)\nJ'ai vérifié la référence de chaque fiche produit. Les références non conformes au format PX-#### sont :\n\n| Fiche | Produit | Référence | Problème |\n|---|---|---|---|\n| product-5 | Robuste Chaise #5 | **PX-77** | seulement 2 chiffres au lieu de 4 |\n| product-18 | Robuste Chaise #18 | **REF-1023** | mauvais préfixe (REF- au lieu de PX-) |\n| product-27 | Moderne Étagère #27 | **PX-102750** | 6 chiffres au lieu de 4 |\n\n**Note** : la fiche product-14 (Robuste Thermos #14) porte la référence **KX-4471**, qui ne suit pas le format, mais c'est l'exception documentée — elle n'est donc **pas** comptée comme anomalie.\n\n## Réponse\nLes **trois** références non conformes sont :\n1. **PX-77** (Robuste Chaise #5)\n2. **REF-1023** (Robuste Chaise #18)\n3. **PX-102750** (Moderne Étagère #27)",
+      "history_diff_applied_count": 0,
+      "history_diff_browser_messages_max": 7,
+      "history_diff_messages_replaced": 0,
+      "merged_plan_attempted": 0,
+      "merged_plan_calls": 0,
+      "merged_plan_completions": 0,
+      "merged_plan_heuristic_rejections": 0,
+      "merged_plan_initial_subtask_count": null,
+      "merged_plan_replans": 0,
+      "plan_initial_subtask_count": null,
+      "plan_trivial": null,
+      "prefill_seconds": 24.98,
+      "prompt_tokens_total": 85095,
+      "repetition": 1,
+      "replan_events": 0,
+      "segment": 0,
+      "success": true,
+      "tabbyapi_raw_samples": [
+        {
+          "cached_tokens": 0,
+          "draft_accepted": 41,
+          "draft_total": 52,
+          "generation_seconds": 0.68,
+          "new_tokens": 6925,
+          "process_speed_tps": 1070.32,
+          "queue_seconds": null,
+          "tokens_generated": 54
+        },
+        {
+          "cached_tokens": 0,
+          "draft_accepted": 31,
+          "draft_total": 32,
+          "generation_seconds": 0.43,
+          "new_tokens": 8933,
+          "process_speed_tps": 1057.16,
+          "queue_seconds": null,
+          "tokens_generated": 39
+        },
+        {
+          "cached_tokens": 8704,
+          "draft_accepted": 27,
+          "draft_total": 28,
+          "generation_seconds": 0.38,
+          "new_tokens": 732,
+          "process_speed_tps": 647.79,
+          "queue_seconds": null,
+          "tokens_generated": 34
+        },
+        {
+          "cached_tokens": 9216,
+          "draft_accepted": 28,
+          "draft_total": 32,
+          "generation_seconds": 0.43,
+          "new_tokens": 560,
+          "process_speed_tps": 666.67,
+          "queue_seconds": null,
+          "tokens_generated": 36
+        },
+        {
+          "cached_tokens": 9728,
+          "draft_accepted": 28,
+          "draft_total": 32,
+          "generation_seconds": 0.43,
+          "new_tokens": 853,
+          "process_speed_tps": 729.06,
+          "queue_seconds": null,
+          "tokens_generated": 36
+        },
+        {
+          "cached_tokens": 10496,
+          "draft_accepted": 28,
+          "draft_total": 32,
+          "generation_seconds": 0.43,
+          "new_tokens": 944,
+          "process_speed_tps": 715.15,
+          "queue_seconds": null,
+          "tokens_generated": 36
+        },
+        {
+          "cached_tokens": 11264,
+          "draft_accepted": 333,
+          "draft_total": 344,
+          "generation_seconds": 4.75,
+          "new_tokens": 999,
+          "process_speed_tps": 713.57,
+          "queue_seconds": null,
+          "tokens_generated": 419
+        },
+        {
+          "cached_tokens": 12032,
+          "draft_accepted": 291,
+          "draft_total": 388,
+          "generation_seconds": 5.43,
+          "new_tokens": 3709,
+          "process_speed_tps": 883.1,
+          "queue_seconds": null,
+          "tokens_generated": 388
+        }
+      ],
+      "tabbyapi_requests": 8,
+      "task_id": "A2_schema_references",
+      "thread_id": "8a0eba2250abe8fb",
+      "tool_calls_observed": 9,
+      "validation_heuristic_rejections": 0,
+      "validation_judge_invocations": 0,
+      "validation_judge_vetoes": 0,
+      "verification_exploitable": 0,
+      "verification_opportunities": 0
+    }
+  ]
+}

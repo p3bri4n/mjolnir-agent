@@ -181,6 +181,13 @@ _PLAN_ESCALATION_PREFIX = "⚠️ Le plan proposé a été rejeté par la valida
 _ITERATION_LIMIT_PREFIX = "⚠️ Limite d'itérations d'outils atteinte"
 _EMPTY_NOTICE_PREFIX = "⚠️ Le modèle a terminé son tour sans réponse exploitable"
 _INTERNAL_ERROR_TEXT = "⚠️ Erreur interne pendant la génération, réessayez."
+# Distinct from _INTERNAL_ERROR_TEXT above: a genuine TabbyAPI context-
+# window overflow (openai.BadRequestError, code="context_length_exceeded",
+# app/main.py's _error_notice_for) used to collapse into the same generic
+# "infra" bucket, masking a real, task-shape-driven cause rather than a
+# transient fault — see docs/engineering-log.md, "reasoning_effort tuning,
+# Phase 2 follow-up".
+_CONTEXT_OVERFLOW_TEXT = "⚠️ Contexte de conversation trop long pour continuer, démarre une nouvelle tâche."
 
 
 def _is_approval_pending(content: str) -> bool:
@@ -430,6 +437,14 @@ class TaskResult:
         self.history_diff_browser_messages_max = 0
         self.history_diff_applied_count = 0
         self.history_diff_messages_replaced = 0
+        # Redundancy density (browser_messages_count / total_messages_count
+        # at the call with the most opportunity, see app/graph.py's
+        # call_llm) — reads a "no effect" result BEFORE a live re-run:
+        # low density means the mechanism had little to compress (not a
+        # defect, see the A1/A2 "mixed, not decisive" smoke), high density
+        # with no effect would instead point at a broken mechanism.
+        # Flag-independent, same discipline as the two counters above.
+        self.history_diff_redundancy_density_max = 0.0
         # Planner/validation/judge coverage counters (EFFORT 2 "judge
         # validity check", see docs/history.md): symmetric to
         # verification_opportunities/exploitable above — plan_task,
@@ -501,6 +516,8 @@ def run_task(prompt: str, worker_id: str = None) -> TaskResult:
                     result.observed_navigate_urls.append(args["url"])
         elif content.startswith(_EMPTY_NOTICE_PREFIX):
             result.failure_cause = "extraction"
+        elif _CONTEXT_OVERFLOW_TEXT in content:
+            result.failure_cause = "context_overflow"
         elif _INTERNAL_ERROR_TEXT in content:
             result.failure_cause = "infra"
     except (RuntimeError, subprocess.TimeoutExpired) as exc:
@@ -535,6 +552,11 @@ def run_task(prompt: str, worker_id: str = None) -> TaskResult:
     if history_diff_entries:
         result.history_diff_browser_messages_max = max(
             (e.get("content") or {}).get("browser_messages_count", 0) for e in history_diff_entries
+        )
+        result.history_diff_redundancy_density_max = max(
+            (e.get("content") or {}).get("browser_messages_count", 0)
+            / (e.get("content") or {}).get("total_messages_count", 1)
+            for e in history_diff_entries
         )
     result.history_diff_messages_replaced = sum(
         (e.get("content") or {}).get("messages_replaced", 0) for e in history_diff_entries
@@ -1253,6 +1275,7 @@ def _run_campaign(resume_cid: str = None):
             "history_diff_browser_messages_max": result.history_diff_browser_messages_max,
             "history_diff_applied_count": result.history_diff_applied_count,
             "history_diff_messages_replaced": result.history_diff_messages_replaced,
+            "history_diff_redundancy_density_max": round(result.history_diff_redundancy_density_max, 3),
             # B2 Part 3.1/3.2: needed by _write_report() to break down
             # cache-sensitive metrics per segment rather than pooling them
             # across a pause boundary (a fresh segment starts cold-cache
@@ -1594,6 +1617,7 @@ def _write_report(rows: list) -> None:
         )
         history_diff_note = (
             f", browser_msgs_max={r['history_diff_browser_messages_max']}, "
+            f"densité_max={r['history_diff_redundancy_density_max']}, "
             f"diff_remplacés={r['history_diff_messages_replaced']}"
             if r["history_diff_browser_messages_max"]
             else ""

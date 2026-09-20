@@ -1,0 +1,106 @@
+{
+  "active": [],
+  "campaign_id": "20260918T163816Z-history-diff-t10-postfix-confirmation",
+  "completed": [
+    {
+      "approvals": 5,
+      "cup": null,
+      "duration_s": 61.5,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T10_books_toscrape",
+      "thread_id": "511d4e7ae126aec5",
+      "tool_calls": 18
+    },
+    {
+      "approvals": 4,
+      "cup": null,
+      "duration_s": 64.0,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 2,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T10_books_toscrape",
+      "thread_id": "80da9a0f43f0a0db",
+      "tool_calls": 16
+    },
+    {
+      "approvals": 5,
+      "cup": null,
+      "duration_s": 49.3,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 3,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T10_books_toscrape",
+      "thread_id": "d811947e107304a5",
+      "tool_calls": 16
+    },
+    {
+      "approvals": 6,
+      "cup": null,
+      "duration_s": 74.9,
+      "fabricated_urls_count": 0,
+      "failure_cause": "boucle",
+      "repetition": 4,
+      "segment": 0,
+      "status": "failure",
+      "task_id": "T10_books_toscrape",
+      "thread_id": "a4e1858ed63575b4",
+      "tool_calls": 26
+    },
+    {
+      "approvals": 12,
+      "cup": null,
+      "duration_s": 111.6,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 5,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T10_books_toscrape",
+      "thread_id": "bcd2f1d746fc17a6",
+      "tool_calls": 31
+    }
+  ],
+  "config_digest": "d728f85b87f18d8d",
+  "current": null,
+  "label": "history-diff-t10-postfix-confirmation",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "T10_books_toscrape"
+    },
+    {
+      "repetition": 2,
+      "task_id": "T10_books_toscrape"
+    },
+    {
+      "repetition": 3,
+      "task_id": "T10_books_toscrape"
+    },
+    {
+      "repetition": 4,
+      "task_id": "T10_books_toscrape"
+    },
+    {
+      "repetition": 5,
+      "task_id": "T10_books_toscrape"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-09-18T16:44:20.254993+00:00",
+      "index": 0,
+      "started_at": "2026-09-18T16:38:16.861895+00:00"
+    }
+  ],
+  "started_at": "2026-09-18T16:38:16.861895+00:00",
+  "total_runs": 5
+}

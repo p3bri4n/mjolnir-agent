@@ -21,6 +21,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 
+import openai
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -129,9 +130,9 @@ _PLAN_STATUS_LABELS = {"a_faire": "à faire", "en_cours": "en cours", "fait": "f
 def _format_plan_summary(plan: Optional[list]) -> str:
     """
     Plan summary (Iteration 1, Phase 1 "cognitive core" — see
-    docs/briefs/phase-1-coeur-cognitif.md and app/graph.py:plan_task) for
-    the approval message. Empty/None `plan` -> empty string
-    (PLANNER_ENABLED disabled by default, see app/graph.py): changes
+    docs/briefs/archives/coeur-cognitif.md) for the approval message.
+    Empty/None `plan` -> empty string (only ever populated by
+    PLANNING_MODE="merged"'s manage_plan tool, see app/graph.py): changes
     NOTHING to the existing text then, so as not to break any test that
     checks this message today.
     """
@@ -216,6 +217,28 @@ def _parse_approval_reply(text: str) -> tuple:
 
 
 _INTERNAL_ERROR_NOTICE = "⚠️ Erreur interne pendant la génération, réessayez."
+_CONTEXT_OVERFLOW_NOTICE = "⚠️ Contexte de conversation trop long pour continuer, démarre une nouvelle tâche."
+
+
+def _is_context_overflow(exc: Exception) -> bool:
+    return isinstance(exc, openai.BadRequestError) and exc.code == "context_length_exceeded"
+
+
+def _error_notice_for(exc: Exception) -> str:
+    """Distinguishes a real context-window overflow (TabbyAPI rejects the
+    request outright, retrying the same thread can't help) from any other
+    failure caught by the generic safety nets below — both used to
+    collapse into the same generic notice, indistinguishable from a
+    campaign's failure_cause=infra bucket too (see
+    docs/engineering-log.md, "reasoning_effort tuning, Phase 2
+    follow-up")."""
+    return _CONTEXT_OVERFLOW_NOTICE if _is_context_overflow(exc) else _INTERNAL_ERROR_NOTICE
+
+
+def _error_cause_for(exc: Exception) -> str:
+    """Same distinction as _error_notice_for, as the audit_log.
+    log_failure_notice cause string instead of the client-visible text."""
+    return "context_overflow" if _is_context_overflow(exc) else "infra"
 
 
 def _format_iteration_limit_notice(tool_calls: list) -> str:
@@ -339,14 +362,11 @@ async def _resolve_run(request: ChatCompletionRequest):
         "fabricated_navigation_attempts": 0,
         "plan": [],
         "subtask_message_start": [],
-        "replan_count": 0,
         "plan_validation_reasons": [],
         "plan_validation_cycles": 0,
         "plan_approved": None,
         "plan_grant_session": False,
         "plan_grant": False,
-        "pending_verification": False,
-        "constats_inexploitables": 0,
     }
     return config, run_input
 
@@ -462,6 +482,7 @@ async def _stream_response(config: dict, run_input: Optional[dict], model: str):
                 # the agent just seems to "stop" mid-task, with no error
                 # or approval pause explaining it (see MAX_TOOL_ITERATIONS,
                 # app/graph.py).
+                audit_log.log_failure_notice(config["configurable"]["thread_id"], "boucle")
                 notice = closing_prefix + _format_iteration_limit_notice(last_message.tool_calls)
                 for chunk in _sse_content_chunks(completion_id, model, notice):
                     yield chunk
@@ -488,10 +509,11 @@ async def _stream_response(config: dict, run_input: Optional[dict], model: str):
                     # pending AND nothing visible outside <think>, neither
                     # here nor in the persisted message — same "silent
                     # agent" symptom as above, different cause.
+                    audit_log.log_failure_notice(config["configurable"]["thread_id"], "extraction")
                     notice = closing_prefix + _format_empty_answer_notice()
                     for chunk in _sse_content_chunks(completion_id, model, notice):
                         yield chunk
-    except Exception:
+    except Exception as exc:
         # Without this safety net, an error here (llama-server cutting the
         # connection mid-stream, checkpointer unavailable...) kills this
         # generator in the middle of an already-started
@@ -505,10 +527,11 @@ async def _stream_response(config: dict, run_input: Optional[dict], model: str):
         logger.exception(
             "Error during SSE streaming (thread_id=%s)", config["configurable"]["thread_id"]
         )
+        audit_log.log_failure_notice(config["configurable"]["thread_id"], _error_cause_for(exc))
         yield _sse_chunk(
             completion_id,
             model,
-            {"role": "assistant", "content": _INTERNAL_ERROR_NOTICE},
+            {"role": "assistant", "content": _error_notice_for(exc)},
         )
 
     yield _sse_chunk(completion_id, model, {}, finish_reason="stop")
@@ -548,13 +571,16 @@ def _render_visible_answer(snapshot_values: dict) -> str:
 
 
 async def _current_answer(config: dict) -> str:
+    thread_id = config["configurable"]["thread_id"]
     snapshot = await agent_graph.aget_state(config)
     if snapshot.next:
         return _pending_approval_text(snapshot)
     last_message = snapshot.values["messages"][-1]
     if getattr(last_message, "tool_calls", None):
+        audit_log.log_failure_notice(thread_id, "boucle")
         return _format_iteration_limit_notice(last_message.tool_calls)
     if not has_visible_answer(last_message.content):
+        audit_log.log_failure_notice(thread_id, "extraction")
         return _format_empty_answer_notice()
     return _render_visible_answer(snapshot.values)
 
@@ -718,7 +744,7 @@ async def approve(request: ApprovalDecisionRequest):
         )
     try:
         await agent_graph.ainvoke(None, config)
-    except Exception:
+    except Exception as exc:
         # Parity with _stream_response (streaming path): without this
         # safety net, an error here (e.g. LLM context overflow,
         # `llama-server`/TabbyAPI cutting the connection...) used to
@@ -728,7 +754,8 @@ async def approve(request: ApprovalDecisionRequest):
         # NOT called here: the graph may have stopped mid-way with no
         # coherent state to re-read.
         logger.exception("Error during /approve (thread_id=%s)", thread_id)
-        return {"content": _INTERNAL_ERROR_NOTICE}
+        audit_log.log_failure_notice(thread_id, _error_cause_for(exc))
+        return {"content": _error_notice_for(exc)}
 
     return {"content": await _current_answer(config)}
 
@@ -744,13 +771,14 @@ async def chat_completions(request: ChatCompletionRequest):
 
     try:
         await agent_graph.ainvoke(run_input, config)
-    except Exception:
+    except Exception as exc:
         # See the same note in /approve above: same safety net as the
         # streaming path (_stream_response), missing here until now.
         logger.exception(
             "Error during non-streaming /v1/chat/completions (thread_id=%s)",
             config["configurable"]["thread_id"],
         )
+        audit_log.log_failure_notice(config["configurable"]["thread_id"], _error_cause_for(exc))
         return {
             "id": f"chatcmpl-{uuid.uuid4().hex[:12]}",
             "object": "chat.completion",
@@ -759,7 +787,7 @@ async def chat_completions(request: ChatCompletionRequest):
             "choices": [
                 {
                     "index": 0,
-                    "message": {"role": "assistant", "content": _INTERNAL_ERROR_NOTICE},
+                    "message": {"role": "assistant", "content": _error_notice_for(exc)},
                     "finish_reason": "stop",
                 }
             ],

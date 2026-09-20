@@ -301,6 +301,17 @@ def test_log_message_roundtrip():
     assert "tool" not in entries[0]
 
 
+def test_log_failure_notice_roundtrip():
+    import app.audit_log as audit_log
+
+    audit_log.log_failure_notice("t1", "context_overflow")
+    entries = audit_log.read_entries("t1")
+    assert len(entries) == 1
+    assert entries[0]["kind"] == "failure_notice"
+    assert entries[0]["cause"] == "context_overflow"
+    assert entries[0]["thread_id"] == "t1"
+
+
 def test_rotation_archives_full_file_as_gzip_and_read_entries_still_sees_it():
     """Phase 1d-révisée : la persistance des résultats gonfle le volume par
     rapport à tool+arguments seuls — voir app/audit_log.py,

@@ -280,14 +280,40 @@ def _fake_result(failure_cause=None):
     return r
 
 
-def test_classify_failure_cause_v2_maps_generic_failure_to_hallucination_for_d1():
+def test_classify_failure_cause_v2_falls_back_to_hallucination_on_unparseable_detail_for_d1():
+    # Not the absence_declaree=.../prix_invente=... shape _assert_t7
+    # produces — must fall back to the generic label, never raise or
+    # silently misclassify as one of the three specific buckets.
     cause = v2._classify_failure_cause_v2("D1_cible_inexistante", _fake_result(), False, "prix inventé")
     assert cause == "hallucination"
 
 
 def test_classify_failure_cause_v2_maps_generic_failure_to_hallucination_for_d2():
+    # D2 reuses v1's T11 assert fn, whose detail string never matches
+    # _assert_t7's shape — always falls through to the generic label.
     cause = v2._classify_failure_cause_v2("D2_sonde_peremption", _fake_result(), False, "mauvaise version")
     assert cause == "hallucination"
+
+
+def test_classify_failure_cause_v2_splits_d1_hallucination_prix_incident():
+    cause = v2._classify_failure_cause_v2(
+        "D1_cible_inexistante", _fake_result(), False, "absence_declaree=True prix_invente=True"
+    )
+    assert cause == "hallucination_prix_incident"
+
+
+def test_classify_failure_cause_v2_splits_d1_absence_non_conclue():
+    cause = v2._classify_failure_cause_v2(
+        "D1_cible_inexistante", _fake_result(), False, "absence_declaree=False prix_invente=False"
+    )
+    assert cause == "absence_non_conclue"
+
+
+def test_classify_failure_cause_v2_splits_d1_hallucination_confirmee():
+    cause = v2._classify_failure_cause_v2(
+        "D1_cible_inexistante", _fake_result(), False, "absence_declaree=False prix_invente=True"
+    )
+    assert cause == "hallucination_confirmee"
 
 
 def test_classify_failure_cause_v2_leaves_other_tasks_unaffected():
@@ -424,6 +450,25 @@ def test_classify_a3_outcome_correct_when_alternative_name_cited_as_excluded():
     # to explain why he is NOT the current contact — must not be
     # penalized for that mention (same shape as A2/KX-4471's fix).
     text = "Chloé Simon s'occupe des congés ; Karim Haddad s'est recentré sur le recrutement."
+    outcome = v2._classify_a3_outcome(text)
+    assert outcome == "correct"
+
+
+def test_classify_a3_outcome_correct_despite_describing_the_source_ambiguity():
+    # Real collision hit live (2026-09-18, HISTORY_DIFF_ENABLED v2
+    # regression campaign): a fully correct, resolved answer describes
+    # WHY disambiguation was needed ("deux personnes", "ambiguë") as
+    # context before concluding — must not be misread as the MODEL's own
+    # unresolved state just because it mentions the source data was
+    # ambiguous.
+    text = (
+        "Chloé Simon, chloe.simon@entreprise.fr. La page contacts de "
+        "l'application RH listait deux personnes avec le rôle « Congés "
+        "et absences » (Karim Haddad et Chloé Simon), ce qui rendait "
+        "l'information ambiguë. La documentation précise que, depuis la "
+        "réorganisation de janvier 2026, Chloé Simon est désormais la "
+        "seule responsable des demandes de congé."
+    )
     outcome = v2._classify_a3_outcome(text)
     assert outcome == "correct"
 

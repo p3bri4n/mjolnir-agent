@@ -1,0 +1,38 @@
+{
+  "active": [],
+  "campaign_id": "20260917T061337Z-qwen38-adaptive-thinking-smoke",
+  "completed": [
+    {
+      "approvals": 2,
+      "cup": null,
+      "duration_s": 44.3,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "A2_schema_references",
+      "thread_id": "8a0eba2250abe8fb",
+      "tool_calls": 9
+    }
+  ],
+  "config_digest": "e961885838099c12",
+  "current": null,
+  "label": "qwen38-adaptive-thinking-smoke",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "A2_schema_references"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-09-17T06:14:22.212169+00:00",
+      "index": 0,
+      "started_at": "2026-09-17T06:13:37.494836+00:00"
+    }
+  ],
+  "started_at": "2026-09-17T06:13:37.494836+00:00",
+  "total_runs": 1
+}

@@ -189,6 +189,56 @@ def test_apply_history_diff_non_structural_result_not_used_as_baseline(monkeypat
     assert "inconnue" not in b_content
 
 
+def test_apply_history_diff_never_compacts_non_snapshot_tool_results(monkeypatch):
+    """Real bug found live (2026-09-18, docs/engineering-log.md,
+    "HISTORY_DIFF_ENABLED closing campaign" — T10 root cause):
+    browser_evaluate returns a JSON/text payload, never page-snapshot-
+    shaped, so it always read as "non-structural" and got collapsed to
+    the generic "action bloquée ou erreur" placeholder — discarding a
+    genuinely successful data extraction the model needed to recall.
+    Must now stay fully intact regardless of position, even with several
+    of them (which alone would trigger compaction if they counted as
+    eligible)."""
+    import app.graph as g
+
+    monkeypatch.setattr(g, "HISTORY_DIFF_ENABLED", True)
+    turn_a = _browser_turn(tool_name="browser_evaluate", call_id="c1", text='{"price": "42.96"}')
+    turn_b = _browser_turn(tool_name="browser_evaluate", call_id="c2", text='{"price": "8.50"}')
+    turn_c = _browser_turn(tool_name="browser_evaluate", call_id="c3", text='{"price": "19.90"}')
+    messages = turn_a + turn_b + turn_c
+
+    result = g._apply_history_diff(messages)
+
+    assert result == messages  # aucun n'est éligible -> no-op complet
+
+
+def test_apply_history_diff_excludes_evaluate_but_still_diffs_navigate(monkeypatch):
+    """Séquence mixte reproduisant le vrai scénario T10 : navigate ->
+    evaluate (données réelles) -> navigate -> navigate (dernier). Seuls
+    les navigate passés sont compactés ; l'evaluate reste intact quelle
+    que soit sa position."""
+    import app.graph as g
+
+    monkeypatch.setattr(g, "HISTORY_DIFF_ENABLED", True)
+    turn_nav1 = _browser_turn(tool_name="browser_navigate", call_id="c1", text=_snapshot("http://catalog/page-1"))
+    turn_eval = _browser_turn(tool_name="browser_evaluate", call_id="c2", text='{"books": [{"price": "42.96"}]}')
+    turn_nav2 = _browser_turn(tool_name="browser_navigate", call_id="c3", text=_snapshot("http://catalog/page-2"))
+    turn_nav3 = _browser_turn(tool_name="browser_navigate", call_id="c4", text=_snapshot("http://catalog/page-3"))
+    messages = turn_nav1 + turn_eval + turn_nav2 + turn_nav3
+
+    result = g._apply_history_diff(messages)
+
+    # l'evaluate garde son contenu réel mot pour mot, jamais remplacé.
+    eval_msg = next(m for m in result if getattr(m, "tool_call_id", None) == "c2")
+    assert eval_msg.content == turn_eval[1].content
+    # le premier navigate (passé) est bien compacté.
+    nav1_msg = next(m for m in result if getattr(m, "tool_call_id", None) == "c1")
+    assert nav1_msg.content.startswith(g._HISTORY_DIFF_MARKER)
+    # le dernier navigate reste brut.
+    nav3_msg = next(m for m in result if getattr(m, "tool_call_id", None) == "c4")
+    assert nav3_msg.content == turn_nav3[1].content
+
+
 def test_apply_history_diff_resolves_tool_call_id_in_mixed_turn(monkeypatch):
     """Un tour qui mélange un appel non-browser_* (ex. manage_plan) et un
     appel browser_* : seul le ToolMessage browser_* doit être détecté/

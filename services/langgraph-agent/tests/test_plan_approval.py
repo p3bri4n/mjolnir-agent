@@ -6,14 +6,12 @@ l'approbation d'un outil TIER_SENSITIVE à l'exécution, via un scénario
 d'intégration graphe complet.
 """
 
-import json
-
 import httpx
 import pytest
 import respx
 from langgraph.errors import NodeInterrupt
 
-from tests.fixtures.llm_sse import non_streaming_response, text_response, tool_call_response
+from tests.fixtures.llm_sse import text_response, tool_call_response
 
 CONFIG = {"configurable": {"thread_id": "test-thread-plan-approval"}}
 
@@ -107,21 +105,18 @@ async def test_plan_approval_does_not_substitute_for_tool_approval(mock_side_ser
     """
     import app.graph as g
 
-    monkeypatch.setattr(g, "PLANNER_ENABLED", True)
     monkeypatch.setattr(g, "PLAN_VALIDATION_ENABLED", True)
-    monkeypatch.setattr(g, "PLAN_JUDGE_ENABLED", False)
 
-    plan_json = json.dumps(
-        {
-            "sous_taches": [
-                {"description": "Ouvrir le catalogue", "critere_succes": "page affichée", "outils": ["browser_navigate"]},
-                {"description": "Lire le prix", "critere_succes": "prix trouvé", "outils": []},
-            ]
-        }
-    )
+    # plan_task was removed (docs/resolved-bugs.md #61) — state["plan"] is
+    # seeded directly here in the internal shape _validate_plan_json used
+    # to produce, rather than via a mocked planner LLM call. validate_plan
+    # operates on state["plan"] regardless of how it got populated.
+    plan = [
+        {"description": "Ouvrir le catalogue", "success_criterion": "page affichée", "tools": ["browser_navigate"]},
+        {"description": "Lire le prix", "success_criterion": "prix trouvé", "tools": []},
+    ]
     route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
     route.side_effect = [
-        httpx.Response(200, json=non_streaming_response(plan_json)),  # plan_task
         _sse(tool_call_response("browser_navigate", "call_1", '{"url": "http://fixture-catalog/catalog/index.html"}')),  # call_llm
         _sse(text_response(["Fait", "."])),  # call_llm après exécution
     ]
@@ -131,6 +126,7 @@ async def test_plan_approval_does_not_substitute_for_tool_approval(mock_side_ser
         "messages": [{"role": "user", "content": "Sur http://fixture-catalog/catalog/index.html, trouve le prix."}],
         "tool_iterations": 0,
         "approved": None,
+        "plan": plan,
     }
     await g.agent_graph.ainvoke(state, CONFIG)
 
@@ -151,7 +147,7 @@ async def test_plan_approval_does_not_substitute_for_tool_approval(mock_side_ser
     await g.agent_graph.aupdate_state(CONFIG, {"approved": True})
     final_state = await g.agent_graph.ainvoke(None, CONFIG)
 
-    assert route.call_count == 3
+    assert route.call_count == 2
     assert final_state["messages"][-1].content == "Fait."
 
 
@@ -169,25 +165,32 @@ async def test_approve_endpoint_resumes_plan_approval_pause(mock_side_services, 
     import app.graph as g
     import app.main as main_mod
 
-    monkeypatch.setattr(g, "PLANNER_ENABLED", True)
     monkeypatch.setattr(g, "PLAN_VALIDATION_ENABLED", True)
-    monkeypatch.setattr(g, "PLAN_JUDGE_ENABLED", False)
 
-    plan_json = json.dumps(
-        {
-            "sous_taches": [
-                {"description": "Ouvrir le catalogue", "critere_succes": "page affichée", "outils": ["browser_navigate"]},
-                {"description": "Lire le prix", "critere_succes": "prix trouvé", "outils": []},
-            ]
-        }
-    )
+    # plan_task was removed (docs/resolved-bugs.md #61) and /v1/chat/completions
+    # doesn't accept a plan in its request body, so state["plan"] is seeded
+    # by wrapping the compiled graph's ainvoke: the endpoint's OWN first
+    # call always passes a plain dict (never None, that's only for a
+    # resumed run), so injecting "plan" there is equivalent to plan_task
+    # having produced it, without faking a planner LLM response.
+    plan = [
+        {"description": "Ouvrir le catalogue", "success_criterion": "page affichée", "tools": ["browser_navigate"]},
+        {"description": "Lire le prix", "success_criterion": "prix trouvé", "tools": []},
+    ]
     route = mock_side_services.post("http://fake-vllm/v1/chat/completions")
     route.side_effect = [
-        httpx.Response(200, json=non_streaming_response(plan_json)),
         _sse(tool_call_response("write_file", "call_1", '{"path": "/workspace/x.txt", "content": "y"}')),  # tier reversible : auto-approuvé après le plan
         _sse(text_response(["Fait", "."])),
     ]
     g.agent_graph = g.build_graph()
+    real_ainvoke = g.agent_graph.ainvoke
+
+    async def ainvoke_with_seeded_plan(input_, config, **kwargs):
+        if isinstance(input_, dict):
+            input_ = {**input_, "plan": plan}
+        return await real_ainvoke(input_, config, **kwargs)
+
+    monkeypatch.setattr(g.agent_graph, "ainvoke", ainvoke_with_seeded_plan)
     main_mod.agent_graph = g.agent_graph
 
     transport = httpx.ASGITransport(app=main_mod.app)

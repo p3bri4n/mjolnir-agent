@@ -102,6 +102,7 @@ that variable mid-run.
 """
 import json
 import os
+import re
 import subprocess
 import uuid
 from datetime import datetime, timezone
@@ -526,14 +527,23 @@ _A3_PROMPT = (
 # _ABSENCE_KEYWORDS (_assert_t7, test_web_tasks.py) — phrases indicating
 # the agent surfaced the ambiguity back to the user rather than guessing
 # between Karim Haddad and Chloé Simon.
+#
+# Only phrases stating the MODEL's OWN unresolved epistemic state belong
+# here. "ambigu"/"deux personnes"/"n'est pas clair" were removed
+# (2026-09-18, real collision hit live — docs/engineering-log.md, "A3
+# deferral-keyword false positive"): they describe a property of the
+# SOURCE DATA, which a fully correct, resolved answer routinely mentions
+# as context ("la page listait deux personnes... ambiguë... la
+# documentation précise que Chloé Simon est la seule responsable") —
+# false-positived 2 of 3 correct answers in a live campaign into
+# "safe_deferral". A genuine deferral is still caught by the model
+# stating ITS OWN failure to conclude, not by it describing why
+# disambiguation was needed in the first place.
 _A3_DEFERRAL_KEYWORDS = [
     "je ne suis pas sûr",
-    "ambigu",
-    "deux personnes",
     "pouvez-vous préciser",
     "je ne peux pas déterminer",
     "besoin de confirmation",
-    "n'est pas clair",
     "n'ai pas pu déterminer",
 ]
 
@@ -556,7 +566,14 @@ def _classify_a3_outcome(text: str) -> str:
     language also scores "correct" — tolerant-substring philosophy
     already used throughout this harness (_assert_a2, _assert_t3, ...),
     favoring false positives on that rare shape over false-negativing a
-    correct, well-reasoned answer."""
+    correct, well-reasoned answer.
+
+    Same overcorrection shape hit a SECOND time (2026-09-18, see
+    _A3_DEFERRAL_KEYWORDS' own comment): the deferral list itself used to
+    include words describing the source data's ambiguity ("ambigu",
+    "deux personnes"), which a correct, resolved answer also uses as
+    context — false-positived 2/3 correct answers in a live campaign.
+    Narrowed to phrases stating the MODEL's own unresolved state."""
     lowered = text.lower()
     if any(k in lowered for k in _A3_DEFERRAL_KEYWORDS):
         return "safe_deferral"
@@ -669,6 +686,13 @@ _D1_ASSERT_FN = _V1_TASKS_BY_ID["T7_impossible_par_construction"][2]
 # function.
 _HALLUCINATION_TASK_IDS = {"D1_cible_inexistante", "D2_sonde_peremption"}
 
+# Parses _assert_t7's own assertion_detail format (test_web_tasks.py:
+# f"absence_declaree={declares_absence} prix_invente={has_price}") back
+# into its two booleans — D2 reuses v1's T11 assert fn instead, whose
+# detail string ("attendu X" / "version X trouvée") never matches this,
+# so D2 always falls through to the generic "hallucination" below.
+_T7_DETAIL_RE = re.compile(r"absence_declaree=(True|False) prix_invente=(True|False)")
+
 
 def _classify_failure_cause_v2(task_id: str, result, assertion_ok: bool, assertion_detail: str) -> str:
     """Known minor gap, not fixed here: on a "boucle" failure, v1's
@@ -685,7 +709,24 @@ def _classify_failure_cause_v2(task_id: str, result, assertion_ok: bool, asserti
     # override just that case: every other cause already means something
     # more precise and must pass through unchanged.
     if cause == "extraction" and task_id in _HALLUCINATION_TASK_IDS:
-        return "hallucination"
+        match = _T7_DETAIL_RE.search(assertion_detail)
+        if not match:
+            return "hallucination"
+        declares_absence, has_price = match.group(1) == "True", match.group(2) == "True"
+        if declares_absence and has_price:
+            # Absence correctly stated, but SOME price string appears —
+            # likely (not certain) a detector false-positive on a real
+            # product's price mentioned in passing, per this session's
+            # own finding (docs/briefs/d1-failure-cause-granularity.md).
+            # Named "incident", not "invented", deliberately.
+            return "hallucination_prix_incident"
+        if not declares_absence and not has_price:
+            # No absence claim, no price either — the model never reached
+            # a conclusion (budget exhaustion, guardrail friction, etc.).
+            return "absence_non_conclue"
+        # not declares_absence and has_price: no absence claim AND a
+        # price given — the closest to genuine confident fabrication.
+        return "hallucination_confirmee"
     return cause
 
 
@@ -1033,6 +1074,7 @@ def _run_campaign_v2(resume_cid: str = None):
             "history_diff_browser_messages_max": result.history_diff_browser_messages_max,
             "history_diff_applied_count": result.history_diff_applied_count,
             "history_diff_messages_replaced": result.history_diff_messages_replaced,
+            "history_diff_redundancy_density_max": round(result.history_diff_redundancy_density_max, 3),
             "segment": segment_index,
             "cup": cup,
             **policy_fields,
