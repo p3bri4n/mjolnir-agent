@@ -1,7 +1,6 @@
 ### Page
 - Page URL: http://fixture-docs/docs/
 - Page Title: Documentation — Sommaire
-- Console: 1 errors, 0 warnings
 ### Snapshot
 ```yaml
 - generic [active] [ref=e1] [box=8,8,1264,710]:

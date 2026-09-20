@@ -1,11 +1,9 @@
 ### Page
-- Page URL: http://fixture-perception/perception/
-- Page Title: 403 Forbidden
-- Console: 2 errors, 0 warnings
+- Page URL: http://fixture-perception/perception/e3-equivalence.html
+- Page Title: Fiche produit — E3
 ### Snapshot
 ```yaml
-- generic [active] [ref=e1] [box=8,8,1264,704]:
-  - heading "403 Forbidden" [level=1] [ref=e3] [box=8,8,1264,37]
-  - separator [ref=e4] [box=8,66,1264,2]
-  - generic [ref=e5] [box=8,76,1264,18]: nginx/1.31.6
+- generic [active] [ref=e1] [box=8,21,1264,76]:
+  - heading "Fiche produit — E3" [level=1] [ref=e2] [box=8,21,1264,37]
+  - paragraph [ref=e3] [box=8,80,1264,18]: "Code interne : ZK-3393"
 ```

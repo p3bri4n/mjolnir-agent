@@ -1,7 +1,6 @@
 ### Page
-- Page URL: http://fixture-catalog/catalog/
+- Page URL: http://fixture-catalog/catalog/index.html
 - Page Title: Catalogue
-- Console: 1 errors, 0 warnings
 ### Snapshot
 ```yaml
 - generic [active] [ref=e1] [box=8,21,1264,76]:

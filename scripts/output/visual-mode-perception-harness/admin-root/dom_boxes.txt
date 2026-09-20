@@ -1,7 +1,6 @@
 ### Page
 - Page URL: http://fixture-admin:5000/stock
 - Page Title: Vue admin — Stock
-- Console: 1 errors, 0 warnings
 ### Snapshot
 ```yaml
 - generic [active] [ref=e1] [box=8,8,1264,161]:

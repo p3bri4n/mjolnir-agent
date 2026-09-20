@@ -71,7 +71,9 @@ declare -A PAGES=(
   # test_web_tasks_v2.py). e3 chosen over e1/e2: e2 is deliberately
   # DOM-invisible by design (its own separate probe), not representative
   # of an ordinary page for this harness's purpose.
-  [catalog-listing]="http://fixture-catalog/catalog/index.html"
+  # index.html turned out to be YET ANOTHER thin landing page (same
+  # single "Voir le catalogue" link) — page-1.html is the real listing.
+  [catalog-listing]="http://fixture-catalog/catalog/page-1.html"
   [docs-listing]="http://fixture-docs/docs"
   [admin-root]="http://fixture-admin:5000/"
   [perception-root]="http://fixture-perception/perception/e3-equivalence.html"
