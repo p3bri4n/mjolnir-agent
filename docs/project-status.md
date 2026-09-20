@@ -727,7 +727,7 @@ defect — a different, downstream capability limit, outside this
 checkpoint. Full detail: docs/engineering-log.md, "PROBE VISUEL — SIGNAL
 BROWSER_SNAPSHOT".
 
-## Effort 4 — Scaffolding improvements (`docs/briefs/scaffolding-optimisation.md`)
+## Effort 4 — Scaffolding improvements (`docs/briefs/archives/scaffolding-optimisation.md`)
 
 **Effort 2 (diff-based observation history): built, closing campaign
 run, ADOPTED (2026-09-18).** `HISTORY_DIFF_ENABLED` (default `true`
@@ -846,7 +846,7 @@ writing that script). No description/position change made — there is
 no adoption gap. Full detail: docs/engineering-log.md, "SCAFFOLDING 3.1, POINT
 2 — CLOSED, PREMISE ALREADY FALSE".
 
-**Effort 3 of `docs/briefs/scaffolding-optimisation.md` (coarse-grained
+**Effort 3 of `docs/briefs/archives/scaffolding-optimisation.md` (coarse-grained
 actions) now fully closed**: point 1 shipped and live-verified, point 2
 closed as a non-problem, point 3 (form-filling composite) shelved
 (not a measured bottleneck). No new composite tool built — the

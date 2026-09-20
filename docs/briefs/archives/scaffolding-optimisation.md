@@ -1,5 +1,30 @@
 # Scaffolding optimisation — three efforts
 
+> **Status: CLOSED (2026-09-18).** All three efforts measured, none left
+> open.
+> - **Effort 1** (cognitive-core factorial ablation): superseded by the
+>   dedicated decisive measurement run under the consolidated plan's own
+>   effort track (`docs/briefs/archives/update-plan.md`) rather than as a
+>   standalone campaign under this brief — cfg1-all-off 15/15 vs.
+>   cfg8-all-on 13/15 at 43% less cumulative time, checkpoint-approved,
+>   `PLANNER_ENABLED`/`VERIFICATION_ENABLED`/`PLAN_JUDGE_ENABLED` removed
+>   entirely (`docs/resolved-bugs.md` #61). `PLAN_VALIDATION_ENABLED`
+>   kept, its safety-value exception never in question.
+> - **Effort 2** (diff-based observation history): `HISTORY_DIFF_ENABLED=
+>   true` ADOPTED as the default (`docker-compose.yml`,
+>   `docs/resolved-bugs.md` #60) — the closing campaign's own token leg
+>   read as row 2 (narrow, not broad, gain), not a clean row-1 adopt; the
+>   final call was a judgment call on maintenance cost vs. a
+>   partially-confirmed win, made once the T10 regression traced to a
+>   real bug (fixed) rather than a mechanism weakness, not pre-decided by
+>   the campaign itself. See the section below for the full, unedited
+>   campaign trail.
+> - **Effort 3** (coarse-grained actions): point 1 (`browser_click`/
+>   `browser_navigate` return resulting page state) shipped and
+>   live-verified; point 2 (bulk `browser_extract` adoption) closed as a
+>   non-problem, already adopted; point 3 (form-filling composite)
+>   shelved, no measured bottleneck.
+>
 > **Context**: eleven campaigns show that almost every point gained in this
 > project came from scaffolding, not from the model. This brief covers the
 > three scaffolding changes with the best evidence behind them, ordered by

@@ -236,7 +236,7 @@ E2 2/3 (a vision-reading limit, not a routing defect), E3 3/3.
 
 ### Effort 4 — Scaffolding improvements
 
-**Closed.** Brief: `docs/briefs/scaffolding-optimisation.md`. Diff-based observation
+**Closed.** Brief: `docs/briefs/archives/scaffolding-optimisation.md`. Diff-based observation
 history: built, closing campaign run, one real bug found and fixed
 (non-snapshot `browser_*` results were erased instead of compacted —
 `docs/resolved-bugs.md` #60), live re-run confirmed the fix with no
