@@ -79,6 +79,22 @@ def test_check_tools_schema_still_flags_a_real_desync_under_visual_navigation_on
     assert "browser_mouse_click_xy" in error
 
 
+def test_check_visual_navigation_only_consistency_ok_when_agreeing():
+    assert preflight.check_visual_navigation_only_consistency("true", "true") is None
+    assert preflight.check_visual_navigation_only_consistency("false", "false") is None
+
+
+def test_check_visual_navigation_only_consistency_flags_a_mismatch():
+    """Caught live (docs/resolved-bugs.md): docker-compose.yml's mcp-client
+    block never declared the VISUAL_NAVIGATION_ONLY passthrough — the
+    schema filter engaged on langgraph-agent while the stabilization leak
+    fix stayed inactive on mcp-client, silently."""
+    error = preflight.check_visual_navigation_only_consistency("true", "false")
+    assert error is not None
+    assert "désaccordé" in error
+    assert "'true'" in error and "'false'" in error
+
+
 def test_run_preflight_raises_before_any_reset_on_desync():
     calls = []
 
@@ -109,6 +125,7 @@ def test_run_preflight_purges_and_resets_when_schema_ok():
         fetch_device_placement=lambda: _OK_GPU_DEVICES,
         fetch_agent_env=lambda: dict(preflight.EXPECTED_AGENT_FLAGS),
         fetch_fixtures_reachable=lambda: {name: True for name in preflight.FIXTURE_URLS},
+        fetch_mcp_client_visual_navigation_only=lambda: "false",
     )
     assert calls == ["purge", "reset"]
 
@@ -137,6 +154,7 @@ def test_run_preflight_derives_visual_navigation_only_from_agent_env(monkeypatch
         fetch_device_placement=lambda: _OK_GPU_DEVICES,
         fetch_agent_env=lambda: env,
         fetch_fixtures_reachable=lambda: {name: True for name in preflight.FIXTURE_URLS},
+        fetch_mcp_client_visual_navigation_only=lambda: "true",
     )
     assert calls == ["purge", "reset"]
 
@@ -415,5 +433,6 @@ def test_run_preflight_checks_fixtures_after_schema_before_purge():
             fetch_device_placement=lambda: _OK_GPU_DEVICES,
             fetch_agent_env=lambda: dict(preflight.EXPECTED_AGENT_FLAGS),
             fetch_fixtures_reachable=lambda: {},
+            fetch_mcp_client_visual_navigation_only=lambda: "false",
         )
     assert calls == [], "purge/reset ne doivent jamais tourner si les fixtures sont injoignables"

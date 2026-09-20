@@ -312,6 +312,31 @@ def check_agent_flags(actual_flags: dict, expected_flags: Optional[dict] = None)
     return None
 
 
+def check_visual_navigation_only_consistency(agent_value: str, mcp_client_value: str) -> Optional[str]:
+    """
+    docs/briefs/visual-navigation-only.md (effort 8), found the hard way
+    (docs/resolved-bugs.md): VISUAL_NAVIGATION_ONLY drives one half of the
+    mode's "no cheating" guarantee on EACH container independently —
+    langgraph-agent's schema filter, mcp-client's _STABILIZE_AFTER_TOOLS
+    swap (browser_take_screenshot instead of the DOM browser_snapshot).
+    check_agent_flags above only ever checked langgraph-agent's own value;
+    the first live smoke ran with it true there and false on mcp-client
+    (docker-compose.yml's mcp-client block never declared the passthrough)
+    — the schema filter engaged correctly but the stabilization leak
+    stayed wide open, undetected until a raw audit-log read. Pure,
+    unit-testable without docker, same style as check_agent_flags.
+    """
+    if agent_value != mcp_client_value:
+        return (
+            f"VISUAL_NAVIGATION_ONLY désaccordé entre langgraph-agent ({agent_value!r}) et "
+            f"mcp-client ({mcp_client_value!r}) — la moitié du mécanisme qui dépend de "
+            "mcp-client (services/mcp-client/app/main.py, _STABILIZE_AFTER_TOOLS) resterait "
+            "dans le mauvais état ; commande à taper : docker compose up -d --force-recreate "
+            "langgraph-agent mcp-client"
+        )
+    return None
+
+
 def check_fixtures_reachable(reachability: dict) -> Optional[str]:
     """
     Pure, unit-testable without docker (same style as check_tools_schema):
@@ -485,6 +510,14 @@ def _fetch_agent_env() -> dict:
     return campaign_persistence.collect_env_flags(AGENT_CONTAINER, list(_expected_agent_flags()))
 
 
+def _fetch_mcp_client_visual_navigation_only() -> str:
+    """mcp-client's own VISUAL_NAVIGATION_ONLY value — see
+    check_visual_navigation_only_consistency."""
+    return campaign_persistence.collect_env_flags(MCP_CLIENT_CONTAINER, ["VISUAL_NAVIGATION_ONLY"]).get(
+        "VISUAL_NAVIGATION_ONLY", ""
+    )
+
+
 def wait_for_llm_ready(
     fetch_llm_ready: Callable[[], bool] = _fetch_llm_ready,
     *,
@@ -520,6 +553,7 @@ def run_preflight(
     fetch_device_placement: Callable[[], list] = _fetch_device_placement,
     fetch_agent_env: Callable[[], dict] = _fetch_agent_env,
     fetch_fixtures_reachable: Callable[[], dict] = _fetch_fixtures_reachable,
+    fetch_mcp_client_visual_navigation_only: Callable[[], str] = _fetch_mcp_client_visual_navigation_only,
 ) -> None:
     """
     Called ONCE per campaign (not per repetition, unlike
@@ -556,8 +590,15 @@ def run_preflight(
     error = check_agent_flags(agent_env)
     if error:
         raise PreflightError(error)
-    visual_navigation_only = agent_env.get("VISUAL_NAVIGATION_ONLY", "false").lower() == "true"
-    error = check_tools_schema(fetch_agent_tools(), fetch_mcp_tools(), visual_navigation_only)
+    visual_navigation_only_raw = agent_env.get("VISUAL_NAVIGATION_ONLY", "false")
+    error = check_visual_navigation_only_consistency(
+        visual_navigation_only_raw, fetch_mcp_client_visual_navigation_only()
+    )
+    if error:
+        raise PreflightError(error)
+    error = check_tools_schema(
+        fetch_agent_tools(), fetch_mcp_tools(), visual_navigation_only_raw.lower() == "true"
+    )
     if error:
         raise PreflightError(error)
     error = check_fixtures_reachable(fetch_fixtures_reachable())

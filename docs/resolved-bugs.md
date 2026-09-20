@@ -741,3 +741,63 @@ no longer exists to exhibit the defect. Body left as originally written
 Full detail: `docs/engineering-log.md`, "EFFORT 2 — DECISIVE
 MEASUREMENT...", "A1 — TRAJECTORY DIAGNOSTIC BEFORE THE REMOVAL PR";
 `PLAN.md`, Effort 2.
+
+### 62. `docker-compose.yml` — `VISUAL_NAVIGATION_ONLY` never declared in `mcp-client`'s `environment:`, so its half of the mode's "no cheating" guarantee never engaged — CLOSED
+
+**Symptom, confirmed cause**: first live smoke of `VISUAL_NAVIGATION_ONLY`
+(`docs/briefs/visual-navigation-only.md`, effort 8, campaign
+`visual-navigation-only-smoke`) passed T3 with a fully correct, precise
+answer (named employees and salaries from an HR table) despite
+`visual_navigation_only_ocr_calls` reading **0** — a genuine flattering
+zero, not noise. Raw audit-log read (`scripts/dump-audit-thread.py`): the
+model called `browser_navigate` exactly once and answered directly, with
+zero calls to any image-producing tool. Root cause: the SAME class of bug
+as #58 (`REASONING_EFFORT`) — `docker-compose.yml`'s `mcp-client` service
+block never got a `VISUAL_NAVIGATION_ONLY=${VISUAL_NAVIGATION_ONLY:-false}`
+line, only `langgraph-agent`'s did. `VISUAL_NAVIGATION_ONLY=true` on the
+`docker compose up` command line therefore only reached `langgraph-agent`
+— `mcp-client` stayed on its `false` default, so
+`_STABILIZE_AFTER_TOOLS`'s post-`browser_navigate` follow-up call stayed
+`browser_snapshot` (the real DOM accessibility tree, full employee table
+included as text) instead of `browser_take_screenshot`. That text block
+is not `type: "image"`, so `langgraph-agent`'s `_ocr_replace_image_blocks`
+passed it through untouched — the model read the whole table for free,
+never touching the visual/OCR channel the mode exists to force it
+through. The schema filter (`langgraph-agent`'s own half of the design)
+DID work correctly: the model never called `browser_snapshot`/
+`browser_extract` explicitly, only `browser_navigate`. One correctly
+engaged half masked the other half's complete failure.
+
+**Not a silent gap, but not caught before running either** — unlike #58,
+which a dedicated effective-env check aborted before any campaign ran,
+`VISUAL_NAVIGATION_ONLY` had no equivalent cross-container consistency
+check: `campaign_preflight.check_agent_flags` only ever read
+`langgraph-agent`'s own env. The smoke DID run, on a broken config,
+before the raw audit-log read surfaced it.
+
+**Fix**: `- VISUAL_NAVIGATION_ONLY=${VISUAL_NAVIGATION_ONLY:-false}` added
+to `docker-compose.yml`'s `mcp-client` block. New
+`check_visual_navigation_only_consistency` (`campaign_preflight.py`),
+wired into `run_preflight` right before `check_tools_schema`: fetches
+`mcp-client`'s own `VISUAL_NAVIGATION_ONLY` value
+(`campaign_persistence.collect_env_flags`) and refuses the campaign if it
+disagrees with `langgraph-agent`'s — this exact failure mode can no
+longer reach a live run undetected. 4 new unit tests (2 for the pure
+check, 2 `run_preflight` orchestration cases), plus a regression guard on
+`campaign_persistence.CAMPAIGN_ENV_FLAGS` (a related, separately-caught
+gap — see below). Full `langgraph-agent` suite 464 → 466 passed.
+
+**Sibling gap, same session**: `campaign_persistence.py`'s own
+`CAMPAIGN_ENV_FLAGS` (drives what a campaign's *archived* `env_flags`
+metadata shows, independent from `campaign_preflight.EXPECTED_AGENT_FLAGS`
+which drives the pre-run assertion) had also not been updated —
+`VISUAL_NAVIGATION_ONLY` was invisible in the smoke's own campaign JSON
+even though the preflight correctly saw and checked it live. Exact same
+bug class already hit once for `PLANNING_MODE` (see that regression-guard
+test). Fixed alongside, 1 more unit test.
+
+**Not yet re-smoked**: this fix has not been live-verified yet — the next
+smoke (with both containers actually agreeing on the flag) is what
+confirms `_ocr_replace_image_blocks` genuinely engages. Full detail:
+`docs/engineering-log.md`, "Effort 8 (visual-navigation-only.md): Phase 1
+design + Phase 2 build" and its follow-up entry.

@@ -8073,3 +8073,51 @@ Full suite: `langgraph-agent` 450 → 463 passed, `mcp-client` 64 → 65
 passed, 0 regressions. **Not yet live-smoked** (Phase 3 of the brief) —
 requires the actual Docker/GPU stack, outside this environment's reach;
 handed off to the user.
+
+## 2026-09-20 — Effort 8: first live smoke, a genuine flattering zero, root-caused and fixed
+
+**First smoke attempt** (`visual-navigation-only-smoke`, T3 only, n=1,
+user's machine, `VISUAL_NAVIGATION_ONLY=true` on the `docker compose up`
+command line + `CAMPAIGN_EXPECTED_FLAGS_OVERRIDE` for the harness):
+passed (1/1), but `visual_navigation_only_ocr_calls: 0` in the campaign
+JSON — the trigger-rate counter built specifically to catch this kind of
+result did its job. Raw audit-log read
+(`scripts/dump-audit-thread.py ba41eb7114d085a1`, provided by the user):
+the agent called `browser_navigate` exactly once, then answered directly
+with a fully correct, precise table of named employees and salaries —
+zero calls to any image-producing tool.
+
+**Root cause, confirmed**: `docker-compose.yml`'s `mcp-client` service
+block never got a `VISUAL_NAVIGATION_ONLY` passthrough line — only
+`langgraph-agent`'s did. Same bug class as `docs/resolved-bugs.md` #58
+(`REASONING_EFFORT`). Concretely: `mcp-client` stayed on its `false`
+default, so `_STABILIZE_AFTER_TOOLS`'s post-`browser_navigate` follow-up
+call stayed the real DOM `browser_snapshot` (the full employee table, as
+text) instead of `browser_take_screenshot`; that text block isn't
+`type: "image"`, so `langgraph-agent`'s `_ocr_replace_image_blocks`
+passed it straight through, unconverted — the model read the whole table
+for free. `langgraph-agent`'s OWN half of the design (the schema filter)
+worked exactly as intended: the model never called `browser_snapshot`/
+`browser_extract` itself, only `browser_navigate`. One correctly engaged
+half completely masked the other half's failure — the smoke would have
+read as a clean success without the counter.
+
+**Fixed**: `VISUAL_NAVIGATION_ONLY=${VISUAL_NAVIGATION_ONLY:-false}`
+added to `mcp-client`'s block. New
+`check_visual_navigation_only_consistency` (`campaign_preflight.py`),
+wired into `run_preflight` right before `check_tools_schema`: compares
+`langgraph-agent`'s and `mcp-client`'s own `VISUAL_NAVIGATION_ONLY`
+values, refuses the campaign on any disagreement — this exact failure
+mode can no longer reach a live run silently. Along the way, a sibling
+gap in `campaign_persistence.CAMPAIGN_ENV_FLAGS` (separate list from
+`campaign_preflight.EXPECTED_AGENT_FLAGS`, drives what a campaign's
+archived JSON shows rather than the pre-run assertion) was also found and
+fixed — the smoke's own JSON never showed `VISUAL_NAVIGATION_ONLY` at all
+despite the preflight correctly checking it live, exact same bug class
+already caught once for `PLANNING_MODE`. 4 new preflight tests + 1
+regression guard on `CAMPAIGN_ENV_FLAGS`. Full `langgraph-agent` suite
+464 → 466 passed. Full detail: `docs/resolved-bugs.md` #62.
+
+**Not yet re-smoked**: the fix closes the leak and the detection gap, but
+the mechanism's real engagement (`visual_navigation_only_ocr_calls > 0`
+on a re-run of the same task) has not been confirmed live yet.

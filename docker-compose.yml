@@ -312,6 +312,13 @@ services:
       # docs/history.md, "VISUAL FEEDBACK MINIMAL", overhead smoke result.
       - CAMPAIGN_VISUAL_CAPTURE=${CAMPAIGN_VISUAL_CAPTURE:-true}
       - VISUAL_CAPTURE_DIR=/visual-capture
+      # docs/briefs/visual-navigation-only.md (effort 8): must match
+      # langgraph-agent's own value below — this is what actually closes
+      # the _STABILIZE_AFTER_TOOLS leak (see app/main.py). Was missing
+      # from this block in the Phase 2 build (docs/resolved-bugs.md):
+      # the flag silently stayed false here regardless of what the shell
+      # set, so the leak fix never engaged on the first live smoke.
+      - VISUAL_NAVIGATION_ONLY=${VISUAL_NAVIGATION_ONLY:-false}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock   # ⚠️ équivaut à un accès root sur l'hôte,
                                                        # voir avertissement de sécurité dans le README
