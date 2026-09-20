@@ -8374,3 +8374,37 @@ model only ever sees `type_text(text)`, so this doesn't reopen the leak
 verification: simulated DOM events lack the fidelity of Playwright's
 real OS-level keystrokes on some JS-framework-controlled inputs. No
 code written — point 5 remains unscheduled per the standing checkpoint.
+
+## 2026-09-20 — Effort 8: point 2 re-run, a real (not cosmetic) OCR misread rate found and quantified
+
+Perception harness re-run with `docs/resolved-bugs.md` #66's URL fixes.
+`docs-listing` (`fixture-docs/docs`) now returns real content (a 36-link
+alphabetical section index) — automated DOM-vs-OCR text comparison (by
+nearest y-position, exact string match) run for the first time rather
+than eyeballed: **31/36 exact matches (86%)**. Of the 5 mismatches, 2 are
+the already-known nav-link-fusion issue ("Sommaire"+"Recherche" merged
+into one OCR detection); the other **3 are genuine content-changing
+misreads, not cosmetic**: `config-reseau-avancee` → `contig-reseau-
+avancee`, `optimisation-performances-catalogue` →
+`gptimisation-performances-catalogue`, `organisation-equipe-rh` →
+`grganisation-equipe-rh`. Position stays accurate (a few px, consistent
+with point 1) — only the recognized TEXT is wrong, on words beginning
+with "o"/"co" specifically, on this font/rendering.
+
+**Reading, more serious than the earlier accent/em-dash/bracket
+artifacts**: this is a genuine ~8% (3/36) content-fidelity failure rate
+on ordinary hyphenated technical slugs, not a formatting quirk. A task
+like `A2_schema_references` (verifying a reference's naming format is
+conforming) run under `VISUAL_NAVIGATION_ONLY` could misjudge a
+genuinely correct reference as non-conforming purely from OCR noise,
+independent of the model's own reasoning. Worth a declared judge in
+Phase 4's eventual measurement, not assumed away.
+
+**Two remaining fixture URLs still broken, fixed for a next pass**:
+`fixture-perception/perception` has no index at all (403, no nginx
+autoindex — real pages are named individually, `e1-offviewport.html`/
+`e2-canvas.html`/`e3-equivalence.html`, see `test_web_tasks_v2.py`; `e3`
+chosen over `e2` since the latter is deliberately DOM-invisible by
+design, not representative here); `fixture-catalog/catalog` was a thin
+one-link landing page, not the real listing (`/catalog/index.html`).
+Not yet re-run against these two fixes.

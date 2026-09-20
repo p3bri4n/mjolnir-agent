@@ -354,9 +354,27 @@ forms, not an edge case. Before building, add: (a) label→field
 association by proximity when the field itself has no OCR text, (b) an
 explicit acknowledgment that OCR-level text fusion is a hard ceiling the
 reconstruction logic cannot see past, regardless of clustering quality.
-**Point 2 substantively done, but its page sample isn't complete yet**
-— the 3 fixed URLs still need a re-run before treating the finding set
-as final.
+**Point 2 re-run (2026-09-20)**, `docs/resolved-bugs.md` #66's URL fixes
+applied: `docs-listing` now returns real content (36 links). Automated
+DOM-vs-OCR comparison (nearest y-position, exact string match) run for
+the first time: **31/36 exact (86%)**. 2 of the 5 mismatches are the
+already-known nav-fusion issue; **3 are genuine content-changing OCR
+misreads, not cosmetic** — `config-reseau-avancee` →
+`contig-reseau-avancee`, `optimisation-performances-catalogue` →
+`gptimisation-performances-catalogue`, `organisation-equipe-rh` →
+`grganisation-equipe-rh` (position stays accurate, only the recognized
+text is wrong, specifically on words starting "o"/"co" on this
+font/rendering). **More serious than the earlier cosmetic accent/em-dash
+findings**: an ~8% content-fidelity failure rate on ordinary hyphenated
+slugs means a task like `A2_schema_references` (naming-conformance
+check) could misjudge a genuinely correct reference as non-conforming
+from OCR noise alone — a judge Phase 4 should declare for explicitly,
+not assume away.
+
+Two URLs still needed fixing past that (`fixture-perception/perception`
+has no index — 403, no autoindex, real pages are named individually;
+`fixture-catalog/catalog` was a thin landing page, not the real
+listing) — fixed, **not yet re-run**.
 
 ## Phase 4 — Full v2 measurement (single variable: `VISUAL_NAVIGATION_ONLY`)
 

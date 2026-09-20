@@ -62,10 +62,19 @@ declare -A PAGES=(
   # probe-visual-snapshot-signal.sh's comment). Verified against
   # tests_integration/test_web_tasks.py's own CATALOG_URL/DOCS_URL/
   # PERCEPTION_URL rather than guessed a second time.
-  [catalog-listing]="http://fixture-catalog/catalog"
+  #
+  # docs/resolved-bugs.md #66 follow-up: /catalog and /perception ALONE
+  # still weren't enough — /catalog is a thin one-link landing page (the
+  # real listing is index.html), and /perception has no index at all
+  # (403, no autoindex) — its real pages are named individually
+  # (e1-offviewport.html/e2-canvas.html/e3-equivalence.html, see
+  # test_web_tasks_v2.py). e3 chosen over e1/e2: e2 is deliberately
+  # DOM-invisible by design (its own separate probe), not representative
+  # of an ordinary page for this harness's purpose.
+  [catalog-listing]="http://fixture-catalog/catalog/index.html"
   [docs-listing]="http://fixture-docs/docs"
   [admin-root]="http://fixture-admin:5000/"
-  [perception-root]="http://fixture-perception/perception"
+  [perception-root]="http://fixture-perception/perception/e3-equivalence.html"
 )
 
 capture_one() {

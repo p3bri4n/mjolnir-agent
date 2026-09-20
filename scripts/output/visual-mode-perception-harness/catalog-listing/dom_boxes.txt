@@ -1,25 +1,12 @@
 ### Page
-- Page URL: http://fixture-catalog/
-- Page Title: Welcome to nginx!
+- Page URL: http://fixture-catalog/catalog/
+- Page Title: Catalogue
 - Console: 1 errors, 0 warnings
 ### Snapshot
 ```yaml
-- generic [active] [ref=e1] [box=360,21,560,234]:
-  - heading "Welcome to nginx!" [level=1] [ref=e2] [box=360,21,560,37]
-  - paragraph [ref=e3] [box=360,80,560,54]: If you see this page, nginx is successfully installed and working. Further configuration is required for the web server, reverse proxy, API gateway, load balancer, content cache, or other features.
-  - paragraph [ref=e4] [box=360,150,560,72]:
-    - text: For online documentation and support please refer to
-    - link "nginx.org" [ref=e5] [cursor=pointer] [box=741,150,66,17]:
-      - /url: https://nginx.org/
-    - text: .
-    - text: To engage with the community please visit
-    - link "community.nginx.org" [ref=e6] [cursor=pointer] [box=664,168,146,17]:
-      - /url: https://community.nginx.org/
-    - text: .
-    - text: For enterprise grade support, professional services, additional security features and capabilities please refer to
-    - link "f5.com/nginx" [ref=e7] [cursor=pointer] [box=644,204,91,17]:
-      - /url: https://f5.com/nginx
-    - text: .
-  - paragraph [ref=e8] [box=360,238,560,18]:
-    - emphasis [ref=e9] [box=360,238,188,17]: Thank you for using nginx.
+- generic [active] [ref=e1] [box=8,21,1264,76]:
+  - heading "Catalogue produits" [level=1] [ref=e2] [box=8,21,1264,37]
+  - paragraph [ref=e3] [box=8,80,1264,18]:
+    - link "Voir le catalogue" [ref=e4] [cursor=pointer] [box=8,80,108,17]:
+      - /url: /catalog/page-1.html
 ```

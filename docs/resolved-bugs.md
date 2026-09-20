@@ -945,3 +945,16 @@ were usable in the first pass (`hr-employees-table`, `hr-leave-form`,
 `admin-root`), which already surfaced real findings (see
 `docs/engineering-log.md`, "Effort 8: point 2 (offline perception
 harness) run").
+
+**Re-run, two of the three still not quite right**: `/docs` returned
+real content this time (36-link section index, itself the source of a
+new finding, see `docs/engineering-log.md` "point 2 re-run"). `/catalog`
+and `/perception` were still wrong, one level deeper each — `/catalog`
+resolves to a thin one-link landing page, not the real product listing
+(`CATALOG_URL`'s own convention is `/catalog/index.html`); `/perception`
+has NO index page at all (403, nginx autoindex off) — its real pages are
+named individually (`e1-offviewport.html`/`e2-canvas.html`/
+`e3-equivalence.html`, `test_web_tasks_v2.py`). Fixed to
+`/catalog/index.html` and `/perception/e3-equivalence.html` (`e3` over
+`e1`/`e2`: `e2` is deliberately DOM-invisible by design, not
+representative of an ordinary page here). Not yet re-run.

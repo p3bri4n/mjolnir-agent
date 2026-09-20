@@ -1,6 +1,7 @@
 ### Page
 - Page URL: http://fixture-hr-app:5000/employees
 - Page Title: Employés
+- Console: 1 errors, 0 warnings
 ### Snapshot
 ```yaml
 - generic [active] [ref=e1] [box=8,8,1264,517]:
