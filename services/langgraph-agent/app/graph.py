@@ -164,6 +164,27 @@ _VISUAL_ONLY_BLOCKED_TOOLS = {
     "browser_console_messages",
     "browser_network_request",
     "browser_network_requests",
+    # Filesystem MCP server (docs/resolved-bugs.md #64, found live): its
+    # sandbox root overlaps the volume playwright-mcp writes its own
+    # snapshot/console-log artifacts into on EVERY browser_navigate call
+    # (docker-compose.yml, agent-downloads, shared read-only) — read_file
+    # on that dead-reference path (assumed unreadable by the Tool Design
+    # Contract comment on browser_navigate, which predates this mode) in
+    # fact succeeds and returns the full ref=-tagged accessibility tree.
+    # A sighted human has no filesystem access to the browser's own
+    # internal artifacts either way, so the whole family is gated, not
+    # just the one path that leaked live.
+    "read_file",
+    "read_multiple_files",
+    "list_directory",
+    "directory_tree",
+    "search_files",
+    "get_file_info",
+    "list_allowed_directories",
+    "write_file",
+    "edit_file",
+    "create_directory",
+    "move_file",
 }
 # Coordinate-based action space (playwright-mcp's "vision" capability,
 # --caps=vision — docker-compose.yml): the counterpart to the tools

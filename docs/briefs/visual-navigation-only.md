@@ -94,7 +94,16 @@ memory. Full inventory: `npm view @playwright/mcp` /
      to `browser_evaluate` internally, `services/mcp-client/app/
      main.py:802`), `browser_console_messages`, `browser_network_request`/
      `browser_network_requests` (devtools-only visibility, not available
-     to a plain sighted human).
+     to a plain sighted human), and the **whole filesystem MCP server**
+     (`read_file`/`read_multiple_files`/`list_directory`/`directory_tree`/
+     `search_files`/`get_file_info`/`list_allowed_directories`/
+     `write_file`/`edit_file`/`create_directory`/`move_file`) — found live
+     (`docs/resolved-bugs.md` #64), not anticipated at design time:
+     `playwright-mcp` writes a real DOM accessibility-tree YAML to the
+     shared `agent-downloads` volume on every `browser_navigate`, and
+     `read_file` (absolute path, `/downloads/...`) can read it in full,
+     `[ref=...]` tags included — the exact cheat this list exists to
+     prevent, via a channel this list hadn't considered.
 5. **Known gap, accepted, not solved by a new tool**: no coordinate
    equivalent of `browser_type` exists upstream — `browser_type` itself
    requires a DOM `target`. Typing in this mode goes through

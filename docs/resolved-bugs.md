@@ -835,8 +835,52 @@ capture)" text notice, never crashes the conversation. 1 new unit test
 (a response missing `x`/`y`/`width`/`height`, the exact pre-Phase-0
 shape that triggered this live). Full suite 466 → 467 passed.
 
-**Not yet re-smoked**: root cause #1 (stale `ocr-service` image) still
-needs a `docker compose build ocr-service` before the next attempt, on
-top of this code fix — otherwise the same malformed response would just
-degrade silently instead of crashing, masking that the image is still
-stale rather than confirming OCR conversion actually works.
+**Re-smoked (2026-09-20), root cause #1 confirmed and fixed**: after
+`docker compose build ocr-service` (the image was indeed still stale),
+the third smoke attempt passed with `visual_navigation_only_ocr_calls: 1`
+— a genuine, non-flattering engagement, confirmed against the raw audit
+log (`role=visual_navigation_only` entry present, `ocr_calls: 1` on the
+`browser_navigate` call). See bug #64 below for a THIRD leak this same
+smoke's audit trace surfaced, past this fix.
+
+### 64. `app/graph.py`/`campaign_preflight.py` (`_VISUAL_ONLY_BLOCKED_TOOLS`) — the filesystem MCP server could read playwright-mcp's own DOM snapshot artifact, a channel the "no cheating" gate hadn't considered — CLOSED
+
+**Symptom, confirmed cause**: third live smoke of `VISUAL_NAVIGATION_ONLY`
+passed (T3, `visual_navigation_only_ocr_calls: 1`, correct answer) — but
+a full raw-audit-entry read (not just the lossy `dump-audit-thread.py`
+summary, requested specifically to double-check for cheating given how
+precise the answer was) showed the model calling
+`read_file({"path": "/downloads/page-2026-09-20T11-03-59-447Z.yml"})`
+TWICE (the first attempt, a relative path, failed with "Access denied");
+the second, absolute-path attempt SUCCEEDED and returned the full
+Playwright accessibility-tree snapshot verbatim — `[ref=e13]`, `table`,
+every row, exactly the DOM content this mode exists to keep out of the
+model's reach. The model apparently didn't need it in the end (its final
+answer matches the OCR reading from earlier in the same trace, not this
+snapshot), but the leak is real and would silently defeat the mode's own
+premise on a task where the model DID rely on it.
+
+**Root cause**: `playwright-mcp` (`--output-dir=/downloads`) writes a
+real DOM snapshot YAML to the `agent-downloads` volume on every
+`browser_navigate` call, referenced as a dead link in its own response
+text (the pre-existing Tool Design Contract comment on that response
+assumed "the agent has no tool to read" this file — true for `browser_*`
+tools, false once the filesystem MCP server is considered: it shares the
+SAME volume, mounted read-only, and its `read_file` can read any path
+under `/downloads`). `_VISUAL_ONLY_BLOCKED_TOOLS` (`app/graph.py`,
+mirrored in `campaign_preflight.py`) only ever listed `browser_*` tool
+names — the filesystem family was never in scope for the hard gate.
+
+**Fix**: the whole filesystem MCP server family (`read_file`/
+`read_multiple_files`/`list_directory`/`directory_tree`/`search_files`/
+`get_file_info`/`list_allowed_directories`/`write_file`/`edit_file`/
+`create_directory`/`move_file`) added to `_VISUAL_ONLY_BLOCKED_TOOLS` in
+both files — a sighted human has no filesystem access to the browser's
+own internal artifacts either way, read or write, so the whole family is
+gated rather than trying to carve out a narrower, path-based exception.
+2 new assertions in the existing schema-filter test. Full suite stays at
+467 passed (assertions added to an existing test, not a new one).
+
+**Not yet re-smoked**: this fix has not been live-verified — the next
+smoke should show the model unable to call `read_file` at all (tool
+absent from its schema), not merely choosing not to.

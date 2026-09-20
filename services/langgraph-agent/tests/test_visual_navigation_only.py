@@ -25,6 +25,10 @@ def test_visual_navigation_filter_hides_dom_tools_when_mode_active(monkeypatch):
     assert g._visual_navigation_filter("browser_mouse_click_xy") is True
     assert g._visual_navigation_filter("browser_navigate") is True
     assert g._visual_navigation_filter("browser_take_screenshot") is True
+    # docs/resolved-bugs.md #64: read_file could read playwright-mcp's own
+    # DOM snapshot artifact from the shared downloads volume.
+    assert g._visual_navigation_filter("read_file") is False
+    assert g._visual_navigation_filter("write_file") is False
 
 
 def test_visual_navigation_filter_hides_vision_tools_by_default(monkeypatch):

@@ -86,6 +86,17 @@ _VISUAL_ONLY_BLOCKED_TOOLS = {
     "browser_console_messages",
     "browser_network_request",
     "browser_network_requests",
+    "read_file",
+    "read_multiple_files",
+    "list_directory",
+    "directory_tree",
+    "search_files",
+    "get_file_info",
+    "list_allowed_directories",
+    "write_file",
+    "edit_file",
+    "create_directory",
+    "move_file",
 }
 _VISION_ONLY_TOOLS = {
     "browser_mouse_click_xy",

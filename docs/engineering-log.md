@@ -8152,3 +8152,41 @@ build ocr-service` before the next attempt — without it, the same
 malformed response would now degrade silently instead of crashing,
 which would LOOK like a clean pass while still never actually exercising
 the OCR conversion this effort exists to measure.
+
+## 2026-09-20 — Effort 8: third live smoke succeeds, then a third leak found on close audit-log inspection
+
+**Third smoke attempt** (`visual-navigation-only-smoke-3`, T3 only, n=1,
+after `ocr-service` was finally rebuilt): passed clean —
+`visual_navigation_only_ocr_calls: 1`, a genuine engagement, not a
+flattering zero. `env_flags.VISUAL_NAVIGATION_ONLY: true` on both
+containers this time (confirms #62's fix holds under a normal recreate
+sequence).
+
+**Verification past the aggregate**: given how precise the final answer
+was, the full raw audit entries (not just `dump-audit-thread.py`'s lossy
+per-entry summary) were pulled for this thread. They showed the OCR
+reading landing correctly on turn 1 (`role=visual_navigation_only,
+ocr_calls: 1`) — but ALSO two `read_file` calls on turns 2 and 3, the
+second of which (`/downloads/page-2026-09-20T11-03-59-447Z.yml`,
+absolute path — the first, relative-path attempt failed with "Access
+denied") returned the FULL raw Playwright accessibility-tree snapshot,
+`[ref=e13]` tags and all: the exact DOM content this mode exists to keep
+away from the model, reached via a tool this effort had never
+considered. The model's final answer happened to match its earlier OCR
+reading, not this snapshot, so nothing was ACTUALLY misreported this
+time — but the leak itself is real and would silently defeat the mode on
+a task where the model leaned on it.
+
+**Root cause**: `playwright-mcp` writes a real DOM snapshot YAML to the
+shared `agent-downloads` volume on every `browser_navigate`
+(`--output-dir=/downloads`), referenced as what the existing Tool Design
+Contract comment calls a dead link ("the agent has no tool to read
+it") — true for `browser_*` tools, but the filesystem MCP server shares
+that same volume and `read_file` can read it in full.
+`_VISUAL_ONLY_BLOCKED_TOOLS` had only ever listed `browser_*` tool
+names.
+
+**Fixed**: the whole filesystem MCP server family (read AND write tools)
+added to `_VISUAL_ONLY_BLOCKED_TOOLS` in both `app/graph.py` and
+`campaign_preflight.py` — full detail: `docs/resolved-bugs.md` #64.
+**Not yet re-smoked.**
