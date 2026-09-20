@@ -1,0 +1,208 @@
+{
+  "metadata": {
+    "campaign_prefill_stats": {
+      "cache_zero_requests": 1,
+      "prefill_seconds": 28.3,
+      "prompt_tokens_total": 100846,
+      "tabbyapi_requests": 10
+    },
+    "commit": "89e15ee6e9ecf3778d93a126179700020b8b7d20",
+    "ended_at": "2026-09-20T11:13:37.739147+00:00",
+    "env_flags": {
+      "ADAPTIVE_THINKING": "false",
+      "AFFORDANCE_THRESHOLD": "60",
+      "APPROVAL_RULES_PATH": "",
+      "AUDIT_LOG_MAX_BYTES": "20971520",
+      "AUTO_APPROVAL_STREAK_LIMIT": "6",
+      "AUTO_APPROVED_TOOLS": "",
+      "BROWSER_NAVIGATE_GUARDRAIL": "true",
+      "BROWSER_TOOL_OUTPUT_MAX_CHARS": "8000",
+      "CAMPAIGN_VISUAL_CAPTURE": "true",
+      "EPISODE_COMPACTION_ENABLED": "false",
+      "EPISODE_COMPACTION_TURN_THRESHOLD": "40",
+      "FABRICATION_LIMIT": "5",
+      "HISTORY_DIFF_ENABLED": "true",
+      "IMAGE_FORMAT_PASSTHROUGH": "",
+      "IMAGE_TOKEN_ESTIMATE": "1500",
+      "LLM_MAX_TOKENS": "2048",
+      "MAX_EMPTY_ANSWER_RETRIES": "1",
+      "MAX_IMAGES_IN_CONTEXT": "1",
+      "MAX_TOOL_ITERATIONS": "20",
+      "NEVER_GRANTABLE_TOOLS_EXTRA": "",
+      "PLANNER_MAX_TOKENS": "8192",
+      "PLANNER_THINKING_ENABLED": "false",
+      "PLANNING_MODE": "nodes",
+      "PLAN_VALIDATION_ENABLED": "true",
+      "REASONING_EFFORT": "medium",
+      "TZ": "Europe/Paris",
+      "VISUAL_NAVIGATION_ONLY": "true"
+    },
+    "gpu_devices": [
+      {
+        "bus_id": "00000000:04:00.0",
+        "index": 0,
+        "memory_used_mib": 11861.0,
+        "name": "NVIDIA GeForce RTX 5060 Ti"
+      },
+      {
+        "bus_id": "00000000:08:00.0",
+        "index": 1,
+        "memory_used_mib": 11777.0,
+        "name": "NVIDIA GeForce RTX 4070 Ti SUPER"
+      }
+    ],
+    "image_ids": {
+      "langgraph-agent": "sha256:300139a14b73b2d45ab2895bdba2486a130679b86b73a47923b99040a626ae9a",
+      "mcp-client": "sha256:df6634fff30ea1a60bf1c8d48468a0efa37fc83effc6b5e318629860ee163760",
+      "playwright-mcp": "sha256:8771dc4666e7c11440bfc6a0c6b00480e9a15b8891b45f29a52d7d995f8d1492",
+      "tabbyapi": "sha256:2f3741089a48c92dca9e50af976d33403c5b93dd56a5b8d3f7e6806538f8c72b"
+    },
+    "label": "visual-navigation-only-smoke-4",
+    "started_at": "2026-09-20T11:12:07.726495+00:00",
+    "tabbyapi_model_id": "qwen3.8-27b-exl3-4.50bpw"
+  },
+  "runs": [
+    {
+      "approvals": 2,
+      "cache_zero_requests": 1,
+      "cup": null,
+      "detail": "nom exact trouvé",
+      "duration_seconds": 89.6,
+      "episode_compaction_applied_count": 0,
+      "episode_compaction_messages_max": 21,
+      "fabricated_urls": [],
+      "failure_cause": "",
+      "final_text": "The filter didn't apply - it still shows \"Tous\". The click on the dropdown option didn't work (native select). The list still shows all departments. \n\nLet me reconsider. The OCR is jumbled but I can try to reconstruct the table by matching y-coordinates. The table rows have: Nom (x~8), Département (x~118), Salaire (x~213). Let me match by y-coordinate.\n\nLet me list all entries by y-coordinate:\n\nNames (x~8):\n- Julien Faure: y=149\n- Camille Roux: y=173\n- Karim Haddad: y=217\n- Elise Petit: y=237\n- Thomas Girard: y=263\n- Nadia Cohen: y=283\n- Antoine Leroy: y=306\n- Marion Dubois: y=330\n- Yann Morel: y=351\n- Léa Fontaine: y=372\n- Hugo Lambert: y=396\n- Ines Marchand: y=417\n- Paul Renard: y=438\n- Chloé Simon: y=456\n- Victor Perrin: y=482\n- Amandine Blanc: y=503\n\nDepartments (x~118-120):\n- Ingénierie: y=152\n- Ventes: y=173\n- RH: y=217\n- Ventes: y=237\n- Ingénierie: y=262\n- Marketing: y=280\n- Ingénierie: y=306\n- Ventes: y=325\n- RH: y=349\n- Ingénierie: y=372\n- Marketing: y=390\n- Ventes: y=413\n- Ingénierie: y=438\n- RH: y=458\n- Ventes: y=482\n- Marketing: y=503\n\nSalaries (x~213-215):\n- 52000: y=151\n- 38000: y=170\n- 61000: y=193\n- 41000: y=217\n- 44500: y=240\n- 47000: y=258\n- 39500: y=283\n- 58000: y=304\n- 36000: y=327\n- 40000: y=346\n- 55000: y=367\n- 42000: y=393\n- 41000: y=412\n- 49500: y=434\n- 39000: y=459\n- 39500: y=479\n- 37000: y=503\n\nNow let me match by y-coordinate (rows):\n\nRow 1: y~150: Julien Faure (149), Ingénierie (152), 52000 (151)\nRow 2: y~172: Camille Roux (173), Ventes (173), 38000 (170)\nRow 3: y~193: ??? name, ??? dept, 61000 (193)\nRow 4: y~217: Karim Haddad (217), RH (217), 41000 (217)\nRow 5: y~238: Elise Petit (237), Ventes (237), 44500 (240)\nRow 6: y~262: Thomas Girard (263), Ingénierie (262), 47000 (258)\nRow 7: y~282: Nadia Cohen (283), Marketing (280), 39500 (283)\nRow 8: y~305: Antoine Leroy (306), Ingénierie (306), 58000 (304)\nRow 9: y~326: ??? name, Ventes (325), 36000 (327)\nRow 10: y~348: Marion Dubois (330), RH (349), 40000 (346)\nRow 11: y~369: Yann Morel (351), Ingénierie (372), 55000 (367)\nRow 12: y~392: Léa Fontaine (372), Marketing (390), 42000 (393)\nRow 13: y~414: Hugo Lambert (396), Ventes (413), 41000 (412)\nRow 14: y~436: Ines Marchand (417), Ingénierie (438), 49500 (434)\nRow 15: y~458: Paul Renard (438), RH (458), 39000 (459)\nRow 16: y~480: Chloé Simon (456), Ventes (482), 39500 (479)\nRow 17: y~502: Victor Perrin (482), Marketing (503), 37000 (503)\nRow 18: y~503: Amandine Blanc (503), Marketing (503), 37000 (503)\n\nHmm, this is getting messy. The y-coordinates don't align perfectly because OCR boxes have different heights. This is unreliable.\n\nWait, there's a problem. Row 3 (y~193) has salary 61000 but no name or department detected near y=193. And there are 18 salary values but only 16 names. Let me recount.\n\nActually the issue is the OCR is unreliable for this task. Let me use a better approach - use browser_extract or read the actual data. \n\nActually, the cleanest approach: there's an \"Export CSV\" button. Let me export the CSV and read it. That would give me clean structured data.\n\nLet me click \"Export CSV\" at top right [x~560, y~15].\n\nActually, the instructions say for downloads, trigger download then read via filesystem read_file under /downloads/. But I don't have read_file in my tool list. Hmm. Let me check my tools... I only have browser tools. No filesystem read_file.\n\nWait, the system prompt mentions \"l'outil filesystem read_file\" but it's not in my available functions. So I can't use it. \n\nLet me reconsider. The best approach with browser tools: filter by Ingénierie and sort by salary descending. Then the 3rd row is the answer. But the native select didn't respond to my click.\n\nLet me try a different approach for the select. Native HTML selects need a proper interaction. Let me try clicking the select and using keyboard, or use the snapshot to find the select element.\n\nActually, let me reconsider the whole thing. The OCR jumbling is the problem. Let me try to get a cleaner read. \n\nLet me try the \"Trier par salaire (décroissant)\" button first to sort by salary descending, then I can identify the top salaries. But I still need to know which are Ingénierie.\n\nActually, the most reliable: filter to Ingénierie only. Let me get the select element reference from the snapshot. Let me look at the snapshot YAML. I can't read files though.\n\nLet me try interacting with the select differently. Native selects: click to open, then the options appear. My click at (170,160) may have hit the wrong option. Let me re-open and look carefully.\n\nActually, let me reconsider - maybe I should just carefully reconstruct from OCR. But it's too error-prone.\n\nLet me try the sort button \"Trier par salaire (décroissant)\" at [232,106,211,20] → center around x=337, y=116. After sorting descending, the highest salaries come first. Then I filter... no.\n\nBetter: Let me properly use the select. Let me click on the select element. The select is at \"Filtrer par département : Tous\" [7,104,197,22]. The actual <select> is probably the right portion. Let me",
+      "history_diff_applied_count": 6,
+      "history_diff_browser_messages_max": 10,
+      "history_diff_messages_replaced": 6,
+      "history_diff_redundancy_density_max": 0.476,
+      "merged_plan_attempted": 0,
+      "merged_plan_calls": 0,
+      "merged_plan_completions": 0,
+      "merged_plan_heuristic_rejections": 0,
+      "merged_plan_initial_subtask_count": null,
+      "merged_plan_replans": 0,
+      "plan_initial_subtask_count": null,
+      "plan_trivial": null,
+      "prefill_seconds": 28.3,
+      "prompt_tokens_total": 100846,
+      "repetition": 1,
+      "replan_events": 0,
+      "segment": 0,
+      "success": true,
+      "tabbyapi_raw_samples": [
+        {
+          "cached_tokens": 0,
+          "draft_accepted": 38,
+          "draft_total": 44,
+          "generation_seconds": 0.56,
+          "new_tokens": 2812,
+          "process_speed_tps": 986.67,
+          "queue_seconds": null,
+          "tokens_generated": 49
+        },
+        {
+          "cached_tokens": 2560,
+          "draft_accepted": 55,
+          "draft_total": 68,
+          "generation_seconds": 0.89,
+          "new_tokens": 2812,
+          "process_speed_tps": 953.22,
+          "queue_seconds": null,
+          "tokens_generated": 72
+        },
+        {
+          "cached_tokens": 5120,
+          "draft_accepted": 41,
+          "draft_total": 48,
+          "generation_seconds": 0.62,
+          "new_tokens": 390,
+          "process_speed_tps": 469.88,
+          "queue_seconds": null,
+          "tokens_generated": 53
+        },
+        {
+          "cached_tokens": 5376,
+          "draft_accepted": 52,
+          "draft_total": 72,
+          "generation_seconds": 0.95,
+          "new_tokens": 2541,
+          "process_speed_tps": 888.46,
+          "queue_seconds": null,
+          "tokens_generated": 70
+        },
+        {
+          "cached_tokens": 7680,
+          "draft_accepted": 159,
+          "draft_total": 296,
+          "generation_seconds": 4.0,
+          "new_tokens": 2654,
+          "process_speed_tps": 905.8,
+          "queue_seconds": null,
+          "tokens_generated": 233
+        },
+        {
+          "cached_tokens": 2560,
+          "draft_accepted": 59,
+          "draft_total": 92,
+          "generation_seconds": 1.24,
+          "new_tokens": 7990,
+          "process_speed_tps": 1045.81,
+          "queue_seconds": null,
+          "tokens_generated": 82
+        },
+        {
+          "cached_tokens": 10496,
+          "draft_accepted": 247,
+          "draft_total": 364,
+          "generation_seconds": 5.05,
+          "new_tokens": 2481,
+          "process_speed_tps": 821.52,
+          "queue_seconds": null,
+          "tokens_generated": 338
+        },
+        {
+          "cached_tokens": 12800,
+          "draft_accepted": 34,
+          "draft_total": 36,
+          "generation_seconds": 0.5,
+          "new_tokens": 657,
+          "process_speed_tps": 597.27,
+          "queue_seconds": null,
+          "tokens_generated": 43
+        },
+        {
+          "cached_tokens": 13312,
+          "draft_accepted": 144,
+          "draft_total": 196,
+          "generation_seconds": 2.73,
+          "new_tokens": 2479,
+          "process_speed_tps": 797.11,
+          "queue_seconds": null,
+          "tokens_generated": 193
+        },
+        {
+          "cached_tokens": 15616,
+          "draft_accepted": 34,
+          "draft_total": 36,
+          "generation_seconds": 0.5,
+          "new_tokens": 510,
+          "process_speed_tps": 504.95,
+          "queue_seconds": null,
+          "tokens_generated": 43
+        }
+      ],
+      "tabbyapi_requests": 10,
+      "task_id": "T3_tableau_dynamique",
+      "thread_id": "a493988a8c402501",
+      "tool_calls_observed": 12,
+      "validation_heuristic_rejections": 0,
+      "validation_judge_invocations": 0,
+      "validation_judge_vetoes": 0,
+      "verification_exploitable": 0,
+      "verification_opportunities": 0,
+      "visual_navigation_only_ocr_calls": 7
+    }
+  ]
+}
