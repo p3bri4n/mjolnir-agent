@@ -45,20 +45,29 @@ this mode — visual-only interaction needs something to click.
 1. **New env var** `VISUAL_NAVIGATION_ONLY` (default `false`, unchanged
    behavior — same convention as `HISTORY_DIFF_ENABLED`/
    `REASONING_EFFORT`).
-2. **Perception**: when active, the DOM/accessibility snapshot normally
-   returned after `browser_navigate`/`browser_click`/`browser_snapshot`
-   is replaced by a `browser_take_screenshot` capture routed through
-   `ocr-service`, surfaced as a list of text+bounding-box detections —
-   no raw page markup, no `ref=` selectors anywhere in what the model
-   sees.
+2. **No cheating — the mode's defining constraint, stated explicitly**:
+   nothing the model receives or can call may expose information a
+   sighted human looking only at the rendered screenshot would not have.
+   Perception is `browser_take_screenshot` routed through `ocr-service`
+   (text + bounding box), nothing else. When active, this mode must make
+   genuinely UNAVAILABLE (not just discourage via a description) every
+   tool that reads the DOM/accessibility tree or executes/inspects page
+   internals: `browser_snapshot`, `browser_extract`, `browser_evaluate`,
+   `browser_inspect` at minimum — enumerate the FULL current tool catalog
+   against this criterion at design time, don't assume this list is
+   exhaustive (`playwright-mcp`'s schema may expose others; verify against
+   the installed catalog, CLAUDE.md rule 8, don't work from memory of
+   what the catalog contained last time it was audited).
 3. **Action space**: interaction tools need a coordinate-based
-   counterpart (click/type at `x,y` rather than by `ref=`). Verify what
-   `playwright-mcp`'s installed schema already exposes for
-   coordinate-based mouse actions before assuming a new tool is needed
-   (CLAUDE.md rule 8 — any library-behavior claim is checked against the
-   installed code). Existing selector-based tools must be unavailable or
-   fail cleanly in this mode — offering both action spaces at once would
-   test "visual with a DOM safety net", not "visual-only".
+   counterpart (click/type at `x,y` rather than by `ref=`) — the one
+   capability a human-at-a-screenshot legitimately has that pure OCR
+   output doesn't provide for free. Verify what `playwright-mcp`'s
+   installed schema already exposes for coordinate-based mouse actions
+   before assuming a new tool is needed. Existing selector-based tools
+   (`browser_click`, `browser_navigate`'s ref-targeted variants, etc.)
+   must be unavailable in this mode, same hard-gate treatment as point 2
+   — offering both action spaces at once would test "visual with a DOM
+   safety net", not "visual-only".
 4. **Guardrails carried over, not rebuilt**: URL-fabrication guardrail,
    approval tiers, `NEVER_GRANTABLE_TOOLS`/`NEVER_GRANTABLE_TOOLS_EXTRA`
    — this mode changes perception and action granularity, not the
