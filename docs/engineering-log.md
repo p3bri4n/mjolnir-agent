@@ -8408,3 +8408,44 @@ chosen over `e2` since the latter is deliberately DOM-invisible by
 design, not representative here); `fixture-catalog/catalog` was a thin
 one-link landing page, not the real listing (`/catalog/index.html`).
 Not yet re-run against these two fixes.
+
+## 2026-09-20 — Effort 8: point 2 finally closed, full 6-page finding set
+
+Two more rounds needed to reach real content on the last two pages:
+`/catalog/index.html` turned out to be YET ANOTHER thin landing page
+(same single link) — the real listing is `/catalog/page-1.html`, 10
+products. `perception/e3-equivalence.html` confirmed clean (1px
+position accuracy, exact text past the already-known em-dash
+flattening) — no new finding there.
+
+**`catalog-listing`'s automated DOM-vs-OCR comparison**: 8/11 exact
+matches. All 3 mismatches are accent loss on capitalized words —
+`Étagère` → `Etagere` (×2, BOTH accents dropped) and `Élégant` →
+`Elégant` (only the leading É dropped, the internal é survives) —
+distinct from `docs-listing`'s misreads: "Etagere" still reads as an
+obvious typo of "Étagère" to a human or a fuzzy matcher, "contig-reseau-
+avancee" does not read as an obvious typo of "config-reseau-avancee".
+Two different failure MODES, not one: silent substitution (dangerous,
+docs-listing) vs. visible-but-wrong accent stripping (recoverable,
+catalog-listing).
+
+**Point 2 closed — consolidated finding set across 6 real pages**:
+1. Coordinates are reliable (point 1, reconfirmed here on 2 more pages).
+2. Row/column geometric clustering (points 3-4) is workable on tabular/
+   list pages (`hr-employees-table`, `docs-listing`, `catalog-listing`).
+3. Forms are NOT covered by the reconstruction plan as designed — empty
+   fields have no OCR text, need label→field association by proximity.
+4. OCR merges visually adjacent short strings below DOM granularity (nav
+   bars, label+value pairs) — a floor the reconstruction layer can't see
+   past.
+5. Two distinct text-fidelity failure modes: cosmetic accent/dash/
+   bracket loss (recoverable) vs. genuine letter-substitution on
+   unfamiliar hyphenated slugs (silent, ~8% rate on one real sample,
+   dangerous for naming-conformance tasks specifically).
+6. Native `<select>` options are structurally invisible to any
+   screenshot (confirmed via `box=0,0,0,0` in the DOM itself) — a
+   capability limit, not a bug.
+
+No code written yet for points 3-7 — still gated on the standing
+checkpoint. This finding set is what a go/no-go decision on building
+them would be based on.

@@ -371,10 +371,34 @@ check) could misjudge a genuinely correct reference as non-conforming
 from OCR noise alone — a judge Phase 4 should declare for explicitly,
 not assume away.
 
-Two URLs still needed fixing past that (`fixture-perception/perception`
-has no index — 403, no autoindex, real pages are named individually;
-`fixture-catalog/catalog` was a thin landing page, not the real
-listing) — fixed, **not yet re-run**.
+Two more rounds needed past that: `/catalog/index.html` was ALSO a thin
+landing page (real listing: `/catalog/page-1.html`, 10 products);
+`perception/e3-equivalence.html` confirmed clean, no new finding.
+`catalog-listing`'s own comparison: 8/11 exact, all 3 mismatches accent
+loss on capitals (`Étagère`→`Etagere`, both accents; `Élégant`→`Elégant`,
+only the leading one) — a DIFFERENT failure mode from `docs-listing`'s
+letter-substitution: visibly-wrong-but-recoverable vs. silently-plausible-
+but-wrong.
+
+**Point 2 CLOSED — consolidated finding set, 6 real pages**:
+1. Coordinates reliable (reconfirms point 1).
+2. Row/column clustering (points 3-4) workable on tabular/list pages.
+3. Forms NOT covered by the plan as designed — empty fields have no OCR
+   text; needs label→field association by proximity, added as a
+   requirement before building.
+4. OCR merges adjacent short strings below DOM granularity (nav bars,
+   label+value pairs) — a floor the reconstruction layer cannot fix.
+5. Two distinct text-fidelity failure modes: cosmetic accent/dash/
+   bracket loss (recoverable) vs. genuine letter-substitution on
+   unfamiliar slugs (silent, ~8% on one sample, dangerous specifically
+   for naming-conformance tasks like `A2_schema_references`).
+6. Native `<select>` options structurally invisible to any screenshot
+   (`box=0,0,0,0` in the DOM itself) — capability limit, not a bug.
+
+🧑 **Checkpoint**: points 1-2 fully answered. Building points 3-7 on
+this finding set, or scaling back to running Phase 4 as-is with these
+limitations documented as expected caveats, is the decision this
+evidence was collected for — not made here.
 
 ## Phase 4 — Full v2 measurement (single variable: `VISUAL_NAVIGATION_ONLY`)
 
