@@ -80,16 +80,16 @@
       "n": 3
     },
     "D1_cible_inexistante": {
-      "max": 253.3,
-      "median": 59.4,
-      "min": 53.3,
-      "n": 3
+      "max": 72.7,
+      "median": 72.7,
+      "min": 72.7,
+      "n": 1
     },
     "D2_sonde_peremption": {
-      "max": 8.7,
-      "median": 8.6,
-      "min": 8.2,
-      "n": 3
+      "max": 9.0,
+      "median": 9.0,
+      "min": 9.0,
+      "n": 1
     },
     "E1_dom_only": {
       "max": 4.6,

@@ -1,0 +1,55 @@
+{
+  "active": [],
+  "campaign_id": "20260920T112305Z-visual-navigation-only-smoke-widen",
+  "completed": [
+    {
+      "approvals": 2,
+      "cup": null,
+      "duration_s": 72.7,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "D1_cible_inexistante",
+      "thread_id": "690eead0ebfbe947",
+      "tool_calls": 11
+    },
+    {
+      "approvals": 1,
+      "cup": null,
+      "duration_s": 9.0,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "D2_sonde_peremption",
+      "thread_id": "62a9485029b1ad97",
+      "tool_calls": 2
+    }
+  ],
+  "config_digest": "54c27b1ff56d0caa",
+  "current": null,
+  "label": "visual-navigation-only-smoke-widen",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "D1_cible_inexistante"
+    },
+    {
+      "repetition": 1,
+      "task_id": "D2_sonde_peremption"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-09-20T11:24:28.400127+00:00",
+      "index": 0,
+      "started_at": "2026-09-20T11:23:05.782932+00:00"
+    }
+  ],
+  "started_at": "2026-09-20T11:23:05.782932+00:00",
+  "total_runs": 2
+}
