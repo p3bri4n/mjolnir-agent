@@ -696,11 +696,14 @@ PEREMPTION_DIRECTIVE = (
 
 # VISUAL_NAVIGATION_ONLY, point 6 (docs/briefs/visual-navigation-only.md):
 # guidance for the two structural gaps found live in this session's own
-# data — a native <select>'s popup options routinely have NO position at
-# all in the DOM (box=0,0,0,0, confirmed on fixture-hr-app/employees: a
-# screenshot cannot show what was never rendered in the page's own
-# compositing surface) and an empty form field has no OCR text to click
-# on. Static (VISUAL_NAVIGATION_ONLY never changes per-turn), computed
+# data — a native <select>'s popup options have NO queryable position at
+# all in the DOM/accessibility tree (box=0,0,0,0, confirmed on
+# fixture-hr-app/employees) — enough on its own to rule out clicking an
+# option by ref, whether or not a screenshot taken mid-open would show
+# the popup visually (never actually tested, see docs/briefs/
+# visual-navigation-only.md's own correction) — and an empty form field
+# has no OCR text to click on. Static (VISUAL_NAVIGATION_ONLY never
+# changes per-turn), computed
 # once at import time like the other directives above — empty string
 # outside this mode, byte-for-byte unchanged elsewhere. This is itself a
 # measured-behavior change (CLAUDE.md): whether the model actually

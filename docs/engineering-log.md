@@ -8492,3 +8492,32 @@ field gap handled via Tab-navigation guidance, not coordinate-guessing).
 Full suite: `langgraph-agent` 467 → 477 passed, `mcp-client` 65 → 69
 passed, 0 regressions. **Not yet live-smoked** — Phase 3's re-run with
 all of this active is the next step, on the user's machine.
+
+## 2026-09-20 — Effort 8: points 3-7 re-smoked, reconstruction confirmed, an overclaim caught and corrected
+
+**Smoke #5** (T3, points 3-7 active): `visual_navigation_only_ocr_calls:
+1`, 2 tool calls total (vs. 12 on smoke #4's pre-reconstruction run).
+Raw audit trace (`scripts/dump-audit-thread.py`): one `browser_navigate`,
+one OCR reconstruction, the model answers directly from the properly
+row/column-clustered table — near DOM-mode parity, no manual
+re-sorting struggle this time. The reconstruction (points 3-4) reads as
+a real, substantial improvement on this task.
+
+**Gap left open**: `browser_click_ref` itself was never exercised live
+this run — T3 didn't need to click anything, only unit-tested with
+mocks so far. Whether ref → coordinate resolution lands a real click
+correctly on a real browser is still unconfirmed.
+
+**Overclaim caught by a user question and corrected**: the brief and
+`app/graph.py`'s own comment stated "no screenshot at any resolution can
+show" an open `<select>`'s popup as if this session had confirmed it —
+it hadn't. What was actually confirmed is narrower: `<option>` elements
+report `box=0,0,0,0` in the DOM/accessibility tree, open or closed,
+which alone rules out `browser_click_ref` on an option. Whether a
+screenshot taken mid-open would show the popup visually was never
+tested — a plausible inference from documented Chromium/CDP headless
+behavior, not a live finding. Corrected in both the brief and the code
+comment rather than left standing. Good discipline check: verify a claim
+before it hardens into an assumed fact, exactly the kind of thing
+CLAUDE.md rule 8 exists to catch, this time on a claim I made myself
+rather than an external library.

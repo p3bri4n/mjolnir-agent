@@ -313,11 +313,19 @@ mentally re-sort a table from scattered triples — exactly what point 3
 
 Confirms the native `<select>` finding structurally, straight from the
 DOM: `combobox [box=168,107,81,19]` but every one of its `option`
-children reports `[box=0,0,0,0]` — the popup's options have no position
-in the page's own rendering surface at all. No screenshot at any
-resolution can show them. Point 6's fallback (record as a capability
-limit, don't keep forcing a coordinate click) is confirmed as the right
-call, not just a hedge.
+children reports `[box=0,0,0,0]` — the option elements have no queryable
+position via DOM/accessibility APIs at all, open or closed, which alone
+makes `browser_click_ref` on an option impossible regardless of the
+point below. **Overclaim caught and corrected (user question,
+2026-09-20)**: this session never actually tested whether a
+`browser_take_screenshot` taken WHILE the dropdown is open visually
+shows the popup — "no screenshot at any resolution can show them" was
+stated as if confirmed when it's really a plausible but unverified
+inference from documented Chromium/CDP behavior (native select popups
+routinely render outside the page's own compositing layer in headless
+automation). The DOM finding alone is sufficient grounds for point 6's
+keyboard-based fallback; the screenshot-visibility question itself
+stays open, not needed to justify the design choice already made.
 
 **Repeated-text ambiguity is itself a finding for point 3**: this real
 data shows exactly why the consultation warned against matching by
@@ -504,9 +512,22 @@ variants (click is the dominant need observed so far).
 `browser_click_ref`, `type_text`, `VISUAL_MODE_DIRECTIVE`, extended
 `_STABILIZE_AFTER_TOOLS`. `langgraph-agent` suite 467 → 477 passed,
 `mcp-client` 65 → 69 passed, 0 regressions. Full detail:
-`docs/engineering-log.md`, "Effort 8: points 3-7 built". **Not yet
-live-smoked** — Phase 3's re-run with all of this active is the next
-step, on the user's machine.
+`docs/engineering-log.md`, "Effort 8: points 3-7 built".
+
+**Smoke #5, T3, re-run with points 3-7 active**: `visual_navigation_
+only_ocr_calls: 1`, **2 tool calls total** (vs. 12 on smoke #4) —
+`browser_navigate` then a direct correct answer, no filter/sort attempt
+needed this time. Raw audit trace confirms: one `browser_navigate`, one
+OCR reconstruction, the model reads the properly clustered table
+directly and computes the right ranking — near DOM-mode parity. The
+reconstruction (points 3-4) clearly did its job.
+
+**Real gap left by this result**: `browser_click_ref` itself was never
+exercised live — T3 didn't need to click anything this run, only
+unit-tested with mocks so far. Whether ref → coordinate resolution
+actually lands a real click correctly on a real browser remains
+unconfirmed. Next: a task that forces a click (e.g. a pagination link)
+before trusting this path in Phase 4.
 
 ## Phase 4 — Full v2 measurement (single variable: `VISUAL_NAVIGATION_ONLY`)
 
