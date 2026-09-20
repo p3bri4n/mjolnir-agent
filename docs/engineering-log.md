@@ -8204,3 +8204,71 @@ closed** — three real leaks found and fixed along the way (#62 cross-
 container flag desync, #63 a crash on a malformed OCR response, #64 the
 filesystem-server leak), none known to remain. Phase 4 (full v2
 measurement) is the next, larger step, not attempted in this session.
+
+**Widening smoke, before any of that**: two more short, single-page,
+non-form tasks from family D (`D1_cible_inexistante`,
+`D2_sonde_peremption`) run under the fixed mode, to check whether T3's
+12-tool-call cost was typical or an outlier before committing to a
+22-task campaign. Both passed clean with genuine OCR engagement
+(`ocr_calls`: 2 and 1). `D2` cost only 2 tool calls (near DOM-mode
+parity) — `D1` cost 11 (72.7s), but for a legitimately harder task
+(searching a multi-page catalog for an absent product, then declaring
+absence honestly, no invented price). Reads as: T3's difficulty was
+about ITS shape (dense multi-column table + a native `<select>`), not a
+universal property of the mode.
+
+## 2026-09-20 — Effort 8: external consultation on visual-mode optimization
+
+Given smoke #4's real cost (12 tool calls for one short task, mostly OCR
+coordinate noise and an unresponsive native `<select>`), a larger-
+capacity model was consulted before committing to a full 22-task
+campaign on a pipeline known to be this rough — exactly this evidence
+handed over, nothing else. Full response quoted by the user; summary of
+what it found, checked here against this project's own installed-code
+facts where possible rather than taken on faith:
+
+- **Top hypothesis offered — a device-pixel-vs-CSS-pixel coordinate
+  mismatch — partially checked against our own defaults, not confirmed
+  live**: `browser_take_screenshot`'s documented default `scale` is
+  `"css"` (matching `browser_mouse_click_xy`'s CSS-pixel viewport
+  coordinates), and `services/ocr-service/app/ocr_engine.py` never
+  resizes the image before running PaddleOCR — by these defaults alone,
+  the two coordinate spaces SHOULD already agree. Not proof (a
+  documented default isn't a live measurement), but the top suspect is
+  less likely than it would be on an unaudited stack, per CLAUDE.md
+  rule 8 (verify against the installed code, don't take an external
+  claim at face value either).
+- **Methodological critique, valid, orthogonal to any fix**: comparing
+  `browser_snapshot` (curated, ref-annotated) against raw OCR triples
+  measures "processed DOM vs. unprocessed pixels," not "DOM vs.
+  vision" — must be named explicitly in Phase 4's eventual write-up.
+- **The native `<select>` failure has a specific, plausible
+  explanation**: native select popups render in browser chrome, outside
+  the page's own compositing surface — a screenshot may simply never
+  contain them, making a coordinate click structurally unwinnable, not
+  a bug to keep chasing.
+- **`browser_press_key`'s one-character-at-a-time typing cost is a tool-
+  choice artifact, not an inherent property of visual-only perception**:
+  a `type_text(string)`-at-current-focus tool needs no coordinates,
+  only the initial focus-click does.
+- **The biggest suggested cost lever**: stable synthetic cell
+  references (`r7c3`) resolved to coordinates by the harness, instead of
+  the model reasoning over raw `x,y` itself — also fixes an approval-
+  tier readability problem this project hadn't named: "click at (412,
+  338)" isn't a reviewable action for a human approver, "click the
+  salary cell in the Dubois row" is.
+- Recommended sequencing: a cheap coordinate-consistency check first,
+  then an OFFLINE perception harness (DOM-with-boxes vs. OCR on ~20
+  pages, no agent loop) before touching the agent's own pipeline —
+  matches this project's own "instrument before mechanism" discipline
+  already stated in `docs/methodology.md`, arrived at independently.
+- Widget-detection grounding (OmniParser-style) explicitly recommended
+  as a LATER step, gated on the offline harness's own findings — matches
+  `PLAN.md`'s pre-existing "motivated by OBSERVED failures" stance on
+  the same idea.
+
+**Decision (2026-09-20)**: full prioritized plan and the methodological
+caveat recorded in `docs/briefs/visual-navigation-only.md`'s new
+Amendment section. Checkpoint: only the coordinate-consistency check and
+the offline perception harness approved to start now: the rest waits on
+what those two actually find.

@@ -204,6 +204,79 @@ coordinates and an uncooperative native `<select>` before finding the
 correct answer — the "authentic capability-limit struggle" this phase's
 own judge was written to accept, not a red flag. No known leak remains.
 
+## Amendment — optimization pass before Phase 4 (external consultation, 2026-09-20)
+
+Smoke #4 worked but cost 12 tool calls on a single short table-reading
+task, mostly from OCR coordinate noise (row/column matching by y-center
+alone is unreliable — different glyph heights give different box
+centers on the same visual row) and a native `<select>` that never
+visibly responded to a coordinate click. Before spending a full 22-task
+campaign measuring a pipeline known to be this rough, a larger-capacity
+model was consulted for an optimization plan given exactly this
+evidence. Read in full: `docs/engineering-log.md`, "Effort 8 — external
+consultation on visual-mode optimization". Filtered and prioritized
+here; nothing below is committed to yet beyond the two checkpointed
+first steps.
+
+**Methodological point to keep regardless of any further change**:
+`browser_snapshot` is a heavily processed, ref-annotated DOM view;
+comparing it against raw OCR triples measures "curated DOM vs.
+unprocessed pixels," not "DOM vs. vision." Phase 4's eventual write-up
+must name this asymmetry explicitly, whether or not the pipeline below
+gets built.
+
+**Prioritized plan**:
+1. **Coordinate-consistency sanity check** (near-free, do first): OCR
+   jitter across repeated screenshots of the same static page, and one
+   click verified against a real DOM element's own box (`browser_snapshot`'s
+   `boxes: true` option — CSS-pixel, viewport-relative, per the installed
+   `@playwright/mcp` schema) rather than assumed correct. Rules out (or
+   confirms) a device-vs-CSS-pixel mismatch before anything else is
+   built on top of possibly-wrong coordinates.
+2. **Offline perception harness** (cheap, no live agent loop): capture
+   screenshot + DOM-with-boxes pairs from ~20 real pages (including
+   benchmark fixtures), evaluate the OCR reading against DOM ground
+   truth offline — iterable in seconds, none of it spent inside a
+   12-tool-call agent trace.
+3. Layout reconstruction between OCR and the model: cluster rows by
+   vertical INTERVAL OVERLAP (not y-center distance), columns by
+   left/right edge alignment kept separately — hand the model a
+   reconstructed table, not a bag of boxes.
+4. Stable synthetic cell references (`r7c3`) resolved to coordinates by
+   the harness, not raw `x,y` in the model's own tool call — the
+   dominant cost lever, and it also fixes an approval-tier problem
+   found along the way: "click at (412, 338)" is not a reviewable action
+   for a human approver, "click the salary cell in the Dubois row" is.
+5. A coordinate-free `type_text`(string) tool typing into whatever
+   currently has focus (focus itself still established by a coordinate
+   click, so the mode stays honest) — `browser_press_key`'s one-
+   character-at-a-time cost is an artifact of which tools are enabled,
+   not a property of visual-only perception. Basic keyboard nav
+   (Tab/arrows/Enter/modifiers) alongside it, same reasoning.
+6. Native `<select>` handling via keyboard after a focusing click
+   (arrow keys or first-letter typing, then Enter), verified against the
+   collapsed widget's own visible label — WITH an explicit fallback: if
+   the popup truly never appears in a screenshot (renders in browser
+   chrome, outside the page compositing surface), record that as a
+   capability-limit finding, same spirit as A1's 0/3 and E2's 1/3, not a
+   bug to keep forcing.
+7. Extend the "return resulting state" pattern (Effort 4 point 1) to the
+   new coordinate tools: auto screenshot+OCR after a coordinate click
+   too, not just after `browser_navigate` — a meaningful share of the
+   12 calls were likely act-then-look round trips this would remove for
+   free.
+
+**Explicitly deferred**: full widget detection (OmniParser-style
+connected-components/edge-detection grounding) — already out of scope
+per `PLAN.md` ("motivated by OBSERVED failures," not assumed needed);
+point 2's harness is exactly the observation that would tell us whether
+text-box centers already suffice on these 22 tasks before building
+anything bigger.
+
+🧑 Checkpoint (2026-09-20): points 1-2 approved to start now. Points
+3-7 and the deferred item are not yet scheduled — revisit after the
+harness's own findings are in.
+
 ## Phase 4 — Full v2 measurement (single variable: `VISUAL_NAVIGATION_ONLY`)
 
 Runs sequentially at the current `N_WORKERS=1` default — no dependency
