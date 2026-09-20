@@ -24,8 +24,8 @@ def client():
     return TestClient(main_mod.app)
 
 
-def _detection(text, confidence):
-    return {"text": text, "x": 0, "y": 0, "width": 0, "height": 0, "confidence": confidence}
+def _detection(text, confidence, x=0, y=0, width=0, height=0):
+    return {"text": text, "x": x, "y": y, "width": width, "height": height, "confidence": confidence}
 
 
 def test_ocr_returns_matches_sorted_by_confidence(client):
@@ -45,12 +45,14 @@ def test_ocr_returns_matches_sorted_by_confidence(client):
     assert result[0]["confidence"] == 0.95
 
 
-def test_ocr_returns_only_text_and_confidence(client):
-    set_fake_detections([_detection("Fichier", confidence=0.9)])
+def test_ocr_returns_text_confidence_and_bounding_box(client):
+    set_fake_detections([_detection("Fichier", confidence=0.9, x=12, y=34, width=56, height=78)])
 
     resp = client.post("/ocr", json={"image_base64": FAKE_IMAGE_B64})
 
-    assert resp.json() == [{"text": "Fichier", "confidence": 0.9}]
+    assert resp.json() == [
+        {"text": "Fichier", "x": 12, "y": 34, "width": 56, "height": 78, "confidence": 0.9}
+    ]
 
 
 def test_ocr_no_detections_returns_empty_list(client):
