@@ -526,8 +526,29 @@ reconstruction (points 3-4) clearly did its job.
 exercised live — T3 didn't need to click anything this run, only
 unit-tested with mocks so far. Whether ref → coordinate resolution
 actually lands a real click correctly on a real browser remains
-unconfirmed. Next: a task that forces a click (e.g. a pagination link)
-before trusting this path in Phase 4.
+unconfirmed.
+
+**Smoke #6, `T6_session_authentifiee` (chosen deliberately: a login form
+forces BOTH `type_text` and `browser_click_ref` — under this mode, OCR
+never exposes an href, so the anti-fabrication guardrail blocks any
+navigation whose URL wasn't reached by an actual click; there is no
+typing-the-URL shortcut here), points 3-7 fully exercised, clean**:
+`visual_navigation_only_ocr_calls: 4`, 9 tool calls, raw audit trace
+shows the complete, correct sequence — `browser_navigate` → login page
+→ `browser_click_ref(r2c0)` (username field) → `type_text("rh.manager")`
+→ `browser_click_ref(r3c0)` (password field) →
+`type_text("Conges2026!")` → `browser_click_ref(r4c0)` (submit) →
+correct final answer (3 "en attente", cross-checked by the model against
+both the page's own counter and a manual recount). **Three real clicks
+resolved and landed correctly, two real text entries typed correctly, no
+fallback, no error** — `browser_click_ref`/`type_text` are confirmed
+working end-to-end on a real browser, not just under mocks. Both real
+gaps this phase's own checkpoint named (`browser_click_ref` unexercised,
+`type_text` unverified fidelity) are closed.
+
+**Points 1-7 of the optimization amendment are now fully closed.**
+Next: Phase 4 (full v2 measurement) — the only step left before this
+effort's headline number.
 
 ## Phase 4 — Full v2 measurement (single variable: `VISUAL_NAVIGATION_ONLY`)
 

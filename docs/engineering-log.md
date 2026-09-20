@@ -8521,3 +8521,34 @@ comment rather than left standing. Good discipline check: verify a claim
 before it hardens into an assumed fact, exactly the kind of thing
 CLAUDE.md rule 8 exists to catch, this time on a claim I made myself
 rather than an external library.
+
+## 2026-09-20 — Effort 8: smoke #6 confirms browser_click_ref/type_text end-to-end, points 1-7 closed
+
+`T6_session_authentifiee` chosen deliberately over T3/D1/D2: a login
+form forces BOTH `type_text` and `browser_click_ref` — under this mode,
+OCR never exposes an `href`, so `BROWSER_NAVIGATE_GUARDRAIL` blocks any
+navigation whose URL wasn't reached by an actual click; there is no
+typing-the-URL shortcut for following a link, unlike the direct
+navigations T3/D1/D2 relied on. `T4_recherche_multi_sauts` (the
+originally intended forcing task) turned out absent from the v2 suite's
+own family F (`T3`/`T5`/`T6`/`T10` only) — `T6` picked instead.
+
+**Clean result**: `visual_navigation_only_ocr_calls: 4`, 9 tool calls.
+Raw audit trace (`scripts/dump-audit-thread.py`): `browser_navigate` →
+login page → `browser_click_ref(r2c0)` (username field) →
+`type_text("rh.manager")` → `browser_click_ref(r3c0)` (password field) →
+`type_text("Conges2026!")` → `browser_click_ref(r4c0)` (submit) →
+correct final answer (3 "en attente", cross-checked by the model against
+both the page's own counter and a manual recount of the list). Three
+real clicks resolved and landed correctly, two real text entries typed
+correctly, no fallback, no error.
+
+**Both real gaps left after smoke #5 are closed**: `browser_click_ref`'s
+ref → coordinate resolution works on a real browser, not just under
+mocks; `type_text`'s simulated DOM events had the fidelity needed for
+this real login form (the fidelity caveat named at build time did not
+materialize here — narrowly, one form, not a general clearance).
+
+**Points 1-7 of the visual-mode optimization amendment are now fully
+closed.** Only Phase 4 (full v2 measurement) remains before this
+effort's headline number.
