@@ -277,6 +277,37 @@ anything bigger.
 3-7 and the deferred item are not yet scheduled — revisit after the
 harness's own findings are in.
 
+**Point 1 result (2026-09-20)**: run against `fixture-hr-app/employees`
+(`scripts/probe-visual-mode-coordinate-consistency.sh`). The script's own
+jitter measurement had a bug — it grouped detections by TEXT VALUE
+alone, and this page's department column repeats values ("RH" ×3,
+"Ventes" ×5, ...) at different rows, so the reported "max y jitter:
+309px (worst: 'RH')" is cross-ROW distance mistaken for cross-CAPTURE
+drift, not a real signal. Corrected by hand using text that appears
+exactly once per page (person names): **DOM boxes
+(`browser_snapshot(boxes=true)`) and OCR boxes agree to within 1-3px on
+every checked case** (e.g. Karim Haddad: DOM `box=10,217` vs OCR
+`x=8,y=217`). **The consultation's top hypothesis (device-vs-CSS-pixel
+mismatch) is empirically REFUTED**, not just inferred from documented
+defaults as in the earlier engineering-log entry — coordinates are
+reliable. This reframes smoke #4's difficulty: the ingredients (OCR
+positions) are accurate, the cost came from asking the MODEL to
+mentally re-sort a table from scattered triples — exactly what point 3
+(layout reconstruction) targets, not a calibration fix.
+
+Confirms the native `<select>` finding structurally, straight from the
+DOM: `combobox [box=168,107,81,19]` but every one of its `option`
+children reports `[box=0,0,0,0]` — the popup's options have no position
+in the page's own rendering surface at all. No screenshot at any
+resolution can show them. Point 6's fallback (record as a capability
+limit, don't keep forcing a coordinate click) is confirmed as the right
+call, not just a hedge.
+
+**Repeated-text ambiguity is itself a finding for point 3**: this real
+data shows exactly why the consultation warned against matching by
+value or naive y-distance — even a small fixture page has non-unique
+column values throughout. Point 1 closed.
+
 ## Phase 4 — Full v2 measurement (single variable: `VISUAL_NAVIGATION_ONLY`)
 
 Runs sequentially at the current `N_WORKERS=1` default — no dependency

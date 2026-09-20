@@ -894,3 +894,32 @@ noisy OCR coordinates and a stubborn native `<select>` before landing on
 the correct answer, exactly the kind of authentic capability-limit
 struggle the brief's own Phase 4 decision table anticipated. Phase 3 of
 `docs/briefs/visual-navigation-only.md` (live smoke) is now closed.
+
+### 65. `scripts/probe-visual-mode-coordinate-consistency.sh` — jitter measurement grouped OCR detections by text VALUE, conflating repeated-value rows with real capture-to-capture drift — CLOSED
+
+**Symptom, confirmed cause**: point 1 of the visual-mode optimization
+amendment (`docs/briefs/visual-navigation-only.md`), run against
+`fixture-hr-app/employees`: reported "max y jitter: 309px (worst:
+'RH')" — a huge, alarming number for what should be near-zero jitter on
+a static page. The script grouped all detections sharing the exact same
+text string across the 5 shots into one series; `fixture-hr-app`'s
+department column repeats values ("RH" ×3, "Ventes" ×5, ...) at
+DIFFERENT real rows, so the "jitter" measured was mostly the distance
+between different rows' department cells, not drift between two
+captures of the same cell.
+
+**Corrected reading (by hand, from the raw dump, before fixing the
+script)**: restricting to text that appears exactly once per page
+(person names) shows DOM boxes and OCR boxes agree within 1-3px — real
+capture jitter is near zero. The consultation's top hypothesis
+(device-vs-CSS-pixel mismatch) is empirically refuted by this same data,
+not just inferred from documented defaults.
+
+**Fix**: the script now excludes any text detected more than once
+within a SINGLE shot from the jitter comparison entirely, rather than
+attempting to disambiguate — the exact same repeated-value ambiguity the
+optimization amendment's point 3 (layout reconstruction) already
+anticipated for the real reconstruction problem, just hit first in a
+diagnostic script. Not yet re-run with the fix — the corrected-by-hand
+reading already answered point 1's question; a clean re-run would only
+confirm the same numbers via the tool now, not add new information.

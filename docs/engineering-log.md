@@ -8272,3 +8272,36 @@ caveat recorded in `docs/briefs/visual-navigation-only.md`'s new
 Amendment section. Checkpoint: only the coordinate-consistency check and
 the offline perception harness approved to start now: the rest waits on
 what those two actually find.
+
+## 2026-09-20 — Effort 8: point 1 (coordinate-consistency check) run, top hypothesis empirically refuted
+
+`scripts/probe-visual-mode-coordinate-consistency.sh` run against
+`fixture-hr-app/employees`, user's machine. Its own jitter measurement
+came back with a huge, alarming "max y jitter: 309px (worst: 'RH')" —
+turned out to be a bug in the script itself, grouping OCR detections by
+text VALUE, which conflated different rows sharing the same department
+name ("RH" appears 3 times on this page) with real capture-to-capture
+drift. Corrected by hand from the raw dump before fixing the script:
+restricting to text unique per page (person names) shows DOM boxes
+(`browser_snapshot(boxes=true)`) and OCR boxes agree within 1-3px on
+every checked case (e.g. Karim Haddad: DOM `box=10,217` vs OCR
+`x=8,y=217`).
+
+**The consultation's top hypothesis (device-vs-CSS-pixel mismatch) is
+empirically refuted**, not just inferred from documented defaults as in
+the earlier entry — coordinates are reliable. Reframes smoke #4's
+difficulty as a model-reasoning cost (mentally re-sorting a table from
+scattered triples), not a data-quality problem — matches the
+consultation's own "the model is doing geometry, and it's bad at it."
+
+**The native `<select>` finding is confirmed structurally, straight from
+the DOM**: `combobox [box=168,107,81,19]` but every `option` child
+reports `[box=0,0,0,0]` — the popup's options have no position in the
+page's own rendering surface, full stop. No screenshot at any
+resolution can show them; point 6's fallback (capability-limit finding,
+not a bug to keep chasing) is the right call, not a hedge.
+
+Script's own bug fixed (`docs/resolved-bugs.md` #65) — same repeated-
+value ambiguity the reconstruction amendment's point 3 already
+anticipated for the real problem, hit first in the diagnostic tool.
+**Point 1 closed.**

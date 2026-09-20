@@ -1,0 +1,467 @@
+=== Part A: OCR jitter across 5 consecutive screenshots (same static page) ===
+shot 0: 55 detections
+shot 1: 55 detections
+shot 2: 55 detections
+shot 3: 55 detections
+shot 4: 55 detections
+texts detected in all 5 shots: 42/42
+max x jitter: 4.0px, max y jitter: 309.0px (worst: 'RH')
+
+=== Part B: DOM boxes (ground truth) vs OCR boxes, same page state ===
+--- browser_snapshot(boxes=true), raw text ---
+### Page
+- Page URL: http://fixture-hr-app:5000/employees
+- Page Title: Employés
+- Console: 1 errors, 0 warnings
+### Snapshot
+```yaml
+- generic [active] [ref=e1] [box=8,8,1264,517]:
+  - navigation [ref=e2] [box=8,8,1264,18]:
+    - link "Employés" [ref=e3] [cursor=pointer] [box=8,8,64,17]:
+      - /url: /employees
+    - text: "|"
+    - link "Demande de congé" [ref=e4] [cursor=pointer] [box=83,8,123,17]:
+      - /url: /leave-form
+    - text: "|"
+    - link "Suivi des congés" [ref=e5] [cursor=pointer] [box=217,8,108,17]:
+      - /url: /leave-requests
+    - text: "|"
+    - link "Contacts" [ref=e6] [cursor=pointer] [box=336,8,56,17]:
+      - /url: /contacts
+    - text: "|"
+    - link "Demande spéciale" [ref=e7] [cursor=pointer] [box=403,8,117,17]:
+      - /url: /special-request
+    - text: "|"
+    - link "Export CSV" [ref=e8] [cursor=pointer] [box=531,8,79,17]:
+      - /url: /export/employees.csv
+  - heading "Employés" [level=1] [ref=e9] [box=8,47,1264,37]
+  - generic [ref=e10] [box=8,107,245,17]:
+    - text: "Filtrer par département :"
+    - combobox "Filtrer par département :" [ref=e11] [box=168,107,81,19]:
+      - option "Tous" [selected] [box=0,0,0,0]
+      - option "Ingénierie" [box=0,0,0,0]
+      - option "Marketing" [box=0,0,0,0]
+      - option "RH" [box=0,0,0,0]
+      - option "Ventes" [box=0,0,0,0]
+  - button "Trier par salaire (décroissant)" [ref=e12] [box=253,106,190,21]
+  - table [ref=e13] [box=8,127,259,398]:
+    - rowgroup [ref=e14] [box=10,129,255,20]:
+      - row "Nom Département Salaire" [ref=e15] [box=10,129,255,20]:
+        - columnheader "Nom" [ref=e16] [box=10,129,110,20]
+        - columnheader "Département" [ref=e17] [box=122,129,92,20]
+        - columnheader "Salaire" [ref=e18] [box=216,129,50,20]
+    - rowgroup [ref=e19] [box=10,151,255,372]:
+      - row "Julien Faure Ingénierie 52000" [ref=e20] [box=10,151,255,20]:
+        - cell "Julien Faure" [ref=e21] [box=10,151,110,20]
+        - cell "Ingénierie" [ref=e22] [box=122,151,92,20]
+        - cell "52000" [ref=e23] [box=216,151,50,20]
+      - row "Camille Roux Ventes 38000" [ref=e24] [box=10,173,255,20]:
+        - cell "Camille Roux" [ref=e25] [box=10,173,110,20]
+        - cell "Ventes" [ref=e26] [box=122,173,92,20]
+        - cell "38000" [ref=e27] [box=216,173,50,20]
+      - row "Sophie Bernard Ingénierie 61000" [ref=e28] [box=10,195,255,20]:
+        - cell "Sophie Bernard" [ref=e29] [box=10,195,110,20]
+        - cell "Ingénierie" [ref=e30] [box=122,195,92,20]
+        - cell "61000" [ref=e31] [box=216,195,50,20]
+      - row "Karim Haddad RH 41000" [ref=e32] [box=10,217,255,20]:
+        - cell "Karim Haddad" [ref=e33] [box=10,217,110,20]
+        - cell "RH" [ref=e34] [box=122,217,92,20]
+        - cell "41000" [ref=e35] [box=216,217,50,20]
+      - row "Élise Petit Ventes 44500" [ref=e36] [box=10,239,255,20]:
+        - cell "Élise Petit" [ref=e37] [box=10,239,110,20]
+        - cell "Ventes" [ref=e38] [box=122,239,92,20]
+        - cell "44500" [ref=e39] [box=216,239,50,20]
+      - row "Thomas Girard Ingénierie 47000" [ref=e40] [box=10,261,255,20]:
+        - cell "Thomas Girard" [ref=e41] [box=10,261,110,20]
+        - cell "Ingénierie" [ref=e42] [box=122,261,92,20]
+        - cell "47000" [ref=e43] [box=216,261,50,20]
+      - row "Nadia Cohen Marketing 39500" [ref=e44] [box=10,283,255,20]:
+        - cell "Nadia Cohen" [ref=e45] [box=10,283,110,20]
+        - cell "Marketing" [ref=e46] [box=122,283,92,20]
+        - cell "39500" [ref=e47] [box=216,283,50,20]
+      - row "Antoine Leroy Ingénierie 58000" [ref=e48] [box=10,305,255,20]:
+        - cell "Antoine Leroy" [ref=e49] [box=10,305,110,20]
+        - cell "Ingénierie" [ref=e50] [box=122,305,92,20]
+        - cell "58000" [ref=e51] [box=216,305,50,20]
+      - row "Marion Dubois Ventes 36000" [ref=e52] [box=10,327,255,20]:
+        - cell "Marion Dubois" [ref=e53] [box=10,327,110,20]
+        - cell "Ventes" [ref=e54] [box=122,327,92,20]
+        - cell "36000" [ref=e55] [box=216,327,50,20]
+      - row "Yann Morel RH 40000" [ref=e56] [box=10,349,255,20]:
+        - cell "Yann Morel" [ref=e57] [box=10,349,110,20]
+        - cell "RH" [ref=e58] [box=122,349,92,20]
+        - cell "40000" [ref=e59] [box=216,349,50,20]
+      - row "Léa Fontaine Ingénierie 55000" [ref=e60] [box=10,371,255,20]:
+        - cell "Léa Fontaine" [ref=e61] [box=10,371,110,20]
+        - cell "Ingénierie" [ref=e62] [box=122,371,92,20]
+        - cell "55000" [ref=e63] [box=216,371,50,20]
+      - row "Hugo Lambert Marketing 42000" [ref=e64] [box=10,393,255,20]:
+        - cell "Hugo Lambert" [ref=e65] [box=10,393,110,20]
+        - cell "Marketing" [ref=e66] [box=122,393,92,20]
+        - cell "42000" [ref=e67] [box=216,393,50,20]
+      - row "Inès Marchand Ventes 41000" [ref=e68] [box=10,415,255,20]:
+        - cell "Inès Marchand" [ref=e69] [box=10,415,110,20]
+        - cell "Ventes" [ref=e70] [box=122,415,92,20]
+        - cell "41000" [ref=e71] [box=216,415,50,20]
+      - row "Paul Renard Ingénierie 49500" [ref=e72] [box=10,437,255,20]:
+        - cell "Paul Renard" [ref=e73] [box=10,437,110,20]
+        - cell "Ingénierie" [ref=e74] [box=122,437,92,20]
+        - cell "49500" [ref=e75] [box=216,437,50,20]
+      - row "Chloé Simon RH 39000" [ref=e76] [box=10,459,255,20]:
+        - cell "Chloé Simon" [ref=e77] [box=10,459,110,20]
+        - cell "RH" [ref=e78] [box=122,459,92,20]
+        - cell "39000" [ref=e79] [box=216,459,50,20]
+      - row "Victor Perrin Ventes 39500" [ref=e80] [box=10,481,255,20]:
+        - cell "Victor Perrin" [ref=e81] [box=10,481,110,20]
+        - cell "Ventes" [ref=e82] [box=122,481,92,20]
+        - cell "39500" [ref=e83] [box=216,481,50,20]
+      - row "Amandine Blanc Marketing 37000" [ref=e84] [box=10,503,255,20]:
+        - cell "Amandine Blanc" [ref=e85] [box=10,503,110,20]
+        - cell "Marketing" [ref=e86] [box=122,503,92,20]
+        - cell "37000" [ref=e87] [box=216,503,50,20]
+```
+
+--- OCR detections, raw JSON ---
+[
+  {
+    "text": "41000",
+    "x": 215.0,
+    "y": 217.0,
+    "width": 44.0,
+    "height": 19.0,
+    "confidence": 0.999952495098114
+  },
+  {
+    "text": "44500",
+    "x": 215.0,
+    "y": 240.0,
+    "width": 44.0,
+    "height": 18.0,
+    "confidence": 0.999925971031189
+  },
+  {
+    "text": "42000",
+    "x": 215.0,
+    "y": 393.0,
+    "width": 44.0,
+    "height": 19.0,
+    "confidence": 0.9999054074287415
+  },
+  {
+    "text": "47000",
+    "x": 213.0,
+    "y": 258.0,
+    "width": 46.0,
+    "height": 23.0,
+    "confidence": 0.9998754262924194
+  },
+  {
+    "text": "39500",
+    "x": 215.0,
+    "y": 283.0,
+    "width": 44.0,
+    "height": 19.0,
+    "confidence": 0.9998658299446106
+  },
+  {
+    "text": "39000",
+    "x": 215.0,
+    "y": 459.0,
+    "width": 45.0,
+    "height": 19.0,
+    "confidence": 0.9997788667678833
+  },
+  {
+    "text": "36000",
+    "x": 213.0,
+    "y": 327.0,
+    "width": 46.0,
+    "height": 18.0,
+    "confidence": 0.9997709393501282
+  },
+  {
+    "text": "Camille Roux",
+    "x": 9.0,
+    "y": 173.0,
+    "width": 94.0,
+    "height": 19.0,
+    "confidence": 0.9997652173042297
+  },
+  {
+    "text": "37000",
+    "x": 213.0,
+    "y": 503.0,
+    "width": 46.0,
+    "height": 18.0,
+    "confidence": 0.9997645616531372
+  },
+  {
+    "text": "52000",
+    "x": 215.0,
+    "y": 151.0,
+    "width": 44.0,
+    "height": 18.0,
+    "confidence": 0.999713122844696
+  },
+  {
+    "text": "58000",
+    "x": 213.0,
+    "y": 304.0,
+    "width": 46.0,
+    "height": 20.0,
+    "confidence": 0.9997078776359558
+  },
+  {
+    "text": "Marketing",
+    "x": 118.0,
+    "y": 390.0,
+    "width": 74.0,
+    "height": 25.0,
+    "confidence": 0.9996464252471924
+  },
+  {
+    "text": "Ventes",
+    "x": 120.0,
+    "y": 173.0,
+    "width": 48.0,
+    "height": 19.0,
+    "confidence": 0.9996330142021179
+  },
+  {
+    "text": "Ventes",
+    "x": 117.0,
+    "y": 325.0,
+    "width": 53.0,
+    "height": 23.0,
+    "confidence": 0.999603271484375
+  },
+  {
+    "text": "49500",
+    "x": 213.0,
+    "y": 434.0,
+    "width": 46.0,
+    "height": 23.0,
+    "confidence": 0.9995953440666199
+  },
+  {
+    "text": "Ventes",
+    "x": 120.0,
+    "y": 482.0,
+    "width": 49.0,
+    "height": 18.0,
+    "confidence": 0.9995856285095215
+  },
+  {
+    "text": "RH",
+    "x": 120.0,
+    "y": 458.0,
+    "width": 28.0,
+    "height": 21.0,
+    "confidence": 0.9995845556259155
+  },
+  {
+    "text": "61000",
+    "x": 212.0,
+    "y": 193.0,
+    "width": 47.0,
+    "height": 23.0,
+    "confidence": 0.9995704889297485
+  },
+  {
+    "text": "Marketing",
+    "x": 118.0,
+    "y": 280.0,
+    "width": 74.0,
+    "height": 23.0,
+    "confidence": 0.9995465874671936
+  },
+  {
+    "text": "Nadia Cohen",
+    "x": 8.0,
+    "y": 283.0,
+    "width": 89.0,
+    "height": 19.0,
+    "confidence": 0.9995448589324951
+  },
+  {
+    "text": "41000",
+    "x": 213.0,
+    "y": 412.0,
+    "width": 46.0,
+    "height": 23.0,
+    "confidence": 0.9995362162590027
+  },
+  {
+    "text": "Victor Perrin",
+    "x": 9.0,
+    "y": 482.0,
+    "width": 87.0,
+    "height": 18.0,
+    "confidence": 0.9994866847991943
+  },
+  {
+    "text": "RH",
+    "x": 120.0,
+    "y": 349.0,
+    "width": 28.0,
+    "height": 19.0,
+    "confidence": 0.9994571805000305
+  },
+  {
+    "text": "Paul Renard",
+    "x": 8.0,
+    "y": 438.0,
+    "width": 84.0,
+    "height": 19.0,
+    "confidence": 0.9994480013847351
+  },
+  {
+    "text": "55000",
+    "x": 213.0,
+    "y": 367.0,
+    "width": 46.0,
+    "height": 24.0,
+    "confidence": 0.9994029998779297
+  },
+  {
+    "text": "Karim Haddad",
+    "x": 8.0,
+    "y": 217.0,
+    "width": 101.0,
+    "height": 19.0,
+    "confidence": 0.9993636608123779
+  },
+  {
+    "text": "39500",
+    "x": 213.0,
+    "y": 479.0,
+    "width": 46.0,
+    "height": 23.0,
+    "confidence": 0.9993411302566528
+  },
+  {
+    "text": "Antoine Leroy",
+    "x": 9.0,
+    "y": 306.0,
+    "width": 98.0,
+    "height": 18.0,
+    "confidence": 0.9991894364356995
+  },
+  {
+    "text": "38000",
+    "x": 213.0,
+    "y": 170.0,
+    "width": 46.0,
+    "height": 24.0,
+    "confidence": 0.9991092681884766
+  },
+  {
+    "text": "40000",
+    "x": 213.0,
+    "y": 346.0,
+    "width": 46.0,
+    "height": 22.0,
+    "confidence": 0.9990279078483582
+  },
+  {
+    "text": "RH",
+    "x": 116.0,
+    "y": 217.0,
+    "width": 32.0,
+    "height": 20.0,
+    "confidence": 0.9989081025123596
+  },
+  {
+    "text": "Nom",
+    "x": 43.0,
+    "y": 127.0,
+    "width": 43.0,
+    "height": 23.0,
+    "confidence": 0.9989011883735657
+  },
+  {
+    "text": "Amandine Blanc Marketing",
+    "x": 9.0,
+    "y": 503.0,
+    "width": 183.0,
+    "height": 20.0,
+    "confidence": 0.9988391995429993
+  },
+  {
+    "text": "Thomas Girard",
+    "x": 11.0,
+    "y": 263.0,
+    "width": 100.0,
+    "height": 15.0,
+    "confidence": 0.9983492493629456
+  },
+  {
+    "text": "Ventes",
+    "x": 118.0,
+    "y": 237.0,
+    "width": 50.0,
+    "height": 23.0,
+    "confidence": 0.9981028437614441
+  },
+  {
+    "text": "Ventes",
+    "x": 118.0,
+    "y": 413.0,
+    "width": 52.0,
+    "height": 23.0,
+    "confidence": 0.9978271126747131
+  },
+  {
+    "text": "Département Salaire",
+    "x": 121.0,
+    "y": 130.0,
+    "width": 144.0,
+    "height": 18.0,
+    "confidence": 0.997124195098877
+  },
+  {
+    "text": "Filtrer par département : Tous",
+    "x": 7.0,
+    "y": 104.0,
+    "width": 197.0,
+    "height": 22.0,
+    "confidence": 0.9960609674453735
+  },
+  {
+    "text": "Employés",
+    "x": 6.0,
+    "y": 49.0,
+    "width": 137.0,
+    "height": 35.0,
+    "confidence": 0.9947865605354309
+  },
+  {
+    "text": "Léa Fontaine",
+    "x": 8.0,
+    "y": 372.0,
+    "width": 89.0,
+    "height": 18.0,
+    "confidence": 0.9920658469200134
+  },
+  {
+    "text": "Ingénierie",
+    "x": 119.0,
+    "y": 306.0,
+    "width": 70.0,
+    "height": 18.0,
+    "confidence": 0.9918209314346313
+  },
+  {
+    "text": "Marion Dubois",
+    "x": 9.0,
+    "y": 330.0,
+    "width": 100.0,
+    "height": 14.0,
+    "confidence": 0.9910853505134583
+  },
+  {
+    "text": "Ingénierie",
+    "x": 120.0,
+    "y": 152.0,
+    "width": 71.0,
+    "height

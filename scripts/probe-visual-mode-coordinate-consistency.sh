@@ -88,10 +88,26 @@ with httpx.Client() as client:
         shots.append(detections)
         print(f"shot {i}: {len(detections)} detections")
 
+    # Bug found live (docs/resolved-bugs.md #65): grouping by text VALUE
+    # alone conflates same-text-different-row with same-row-different-
+    # capture whenever a column repeats a value (department names,
+    # round-numbered salaries) — the exact ambiguity the reconstruction
+    # amendment (point 3) warns about, just hit here first. Only text
+    # appearing EXACTLY ONCE PER SHOT is a safe jitter probe; anything
+    # appearing more than once in a single shot is excluded rather than
+    # silently mismatched across rows.
+    per_shot_counts = defaultdict(int)
+    for shot in shots:
+        seen_this_shot = set()
+        for d in shot:
+            if d["text"] in seen_this_shot:
+                per_shot_counts[d["text"]] += 1  # mark as repeated-within-a-shot
+            seen_this_shot.add(d["text"])
     by_text = defaultdict(list)
     for shot in shots:
         for d in shot:
-            by_text[d["text"]].append((d["x"], d["y"]))
+            if per_shot_counts.get(d["text"], 0) == 0:  # never repeated within any single shot
+                by_text[d["text"]].append((d["x"], d["y"]))
     max_dx = max_dy = 0.0
     worst = None
     stable_texts = 0
@@ -104,7 +120,7 @@ with httpx.Client() as client:
         dx, dy = max(xs) - min(xs), max(ys) - min(ys)
         if dx > max_dx or dy > max_dy:
             max_dx, max_dy, worst = max(dx, max_dx), max(dy, max_dy), text
-    print(f"texts detected in all 5 shots: {stable_texts}/{len(by_text)}")
+    print(f"unique-per-shot texts usable as jitter probes: {stable_texts}")
     print(f"max x jitter: {max_dx:.1f}px, max y jitter: {max_dy:.1f}px (worst: {worst!r})")
 
     print("\n=== Part B: DOM boxes (ground truth) vs OCR boxes, same page state ===")
