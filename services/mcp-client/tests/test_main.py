@@ -847,6 +847,30 @@ def test_browser_navigate_response_includes_the_resulting_snapshot(monkeypatch):
     assert content[1]["text"] == "ok:browser_snapshot"
 
 
+def test_browser_navigate_stabilization_uses_screenshot_under_visual_navigation_only(monkeypatch):
+    """docs/briefs/visual-navigation-only.md, Phase 1 point 6:
+    browser_snapshot is a DOM read this mode must never leak, even via the
+    stabilization follow-up call — browser_take_screenshot stands in for
+    it instead."""
+    import app.main as main_mod
+
+    main_mod._tool_registry.clear()
+    _register_fake_browser_tool(main_mod, "browser_navigate", ["url"])
+    monkeypatch.setattr(main_mod, "VISUAL_NAVIGATION_ONLY", True)
+    calls = _patch_run_on_server_recording(main_mod, monkeypatch)
+
+    resp = _client().post("/call", json={"tool": "browser_navigate", "arguments": {"url": "https://exemple.com"}})
+
+    assert resp.status_code == 200
+    assert calls == [
+        ("browser_navigate", {"url": "https://exemple.com"}),
+        ("browser_wait_for", {"time": main_mod.BROWSER_STABILIZE_WAIT_SECONDS}),
+        ("browser_take_screenshot", {}),
+    ]
+    content = resp.json()["content"]
+    assert content[1]["text"] == "ok:browser_take_screenshot"
+
+
 def test_browser_click_response_includes_the_resulting_snapshot(monkeypatch):
     import app.main as main_mod
 

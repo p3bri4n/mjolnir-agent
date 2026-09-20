@@ -445,6 +445,16 @@ class TaskResult:
         # with no effect would instead point at a broken mechanism.
         # Flag-independent, same discipline as the two counters above.
         self.history_diff_redundancy_density_max = 0.0
+        # Visual-only navigation mode coverage (effort 8, docs/briefs/
+        # visual-navigation-only.md; see app/graph.py's
+        # _ocr_replace_image_blocks, role="visual_navigation_only" audit
+        # entry): only ever logged when VISUAL_NAVIGATION_ONLY is true —
+        # unlike history_diff/episode_compaction above there is no
+        # off-state "opportunity" to compare against, the mode's whole
+        # tool-availability changes when it's on. Confirms the mode was
+        # genuinely active for the run it's judged on, not a flattering
+        # zero (Phase 3 of the brief).
+        self.visual_navigation_only_ocr_calls = 0
         # Planner/validation/judge coverage counters (EFFORT 2 "judge
         # validity check", see docs/history.md): symmetric to
         # verification_opportunities/exploitable above — plan_task,
@@ -563,6 +573,12 @@ def run_task(prompt: str, worker_id: str = None) -> TaskResult:
     )
     result.history_diff_applied_count = sum(
         1 for e in history_diff_entries if (e.get("content") or {}).get("messages_replaced", 0) > 0
+    )
+    visual_navigation_only_entries = [
+        e for e in entries if e.get("kind") == "message" and e.get("role") == "visual_navigation_only"
+    ]
+    result.visual_navigation_only_ocr_calls = sum(
+        (e.get("content") or {}).get("ocr_calls", 0) for e in visual_navigation_only_entries
     )
     # Planner/validation/judge coverage (EFFORT 2 "judge validity check",
     # see docs/history.md and the TaskResult docstring above). planning
@@ -1276,6 +1292,7 @@ def _run_campaign(resume_cid: str = None):
             "history_diff_applied_count": result.history_diff_applied_count,
             "history_diff_messages_replaced": result.history_diff_messages_replaced,
             "history_diff_redundancy_density_max": round(result.history_diff_redundancy_density_max, 3),
+            "visual_navigation_only_ocr_calls": result.visual_navigation_only_ocr_calls,
             # B2 Part 3.1/3.2: needed by _write_report() to break down
             # cache-sensitive metrics per segment rather than pooling them
             # across a pause boundary (a fresh segment starts cold-cache

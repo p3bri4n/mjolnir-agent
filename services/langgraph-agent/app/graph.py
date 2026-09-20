@@ -133,6 +133,51 @@ LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://tabbyapi:5000/v1")
 CONTEXT_MANAGER_URL = os.environ.get("CONTEXT_MANAGER_URL", "http://context-manager:8002")
 SKILL_MANAGER_URL = os.environ.get("SKILL_MANAGER_URL", "http://skill-manager:8001")
 MCP_CLIENT_URL = os.environ.get("MCP_CLIENT_URL", "http://mcp-client:8003")
+OCR_SERVICE_URL = os.environ.get("OCR_SERVICE_URL", "http://ocr-service:8004")
+
+# docs/briefs/visual-navigation-only.md (effort 8): capture + OCR only, no
+# DOM/accessibility tree, coordinate-based action space. Default false:
+# unchanged behavior, existing DOM mode. See _VISUAL_ONLY_BLOCKED_TOOLS/
+# _VISION_ONLY_TOOLS (_get_bound_llm) and _ocr_replace_image_blocks
+# (_call_mcp_tool) for the two places this actually changes behavior.
+VISUAL_NAVIGATION_ONLY = os.environ.get("VISUAL_NAVIGATION_ONLY", "false").lower() == "true"
+
+# Hard-gated when VISUAL_NAVIGATION_ONLY is active: every tool that reads
+# the DOM/accessibility tree or executes/inspects page internals — a
+# sighted human looking only at the rendered screenshot has none of this.
+# Verified against the real @playwright/mcp catalog (Phase 1 of the brief
+# above), not assumed from memory.
+_VISUAL_ONLY_BLOCKED_TOOLS = {
+    "browser_snapshot",
+    "browser_find",
+    "browser_click",
+    "browser_hover",
+    "browser_drag",
+    "browser_drop",
+    "browser_select_option",
+    "browser_type",
+    "browser_fill_form",
+    "browser_evaluate",
+    "browser_run_code_unsafe",
+    "browser_extract",
+    "browser_inspect",
+    "browser_console_messages",
+    "browser_network_request",
+    "browser_network_requests",
+}
+# Coordinate-based action space (playwright-mcp's "vision" capability,
+# --caps=vision — docker-compose.yml): the counterpart to the tools
+# blocked above. Only meaningful under VISUAL_NAVIGATION_ONLY — hidden
+# otherwise to keep the default mode's schema weight unchanged (effort
+# 1.1/1.2's -44.9% is not something to give back for free).
+_VISION_ONLY_TOOLS = {
+    "browser_mouse_click_xy",
+    "browser_mouse_move_xy",
+    "browser_mouse_drag_xy",
+    "browser_mouse_down",
+    "browser_mouse_up",
+    "browser_mouse_wheel",
+}
 
 # URL-fabrication guardrail (Phase 1, see PLAN.md/docs/history.md — target
 # #1 of the Phase 0 point zero: the agent regularly invents plausible URLs
@@ -1127,17 +1172,35 @@ planner_llm = ChatOpenAI(
 _tools_schema_cache: Optional[list] = None
 
 
+def _visual_navigation_filter(tool_name: str) -> bool:
+    """True if `tool_name` stays in the schema under the current
+    VISUAL_NAVIGATION_ONLY setting — the single filter every consumer of
+    _get_tools_schema (bind_tools, _route_entry, merged-planning's
+    known_tools) sees, so a plan or a slash command can't reference a
+    tool the model itself was never shown. Off (default): hides the
+    vision-only coordinate tools instead, to keep the default schema's
+    weight exactly as it was before this mode existed."""
+    if VISUAL_NAVIGATION_ONLY:
+        return tool_name not in _VISUAL_ONLY_BLOCKED_TOOLS
+    return tool_name not in _VISION_ONLY_TOOLS
+
+
 async def _get_tools_schema() -> list:
     """Fills/returns _tools_schema_cache — factored out of _get_bound_llm
     so it's also usable by _route_entry (validating a slash command's tool
-    name) without an extra HTTP request once cached."""
+    name) without an extra HTTP request once cached. Filtered once here
+    (VISUAL_NAVIGATION_ONLY is a static env var, not a per-request
+    choice), not re-filtered on every call."""
     global _tools_schema_cache
     if _tools_schema_cache is None:
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 resp = await client.get(f"{MCP_CLIENT_URL}/tools/schema")
                 resp.raise_for_status()
-                _tools_schema_cache = resp.json().get("tools", [])
+                tools = resp.json().get("tools", [])
+                _tools_schema_cache = [
+                    t for t in tools if _visual_navigation_filter(t.get("function", {}).get("name"))
+                ]
         except (httpx.HTTPError, ValueError):
             # mcp-client unreachable or invalid response: degrade with no
             # tools rather than failing the whole conversation.
@@ -2161,6 +2224,65 @@ def _split_image_blocks(result: dict) -> tuple[dict, list[dict]]:
     return {**result, "content": rest or "(voir image ci-dessous)"}, images
 
 
+def _format_ocr_detections(detections: list) -> str:
+    """Model-facing text (French, like every other tool-facing string in
+    this module — CLAUDE.md rule 11): one line per detection, its
+    bounding box then its text, so the model can target
+    browser_mouse_click_xy/_move_xy at the right pixel without ever
+    having seen the image itself."""
+    if not detections:
+        return "(aucun texte détecté par OCR sur cette capture)"
+    lines = [
+        f'[{d["x"]},{d["y"]},{d["width"]},{d["height"]}] "{d["text"]}" (confiance {d["confidence"]:.2f})'
+        for d in detections
+    ]
+    return 'Texte détecté (OCR) — [x,y,largeur,hauteur] "texte" (confiance) :\n' + "\n".join(lines)
+
+
+async def _ocr_replace_image_blocks(
+    client: httpx.AsyncClient, content: list, thread_id: Optional[str], tool_name: str
+) -> list:
+    """VISUAL_NAVIGATION_ONLY (docs/briefs/visual-navigation-only.md):
+    replaces every image block (a real screenshot — an explicit
+    browser_take_screenshot call, or mcp-client's own stabilization
+    follow-up after browser_navigate, see services/mcp-client/app/
+    main.py) with its OCR reading, text + bounding box, nothing else the
+    model can see. Never raises: ocr-service unreachable degrades to a
+    plain-text notice in place of the image, same fail-open posture as
+    _get_tools_schema above — a stalled OCR call must not stall the whole
+    conversation.
+    """
+    out = []
+    ocr_calls = 0
+    for block in content:
+        if not (isinstance(block, dict) and block.get("type") == "image"):
+            out.append(block)
+            continue
+        try:
+            resp = await client.post(
+                f"{OCR_SERVICE_URL}/ocr",
+                json={"image_base64": block.get("data", ""), "mime_type": block.get("mimeType", "image/png")},
+            )
+            resp.raise_for_status()
+            detections = resp.json()
+        except (httpx.HTTPError, ValueError):
+            out.append({"type": "text", "text": "(OCR indisponible pour cette capture)"})
+            continue
+        ocr_calls += 1
+        out.append({"type": "text", "text": _format_ocr_detections(detections)})
+    if ocr_calls:
+        # Trigger-rate counter (CLAUDE.md measurement rules). Unlike
+        # history_diff/episode_compaction's "log every call regardless of
+        # the flag" (there, a real off-state opportunity exists to
+        # compare against), this code path only exists at all when
+        # VISUAL_NAVIGATION_ONLY is already true — logging is
+        # unconditional within that scope, which is the whole point:
+        # confirms the mode was genuinely active for the run it's judged
+        # on, not a flattering zero.
+        audit_log.log_message(thread_id or "", "visual_navigation_only", {"tool": tool_name, "ocr_calls": ocr_calls})
+    return out
+
+
 async def _call_mcp_tool(
     client: httpx.AsyncClient,
     tool_name: str,
@@ -2198,6 +2320,11 @@ async def _call_mcp_tool(
         result = resp.json()
     except httpx.HTTPError as exc:
         return {"error": str(exc)}, []
+    if VISUAL_NAVIGATION_ONLY:
+        content = result.get("content")
+        if isinstance(content, list):
+            result = {**result, "content": await _ocr_replace_image_blocks(client, content, thread_id, tool_name)}
+        return result, []
     return _split_image_blocks(result)
 
 

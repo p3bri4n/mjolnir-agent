@@ -60,6 +60,42 @@ EXPECTED_TOOLS = policy.TIER_READ_TOOLS | policy.TIER_REVERSIBLE_TOOLS | policy.
     "browser_navigate"
 }
 
+# Mirrors app/graph.py's _VISUAL_ONLY_BLOCKED_TOOLS/_VISION_ONLY_TOOLS — kept
+# in sync manually, same convention as EXPECTED_AGENT_FLAGS/
+# EXPECTED_GPU_DEVICES below (a heavy `import app.graph` just for two
+# frozensets would pull in langgraph/langchain_openai client construction
+# for no reason). docs/briefs/visual-navigation-only.md (effort 8):
+# langgraph-agent deliberately hides part of mcp-client's real schema
+# depending on VISUAL_NAVIGATION_ONLY — check_tools_schema must know which
+# tools are hidden BY DESIGN, or it misreads that difference as the exact
+# stale-cache desync this module exists to catch.
+_VISUAL_ONLY_BLOCKED_TOOLS = {
+    "browser_snapshot",
+    "browser_find",
+    "browser_click",
+    "browser_hover",
+    "browser_drag",
+    "browser_drop",
+    "browser_select_option",
+    "browser_type",
+    "browser_fill_form",
+    "browser_evaluate",
+    "browser_run_code_unsafe",
+    "browser_extract",
+    "browser_inspect",
+    "browser_console_messages",
+    "browser_network_request",
+    "browser_network_requests",
+}
+_VISION_ONLY_TOOLS = {
+    "browser_mouse_click_xy",
+    "browser_mouse_move_xy",
+    "browser_mouse_drag_xy",
+    "browser_mouse_down",
+    "browser_mouse_up",
+    "browser_mouse_wheel",
+}
+
 # Self-hosted fixtures (docker-compose.yml, profile "test-fixtures") targeted
 # by T1-T7 (docs/benchmark-v1.md): found missing 2026-07-28 (docs/campaigns/
 # 2026-07-28_campaign_post-rename-mjolnir.md, invalid 14/33 run) — nothing
@@ -123,6 +159,9 @@ EXPECTED_AGENT_FLAGS = {
     "EPISODE_COMPACTION_ENABLED": "false",
     "EPISODE_COMPACTION_TURN_THRESHOLD": "40",
     "HISTORY_DIFF_ENABLED": "true",
+    # docs/briefs/visual-navigation-only.md (effort 8) — off by default,
+    # unchanged DOM-based behavior.
+    "VISUAL_NAVIGATION_ONLY": "false",
 }
 
 
@@ -149,25 +188,35 @@ class PreflightError(RuntimeError):
     """Raised by run_preflight(): the campaign must NOT start."""
 
 
-def check_tools_schema(agent_tools: Iterable[str], mcp_tools: Iterable[str]) -> Optional[str]:
+def check_tools_schema(
+    agent_tools: Iterable[str], mcp_tools: Iterable[str], visual_navigation_only: bool = False
+) -> Optional[str]:
     """
     Pure, unit-testable without docker: None if all is well, otherwise a
     message explaining the rejection (compared BEFORE expected, since a
     desync between the two services makes any conclusion about "the
     expected" misleading until it's resolved).
+
+    visual_navigation_only: the CURRENT container's actual flag value
+    (run_preflight reads it from fetch_agent_env(), the same dict used by
+    check_agent_flags) — determines which half of mcp-client's real
+    schema langgraph-agent is expected to hide by design (see
+    _VISUAL_ONLY_BLOCKED_TOOLS/_VISION_ONLY_TOOLS above).
     """
     agent_tools = set(agent_tools)
     mcp_tools = set(mcp_tools)
-    if agent_tools != mcp_tools:
-        missing_in_agent = sorted(mcp_tools - agent_tools)
-        extra_in_agent = sorted(agent_tools - mcp_tools)
+    hidden_by_design = _VISUAL_ONLY_BLOCKED_TOOLS if visual_navigation_only else _VISION_ONLY_TOOLS
+    mcp_tools_expected = mcp_tools - hidden_by_design
+    if agent_tools != mcp_tools_expected:
+        missing_in_agent = sorted(mcp_tools_expected - agent_tools)
+        extra_in_agent = sorted(agent_tools - mcp_tools_expected)
         return (
             "schéma d'outils désynchronisé entre langgraph-agent et mcp-client "
             f"(absents côté langgraph-agent={missing_in_agent}, superflus côté "
             f"langgraph-agent={extra_in_agent}) — _tools_schema_cache est probablement "
             "périmé, commande à taper : docker compose restart langgraph-agent"
         )
-    missing_expected = sorted(EXPECTED_TOOLS - agent_tools)
+    missing_expected = sorted((EXPECTED_TOOLS - hidden_by_design) - agent_tools)
     if missing_expected:
         return f"outils attendus absents du schéma effectif de langgraph-agent : {missing_expected}"
     return None
@@ -503,10 +552,12 @@ def run_preflight(
     error = check_device_placement(fetch_device_placement())
     if error:
         raise PreflightError(error)
-    error = check_agent_flags(fetch_agent_env())
+    agent_env = fetch_agent_env()
+    error = check_agent_flags(agent_env)
     if error:
         raise PreflightError(error)
-    error = check_tools_schema(fetch_agent_tools(), fetch_mcp_tools())
+    visual_navigation_only = agent_env.get("VISUAL_NAVIGATION_ONLY", "false").lower() == "true"
+    error = check_tools_schema(fetch_agent_tools(), fetch_mcp_tools(), visual_navigation_only)
     if error:
         raise PreflightError(error)
     error = check_fixtures_reachable(fetch_fixtures_reachable())

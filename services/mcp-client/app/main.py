@@ -776,6 +776,15 @@ async def list_tools_schema():
 _STABILIZE_AFTER_TOOLS = {"browser_navigate", "browser_click"}
 BROWSER_STABILIZE_WAIT_SECONDS = float(os.environ.get("BROWSER_STABILIZE_WAIT_SECONDS", "0.5"))
 
+# docs/briefs/visual-navigation-only.md, Phase 1 point 6: browser_navigate
+# stays legitimate (and used) under VISUAL_NAVIGATION_ONLY, so the
+# stabilization block above would otherwise leak a real DOM
+# browser_snapshot into the tool result regardless of every other gate.
+# A screenshot instead — langgraph-agent (the only caller allowed to know
+# about ocr-service, see this module's own docstring) routes it through
+# OCR before the model ever sees it.
+VISUAL_NAVIGATION_ONLY = os.environ.get("VISUAL_NAVIGATION_ONLY", "false").lower() == "true"
+
 
 @app.post("/call")
 async def call_tool(request: CallRequest):
@@ -822,9 +831,13 @@ async def call_tool(request: CallRequest):
         # audit log). A real browser_snapshot call, now that the page has
         # stabilized, gives the actual resulting state instead of a dead
         # reference — same _run_on_server dispatch already used for
-        # browser_extract/browser_inspect above.
+        # browser_extract/browser_inspect above. Under
+        # VISUAL_NAVIGATION_ONLY, browser_snapshot is a DOM read this mode
+        # must never leak: browser_take_screenshot stands in for it
+        # instead (langgraph-agent OCRs it before the model sees it).
+        followup_tool = "browser_take_screenshot" if VISUAL_NAVIGATION_ONLY else "browser_snapshot"
         snapshot_result = await _run_on_server(
-            "browser", lambda s: s.call_tool("browser_snapshot", {}), request.worker_id
+            "browser", lambda s: s.call_tool(followup_tool, {}), request.worker_id
         )
         extra_content = list(snapshot_result.content)
     # Captured for every "browser" tool (not just navigate/click): a
