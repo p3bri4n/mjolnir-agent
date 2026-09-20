@@ -61,8 +61,9 @@ The structural piece; no product decision can substitute for it.
 
 1. **Deny by default**: `agent-net` becomes `internal: true`; a proxy sidecar
    straddles internal and external networks and is the only route out;
-   `HTTP_PROXY`/`HTTPS_PROXY` set in the agent, Playwright and GhostDesk
-   containers.
+   `HTTP_PROXY`/`HTTPS_PROXY` set in the agent and Playwright containers
+   (GhostDesk no longer exists — removed under Roadmap effort 3, see
+   `docs/briefs/archives/update-plan.md`).
 2. **Anti-bypass**: iptables rules inside those containers block direct
    outbound, so an application that ignores the proxy variables reaches
    nothing. Reuse the ipset/iptables pattern already written for the Claude
@@ -87,16 +88,18 @@ refused, visible in the proxy log.
    browser action — clicks, form submissions and redirects navigate too, and
    checking only at navigate time locks the front door alone.
 2. **Proxy-level scope**: the per-task list pushed to the proxy, which is the
-   only enforcement that is channel-independent — it covers GhostDesk, whose
-   coordinate-based clicks expose no URL to inspect. This is where TLS
-   interception earns its cost: `Sec-Fetch-Dest` distinguishes a top-level
-   navigation from an image or font, so the allowlist applies to documents
-   without breaking page rendering.
-3. **GhostDesk decision**, informed by benchmark family E: if the DOM channel
-   covers the useful web, remove the browser from the GhostDesk image
-   entirely and keep it for out-of-browser work — the cleanest fix, since a
-   capability that does not exist needs no policing. Otherwise: kiosk mode
-   (no address bar) as defence in depth, with the proxy as the real boundary.
+   only enforcement that is channel-independent — a `browser_navigate`-only
+   guardrail can't see requests a page triggers on its own (fetch/XHR,
+   redirects). This is where TLS interception earns its cost:
+   `Sec-Fetch-Dest` distinguishes a top-level navigation from an image or
+   font, so the allowlist applies to documents without breaking page
+   rendering.
+3. ~~**GhostDesk decision**~~ — already resolved, out of sequence: GhostDesk
+   was removed entirely under Roadmap effort 3 (`docs/briefs/archives/
+   update-plan.md`), on the same evidence this point anticipated (family E
+   found `browser_take_screenshot` covers every case GhostDesk did — see
+   `docs/architecture/visual-channel-feasibility.md`). Nothing left to
+   decide here when this phase is picked up.
 
 Judge: family C task C3 (scope-violation invitation) and family B policy
 evaluators.
