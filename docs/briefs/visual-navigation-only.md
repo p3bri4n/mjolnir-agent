@@ -395,10 +395,112 @@ but-wrong.
 6. Native `<select>` options structurally invisible to any screenshot
    (`box=0,0,0,0` in the DOM itself) — capability limit, not a bug.
 
-🧑 **Checkpoint**: points 1-2 fully answered. Building points 3-7 on
-this finding set, or scaling back to running Phase 4 as-is with these
-limitations documented as expected caveats, is the decision this
-evidence was collected for — not made here.
+🧑 **Checkpoint**: points 1-2 fully answered. **Decision (2026-09-20):
+build points 3-7.**
+
+### Points 3-7 — design (before any code)
+
+**Reconstruction algorithm (points 3-4)**, `_reconstruct_layout(detections)`
+in `app/graph.py`, replacing `_format_ocr_detections`'s role inside
+`_ocr_replace_image_blocks`:
+- Rows: cluster by vertical INTERVAL OVERLAP (two boxes are the same row
+  if the shorter box's height overlaps the other by more than 50%), not
+  y-center distance — per the consultation's own reasoning, confirmed
+  necessary by this session's own data (different glyph heights, same
+  visual row).
+- Columns: **simplified from the consultation's own suggestion**. Global
+  left/right-edge clustering across the whole page was proposed; this
+  build instead orders items LEFT-TO-RIGHT WITHIN each already-clustered
+  row and assigns the column index from that order. Every real table in
+  this session's harness data (`hr-employees-table`) has a consistent
+  column count per row, so position-within-row already gives the right
+  column number without needing separate global edge-alignment logic —
+  simpler, and avoidable complexity per this project's own "no
+  opportunistic abstraction" rule until a real page proves row-order
+  insufficient.
+- Output: `r{row}c{col}` refs, formatted text `[r0c0] "text"` per line,
+  plus a `ref → (center_x, center_y)` map returned alongside the text
+  (not shown to the model).
+- **Forms/empty-field gap, scope decision**: no coordinate-guessing for
+  invisible empty fields. Pure OCR cannot see blank pixels, and inventing
+  a synthetic ref for an ASSUMED field location (nearest empty region
+  near a label) has no ground truth backing it — that's the OmniParser-
+  style widget detection this brief already defers, not a cheap
+  heuristic. Handled instead via Tab-based keyboard navigation guidance
+  (point 6's directive, below) — reaching an unseen field by cycling
+  focus, the way a sequential-access user would, not by guessing its
+  screen position.
+
+**New tool, `browser_click_ref(ref)` (point 4), local to `app/graph.py`,
+never reaches mcp-client's registry** — same architectural slot as
+`manage_plan`: an `extra_tools` entry in `_get_bound_llm`, gated on
+`VISUAL_NAVIGATION_ONLY` (not `PLANNING_MODE`), intercepted in
+`_execute_tool_calls` before the generic tier/dispatch loop. Resolves
+`ref` against `AgentState`'s new `visual_ref_map` field (replaced whole
+on every OCR conversion, never accumulated — stale refs from an earlier
+screenshot must fail loudly, not resolve to a now-wrong position); an
+unresolvable ref returns an error tool response without ever reaching
+mcp-client, same pattern as the URL-fabrication guardrail's own blocked
+path. **Audit/approval-message identity stays `browser_click_ref`+`ref`**
+(matches `browser_extract`'s own precedent of auditing the high-level
+call the model made, not its internal translation) — only the actual
+dispatch to `_call_mcp_tool` substitutes the resolved
+`browser_mouse_click_xy`+`x,y`. This is also the fix for the approval-
+tier readability problem found during the consultation: a human approver
+sees "browser_click_ref(r7c3)", not "browser_mouse_click_xy(412, 338)".
+Tier: no special case needed — falls through to the same
+unknown-tool-default `TIER_SENSITIVE` `browser_mouse_click_xy` itself
+would get.
+
+**New tool, `type_text(text)` (point 5), lives in `mcp-client`**, unlike
+`browser_click_ref` — it needs no per-thread state, only a fixed JS
+template dispatched to `browser_evaluate` (same pattern as
+`browser_extract`/`browser_inspect`: writes into `document.activeElement`
+via simulated `input`/`keydown` events, never model-supplied code).
+Registered in `mcp-client`'s tool registry like any other synthetic tool,
+but added to `_VISION_ONLY_TOOLS` in `app/graph.py`/
+`campaign_preflight.py` (shown ONLY under `VISUAL_NAVIGATION_ONLY`, same
+as the six coordinate tools) — the model never sees it in normal mode.
+Focus itself is still established by a real coordinate click beforehand,
+so the mode stays honest per its own defining constraint. **Caveat,
+stated again**: simulated DOM events may not have the fidelity of
+Playwright's real OS-level `keyboard.type` on some JS-framework-controlled
+inputs — not verified yet, to be watched for in the next live smoke.
+Basic keyboard nav (Tab/arrows/Enter/modifiers) needs no new tool:
+`browser_press_key` (already kept) already accepts these key names.
+
+**Point 6 (native `<select>`, and the forms/Tab-navigation guidance from
+point 3 above), a new conditional system-prompt directive**, same
+pattern as `DOWNLOAD_DIRECTIVE`/`BULK_CHECK_DIRECTIVE`/
+`PEREMPTION_DIRECTIVE`: included only when `VISUAL_NAVIGATION_ONLY` is
+true, telling the model to (a) use `type_text` for typing rather than
+`browser_press_key` per character, (b) use `browser_click_ref` with refs
+from the latest OCR reading rather than raw coordinates, (c) for a
+native `<select>`, click to focus then use arrow keys/first-letter
+typing + Enter rather than trying to click a popup option directly
+(popups routinely don't appear in a screenshot at all — confirmed via
+`box=0,0,0,0` in the DOM itself, point 1's own finding), verify the
+result from the collapsed widget's own visible label afterward, (d) for
+an unlabeled/unseen field, try Tab from a nearby focused element instead
+of guessing its position. **This is itself a measured-behavior change
+(CLAUDE.md) bundled into this same build for time reasons** — flagged
+explicitly: whether the model actually follows this directive needs its
+own read on the next live smoke, not assumed from having written it.
+
+**Point 7, extend the "return resulting state" pattern**: add
+`"browser_mouse_click_xy"` to `mcp-client`'s `_STABILIZE_AFTER_TOOLS` —
+after a resolved ref-click, the same auto-follow-up
+(`browser_take_screenshot` under this mode, already wired) fires,
+removing a click-then-look round trip the model would otherwise have to
+spend a whole turn on.
+
+**Out of scope for this build, explicitly**: global column edge
+clustering (deferred until row-order proves insufficient on a real
+task); a synthetic ref for guessed/invisible form fields (the OmniParser-
+style detection this brief already defers); `browser_move_ref`/drag
+variants (click is the dominant need observed so far).
+
+🧑 Checkpoint before Phase 3's re-run with all of this active.
 
 ## Phase 4 — Full v2 measurement (single variable: `VISUAL_NAVIGATION_ONLY`)
 
