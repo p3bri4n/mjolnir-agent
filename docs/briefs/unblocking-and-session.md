@@ -171,6 +171,7 @@ supervised agent, not a defect.
 - Behavioural humanisation (randomised delays, mouse trajectories): low
   effect against modern detection, real latency cost, and it adds variance to
   a system whose noise is already documented across eleven campaigns.
-- Keeping GhostDesk for stealth reasons: its advantage came from headed mode
+- Keeping GhostDesk for stealth reasons: moot, GhostDesk was removed
+  entirely under Roadmap effort 3 — its advantage came from headed mode
   and a real display, both of which Phase 0 provides on the inspectable
   channel.

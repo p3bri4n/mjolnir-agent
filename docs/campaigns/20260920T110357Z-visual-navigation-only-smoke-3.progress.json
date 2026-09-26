@@ -1,0 +1,38 @@
+{
+  "active": [],
+  "campaign_id": "20260920T110357Z-visual-navigation-only-smoke-3",
+  "completed": [
+    {
+      "approvals": 1,
+      "cup": null,
+      "duration_s": 15.1,
+      "fabricated_urls_count": 0,
+      "failure_cause": "",
+      "repetition": 1,
+      "segment": 0,
+      "status": "success",
+      "task_id": "T3_tableau_dynamique",
+      "thread_id": "5eb308c137d132d2",
+      "tool_calls": 4
+    }
+  ],
+  "config_digest": "1bfab9120d691f65",
+  "current": null,
+  "label": "visual-navigation-only-smoke-3",
+  "paused": false,
+  "planned": [
+    {
+      "repetition": 1,
+      "task_id": "T3_tableau_dynamique"
+    }
+  ],
+  "segments": [
+    {
+      "ended_at": "2026-09-20T11:04:13.278963+00:00",
+      "index": 0,
+      "started_at": "2026-09-20T11:03:57.726552+00:00"
+    }
+  ],
+  "started_at": "2026-09-20T11:03:57.726552+00:00",
+  "total_runs": 1
+}

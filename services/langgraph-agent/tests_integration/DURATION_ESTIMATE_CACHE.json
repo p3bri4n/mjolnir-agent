@@ -80,16 +80,16 @@
       "n": 3
     },
     "D1_cible_inexistante": {
-      "max": 253.3,
-      "median": 59.4,
-      "min": 53.3,
-      "n": 3
+      "max": 72.7,
+      "median": 72.7,
+      "min": 72.7,
+      "n": 1
     },
     "D2_sonde_peremption": {
-      "max": 8.7,
-      "median": 8.6,
-      "min": 8.2,
-      "n": 3
+      "max": 9.0,
+      "median": 9.0,
+      "min": 9.0,
+      "n": 1
     },
     "E1_dom_only": {
       "max": 4.6,
@@ -134,10 +134,10 @@
       "n": 3
     },
     "T3_tableau_dynamique": {
-      "max": 8.2,
-      "median": 7.8,
-      "min": 7.3,
-      "n": 2
+      "max": 11.8,
+      "median": 11.8,
+      "min": 11.8,
+      "n": 1
     },
     "T4_recherche_multi_sauts": {
       "max": 53.2,
@@ -152,10 +152,10 @@
       "n": 2
     },
     "T6_session_authentifiee": {
-      "max": 10.9,
-      "median": 10.9,
-      "min": 10.8,
-      "n": 2
+      "max": 22.0,
+      "median": 22.0,
+      "min": 22.0,
+      "n": 1
     },
     "T7_impossible_par_construction": {
       "max": 130.5,

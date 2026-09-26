@@ -1075,6 +1075,7 @@ def _run_campaign_v2(resume_cid: str = None):
             "history_diff_applied_count": result.history_diff_applied_count,
             "history_diff_messages_replaced": result.history_diff_messages_replaced,
             "history_diff_redundancy_density_max": round(result.history_diff_redundancy_density_max, 3),
+            "visual_navigation_only_ocr_calls": result.visual_navigation_only_ocr_calls,
             "segment": segment_index,
             "cup": cup,
             **policy_fields,

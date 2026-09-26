@@ -741,3 +741,220 @@ no longer exists to exhibit the defect. Body left as originally written
 Full detail: `docs/engineering-log.md`, "EFFORT 2 — DECISIVE
 MEASUREMENT...", "A1 — TRAJECTORY DIAGNOSTIC BEFORE THE REMOVAL PR";
 `PLAN.md`, Effort 2.
+
+### 62. `docker-compose.yml` — `VISUAL_NAVIGATION_ONLY` never declared in `mcp-client`'s `environment:`, so its half of the mode's "no cheating" guarantee never engaged — CLOSED
+
+**Symptom, confirmed cause**: first live smoke of `VISUAL_NAVIGATION_ONLY`
+(`docs/briefs/visual-navigation-only.md`, effort 8, campaign
+`visual-navigation-only-smoke`) passed T3 with a fully correct, precise
+answer (named employees and salaries from an HR table) despite
+`visual_navigation_only_ocr_calls` reading **0** — a genuine flattering
+zero, not noise. Raw audit-log read (`scripts/dump-audit-thread.py`): the
+model called `browser_navigate` exactly once and answered directly, with
+zero calls to any image-producing tool. Root cause: the SAME class of bug
+as #58 (`REASONING_EFFORT`) — `docker-compose.yml`'s `mcp-client` service
+block never got a `VISUAL_NAVIGATION_ONLY=${VISUAL_NAVIGATION_ONLY:-false}`
+line, only `langgraph-agent`'s did. `VISUAL_NAVIGATION_ONLY=true` on the
+`docker compose up` command line therefore only reached `langgraph-agent`
+— `mcp-client` stayed on its `false` default, so
+`_STABILIZE_AFTER_TOOLS`'s post-`browser_navigate` follow-up call stayed
+`browser_snapshot` (the real DOM accessibility tree, full employee table
+included as text) instead of `browser_take_screenshot`. That text block
+is not `type: "image"`, so `langgraph-agent`'s `_ocr_replace_image_blocks`
+passed it through untouched — the model read the whole table for free,
+never touching the visual/OCR channel the mode exists to force it
+through. The schema filter (`langgraph-agent`'s own half of the design)
+DID work correctly: the model never called `browser_snapshot`/
+`browser_extract` explicitly, only `browser_navigate`. One correctly
+engaged half masked the other half's complete failure.
+
+**Not a silent gap, but not caught before running either** — unlike #58,
+which a dedicated effective-env check aborted before any campaign ran,
+`VISUAL_NAVIGATION_ONLY` had no equivalent cross-container consistency
+check: `campaign_preflight.check_agent_flags` only ever read
+`langgraph-agent`'s own env. The smoke DID run, on a broken config,
+before the raw audit-log read surfaced it.
+
+**Fix**: `- VISUAL_NAVIGATION_ONLY=${VISUAL_NAVIGATION_ONLY:-false}` added
+to `docker-compose.yml`'s `mcp-client` block. New
+`check_visual_navigation_only_consistency` (`campaign_preflight.py`),
+wired into `run_preflight` right before `check_tools_schema`: fetches
+`mcp-client`'s own `VISUAL_NAVIGATION_ONLY` value
+(`campaign_persistence.collect_env_flags`) and refuses the campaign if it
+disagrees with `langgraph-agent`'s — this exact failure mode can no
+longer reach a live run undetected. 4 new unit tests (2 for the pure
+check, 2 `run_preflight` orchestration cases), plus a regression guard on
+`campaign_persistence.CAMPAIGN_ENV_FLAGS` (a related, separately-caught
+gap — see below). Full `langgraph-agent` suite 464 → 466 passed.
+
+**Sibling gap, same session**: `campaign_persistence.py`'s own
+`CAMPAIGN_ENV_FLAGS` (drives what a campaign's *archived* `env_flags`
+metadata shows, independent from `campaign_preflight.EXPECTED_AGENT_FLAGS`
+which drives the pre-run assertion) had also not been updated —
+`VISUAL_NAVIGATION_ONLY` was invisible in the smoke's own campaign JSON
+even though the preflight correctly saw and checked it live. Exact same
+bug class already hit once for `PLANNING_MODE` (see that regression-guard
+test). Fixed alongside, 1 more unit test.
+
+**Not yet re-smoked**: this fix has not been live-verified yet — the next
+smoke (with both containers actually agreeing on the flag) is what
+confirms `_ocr_replace_image_blocks` genuinely engages. Full detail:
+`docs/engineering-log.md`, "Effort 8 (visual-navigation-only.md): Phase 1
+design + Phase 2 build" and its follow-up entry.
+
+### 63. `app/graph.py` (`_ocr_replace_image_blocks`) — `_format_ocr_detections` called outside the try/except crashed the whole turn on a malformed `ocr-service` response — CLOSED
+
+**Symptom, confirmed cause**: second live smoke of `VISUAL_NAVIGATION_ONLY`
+(re-run after #62's fix, same T3 task): `failure_cause=infra`, final
+answer replaced by the generic internal-error notice
+("⚠️ Erreur interne pendant la génération, réessayez") after a single
+`browser_navigate` call. Real traceback (`docker logs langgraph-agent`,
+provided by the user): `KeyError: 'x'` inside `_format_ocr_detections`,
+called from `_ocr_replace_image_blocks`. Root cause, two layers:
+1. **Immediate**: `ocr-service` was still running the PRE-Phase-0 image
+   — `docker compose build` had only been run for `mcp-client`/
+   `langgraph-agent` (the two services #62's fix touched), never for
+   `ocr-service` itself, so `POST /ocr` still returned the old
+   `{"text", "confidence"}` shape (no bounding box) from before this
+   effort's own Phase 0 (`docs/engineering-log.md`, same session). A
+   stale-image operational trap, same class CLAUDE.md's own list already
+   names — just on a service the smoke command didn't think to rebuild.
+2. **Structural**: `_format_ocr_detections(detections)` was called
+   OUTSIDE the `try/except` that wraps the HTTP call to `ocr-service` —
+   any malformed response body (missing keys, wrong types) propagated as
+   an uncaught exception all the way up through `_execute_tool_calls`/
+   `call_tools`, crashing the turn. `ocr-service` is a separate
+   deployable with its own release cycle — a real system boundary, not
+   an internal invariant this code is entitled to assume.
+
+**Fix**: `_format_ocr_detections`'s call moved inside the same
+`try/except`, which now also catches `KeyError`/`TypeError` alongside
+the existing `httpx.HTTPError`/`ValueError` — a malformed response
+degrades that one image to the same "(OCR indisponible pour cette
+capture)" text notice, never crashes the conversation. 1 new unit test
+(a response missing `x`/`y`/`width`/`height`, the exact pre-Phase-0
+shape that triggered this live). Full suite 466 → 467 passed.
+
+**Re-smoked (2026-09-20), root cause #1 confirmed and fixed**: after
+`docker compose build ocr-service` (the image was indeed still stale),
+the third smoke attempt passed with `visual_navigation_only_ocr_calls: 1`
+— a genuine, non-flattering engagement, confirmed against the raw audit
+log (`role=visual_navigation_only` entry present, `ocr_calls: 1` on the
+`browser_navigate` call). See bug #64 below for a THIRD leak this same
+smoke's audit trace surfaced, past this fix.
+
+### 64. `app/graph.py`/`campaign_preflight.py` (`_VISUAL_ONLY_BLOCKED_TOOLS`) — the filesystem MCP server could read playwright-mcp's own DOM snapshot artifact, a channel the "no cheating" gate hadn't considered — CLOSED
+
+**Symptom, confirmed cause**: third live smoke of `VISUAL_NAVIGATION_ONLY`
+passed (T3, `visual_navigation_only_ocr_calls: 1`, correct answer) — but
+a full raw-audit-entry read (not just the lossy `dump-audit-thread.py`
+summary, requested specifically to double-check for cheating given how
+precise the answer was) showed the model calling
+`read_file({"path": "/downloads/page-2026-09-20T11-03-59-447Z.yml"})`
+TWICE (the first attempt, a relative path, failed with "Access denied");
+the second, absolute-path attempt SUCCEEDED and returned the full
+Playwright accessibility-tree snapshot verbatim — `[ref=e13]`, `table`,
+every row, exactly the DOM content this mode exists to keep out of the
+model's reach. The model apparently didn't need it in the end (its final
+answer matches the OCR reading from earlier in the same trace, not this
+snapshot), but the leak is real and would silently defeat the mode's own
+premise on a task where the model DID rely on it.
+
+**Root cause**: `playwright-mcp` (`--output-dir=/downloads`) writes a
+real DOM snapshot YAML to the `agent-downloads` volume on every
+`browser_navigate` call, referenced as a dead link in its own response
+text (the pre-existing Tool Design Contract comment on that response
+assumed "the agent has no tool to read" this file — true for `browser_*`
+tools, false once the filesystem MCP server is considered: it shares the
+SAME volume, mounted read-only, and its `read_file` can read any path
+under `/downloads`). `_VISUAL_ONLY_BLOCKED_TOOLS` (`app/graph.py`,
+mirrored in `campaign_preflight.py`) only ever listed `browser_*` tool
+names — the filesystem family was never in scope for the hard gate.
+
+**Fix**: the whole filesystem MCP server family (`read_file`/
+`read_multiple_files`/`list_directory`/`directory_tree`/`search_files`/
+`get_file_info`/`list_allowed_directories`/`write_file`/`edit_file`/
+`create_directory`/`move_file`) added to `_VISUAL_ONLY_BLOCKED_TOOLS` in
+both files — a sighted human has no filesystem access to the browser's
+own internal artifacts either way, read or write, so the whole family is
+gated rather than trying to carve out a narrower, path-based exception.
+2 new assertions in the existing schema-filter test. Full suite stays at
+467 passed (assertions added to an existing test, not a new one).
+
+**Re-smoked (2026-09-20), confirmed clean**: fourth smoke attempt passed
+(`detail: "nom exact trouvé"`), `visual_navigation_only_ocr_calls: 7`
+(vs. 1 on the previous, `read_file`-leaking smoke — the model now has to
+rely on OCR for everything). The model's own reasoning text states
+outright: *"the system prompt mentions 'l'outil filesystem read_file'
+but it's not in my available functions... I only have browser tools. No
+filesystem read_file."* — direct confirmation the tool is genuinely
+absent from its schema, not merely unused. 12 tool calls, 89.6s (vs. 1-4
+calls, <20s on the leaking runs) — the model visibly struggled with
+noisy OCR coordinates and a stubborn native `<select>` before landing on
+the correct answer, exactly the kind of authentic capability-limit
+struggle the brief's own Phase 4 decision table anticipated. Phase 3 of
+`docs/briefs/visual-navigation-only.md` (live smoke) is now closed.
+
+### 65. `scripts/probe-visual-mode-coordinate-consistency.sh` — jitter measurement grouped OCR detections by text VALUE, conflating repeated-value rows with real capture-to-capture drift — CLOSED
+
+**Symptom, confirmed cause**: point 1 of the visual-mode optimization
+amendment (`docs/briefs/visual-navigation-only.md`), run against
+`fixture-hr-app/employees`: reported "max y jitter: 309px (worst:
+'RH')" — a huge, alarming number for what should be near-zero jitter on
+a static page. The script grouped all detections sharing the exact same
+text string across the 5 shots into one series; `fixture-hr-app`'s
+department column repeats values ("RH" ×3, "Ventes" ×5, ...) at
+DIFFERENT real rows, so the "jitter" measured was mostly the distance
+between different rows' department cells, not drift between two
+captures of the same cell.
+
+**Corrected reading (by hand, from the raw dump, before fixing the
+script)**: restricting to text that appears exactly once per page
+(person names) shows DOM boxes and OCR boxes agree within 1-3px — real
+capture jitter is near zero. The consultation's top hypothesis
+(device-vs-CSS-pixel mismatch) is empirically refuted by this same data,
+not just inferred from documented defaults.
+
+**Fix**: the script now excludes any text detected more than once
+within a SINGLE shot from the jitter comparison entirely, rather than
+attempting to disambiguate — the exact same repeated-value ambiguity the
+optimization amendment's point 3 (layout reconstruction) already
+anticipated for the real reconstruction problem, just hit first in a
+diagnostic script. Not yet re-run with the fix — the corrected-by-hand
+reading already answered point 1's question; a clean re-run would only
+confirm the same numbers via the tool now, not add new information.
+
+### 66. `scripts/probe-visual-mode-perception-harness.sh` — three fixture root URLs (`catalog`/`docs`/`perception`) served nginx's default page, not the real fixture content — CLOSED
+
+**Symptom, confirmed cause**: point 2 of the visual-mode optimization
+amendment, run across 6 pages — 3 of them
+(`catalog-listing`/`docs-listing`/`perception-root`) captured nginx's
+default page rather than any real fixture content, silently: the script
+guessed `http://fixture-catalog/`/`http://fixture-docs/`/
+`http://fixture-perception/` (bare root) instead of the real entry
+paths, which live under a subpath — same convention as
+`fixture-visual-probe`'s own `/visual-probe/` (see
+`probe-visual-snapshot-signal.sh`'s comment), just not checked against
+an existing reference before writing new URLs.
+
+**Fix**: URLs corrected to `/catalog`, `/docs`, `/perception` — read
+from `tests_integration/test_web_tasks.py`'s own `CATALOG_URL`/
+`DOCS_URL`/`PERCEPTION_URL` constants rather than guessed a second
+time. Not yet re-run against the fixed URLs — only 3 of the 6 pages
+were usable in the first pass (`hr-employees-table`, `hr-leave-form`,
+`admin-root`), which already surfaced real findings (see
+`docs/engineering-log.md`, "Effort 8: point 2 (offline perception
+harness) run").
+
+**Re-run, two of the three still not quite right**: `/docs` returned
+real content this time (36-link section index, itself the source of a
+new finding, see `docs/engineering-log.md` "point 2 re-run"). `/catalog`
+and `/perception` were still wrong, one level deeper each — `/catalog`
+resolves to a thin one-link landing page, not the real product listing
+(`CATALOG_URL`'s own convention is `/catalog/index.html`); `/perception`
+has NO index page at all (403, nginx autoindex off) — its real pages are
+named individually (`e1-offviewport.html`/`e2-canvas.html`/
+`e3-equivalence.html`, `test_web_tasks_v2.py`). Fixed to
+`/catalog/index.html` and `/perception/e3-equivalence.html` (`e3` over
+`e1`/`e2`: `e2` is deliberately DOM-invisible by design, not
+representative of an ordinary page here). Not yet re-run.

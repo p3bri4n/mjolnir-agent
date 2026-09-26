@@ -8010,3 +8010,545 @@ the strength of this measurement alone; a controlled, fixed-trajectory
 probe (D1-probe-style) on A1/A2/A4/T10 individually would be needed to
 separate the mechanism's real per-call effect from live-run trajectory
 noise, if a cleaner token verdict is wanted before deciding.
+
+## 2026-09-20 — Effort 8 (visual-navigation-only.md): Phase 1 design + Phase 2 build
+
+Brief written and committed before any code
+(`docs/briefs/visual-navigation-only.md`), per the brief-before-the-code
+rule. Effort 1 (cheap parallel campaigns) dropped as a hard prerequisite
+at explicit user request: the brief's Phase 4 full-suite measurement
+runs sequentially at the current `N_WORKERS=1` default instead, slower
+but not blocked in principle — `PLAN.md`'s effort 8 entry updated to
+record this.
+
+**Phase 1 (design), verified against the real `@playwright/mcp` catalog**
+(npm `0.0.82`, the package behind `mcp/playwright:latest` — fetched via
+`npm pack`, not assumed from memory): the coordinate action space already
+exists upstream (`browser_mouse_click_xy`/`_move_xy`/`_drag_xy`/`_down`/
+`_up`/`_wheel`) but is gated behind `--caps=vision`, absent from
+`docker-compose.yml` before this session. `browser_type` requires a DOM
+`target` and has no coordinate equivalent — typing under this mode goes
+through `browser_press_key` one character at a time, a structural cost
+recorded for Phase 4's judges, not a bug. Full tool classification (keep
+vs. hard-gate) decided against the real schema. A real leak found in
+existing plumbing: `_STABILIZE_AFTER_TOOLS` (`services/mcp-client/app/
+main.py:776`) auto-appends a DOM `browser_snapshot` after every
+`browser_navigate` call (Effort 4 point 1's "return resulting page
+state") — `browser_navigate` stays legitimate and used under this mode,
+so the leak had to be fixed, not just gated at the tool-schema level.
+
+**Phase 2 (build) delivered, unit-tested, not yet live-smoked**:
+- `docker-compose.yml`: `--caps=vision` on `playwright-mcp`;
+  `VISUAL_NAVIGATION_ONLY` (default `false`) + `OCR_SERVICE_URL` added to
+  `langgraph-agent`; `VISUAL_NAVIGATION_ONLY` added to `mcp-client`;
+  `ocr-service` added to `langgraph-agent`'s `depends_on` — its first
+  real caller since Effort 3's GhostDesk removal left it with zero.
+- `services/mcp-client/app/main.py`: the stabilization follow-up call is
+  `browser_take_screenshot` instead of `browser_snapshot` when the mode
+  is active — closes the leak above.
+- `services/langgraph-agent/app/graph.py`: `_visual_navigation_filter`
+  hides the DOM/introspection tools from the schema before `bind_tools`
+  when the mode is active, and hides the six vision-only coordinate
+  tools when it's not (default mode's schema weight unchanged — effort
+  1.1/1.2's -44.9% is not given back for free). `_ocr_replace_image_blocks`
+  converts every image block from mcp-client into its `ocr-service`
+  reading (text + bounding box) under the mode, wired into
+  `_call_mcp_tool`; logs a `visual_navigation_only` coverage entry only
+  on a real conversion (day-one trigger-rate counter, per CLAUDE.md's
+  measurement rules), degrades to a plain-text notice with no coverage
+  entry if `ocr-service` is unreachable — a stalled OCR call must not
+  stall the conversation.
+- `tests_integration/campaign_preflight.py`: `check_tools_schema` now
+  takes a `visual_navigation_only` flag (derived from the container's
+  real env in `run_preflight`, reusing the same `fetch_agent_env()` dict
+  already read for `check_agent_flags`) — without it, this mode's
+  deliberate, by-design schema difference would be misread as the exact
+  stale-cache desync this check exists to catch.
+- `test_web_tasks.py`/`test_web_tasks_v2.py`: `visual_navigation_only_
+  ocr_calls` counter threaded through `TaskResult`/`run_task`/the
+  campaign row dict, same discipline as `history_diff`'s own coverage
+  counters.
+
+Full suite: `langgraph-agent` 450 → 463 passed, `mcp-client` 64 → 65
+passed, 0 regressions. **Not yet live-smoked** (Phase 3 of the brief) —
+requires the actual Docker/GPU stack, outside this environment's reach;
+handed off to the user.
+
+## 2026-09-20 — Effort 8: first live smoke, a genuine flattering zero, root-caused and fixed
+
+**First smoke attempt** (`visual-navigation-only-smoke`, T3 only, n=1,
+user's machine, `VISUAL_NAVIGATION_ONLY=true` on the `docker compose up`
+command line + `CAMPAIGN_EXPECTED_FLAGS_OVERRIDE` for the harness):
+passed (1/1), but `visual_navigation_only_ocr_calls: 0` in the campaign
+JSON — the trigger-rate counter built specifically to catch this kind of
+result did its job. Raw audit-log read
+(`scripts/dump-audit-thread.py ba41eb7114d085a1`, provided by the user):
+the agent called `browser_navigate` exactly once, then answered directly
+with a fully correct, precise table of named employees and salaries —
+zero calls to any image-producing tool.
+
+**Root cause, confirmed**: `docker-compose.yml`'s `mcp-client` service
+block never got a `VISUAL_NAVIGATION_ONLY` passthrough line — only
+`langgraph-agent`'s did. Same bug class as `docs/resolved-bugs.md` #58
+(`REASONING_EFFORT`). Concretely: `mcp-client` stayed on its `false`
+default, so `_STABILIZE_AFTER_TOOLS`'s post-`browser_navigate` follow-up
+call stayed the real DOM `browser_snapshot` (the full employee table, as
+text) instead of `browser_take_screenshot`; that text block isn't
+`type: "image"`, so `langgraph-agent`'s `_ocr_replace_image_blocks`
+passed it straight through, unconverted — the model read the whole table
+for free. `langgraph-agent`'s OWN half of the design (the schema filter)
+worked exactly as intended: the model never called `browser_snapshot`/
+`browser_extract` itself, only `browser_navigate`. One correctly engaged
+half completely masked the other half's failure — the smoke would have
+read as a clean success without the counter.
+
+**Fixed**: `VISUAL_NAVIGATION_ONLY=${VISUAL_NAVIGATION_ONLY:-false}`
+added to `mcp-client`'s block. New
+`check_visual_navigation_only_consistency` (`campaign_preflight.py`),
+wired into `run_preflight` right before `check_tools_schema`: compares
+`langgraph-agent`'s and `mcp-client`'s own `VISUAL_NAVIGATION_ONLY`
+values, refuses the campaign on any disagreement — this exact failure
+mode can no longer reach a live run silently. Along the way, a sibling
+gap in `campaign_persistence.CAMPAIGN_ENV_FLAGS` (separate list from
+`campaign_preflight.EXPECTED_AGENT_FLAGS`, drives what a campaign's
+archived JSON shows rather than the pre-run assertion) was also found and
+fixed — the smoke's own JSON never showed `VISUAL_NAVIGATION_ONLY` at all
+despite the preflight correctly checking it live, exact same bug class
+already caught once for `PLANNING_MODE`. 4 new preflight tests + 1
+regression guard on `CAMPAIGN_ENV_FLAGS`. Full `langgraph-agent` suite
+464 → 466 passed. Full detail: `docs/resolved-bugs.md` #62.
+
+**Not yet re-smoked**: the fix closes the leak and the detection gap, but
+the mechanism's real engagement (`visual_navigation_only_ocr_calls > 0`
+on a re-run of the same task) has not been confirmed live yet.
+
+## 2026-09-20 — Effort 8: second live smoke, real internal error, second root cause found and fixed
+
+**Second smoke attempt** (`visual-navigation-only-smoke-2`, T3 only,
+n=1, after #62's fix rebuilt/recreated `mcp-client`/`langgraph-agent`):
+`env_flags.VISUAL_NAVIGATION_ONLY: true` now correctly recorded on both
+sides (confirms #62's cross-container fix holds), but the task failed
+outright — `failure_cause=infra`, final text replaced by the generic
+internal-error notice, after a single `browser_navigate` call.
+
+**Root cause, confirmed via the real traceback** (`docker logs
+langgraph-agent`, provided by the user): `KeyError: 'x'` in
+`_format_ocr_detections`, called from `_ocr_replace_image_blocks`. Two
+layers: (1) `ocr-service` itself was never rebuilt this session — only
+`mcp-client`/`langgraph-agent` were, per #62's own fix instructions — so
+it was still running the PRE-Phase-0 image, whose `POST /ocr` returns
+`{"text", "confidence"}` only, no bounding box; (2)
+`_format_ocr_detections`'s call sat OUTSIDE the function's own
+`try/except`, so ANY malformed response from `ocr-service` — a separate
+deployable, a real system boundary — crashed the whole turn instead of
+degrading just that one image.
+
+**Fixed**: the formatting call moved inside the `try/except`, which now
+also catches `KeyError`/`TypeError`. 1 new unit test. Full suite 466 →
+467 passed. Full detail: `docs/resolved-bugs.md` #63.
+
+**Not yet re-smoked**: `ocr-service` itself still needs `docker compose
+build ocr-service` before the next attempt — without it, the same
+malformed response would now degrade silently instead of crashing,
+which would LOOK like a clean pass while still never actually exercising
+the OCR conversion this effort exists to measure.
+
+## 2026-09-20 — Effort 8: third live smoke succeeds, then a third leak found on close audit-log inspection
+
+**Third smoke attempt** (`visual-navigation-only-smoke-3`, T3 only, n=1,
+after `ocr-service` was finally rebuilt): passed clean —
+`visual_navigation_only_ocr_calls: 1`, a genuine engagement, not a
+flattering zero. `env_flags.VISUAL_NAVIGATION_ONLY: true` on both
+containers this time (confirms #62's fix holds under a normal recreate
+sequence).
+
+**Verification past the aggregate**: given how precise the final answer
+was, the full raw audit entries (not just `dump-audit-thread.py`'s lossy
+per-entry summary) were pulled for this thread. They showed the OCR
+reading landing correctly on turn 1 (`role=visual_navigation_only,
+ocr_calls: 1`) — but ALSO two `read_file` calls on turns 2 and 3, the
+second of which (`/downloads/page-2026-09-20T11-03-59-447Z.yml`,
+absolute path — the first, relative-path attempt failed with "Access
+denied") returned the FULL raw Playwright accessibility-tree snapshot,
+`[ref=e13]` tags and all: the exact DOM content this mode exists to keep
+away from the model, reached via a tool this effort had never
+considered. The model's final answer happened to match its earlier OCR
+reading, not this snapshot, so nothing was ACTUALLY misreported this
+time — but the leak itself is real and would silently defeat the mode on
+a task where the model leaned on it.
+
+**Root cause**: `playwright-mcp` writes a real DOM snapshot YAML to the
+shared `agent-downloads` volume on every `browser_navigate`
+(`--output-dir=/downloads`), referenced as what the existing Tool Design
+Contract comment calls a dead link ("the agent has no tool to read
+it") — true for `browser_*` tools, but the filesystem MCP server shares
+that same volume and `read_file` can read it in full.
+`_VISUAL_ONLY_BLOCKED_TOOLS` had only ever listed `browser_*` tool
+names.
+
+**Fixed**: the whole filesystem MCP server family (read AND write tools)
+added to `_VISUAL_ONLY_BLOCKED_TOOLS` in both `app/graph.py` and
+`campaign_preflight.py` — full detail: `docs/resolved-bugs.md` #64.
+
+**Fourth smoke, re-smoked and confirmed clean**: passed
+(`visual_navigation_only_ocr_calls: 7`, up from 1 on the leaking run —
+the model now has nothing but OCR to work with), and its own reasoning
+text states outright that `read_file` is not among its available
+functions, directly confirming the gate rather than inferring it from
+absence alone. 12 tool calls, 89.6s (vs. 1-4 calls, <20s previously) —
+visibly struggling with noisy OCR coordinates and an uncooperative
+native `<select>` before landing on the correct answer, matching the
+brief's own anticipated "authentic capability-limit struggle" shape.
+**Phase 3 (live smoke) of `docs/briefs/visual-navigation-only.md` is now
+closed** — three real leaks found and fixed along the way (#62 cross-
+container flag desync, #63 a crash on a malformed OCR response, #64 the
+filesystem-server leak), none known to remain. Phase 4 (full v2
+measurement) is the next, larger step, not attempted in this session.
+
+**Widening smoke, before any of that**: two more short, single-page,
+non-form tasks from family D (`D1_cible_inexistante`,
+`D2_sonde_peremption`) run under the fixed mode, to check whether T3's
+12-tool-call cost was typical or an outlier before committing to a
+22-task campaign. Both passed clean with genuine OCR engagement
+(`ocr_calls`: 2 and 1). `D2` cost only 2 tool calls (near DOM-mode
+parity) — `D1` cost 11 (72.7s), but for a legitimately harder task
+(searching a multi-page catalog for an absent product, then declaring
+absence honestly, no invented price). Reads as: T3's difficulty was
+about ITS shape (dense multi-column table + a native `<select>`), not a
+universal property of the mode.
+
+## 2026-09-20 — Effort 8: external consultation on visual-mode optimization
+
+Given smoke #4's real cost (12 tool calls for one short task, mostly OCR
+coordinate noise and an unresponsive native `<select>`), a larger-
+capacity model was consulted before committing to a full 22-task
+campaign on a pipeline known to be this rough — exactly this evidence
+handed over, nothing else. Full response quoted by the user; summary of
+what it found, checked here against this project's own installed-code
+facts where possible rather than taken on faith:
+
+- **Top hypothesis offered — a device-pixel-vs-CSS-pixel coordinate
+  mismatch — partially checked against our own defaults, not confirmed
+  live**: `browser_take_screenshot`'s documented default `scale` is
+  `"css"` (matching `browser_mouse_click_xy`'s CSS-pixel viewport
+  coordinates), and `services/ocr-service/app/ocr_engine.py` never
+  resizes the image before running PaddleOCR — by these defaults alone,
+  the two coordinate spaces SHOULD already agree. Not proof (a
+  documented default isn't a live measurement), but the top suspect is
+  less likely than it would be on an unaudited stack, per CLAUDE.md
+  rule 8 (verify against the installed code, don't take an external
+  claim at face value either).
+- **Methodological critique, valid, orthogonal to any fix**: comparing
+  `browser_snapshot` (curated, ref-annotated) against raw OCR triples
+  measures "processed DOM vs. unprocessed pixels," not "DOM vs.
+  vision" — must be named explicitly in Phase 4's eventual write-up.
+- **The native `<select>` failure has a specific, plausible
+  explanation**: native select popups render in browser chrome, outside
+  the page's own compositing surface — a screenshot may simply never
+  contain them, making a coordinate click structurally unwinnable, not
+  a bug to keep chasing.
+- **`browser_press_key`'s one-character-at-a-time typing cost is a tool-
+  choice artifact, not an inherent property of visual-only perception**:
+  a `type_text(string)`-at-current-focus tool needs no coordinates,
+  only the initial focus-click does.
+- **The biggest suggested cost lever**: stable synthetic cell
+  references (`r7c3`) resolved to coordinates by the harness, instead of
+  the model reasoning over raw `x,y` itself — also fixes an approval-
+  tier readability problem this project hadn't named: "click at (412,
+  338)" isn't a reviewable action for a human approver, "click the
+  salary cell in the Dubois row" is.
+- Recommended sequencing: a cheap coordinate-consistency check first,
+  then an OFFLINE perception harness (DOM-with-boxes vs. OCR on ~20
+  pages, no agent loop) before touching the agent's own pipeline —
+  matches this project's own "instrument before mechanism" discipline
+  already stated in `docs/methodology.md`, arrived at independently.
+- Widget-detection grounding (OmniParser-style) explicitly recommended
+  as a LATER step, gated on the offline harness's own findings — matches
+  `PLAN.md`'s pre-existing "motivated by OBSERVED failures" stance on
+  the same idea.
+
+**Decision (2026-09-20)**: full prioritized plan and the methodological
+caveat recorded in `docs/briefs/visual-navigation-only.md`'s new
+Amendment section. Checkpoint: only the coordinate-consistency check and
+the offline perception harness approved to start now: the rest waits on
+what those two actually find.
+
+## 2026-09-20 — Effort 8: point 1 (coordinate-consistency check) run, top hypothesis empirically refuted
+
+`scripts/probe-visual-mode-coordinate-consistency.sh` run against
+`fixture-hr-app/employees`, user's machine. Its own jitter measurement
+came back with a huge, alarming "max y jitter: 309px (worst: 'RH')" —
+turned out to be a bug in the script itself, grouping OCR detections by
+text VALUE, which conflated different rows sharing the same department
+name ("RH" appears 3 times on this page) with real capture-to-capture
+drift. Corrected by hand from the raw dump before fixing the script:
+restricting to text unique per page (person names) shows DOM boxes
+(`browser_snapshot(boxes=true)`) and OCR boxes agree within 1-3px on
+every checked case (e.g. Karim Haddad: DOM `box=10,217` vs OCR
+`x=8,y=217`).
+
+**The consultation's top hypothesis (device-vs-CSS-pixel mismatch) is
+empirically refuted**, not just inferred from documented defaults as in
+the earlier entry — coordinates are reliable. Reframes smoke #4's
+difficulty as a model-reasoning cost (mentally re-sorting a table from
+scattered triples), not a data-quality problem — matches the
+consultation's own "the model is doing geometry, and it's bad at it."
+
+**The native `<select>` finding is confirmed structurally, straight from
+the DOM**: `combobox [box=168,107,81,19]` but every `option` child
+reports `[box=0,0,0,0]` — the popup's options have no position in the
+page's own rendering surface, full stop. No screenshot at any
+resolution can show them; point 6's fallback (capability-limit finding,
+not a bug to keep chasing) is the right call, not a hedge.
+
+Script's own bug fixed (`docs/resolved-bugs.md` #65) — same repeated-
+value ambiguity the reconstruction amendment's point 3 already
+anticipated for the real problem, hit first in the diagnostic tool.
+**Point 1 closed.**
+
+## 2026-09-20 — Effort 8: point 2 (offline perception harness) run, form pages are a real gap in the reconstruction plan
+
+`scripts/probe-visual-mode-perception-harness.sh` run across 6 pages,
+user's machine; results read via a fork (analysis only, no code). 3 of 6
+(`catalog-listing`/`docs-listing`/`perception-root`) turned out to be a
+script bug — wrong root URLs, captured nginx's default page, not real
+content (`docs/resolved-bugs.md` #66, fixed, not yet re-run). Usable
+findings come from the other 3: `hr-employees-table`, `hr-leave-form`,
+`admin-root`.
+
+**`hr-employees-table`**: nothing new past point 1's own findings —
+vertical-interval-overlap row clustering and left-edge column clustering
+both read as workable on this page's real box data.
+
+**`hr-leave-form` and `admin-root` (both forms) surface a real gap the
+consultation's plan never covered**:
+- **Empty input fields have no OCR text at all** — the DOM shows a real
+  `textbox`/`spinbutton` at a real box (e.g. `box=138,106,177,21` for
+  "Nom de l'employé"), but nothing in the OCR output falls inside that
+  region: an empty field is, by definition, blank pixels. The
+  row/column reconstruction plan only ever clusters TEXT+box pairs — it
+  has nothing to cluster for a field with no visible content, so a
+  synthetic ref for it can't be derived the same way.
+- **PaddleOCR merges visually adjacent short strings into ONE
+  detection**, coarser than the DOM's own per-element boundaries: an
+  entire 6-link nav bar came back as a single OCR string spanning all
+  six labels; a `<select>`'s current-value text got fused with its own
+  label ("Motif : Choisir..." as one detection, not two). Column/row
+  clustering can't split a value the OCR stage already merged — the
+  granularity ceiling is set by OCR, not by the reconstruction logic on
+  top of it.
+- **Text-fidelity artifacts, seen on both pages, not a one-off**: accents
+  dropped ("Mettre à jour" → "Mettre a jour"), an em dash flattened to a
+  hyphen, and a stray `]` appended after some button labels
+  ("Envoyer]", "Mettre a jour]") — worth knowing about for anything that
+  string-matches OCR output exactly, though not diagnosed further here.
+
+**Reading**: the reconstruction plan (points 3-4 of the amendment) is
+sufficient AS DESIGNED for tabular pages, but incomplete for forms —
+two of the three usable pages in this sample were forms, so this isn't
+an edge case to shrug off. Before building points 3-4, the design needs
+an explicit rule for label-to-field association by geometric proximity
+(nearest empty region below/right of a label) and an acknowledgment
+that OCR-level text fusion is a hard floor the reconstruction layer
+cannot see past. Full detail and per-page evidence: fork analysis
+transcript (not persisted as a file — summarized here in full).
+
+**Not yet re-run**: the 3 fixed URLs (`docs/resolved-bugs.md` #66) still
+need a second pass before the harness's page sample is actually
+complete.
+
+## 2026-09-20 — Effort 8: point 5's implementation path clarified (user finding)
+
+User pointed out Playwright's own `page.keyboard.type(string)`/
+`.down()`/`.up()` primitives directly. Checked against `@playwright/mcp`'s
+own README (already fetched for Phase 1): confirmed neither is wrapped
+as a standalone tool — every tool in the catalog is built around a
+`ref`/`target` or a single key (`browser_press_key`), and
+target-less bulk typing fits neither shape, so this is a real gap to
+build, not a missed config flag. Implementation path recorded in
+`docs/briefs/visual-navigation-only.md`'s point 5: same pattern as
+`browser_extract`/`browser_inspect` (fixed JS template, dispatched
+internally to `browser_evaluate`, never model-supplied code) — the
+model only ever sees `type_text(text)`, so this doesn't reopen the leak
+`docs/resolved-bugs.md` #64 just closed. Caveat named for later
+verification: simulated DOM events lack the fidelity of Playwright's
+real OS-level keystrokes on some JS-framework-controlled inputs. No
+code written — point 5 remains unscheduled per the standing checkpoint.
+
+## 2026-09-20 — Effort 8: point 2 re-run, a real (not cosmetic) OCR misread rate found and quantified
+
+Perception harness re-run with `docs/resolved-bugs.md` #66's URL fixes.
+`docs-listing` (`fixture-docs/docs`) now returns real content (a 36-link
+alphabetical section index) — automated DOM-vs-OCR text comparison (by
+nearest y-position, exact string match) run for the first time rather
+than eyeballed: **31/36 exact matches (86%)**. Of the 5 mismatches, 2 are
+the already-known nav-link-fusion issue ("Sommaire"+"Recherche" merged
+into one OCR detection); the other **3 are genuine content-changing
+misreads, not cosmetic**: `config-reseau-avancee` → `contig-reseau-
+avancee`, `optimisation-performances-catalogue` →
+`gptimisation-performances-catalogue`, `organisation-equipe-rh` →
+`grganisation-equipe-rh`. Position stays accurate (a few px, consistent
+with point 1) — only the recognized TEXT is wrong, on words beginning
+with "o"/"co" specifically, on this font/rendering.
+
+**Reading, more serious than the earlier accent/em-dash/bracket
+artifacts**: this is a genuine ~8% (3/36) content-fidelity failure rate
+on ordinary hyphenated technical slugs, not a formatting quirk. A task
+like `A2_schema_references` (verifying a reference's naming format is
+conforming) run under `VISUAL_NAVIGATION_ONLY` could misjudge a
+genuinely correct reference as non-conforming purely from OCR noise,
+independent of the model's own reasoning. Worth a declared judge in
+Phase 4's eventual measurement, not assumed away.
+
+**Two remaining fixture URLs still broken, fixed for a next pass**:
+`fixture-perception/perception` has no index at all (403, no nginx
+autoindex — real pages are named individually, `e1-offviewport.html`/
+`e2-canvas.html`/`e3-equivalence.html`, see `test_web_tasks_v2.py`; `e3`
+chosen over `e2` since the latter is deliberately DOM-invisible by
+design, not representative here); `fixture-catalog/catalog` was a thin
+one-link landing page, not the real listing (`/catalog/index.html`).
+Not yet re-run against these two fixes.
+
+## 2026-09-20 — Effort 8: point 2 finally closed, full 6-page finding set
+
+Two more rounds needed to reach real content on the last two pages:
+`/catalog/index.html` turned out to be YET ANOTHER thin landing page
+(same single link) — the real listing is `/catalog/page-1.html`, 10
+products. `perception/e3-equivalence.html` confirmed clean (1px
+position accuracy, exact text past the already-known em-dash
+flattening) — no new finding there.
+
+**`catalog-listing`'s automated DOM-vs-OCR comparison**: 8/11 exact
+matches. All 3 mismatches are accent loss on capitalized words —
+`Étagère` → `Etagere` (×2, BOTH accents dropped) and `Élégant` →
+`Elégant` (only the leading É dropped, the internal é survives) —
+distinct from `docs-listing`'s misreads: "Etagere" still reads as an
+obvious typo of "Étagère" to a human or a fuzzy matcher, "contig-reseau-
+avancee" does not read as an obvious typo of "config-reseau-avancee".
+Two different failure MODES, not one: silent substitution (dangerous,
+docs-listing) vs. visible-but-wrong accent stripping (recoverable,
+catalog-listing).
+
+**Point 2 closed — consolidated finding set across 6 real pages**:
+1. Coordinates are reliable (point 1, reconfirmed here on 2 more pages).
+2. Row/column geometric clustering (points 3-4) is workable on tabular/
+   list pages (`hr-employees-table`, `docs-listing`, `catalog-listing`).
+3. Forms are NOT covered by the reconstruction plan as designed — empty
+   fields have no OCR text, need label→field association by proximity.
+4. OCR merges visually adjacent short strings below DOM granularity (nav
+   bars, label+value pairs) — a floor the reconstruction layer can't see
+   past.
+5. Two distinct text-fidelity failure modes: cosmetic accent/dash/
+   bracket loss (recoverable) vs. genuine letter-substitution on
+   unfamiliar hyphenated slugs (silent, ~8% rate on one real sample,
+   dangerous for naming-conformance tasks specifically).
+6. Native `<select>` options are structurally invisible to any
+   screenshot (confirmed via `box=0,0,0,0` in the DOM itself) — a
+   capability limit, not a bug.
+
+No code written yet for points 3-7 — still gated on the standing
+checkpoint. This finding set is what a go/no-go decision on building
+them would be based on.
+
+## 2026-09-20 — Effort 8: points 3-7 built (layout reconstruction, browser_click_ref, type_text, select/Tab guidance, extended stabilization)
+
+User decision: build points 3-7 rather than scale back to Phase 4 as-is.
+Design frozen in `docs/briefs/visual-navigation-only.md`'s Amendment
+section before any code (row clustering by vertical interval overlap;
+columns simplified to left-to-right order within each row rather than
+the consultation's own global edge-clustering suggestion; forms/empty-
+field gap handled via Tab-navigation guidance, not coordinate-guessing).
+
+**Built**:
+- `_reconstruct_layout` (`app/graph.py`) replaces `_format_ocr_detections`
+  — rows by vertical interval overlap against each row's anchor box,
+  columns by x-order within row, `r{row}c{col}` refs. New
+  `AgentState.visual_ref_map` field, replaced whole (never merged) on
+  every OCR conversion.
+- `browser_click_ref`: local synthetic tool (same slot as `manage_plan`),
+  resolved in `_execute_tool_calls` against `visual_ref_map` before
+  dispatch. Audit log/approval tier keep the high-level ref-based call
+  (matches `browser_extract`'s own precedent) — fixes the "click at
+  (412,338) isn't reviewable" problem the consultation named. An
+  unresolvable ref returns an error without reaching mcp-client.
+- `type_text` (`services/mcp-client/app/main.py`): new synthetic tool,
+  fixed JS template dispatched to `browser_evaluate`, types into
+  `document.activeElement` via simulated `input`/`keydown`/`keyup`
+  events. Needs no per-thread state, unlike `browser_click_ref` — lives
+  in mcp-client, hidden from the model outside this mode via
+  `_VISION_ONLY_TOOLS`.
+- Whole filesystem MCP server family added to `_VISUAL_ONLY_BLOCKED_TOOLS`
+  (both `app/graph.py` and `campaign_preflight.py`) — `docs/resolved-
+  bugs.md` #64's fix.
+- `VISUAL_MODE_DIRECTIVE`: new conditional system-prompt directive
+  (empty outside this mode) — native `<select>` via keyboard after a
+  focusing click, Tab-navigation for unseen/empty fields. Flagged as its
+  own measured-behavior change, to be read on the next smoke, not
+  assumed from the text.
+- `browser_mouse_click_xy` added to mcp-client's `_STABILIZE_AFTER_TOOLS`
+  (point 7) — the resolved dispatch behind `browser_click_ref` gets the
+  same "return resulting state" treatment as `browser_click`.
+
+Full suite: `langgraph-agent` 467 → 477 passed, `mcp-client` 65 → 69
+passed, 0 regressions. **Not yet live-smoked** — Phase 3's re-run with
+all of this active is the next step, on the user's machine.
+
+## 2026-09-20 — Effort 8: points 3-7 re-smoked, reconstruction confirmed, an overclaim caught and corrected
+
+**Smoke #5** (T3, points 3-7 active): `visual_navigation_only_ocr_calls:
+1`, 2 tool calls total (vs. 12 on smoke #4's pre-reconstruction run).
+Raw audit trace (`scripts/dump-audit-thread.py`): one `browser_navigate`,
+one OCR reconstruction, the model answers directly from the properly
+row/column-clustered table — near DOM-mode parity, no manual
+re-sorting struggle this time. The reconstruction (points 3-4) reads as
+a real, substantial improvement on this task.
+
+**Gap left open**: `browser_click_ref` itself was never exercised live
+this run — T3 didn't need to click anything, only unit-tested with
+mocks so far. Whether ref → coordinate resolution lands a real click
+correctly on a real browser is still unconfirmed.
+
+**Overclaim caught by a user question and corrected**: the brief and
+`app/graph.py`'s own comment stated "no screenshot at any resolution can
+show" an open `<select>`'s popup as if this session had confirmed it —
+it hadn't. What was actually confirmed is narrower: `<option>` elements
+report `box=0,0,0,0` in the DOM/accessibility tree, open or closed,
+which alone rules out `browser_click_ref` on an option. Whether a
+screenshot taken mid-open would show the popup visually was never
+tested — a plausible inference from documented Chromium/CDP headless
+behavior, not a live finding. Corrected in both the brief and the code
+comment rather than left standing. Good discipline check: verify a claim
+before it hardens into an assumed fact, exactly the kind of thing
+CLAUDE.md rule 8 exists to catch, this time on a claim I made myself
+rather than an external library.
+
+## 2026-09-20 — Effort 8: smoke #6 confirms browser_click_ref/type_text end-to-end, points 1-7 closed
+
+`T6_session_authentifiee` chosen deliberately over T3/D1/D2: a login
+form forces BOTH `type_text` and `browser_click_ref` — under this mode,
+OCR never exposes an `href`, so `BROWSER_NAVIGATE_GUARDRAIL` blocks any
+navigation whose URL wasn't reached by an actual click; there is no
+typing-the-URL shortcut for following a link, unlike the direct
+navigations T3/D1/D2 relied on. `T4_recherche_multi_sauts` (the
+originally intended forcing task) turned out absent from the v2 suite's
+own family F (`T3`/`T5`/`T6`/`T10` only) — `T6` picked instead.
+
+**Clean result**: `visual_navigation_only_ocr_calls: 4`, 9 tool calls.
+Raw audit trace (`scripts/dump-audit-thread.py`): `browser_navigate` →
+login page → `browser_click_ref(r2c0)` (username field) →
+`type_text("rh.manager")` → `browser_click_ref(r3c0)` (password field) →
+`type_text("Conges2026!")` → `browser_click_ref(r4c0)` (submit) →
+correct final answer (3 "en attente", cross-checked by the model against
+both the page's own counter and a manual recount of the list). Three
+real clicks resolved and landed correctly, two real text entries typed
+correctly, no fallback, no error.
+
+**Both real gaps left after smoke #5 are closed**: `browser_click_ref`'s
+ref → coordinate resolution works on a real browser, not just under
+mocks; `type_text`'s simulated DOM events had the fidelity needed for
+this real login form (the fidelity caveat named at build time did not
+materialize here — narrowly, one form, not a general clearance).
+
+**Points 1-7 of the visual-mode optimization amendment are now fully
+closed.** Only Phase 4 (full v2 measurement) remains before this
+effort's headline number.

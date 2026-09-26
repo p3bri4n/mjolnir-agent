@@ -8,7 +8,8 @@ general-purpose vision model with no dedicated UI-element detection).
 The caller supplies the image (base64 + MIME type, matching the shape of
 an MCP image content block, e.g. from Playwright's
 `browser_take_screenshot`) — this service never captures anything
-itself. One endpoint: POST /ocr, returns detected text sorted by
+itself. One endpoint: POST /ocr, returns detected text with its bounding
+box (x/y/width/height, pixels from the image's top-left), sorted by
 descending confidence, capped at OCR_MAX_ELEMENTS, never an error (empty
 list if nothing found).
 """
@@ -40,7 +41,17 @@ async def ocr(request: OCRRequest) -> list[dict]:
     image_bytes = base64.b64decode(request.image_base64)
     detections = engine.run(image_bytes)
     detections.sort(key=lambda d: d["confidence"], reverse=True)
-    return [{"text": d["text"], "confidence": d["confidence"]} for d in detections[:OCR_MAX_ELEMENTS]]
+    return [
+        {
+            "text": d["text"],
+            "x": d["x"],
+            "y": d["y"],
+            "width": d["width"],
+            "height": d["height"],
+            "confidence": d["confidence"],
+        }
+        for d in detections[:OCR_MAX_ELEMENTS]
+    ]
 
 
 @app.get("/health")

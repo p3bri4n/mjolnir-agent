@@ -1,0 +1,117 @@
+### Page
+- Page URL: http://fixture-docs/docs/
+- Page Title: Documentation — Sommaire
+### Snapshot
+```yaml
+- generic [active] [ref=e1] [box=8,8,1264,710]:
+  - navigation [ref=e2] [box=8,8,1264,18]:
+    - link "Sommaire" [ref=e3] [cursor=pointer] [box=8,8,66,17]:
+      - /url: /docs/index.html
+    - text: "|"
+    - link "Recherche" [ref=e4] [cursor=pointer] [box=85,8,68,17]:
+      - /url: /docs/search.html
+  - heading "Documentation — Sommaire" [level=1] [ref=e5] [box=8,47,1264,37]
+  - list [ref=e6] [box=8,106,1264,612]:
+    - listitem [ref=e7] [box=48,106,1224,18]:
+      - link "config-reseau-avancee" [ref=e8] [cursor=pointer] [box=48,106,144,17]:
+        - /url: /docs/config-reseau-avancee.html
+    - listitem [ref=e9] [box=48,124,1224,18]:
+      - link "configuration-mobilier-avancee" [ref=e10] [cursor=pointer] [box=48,124,202,17]:
+        - /url: /docs/configuration-mobilier-avancee.html
+    - listitem [ref=e11] [box=48,142,1224,18]:
+      - link "index-parametres-reseau" [ref=e12] [cursor=pointer] [box=48,142,157,17]:
+        - /url: /docs/index-parametres-reseau.html
+    - listitem [ref=e13] [box=48,160,1224,18]:
+      - link "optimisation-performances-catalogue" [ref=e14] [cursor=pointer] [box=48,160,239,17]:
+        - /url: /docs/optimisation-performances-catalogue.html
+    - listitem [ref=e15] [box=48,178,1224,18]:
+      - link "organisation-equipe-rh" [ref=e16] [cursor=pointer] [box=48,178,145,17]:
+        - /url: /docs/organisation-equipe-rh.html
+    - listitem [ref=e17] [box=48,196,1224,18]:
+      - link "schema-references-catalogue" [ref=e18] [cursor=pointer] [box=48,196,186,17]:
+        - /url: /docs/schema-references-catalogue.html
+    - listitem [ref=e19] [box=48,214,1224,18]:
+      - link "section-1" [ref=e20] [cursor=pointer] [box=48,214,59,17]:
+        - /url: /docs/section-1.html
+    - listitem [ref=e21] [box=48,232,1224,18]:
+      - link "section-10" [ref=e22] [cursor=pointer] [box=48,232,67,17]:
+        - /url: /docs/section-10.html
+    - listitem [ref=e23] [box=48,250,1224,18]:
+      - link "section-11" [ref=e24] [cursor=pointer] [box=48,250,66,17]:
+        - /url: /docs/section-11.html
+    - listitem [ref=e25] [box=48,268,1224,18]:
+      - link "section-12" [ref=e26] [cursor=pointer] [box=48,268,67,17]:
+        - /url: /docs/section-12.html
+    - listitem [ref=e27] [box=48,286,1224,18]:
+      - link "section-13" [ref=e28] [cursor=pointer] [box=48,286,67,17]:
+        - /url: /docs/section-13.html
+    - listitem [ref=e29] [box=48,304,1224,18]:
+      - link "section-14" [ref=e30] [cursor=pointer] [box=48,304,67,17]:
+        - /url: /docs/section-14.html
+    - listitem [ref=e31] [box=48,322,1224,18]:
+      - link "section-15" [ref=e32] [cursor=pointer] [box=48,322,67,17]:
+        - /url: /docs/section-15.html
+    - listitem [ref=e33] [box=48,340,1224,18]:
+      - link "section-16" [ref=e34] [cursor=pointer] [box=48,340,67,17]:
+        - /url: /docs/section-16.html
+    - listitem [ref=e35] [box=48,358,1224,18]:
+      - link "section-17" [ref=e36] [cursor=pointer] [box=48,358,67,17]:
+        - /url: /docs/section-17.html
+    - listitem [ref=e37] [box=48,376,1224,18]:
+      - link "section-18" [ref=e38] [cursor=pointer] [box=48,376,67,17]:
+        - /url: /docs/section-18.html
+    - listitem [ref=e39] [box=48,394,1224,18]:
+      - link "section-19" [ref=e40] [cursor=pointer] [box=48,394,67,17]:
+        - /url: /docs/section-19.html
+    - listitem [ref=e41] [box=48,412,1224,18]:
+      - link "section-2" [ref=e42] [cursor=pointer] [box=48,412,59,17]:
+        - /url: /docs/section-2.html
+    - listitem [ref=e43] [box=48,430,1224,18]:
+      - link "section-20" [ref=e44] [cursor=pointer] [box=48,430,67,17]:
+        - /url: /docs/section-20.html
+    - listitem [ref=e45] [box=48,448,1224,18]:
+      - link "section-21" [ref=e46] [cursor=pointer] [box=48,448,67,17]:
+        - /url: /docs/section-21.html
+    - listitem [ref=e47] [box=48,466,1224,18]:
+      - link "section-22" [ref=e48] [cursor=pointer] [box=48,466,67,17]:
+        - /url: /docs/section-22.html
+    - listitem [ref=e49] [box=48,484,1224,18]:
+      - link "section-23" [ref=e50] [cursor=pointer] [box=48,484,67,17]:
+        - /url: /docs/section-23.html
+    - listitem [ref=e51] [box=48,502,1224,18]:
+      - link "section-24" [ref=e52] [cursor=pointer] [box=48,502,67,17]:
+        - /url: /docs/section-24.html
+    - listitem [ref=e53] [box=48,520,1224,18]:
+      - link "section-25" [ref=e54] [cursor=pointer] [box=48,520,67,17]:
+        - /url: /docs/section-25.html
+    - listitem [ref=e55] [box=48,538,1224,18]:
+      - link "section-26" [ref=e56] [cursor=pointer] [box=48,538,67,17]:
+        - /url: /docs/section-26.html
+    - listitem [ref=e57] [box=48,556,1224,18]:
+      - link "section-27" [ref=e58] [cursor=pointer] [box=48,556,67,17]:
+        - /url: /docs/section-27.html
+    - listitem [ref=e59] [box=48,574,1224,18]:
+      - link "section-3" [ref=e60] [cursor=pointer] [box=48,574,59,17]:
+        - /url: /docs/section-3.html
+    - listitem [ref=e61] [box=48,592,1224,18]:
+      - link "section-4" [ref=e62] [cursor=pointer] [box=48,592,59,17]:
+        - /url: /docs/section-4.html
+    - listitem [ref=e63] [box=48,610,1224,18]:
+      - link "section-5" [ref=e64] [cursor=pointer] [box=48,610,59,17]:
+        - /url: /docs/section-5.html
+    - listitem [ref=e65] [box=48,628,1224,18]:
+      - link "section-6" [ref=e66] [cursor=pointer] [box=48,628,59,17]:
+        - /url: /docs/section-6.html
+    - listitem [ref=e67] [box=48,646,1224,18]:
+      - link "section-7" [ref=e68] [cursor=pointer] [box=48,646,59,17]:
+        - /url: /docs/section-7.html
+    - listitem [ref=e69] [box=48,664,1224,18]:
+      - link "section-8" [ref=e70] [cursor=pointer] [box=48,664,59,17]:
+        - /url: /docs/section-8.html
+    - listitem [ref=e71] [box=48,682,1224,18]:
+      - link "section-9" [ref=e72] [cursor=pointer] [box=48,682,59,17]:
+        - /url: /docs/section-9.html
+    - listitem [ref=e73] [box=48,700,1224,18]:
+      - link "specifications-avancees-produits" [ref=e74] [cursor=pointer] [box=48,700,209,17]:
+        - /url: /docs/specifications-avancees-produits.html
+```

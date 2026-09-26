@@ -54,6 +54,47 @@ def test_check_tools_schema_flags_missing_expected_tool():
     assert "browser_navigate" in error
 
 
+def test_check_tools_schema_ok_when_agent_hides_vision_tools_by_default():
+    """docs/briefs/visual-navigation-only.md (effort 8): mcp-client's real
+    schema always carries the vision-only coordinate tools (--caps=vision,
+    docker-compose.yml), but langgraph-agent legitimately hides them when
+    VISUAL_NAVIGATION_ONLY is false — not a stale-cache desync."""
+    mcp_tools = preflight.EXPECTED_TOOLS | preflight._VISION_ONLY_TOOLS
+    agent_tools = preflight.EXPECTED_TOOLS
+    assert preflight.check_tools_schema(agent_tools, mcp_tools, visual_navigation_only=False) is None
+
+
+def test_check_tools_schema_ok_when_agent_hides_dom_tools_under_visual_navigation_only():
+    mcp_tools = preflight.EXPECTED_TOOLS | preflight._VISION_ONLY_TOOLS
+    agent_tools = (preflight.EXPECTED_TOOLS - preflight._VISUAL_ONLY_BLOCKED_TOOLS) | preflight._VISION_ONLY_TOOLS
+    assert preflight.check_tools_schema(agent_tools, mcp_tools, visual_navigation_only=True) is None
+
+
+def test_check_tools_schema_still_flags_a_real_desync_under_visual_navigation_only():
+    mcp_tools = preflight.EXPECTED_TOOLS | preflight._VISION_ONLY_TOOLS
+    agent_tools = (preflight.EXPECTED_TOOLS - preflight._VISUAL_ONLY_BLOCKED_TOOLS) | preflight._VISION_ONLY_TOOLS
+    agent_tools = agent_tools - {"browser_mouse_click_xy"}  # genuinely missing, not hidden by design
+    error = preflight.check_tools_schema(agent_tools, mcp_tools, visual_navigation_only=True)
+    assert error is not None
+    assert "browser_mouse_click_xy" in error
+
+
+def test_check_visual_navigation_only_consistency_ok_when_agreeing():
+    assert preflight.check_visual_navigation_only_consistency("true", "true") is None
+    assert preflight.check_visual_navigation_only_consistency("false", "false") is None
+
+
+def test_check_visual_navigation_only_consistency_flags_a_mismatch():
+    """Caught live (docs/resolved-bugs.md): docker-compose.yml's mcp-client
+    block never declared the VISUAL_NAVIGATION_ONLY passthrough — the
+    schema filter engaged on langgraph-agent while the stabilization leak
+    fix stayed inactive on mcp-client, silently."""
+    error = preflight.check_visual_navigation_only_consistency("true", "false")
+    assert error is not None
+    assert "désaccordé" in error
+    assert "'true'" in error and "'false'" in error
+
+
 def test_run_preflight_raises_before_any_reset_on_desync():
     calls = []
 
@@ -84,6 +125,36 @@ def test_run_preflight_purges_and_resets_when_schema_ok():
         fetch_device_placement=lambda: _OK_GPU_DEVICES,
         fetch_agent_env=lambda: dict(preflight.EXPECTED_AGENT_FLAGS),
         fetch_fixtures_reachable=lambda: {name: True for name in preflight.FIXTURE_URLS},
+        fetch_mcp_client_visual_navigation_only=lambda: "false",
+    )
+    assert calls == ["purge", "reset"]
+
+
+def test_run_preflight_derives_visual_navigation_only_from_agent_env(monkeypatch):
+    """docs/briefs/visual-navigation-only.md (effort 8): the container's
+    real VISUAL_NAVIGATION_ONLY value (fetch_agent_env, already read for
+    check_agent_flags) must reach check_tools_schema — a schema that only
+    matches under the ACTUAL flag value must not be rejected as a stale
+    cache. CAMPAIGN_EXPECTED_FLAGS_OVERRIDE (same mechanism an intentional
+    ablation campaign already uses) is what makes running this mode a
+    coherent preflight-passing config at all, not a special case."""
+    monkeypatch.setenv("CAMPAIGN_EXPECTED_FLAGS_OVERRIDE", '{"VISUAL_NAVIGATION_ONLY": "true"}')
+    calls = []
+    env = dict(preflight.EXPECTED_AGENT_FLAGS)
+    env["VISUAL_NAVIGATION_ONLY"] = "true"
+
+    preflight.run_preflight(
+        purge_downloads=lambda: calls.append("purge"),
+        reset_browser_session=lambda: calls.append("reset"),
+        fetch_agent_tools=lambda: (preflight.EXPECTED_TOOLS - preflight._VISUAL_ONLY_BLOCKED_TOOLS)
+        | preflight._VISION_ONLY_TOOLS,
+        fetch_mcp_tools=lambda: preflight.EXPECTED_TOOLS | preflight._VISION_ONLY_TOOLS,
+        fetch_llm_ready=lambda: True,
+        fetch_tabbyapi_image_ids=lambda: ("sha256:same", "sha256:same"),
+        fetch_device_placement=lambda: _OK_GPU_DEVICES,
+        fetch_agent_env=lambda: env,
+        fetch_fixtures_reachable=lambda: {name: True for name in preflight.FIXTURE_URLS},
+        fetch_mcp_client_visual_navigation_only=lambda: "true",
     )
     assert calls == ["purge", "reset"]
 
@@ -362,5 +433,6 @@ def test_run_preflight_checks_fixtures_after_schema_before_purge():
             fetch_device_placement=lambda: _OK_GPU_DEVICES,
             fetch_agent_env=lambda: dict(preflight.EXPECTED_AGENT_FLAGS),
             fetch_fixtures_reachable=lambda: {},
+            fetch_mcp_client_visual_navigation_only=lambda: "false",
         )
     assert calls == [], "purge/reset ne doivent jamais tourner si les fixtures sont injoignables"

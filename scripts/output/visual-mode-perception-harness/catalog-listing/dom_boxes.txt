@@ -1,0 +1,42 @@
+### Page
+- Page URL: http://fixture-catalog/catalog/page-1.html
+- Page Title: Catalogue — page 1
+### Snapshot
+```yaml
+- generic [active] [ref=e1] [box=8,21,1264,272]:
+  - heading "Catalogue produits" [level=1] [ref=e2] [box=8,21,1264,37]
+  - list [ref=e3] [box=8,80,1264,180]:
+    - listitem [ref=e4] [box=48,80,1224,18]:
+      - 'link "Durable Sacoche #1" [ref=e5] [cursor=pointer] [box=48,80,129,17]':
+        - /url: /catalog/product-1.html
+    - listitem [ref=e6] [box=48,98,1224,18]:
+      - 'link "Portable Chaise #2" [ref=e7] [cursor=pointer] [box=48,98,121,17]':
+        - /url: /catalog/product-2.html
+    - listitem [ref=e8] [box=48,116,1224,18]:
+      - 'link "Précis Sacoche #3" [ref=e9] [cursor=pointer] [box=48,116,116,17]':
+        - /url: /catalog/product-3.html
+    - listitem [ref=e10] [box=48,134,1224,18]:
+      - 'link "Robuste Support #4" [ref=e11] [cursor=pointer] [box=48,134,127,17]':
+        - /url: /catalog/product-4.html
+    - listitem [ref=e12] [box=48,152,1224,18]:
+      - 'link "Robuste Chaise #5" [ref=e13] [cursor=pointer] [box=48,152,120,17]':
+        - /url: /catalog/product-5.html
+    - listitem [ref=e14] [box=48,170,1224,18]:
+      - 'link "Compact Ventilateur #6" [ref=e15] [cursor=pointer] [box=48,170,152,17]':
+        - /url: /catalog/product-6.html
+    - listitem [ref=e16] [box=48,188,1224,18]:
+      - 'link "Précis Ventilateur #7" [ref=e17] [cursor=pointer] [box=48,188,133,17]':
+        - /url: /catalog/product-7.html
+    - listitem [ref=e18] [box=48,206,1224,18]:
+      - 'link "Silencieux Étagère #8" [ref=e19] [cursor=pointer] [box=48,206,140,17]':
+        - /url: /catalog/product-8.html
+    - listitem [ref=e20] [box=48,224,1224,18]:
+      - 'link "Élégant Tapis #9" [ref=e21] [cursor=pointer] [box=48,224,107,17]':
+        - /url: /catalog/product-9.html
+    - listitem [ref=e22] [box=48,242,1224,18]:
+      - 'link "Classique Étagère #10" [ref=e23] [cursor=pointer] [box=48,242,143,17]':
+        - /url: /catalog/product-10.html
+  - navigation [ref=e24] [box=8,276,1264,18]:
+    - link "Suivant" [ref=e25] [cursor=pointer] [box=8,276,49,17]:
+      - /url: /catalog/page-2.html
+```

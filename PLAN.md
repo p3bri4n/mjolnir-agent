@@ -193,11 +193,20 @@ and campaign numbers for every item below: `docs/project-status.md`
 ### Effort 1 — Make campaigns cheap (prerequisite to everything)
 
 1.1 (tool-schema weight audit) and 1.2 (remove/trim heavy unused MCP
-servers) — **done**. 1.3 (reopen parallel campaign execution) —
-**deferred**, quantified (×2.2–×3 expected gain), blocked on per-worker
-isolation (session reset, volume purge, distinct thread ids covering
-four known contamination incidents). Brief:
-`docs/briefs/effort-1.3-parallel-campaigns.md`.
+servers) — **done**. 1.3 (reopen parallel campaign execution): Phases
+0–2 delivered — per-worker isolation resolved (`worker_id`-scoped MCP
+sessions, N-worker harness pool, shared-fixture serialization), TabbyAPI's
+own concurrent-request ceiling measured live at ×2.0 (the pessimistic
+bracket, not the earlier ×2.2–3 estimate). **Decisive Phase 3
+measurement stalled at ×1.10 wall-clock (N=3 vs N=1), compute-bound, far
+short of the ×2 target** — a `cache_size` raise and an `N_WORKERS=2`
+smoke both showed no improvement; a `tensor_parallel` alternative was
+found but carries an unverified compatibility risk on this project's
+mismatched GPU pair. **Deferred, explicit user decision**, among four
+paths (accept as a hardware-bound ceiling and close, `N_WORKERS=2`,
+`tensor_parallel`, revert `cache_size`) — none chosen yet. `N_WORKERS`
+stays `1` by default: campaigns are NOT currently cheaper than
+sequential. Brief: `docs/briefs/effort-1.3-parallel-campaigns.md`.
 
 ### Effort 2 — Factorial ablation of the cognitive-core flags
 
@@ -236,7 +245,7 @@ E2 2/3 (a vision-reading limit, not a routing defect), E3 3/3.
 
 ### Effort 4 — Scaffolding improvements
 
-**Closed.** Brief: `docs/briefs/scaffolding-optimisation.md`. Diff-based observation
+**Closed.** Brief: `docs/briefs/archives/scaffolding-optimisation.md`. Diff-based observation
 history: built, closing campaign run, one real bug found and fixed
 (non-snapshot `browser_*` results were erased instead of compacted —
 `docs/resolved-bugs.md` #60), live re-run confirmed the fix with no
@@ -310,12 +319,27 @@ detail: `docs/engineering-log.md`, "reasoning_effort tuning" entries.
 
 ### Effort 8 — Visual-only navigation mode
 
-A `VISUAL_NAVIGATION_ONLY` mode (capture + OCR only, no DOM/accessibility
+Brief: `docs/briefs/visual-navigation-only.md`, written. A
+`VISUAL_NAVIGATION_ONLY` mode (capture + OCR only, no DOM/accessibility
 tree, coordinate-based interaction) — kept separate from effort 3
 deliberately: effort 3 redistributes a capability, this would create a
-whole operating mode with its own action space. Prerequisites: effort 3
-(done) and effort 1 (campaigns cheap enough to afford a second
-reference — not yet). **Not started.**
+whole operating mode with its own action space. Prerequisite: effort 3
+(done). Effort 1 (cheap parallel campaigns) is explicitly NOT a hard
+prerequisite — user decision (2026-09-20): the brief's Phase 4 full-suite
+measurement runs sequentially at the current `N_WORKERS=1` default,
+slower but not blocked in principle. **In progress**: Phases 0-3
+delivered (`--caps=vision`, schema filter, OCR routing, live smoke) —
+three real "no cheating" leaks found and fixed along the way
+(`docs/resolved-bugs.md` #62/#63/#64, each caught by reading the raw
+audit log, none pre-anticipated at design time). An external-model
+consultation on smoke #4's real cost (12 tool calls for one short task)
+led to a 7-point optimization amendment, now fully built and live-
+confirmed: layout reconstruction (row/column clustering, synthetic
+`r{row}c{col}` refs), `browser_click_ref`/`type_text` (both confirmed
+end-to-end on a real browser via a login task, `T6_session_
+authentifiee`), select/Tab keyboard guidance, extended stabilization.
+Points 1-7 closed. Phase 4 (full v2 measurement, the headline number
+this effort exists to produce) not started.
 
 ### Backlog (not sequenced into an effort above)
 

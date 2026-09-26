@@ -39,6 +39,10 @@ services:
       - SKILL_MANAGER_URL=http://skill-manager:8001
       - CONTEXT_MANAGER_URL=http://context-manager:8002
       - MCP_CLIENT_URL=http://mcp-client:8003
+      # docs/briefs/visual-navigation-only.md: only called when
+      # VISUAL_NAVIGATION_ONLY is true (below); ocr-service has no other
+      # caller today.
+      - OCR_SERVICE_URL=http://ocr-service:8004
       # Journal d'audit des tool_calls TIER_REVERSIBLE (Phase 2, voir README
       # section Supervision humaine) : /workspace/.audit, sur le même bind
       # mount que les autres serveurs MCP filesystem/git/terminal.
@@ -142,6 +146,10 @@ services:
       - EPISODE_COMPACTION_ENABLED=${EPISODE_COMPACTION_ENABLED:-false}
       - EPISODE_COMPACTION_TURN_THRESHOLD=${EPISODE_COMPACTION_TURN_THRESHOLD:-40}
       - HISTORY_DIFF_ENABLED=${HISTORY_DIFF_ENABLED:-true}
+      # docs/briefs/visual-navigation-only.md (effort 8): capture + OCR
+      # only, no DOM/accessibility tree, coordinate-based action space.
+      # Default false: unchanged behavior, existing DOM mode.
+      - VISUAL_NAVIGATION_ONLY=${VISUAL_NAVIGATION_ONLY:-false}
     volumes:
       - ./workspace:/workspace
     depends_on:
@@ -149,6 +157,7 @@ services:
       - context-manager
       - mcp-client
       - tabbyapi
+      - ocr-service
     networks:
       - agent-net
     # pas de port publié : uniquement accessible via le réseau interne
@@ -303,6 +312,13 @@ services:
       # docs/history.md, "VISUAL FEEDBACK MINIMAL", overhead smoke result.
       - CAMPAIGN_VISUAL_CAPTURE=${CAMPAIGN_VISUAL_CAPTURE:-true}
       - VISUAL_CAPTURE_DIR=/visual-capture
+      # docs/briefs/visual-navigation-only.md (effort 8): must match
+      # langgraph-agent's own value below — this is what actually closes
+      # the _STABILIZE_AFTER_TOOLS leak (see app/main.py). Was missing
+      # from this block in the Phase 2 build (docs/resolved-bugs.md):
+      # the flag silently stayed false here regardless of what the shell
+      # set, so the leak fix never engaged on the first live smoke.
+      - VISUAL_NAVIGATION_ONLY=${VISUAL_NAVIGATION_ONLY:-false}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock   # ⚠️ équivaut à un accès root sur l'hôte,
                                                        # voir avertissement de sécurité dans le README
@@ -353,6 +369,14 @@ services:
       - --isolated   # profil navigateur en mémoire, jamais persisté sur disque
       - --headless
       - --browser=chromium
+      # vision: coordinate-based mouse tools (browser_mouse_click_xy and
+      # friends), opt-in upstream — needed by VISUAL_NAVIGATION_ONLY's
+      # action space (docs/briefs/visual-navigation-only.md, Phase 1).
+      # No effect on the default DOM-based mode: these tools are simply
+      # additional entries in the schema, never called unless the model
+      # is told to (still gated off by the tool-schema filter in
+      # langgraph-agent when VISUAL_NAVIGATION_ONLY is false).
+      - --caps=vision
       # Chemin EXPLICITE (voir docs/history.md "Phase 1d-révisée", T5) plutôt que
       # le défaut implicite (~/.playwright-mcp du conteneur) — l'agent
       # fabriquait régulièrement de mauvais chemins en devinant ce défaut

@@ -60,6 +60,54 @@ EXPECTED_TOOLS = policy.TIER_READ_TOOLS | policy.TIER_REVERSIBLE_TOOLS | policy.
     "browser_navigate"
 }
 
+# Mirrors app/graph.py's _VISUAL_ONLY_BLOCKED_TOOLS/_VISION_ONLY_TOOLS — kept
+# in sync manually, same convention as EXPECTED_AGENT_FLAGS/
+# EXPECTED_GPU_DEVICES below (a heavy `import app.graph` just for two
+# frozensets would pull in langgraph/langchain_openai client construction
+# for no reason). docs/briefs/visual-navigation-only.md (effort 8):
+# langgraph-agent deliberately hides part of mcp-client's real schema
+# depending on VISUAL_NAVIGATION_ONLY — check_tools_schema must know which
+# tools are hidden BY DESIGN, or it misreads that difference as the exact
+# stale-cache desync this module exists to catch.
+_VISUAL_ONLY_BLOCKED_TOOLS = {
+    "browser_snapshot",
+    "browser_find",
+    "browser_click",
+    "browser_hover",
+    "browser_drag",
+    "browser_drop",
+    "browser_select_option",
+    "browser_type",
+    "browser_fill_form",
+    "browser_evaluate",
+    "browser_run_code_unsafe",
+    "browser_extract",
+    "browser_inspect",
+    "browser_console_messages",
+    "browser_network_request",
+    "browser_network_requests",
+    "read_file",
+    "read_multiple_files",
+    "list_directory",
+    "directory_tree",
+    "search_files",
+    "get_file_info",
+    "list_allowed_directories",
+    "write_file",
+    "edit_file",
+    "create_directory",
+    "move_file",
+}
+_VISION_ONLY_TOOLS = {
+    "browser_mouse_click_xy",
+    "browser_mouse_move_xy",
+    "browser_mouse_drag_xy",
+    "browser_mouse_down",
+    "browser_mouse_up",
+    "browser_mouse_wheel",
+    "type_text",
+}
+
 # Self-hosted fixtures (docker-compose.yml, profile "test-fixtures") targeted
 # by T1-T7 (docs/benchmark-v1.md): found missing 2026-07-28 (docs/campaigns/
 # 2026-07-28_campaign_post-rename-mjolnir.md, invalid 14/33 run) — nothing
@@ -123,6 +171,9 @@ EXPECTED_AGENT_FLAGS = {
     "EPISODE_COMPACTION_ENABLED": "false",
     "EPISODE_COMPACTION_TURN_THRESHOLD": "40",
     "HISTORY_DIFF_ENABLED": "true",
+    # docs/briefs/visual-navigation-only.md (effort 8) — off by default,
+    # unchanged DOM-based behavior.
+    "VISUAL_NAVIGATION_ONLY": "false",
 }
 
 
@@ -149,25 +200,35 @@ class PreflightError(RuntimeError):
     """Raised by run_preflight(): the campaign must NOT start."""
 
 
-def check_tools_schema(agent_tools: Iterable[str], mcp_tools: Iterable[str]) -> Optional[str]:
+def check_tools_schema(
+    agent_tools: Iterable[str], mcp_tools: Iterable[str], visual_navigation_only: bool = False
+) -> Optional[str]:
     """
     Pure, unit-testable without docker: None if all is well, otherwise a
     message explaining the rejection (compared BEFORE expected, since a
     desync between the two services makes any conclusion about "the
     expected" misleading until it's resolved).
+
+    visual_navigation_only: the CURRENT container's actual flag value
+    (run_preflight reads it from fetch_agent_env(), the same dict used by
+    check_agent_flags) — determines which half of mcp-client's real
+    schema langgraph-agent is expected to hide by design (see
+    _VISUAL_ONLY_BLOCKED_TOOLS/_VISION_ONLY_TOOLS above).
     """
     agent_tools = set(agent_tools)
     mcp_tools = set(mcp_tools)
-    if agent_tools != mcp_tools:
-        missing_in_agent = sorted(mcp_tools - agent_tools)
-        extra_in_agent = sorted(agent_tools - mcp_tools)
+    hidden_by_design = _VISUAL_ONLY_BLOCKED_TOOLS if visual_navigation_only else _VISION_ONLY_TOOLS
+    mcp_tools_expected = mcp_tools - hidden_by_design
+    if agent_tools != mcp_tools_expected:
+        missing_in_agent = sorted(mcp_tools_expected - agent_tools)
+        extra_in_agent = sorted(agent_tools - mcp_tools_expected)
         return (
             "schéma d'outils désynchronisé entre langgraph-agent et mcp-client "
             f"(absents côté langgraph-agent={missing_in_agent}, superflus côté "
             f"langgraph-agent={extra_in_agent}) — _tools_schema_cache est probablement "
             "périmé, commande à taper : docker compose restart langgraph-agent"
         )
-    missing_expected = sorted(EXPECTED_TOOLS - agent_tools)
+    missing_expected = sorted((EXPECTED_TOOLS - hidden_by_design) - agent_tools)
     if missing_expected:
         return f"outils attendus absents du schéma effectif de langgraph-agent : {missing_expected}"
     return None
@@ -259,6 +320,31 @@ def check_agent_flags(actual_flags: dict, expected_flags: Optional[dict] = None)
             "flags d'env effectifs de langgraph-agent différents de la config mesurée "
             f"({'; '.join(diffs)}) — commande à taper si un changement de .env n'a pas "
             "encore été appliqué : docker compose up -d --force-recreate langgraph-agent"
+        )
+    return None
+
+
+def check_visual_navigation_only_consistency(agent_value: str, mcp_client_value: str) -> Optional[str]:
+    """
+    docs/briefs/visual-navigation-only.md (effort 8), found the hard way
+    (docs/resolved-bugs.md): VISUAL_NAVIGATION_ONLY drives one half of the
+    mode's "no cheating" guarantee on EACH container independently —
+    langgraph-agent's schema filter, mcp-client's _STABILIZE_AFTER_TOOLS
+    swap (browser_take_screenshot instead of the DOM browser_snapshot).
+    check_agent_flags above only ever checked langgraph-agent's own value;
+    the first live smoke ran with it true there and false on mcp-client
+    (docker-compose.yml's mcp-client block never declared the passthrough)
+    — the schema filter engaged correctly but the stabilization leak
+    stayed wide open, undetected until a raw audit-log read. Pure,
+    unit-testable without docker, same style as check_agent_flags.
+    """
+    if agent_value != mcp_client_value:
+        return (
+            f"VISUAL_NAVIGATION_ONLY désaccordé entre langgraph-agent ({agent_value!r}) et "
+            f"mcp-client ({mcp_client_value!r}) — la moitié du mécanisme qui dépend de "
+            "mcp-client (services/mcp-client/app/main.py, _STABILIZE_AFTER_TOOLS) resterait "
+            "dans le mauvais état ; commande à taper : docker compose up -d --force-recreate "
+            "langgraph-agent mcp-client"
         )
     return None
 
@@ -436,6 +522,14 @@ def _fetch_agent_env() -> dict:
     return campaign_persistence.collect_env_flags(AGENT_CONTAINER, list(_expected_agent_flags()))
 
 
+def _fetch_mcp_client_visual_navigation_only() -> str:
+    """mcp-client's own VISUAL_NAVIGATION_ONLY value — see
+    check_visual_navigation_only_consistency."""
+    return campaign_persistence.collect_env_flags(MCP_CLIENT_CONTAINER, ["VISUAL_NAVIGATION_ONLY"]).get(
+        "VISUAL_NAVIGATION_ONLY", ""
+    )
+
+
 def wait_for_llm_ready(
     fetch_llm_ready: Callable[[], bool] = _fetch_llm_ready,
     *,
@@ -471,6 +565,7 @@ def run_preflight(
     fetch_device_placement: Callable[[], list] = _fetch_device_placement,
     fetch_agent_env: Callable[[], dict] = _fetch_agent_env,
     fetch_fixtures_reachable: Callable[[], dict] = _fetch_fixtures_reachable,
+    fetch_mcp_client_visual_navigation_only: Callable[[], str] = _fetch_mcp_client_visual_navigation_only,
 ) -> None:
     """
     Called ONCE per campaign (not per repetition, unlike
@@ -503,10 +598,19 @@ def run_preflight(
     error = check_device_placement(fetch_device_placement())
     if error:
         raise PreflightError(error)
-    error = check_agent_flags(fetch_agent_env())
+    agent_env = fetch_agent_env()
+    error = check_agent_flags(agent_env)
     if error:
         raise PreflightError(error)
-    error = check_tools_schema(fetch_agent_tools(), fetch_mcp_tools())
+    visual_navigation_only_raw = agent_env.get("VISUAL_NAVIGATION_ONLY", "false")
+    error = check_visual_navigation_only_consistency(
+        visual_navigation_only_raw, fetch_mcp_client_visual_navigation_only()
+    )
+    if error:
+        raise PreflightError(error)
+    error = check_tools_schema(
+        fetch_agent_tools(), fetch_mcp_tools(), visual_navigation_only_raw.lower() == "true"
+    )
     if error:
         raise PreflightError(error)
     error = check_fixtures_reachable(fetch_fixtures_reachable())

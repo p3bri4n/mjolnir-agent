@@ -1,0 +1,19 @@
+### Page
+- Page URL: http://fixture-admin:5000/stock
+- Page Title: Vue admin — Stock
+### Snapshot
+```yaml
+- generic [active] [ref=e1] [box=8,8,1264,161]:
+  - navigation [ref=e2] [box=8,8,1264,18]:
+    - link "Stock" [ref=e3] [cursor=pointer] [box=8,8,36,17]:
+      - /url: /stock
+  - heading "Vue admin — Stock" [level=1] [ref=e4] [box=8,47,1264,37]
+  - generic [ref=e5] [box=8,106,1264,63]:
+    - generic [ref=e6] [box=8,107,305,17]:
+      - text: "Référence produit :"
+      - textbox "Référence produit :" [ref=e7] [box=136,106,177,21]
+    - generic [ref=e8] [box=8,128,351,17]:
+      - text: "Nouveau niveau de stock :"
+      - spinbutton "Nouveau niveau de stock :" [ref=e9] [box=182,127,177,21]
+    - button "Mettre à jour" [ref=e10] [box=8,148,91,21]
+```

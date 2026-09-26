@@ -217,10 +217,14 @@ don't let single-use scripts accumulate in `scripts/`.
 
 The stack now serves Qwen3.8-27B EXL3 via TabbyAPI/ExLlamaV3 (dual-GPU,
 vision + MTP), the langgraph/langchain-openai/openai trio is migrated to
-1.x/2.x, and an MCP Playwright server is wired in alongside GhostDesk.
-Goal of this effort: move the agent from "executes approved actions" to
-"accomplishes multi-step web tasks autonomously", without weakening the
-existing security model (approval tiers, PromptGuard, egress firewall).
+1.x/2.x, and an MCP Playwright server is wired in — GhostDesk has been
+fully removed (see PLAN.md, Roadmap effort 3): `browser_take_screenshot`
+covers every case that channel used to. Goal of this effort: move the
+agent from "executes approved actions" to "accomplishes multi-step web
+tasks autonomously", without weakening the existing security model
+(approval tiers). PromptGuard and an egress firewall do not exist yet —
+they are planned under `docs/briefs/security-hardening.md`, not part of
+the current stack.
 
 
 # Development plan

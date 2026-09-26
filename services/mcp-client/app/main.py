@@ -471,6 +471,74 @@ _BROWSER_INSPECT_TOOL = {
     },
 }
 
+# VISUAL_NAVIGATION_ONLY, point 5 (docs/briefs/visual-navigation-only.md):
+# browser_type requires a DOM target/ref, which this mode can never
+# have; browser_press_key types one character at a time (no coordinate
+# equivalent of Playwright's own page.keyboard.type(), which
+# @playwright/mcp never wraps as a standalone tool — every tool in its
+# catalog is built around a ref/target or a single key, this fits
+# neither shape). Same movement as browser_extract/browser_inspect: a
+# fixed JS template (never model-supplied code), writes into
+# document.activeElement via simulated input/keydown/keyup events —
+# focus itself is still established by a real coordinate click
+# beforehand (browser_click_ref, app/graph.py), so the mode stays honest.
+# Caveat, not yet verified live: simulated DOM events may not have the
+# fidelity of Playwright's real OS-level keystrokes on some
+# JS-framework-controlled inputs.
+_TYPE_TEXT_JS_TEMPLATE = """() => {{
+  const text = {text_json};
+  const el = document.activeElement;
+  const editable = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+  if (!editable) {{
+    return JSON.stringify({{ok: false, error: "aucun champ éditable n'a le focus"}});
+  }}
+  for (const ch of text) {{
+    el.dispatchEvent(new KeyboardEvent('keydown', {{key: ch, bubbles: true}}));
+    if (el.isContentEditable) {{
+      el.textContent += ch;
+    }} else {{
+      const start = el.selectionStart ?? el.value.length;
+      const end = el.selectionEnd ?? el.value.length;
+      el.value = el.value.slice(0, start) + ch + el.value.slice(end);
+      el.selectionStart = el.selectionEnd = start + 1;
+    }}
+    el.dispatchEvent(new Event('input', {{bubbles: true}}));
+    el.dispatchEvent(new KeyboardEvent('keyup', {{key: ch, bubbles: true}}));
+  }}
+  return JSON.stringify({{
+    ok: true,
+    tag: el.tagName.toLowerCase(),
+    value: el.isContentEditable ? el.textContent : el.value,
+  }});
+}}"""
+
+
+def _build_type_text_function(text: str) -> str:
+    """Pure function (testable with no real MCP server): builds the fixed
+    JS that types `text` into document.activeElement — interpolated via
+    json.dumps, same safe-escaping convention as _build_extract_function."""
+    return _TYPE_TEXT_JS_TEMPLATE.format(text_json=json.dumps(text))
+
+
+_TYPE_TEXT_TOOL = {
+    "server": "browser",  # dispatched internally to browser_evaluate, see call_tool()
+    "description": (
+        "Tape du TEXTE (jamais de code) dans le champ qui a ACTUELLEMENT le "
+        "focus — établi par un clic préalable (browser_click_ref), jamais "
+        "par une cible/ref passée à cet outil : il n'en prend pas. Réservé "
+        "au mode visuel seul (VISUAL_NAVIGATION_ONLY) ; browser_type reste "
+        "l'outil normal en mode DOM."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "text": {"type": "string", "description": "Texte à taper dans le champ actuellement focus."},
+        },
+        "required": ["text"],
+        "additionalProperties": False,
+    },
+}
+
 app = FastAPI(title="MCP Client")
 
 # registry {tool_name: {"server", "description", "inputSchema"}}, lazily
@@ -674,6 +742,7 @@ async def _refresh_registry():
     if "browser" in SERVERS:
         _tool_registry["browser_extract"] = _BROWSER_EXTRACT_TOOL
         _tool_registry["browser_inspect"] = _BROWSER_INSPECT_TOOL
+        _tool_registry["type_text"] = _TYPE_TEXT_TOOL
 
 
 class CallRequest(BaseModel):
@@ -773,8 +842,22 @@ async def list_tools_schema():
 # delay is enough to let client-side rendering settle. A server-side fix
 # rather than a prompt instruction: a fixed delay doesn't depend on any
 # model behavior to be applied.
-_STABILIZE_AFTER_TOOLS = {"browser_navigate", "browser_click"}
+# browser_mouse_click_xy added for VISUAL_NAVIGATION_ONLY point 7
+# (docs/briefs/visual-navigation-only.md): the resolved dispatch behind
+# browser_click_ref (app/graph.py) — same "return resulting state"
+# reasoning as browser_click above, removes a click-then-look round trip
+# the model would otherwise spend a whole turn on.
+_STABILIZE_AFTER_TOOLS = {"browser_navigate", "browser_click", "browser_mouse_click_xy"}
 BROWSER_STABILIZE_WAIT_SECONDS = float(os.environ.get("BROWSER_STABILIZE_WAIT_SECONDS", "0.5"))
+
+# docs/briefs/visual-navigation-only.md, Phase 1 point 6: browser_navigate
+# stays legitimate (and used) under VISUAL_NAVIGATION_ONLY, so the
+# stabilization block above would otherwise leak a real DOM
+# browser_snapshot into the tool result regardless of every other gate.
+# A screenshot instead — langgraph-agent (the only caller allowed to know
+# about ocr-service, see this module's own docstring) routes it through
+# OCR before the model ever sees it.
+VISUAL_NAVIGATION_ONLY = os.environ.get("VISUAL_NAVIGATION_ONLY", "false").lower() == "true"
 
 
 @app.post("/call")
@@ -805,6 +888,14 @@ async def call_tool(request: CallRequest):
         await _maybe_capture_visual(request.thread_id, request.worker_id)
         return {"content": [block.model_dump() for block in _rewrite_ref_error(result.content)]}
 
+    if request.tool == "type_text":
+        js_function = _build_type_text_function(arguments.get("text", ""))
+        result = await _run_on_server(
+            "browser", lambda s: s.call_tool("browser_evaluate", {"function": js_function}), request.worker_id
+        )
+        await _maybe_capture_visual(request.thread_id, request.worker_id)
+        return {"content": [block.model_dump() for block in result.content]}
+
     result = await _run_on_server(
         tool_info["server"], lambda s: s.call_tool(request.tool, arguments), request.worker_id
     )
@@ -822,9 +913,13 @@ async def call_tool(request: CallRequest):
         # audit log). A real browser_snapshot call, now that the page has
         # stabilized, gives the actual resulting state instead of a dead
         # reference — same _run_on_server dispatch already used for
-        # browser_extract/browser_inspect above.
+        # browser_extract/browser_inspect above. Under
+        # VISUAL_NAVIGATION_ONLY, browser_snapshot is a DOM read this mode
+        # must never leak: browser_take_screenshot stands in for it
+        # instead (langgraph-agent OCRs it before the model sees it).
+        followup_tool = "browser_take_screenshot" if VISUAL_NAVIGATION_ONLY else "browser_snapshot"
         snapshot_result = await _run_on_server(
-            "browser", lambda s: s.call_tool("browser_snapshot", {}), request.worker_id
+            "browser", lambda s: s.call_tool(followup_tool, {}), request.worker_id
         )
         extra_content = list(snapshot_result.content)
     # Captured for every "browser" tool (not just navigate/click): a
